@@ -94,3 +94,10 @@ node rule-loader.js --remote https://statics.example.com/standards
 2.  **The Rule**: 具体的规范描述。
 3.  **Reasoning**: 背后的原理（帮助 AI 理解权衡）。
 4.  **Examples**: 正面 (✅) 与反面 (❌) 的代码示例。
+
+
+# 注意两个变化：
+# 1. 域名变成了 raw.githubusercontent.com
+# 2. 路径中去掉了 /blob/
+
+curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch/scripts/rule-loader.js && node rule-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch
