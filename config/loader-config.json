@@ -1,0 +1,50 @@
+{
+    "_comment": "Architect Rule Loader 配置文件 - 定义各层规则的加载策略",
+    "layers": {
+        "base": {
+            "id": "layer1_base",
+            "title": "🧱 Layer 1: Base Standards (Foundation)",
+            "staticDeps": [
+                "architecture",
+                "typescript"
+            ],
+            "_comment": "staticDeps 始终加载，Vue 版本由脚本动态检测"
+        },
+        "business": {
+            "id": "layer2_business",
+            "title": "🏢 Layer 2: Business & Domain Rules",
+            "dependencies": {
+                "tdesign-vue-next": [
+                    "tdesign"
+                ],
+                "tdesign-vue": [
+                    "tdesign"
+                ],
+                "element-plus": [
+                    "element-plus"
+                ],
+                "ant-design-vue": [
+                    "antdv"
+                ],
+                "vant": [
+                    "vant"
+                ]
+            },
+            "_comment": "key=npm包名, value=对应要加载的规则文件夹名数组"
+        },
+        "action": {
+            "id": "layer3_action",
+            "title": "⚡ Layer 3: Action Checklists",
+            "defaults": [
+                "refactoring",
+                "debugging",
+                "testing"
+            ],
+            "_comment": "defaults 始终加载"
+        }
+    },
+    "output": {
+        "dirName": ".codebuddy",
+        "fileName": "project-rules.md"
+    }
+}
