@@ -48,14 +48,35 @@ rules/
 - **智能检测 Vue 2/Vue 3** 并加载对应规则
 - 按三层架构拼装规则文件
 
+
 **使用方法:**
 
+### 方式 A: 本地加载 (Local Mode)
+
 1.  克隆本仓库到本地。
-2.  在您的业务项目中运行以下命令（假设本仓库路径为 `E:/mygit/my-fe-standards`）：
+2.  运行命令：
+```bash
+node scripts/rule-loader.js
+```
+
+### 方式 B: HTTP 远程加载 (Remote Fetch Mode) 🌟
+
+适合 CI/CD 或快速接入，无需克隆整个仓库。
+
+1.  **服务端准备**: 
+    在服务器上托管本仓库的 `rules/` 目录和通过 `npm run build:manifest` 生成的 `manifest.json`。
+    比如托管在: `https://statics.example.com/standards/`
+
+2.  **客户端使用**:
+    在任意项目中，只需下载 `rule-loader.js` 脚本，然后运行：
 
 ```bash
-node E:/mygit/my-fe-standards/scripts/rule-loader.js .
+# 例子
+node rule-loader.js --remote https://statics.example.com/standards
 ```
+
+> 脚本会自动请求远端的 manifest 清单，智能分析当前项目依赖，只下载需要的规则文件。
+
 
 脚本将会在您的项目目录下生成 `.codebuddy/project-rules.md`。CodeBuddy 代码助手会自动读取此文件作为编程上下文。
 

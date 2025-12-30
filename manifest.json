@@ -1,0 +1,101 @@
+{
+  "generatedAt": "2025-12-30T08:08:11.214Z",
+  "version": "1.0.0",
+  "config": {
+    "_comment": "Architect Rule Loader 配置文件 - 定义各层规则的加载策略",
+    "layers": {
+      "base": {
+        "id": "layer1_base",
+        "title": "🧱 Layer 1: Base Standards (Foundation)",
+        "staticDeps": [
+          "architecture",
+          "typescript"
+        ],
+        "_comment": "staticDeps 始终加载，Vue 版本由脚本动态检测"
+      },
+      "business": {
+        "id": "layer2_business",
+        "title": "🏢 Layer 2: Business & Domain Rules",
+        "dependencies": {
+          "tdesign-vue-next": [
+            "tdesign"
+          ],
+          "tdesign-vue": [
+            "tdesign"
+          ],
+          "element-plus": [
+            "element-plus"
+          ],
+          "ant-design-vue": [
+            "antdv"
+          ],
+          "vant": [
+            "vant"
+          ]
+        },
+        "_comment": "key=npm包名, value=对应要加载的规则文件夹名数组"
+      },
+      "action": {
+        "id": "layer3_action",
+        "title": "⚡ Layer 3: Action Checklists",
+        "defaults": [
+          "refactoring",
+          "debugging",
+          "testing"
+        ],
+        "_comment": "defaults 始终加载"
+      }
+    },
+    "output": {
+      "dirName": ".codebuddy",
+      "fileName": "project-rules.md"
+    }
+  },
+  "files": [
+    {
+      "path": "rules/layer1_base/architecture/feature-based-structure.md",
+      "size": 2191,
+      "name": "feature-based-structure.md"
+    },
+    {
+      "path": "rules/layer1_base/typescript/strict-types.md",
+      "size": 1764,
+      "name": "strict-types.md"
+    },
+    {
+      "path": "rules/layer1_base/vue2/vue2-general.md",
+      "size": 4163,
+      "name": "vue2-general.md"
+    },
+    {
+      "path": "rules/layer1_base/vue3/vue3-script-setup.md",
+      "size": 2303,
+      "name": "vue3-script-setup.md"
+    },
+    {
+      "path": "rules/layer2_business/tdesign.md",
+      "size": 618,
+      "name": "tdesign.md"
+    },
+    {
+      "path": "rules/layer3_action/debugging.md",
+      "size": 2477,
+      "name": "debugging.md"
+    },
+    {
+      "path": "rules/layer3_action/refactoring.md",
+      "size": 774,
+      "name": "refactoring.md"
+    },
+    {
+      "path": "rules/layer3_action/testing.md",
+      "size": 3273,
+      "name": "testing.md"
+    },
+    {
+      "path": "rules/_meta/rule-template.md",
+      "size": 1261,
+      "name": "rule-template.md"
+    }
+  ]
+}

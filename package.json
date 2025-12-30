@@ -7,5 +7,10 @@
   },
   "devDependencies": {
     "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "build:manifest": "node scripts/generate-manifest.js",
+    "test:local": "node scripts/rule-loader.js",
+    "test:remote": "node scripts/rule-loader.js --remote http://localhost:8080"
   }
 }
