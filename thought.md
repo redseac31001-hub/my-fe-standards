@@ -36,3 +36,13 @@ fs.writeFileSync('.codebuddy/rules.md', projectRules.join('\n\n'));
 ```
 
 这将完美回答用户关于“自动解析...拼装”的问题。
+
+## 2025-12-30 远程加载方案确认
+- **用户提问**: 业务项目能否通过命令拉取规则？
+- **机制**: 
+    - 利用 `rule-loader.js` 的 `--remote` 模式。
+    - 依赖 GitHub Raw 托管静态文件 (`rules/*.md` 和 `manifest.json`)。
+    - **核心**: 规则组合逻辑在**本地运行**，素材从**远程获取**。这样既能保持中心化管理，又能适应不同业务项目的技术栈（Vue2/3/TS等）。
+- **操作流程**:
+    1. 确保 `my-fe-standards` 的 `manifest.json` 是最新的并已推送。
+    2. 业务项目执行: `curl -O [ScriptURL] && node rule-loader.js --remote [RepoURL]`。
