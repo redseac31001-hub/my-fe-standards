@@ -46,3 +46,22 @@ fs.writeFileSync('.codebuddy/rules.md', projectRules.join('\n\n'));
 - **操作流程**:
     1. 确保 `my-fe-standards` 的 `manifest.json` 是最新的并已推送。
     2. 业务项目执行: `curl -O [ScriptURL] && node rule-loader.js --remote [RepoURL]`。
+
+
+## 2025-12-30 远程加载方案确认
+- **用户提问**: 业务项目能否通过命令拉取规则？
+- **机制**: 
+    - 利用 `rule-loader.js` 的 `--remote` 模式。
+    - 依赖 GitHub Raw 托管静态文件 (`rules/*.md` 和 `manifest.json`)。
+    - **核心**: 规则组合逻辑在**本地运行**，素材从**远程获取**。这样既能保持中心化管理，又能适应不同业务项目的技术栈（Vue2/3/TS等）。
+- **操作流程**:
+    1. 确保 `my-fe-standards` 的 `manifest.json` 是最新的并已推送。
+    2. 业务项目执行: `curl -O [ScriptURL] && node rule-loader.js --remote [RepoURL]`。
+## 2025-12-30 故障排查: GitHub Blob URL vs Raw URL
+- **问题现象**: 用户运行 `rules:update` 失败，报错 `SyntaxError: Unexpected token '<'`。
+- **原因分析**: 
+    - 用户使用了 GitHub UI 的链接 (`.../blob/...`)。
+    - `curl` 下载回来的是 GitHub 的 HTML 页面 (`<!DOCTYPE html>...`)，而不是纯 JS 代码。
+- **解决方案**:
+    - 必须使用 **Raw** 链接 (`raw.githubusercontent.com`)。
+    - URL 结构变化: 去掉 `/blob/`，域名改为 `raw.githubusercontent.com`。
