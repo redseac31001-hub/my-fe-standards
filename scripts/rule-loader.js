@@ -143,13 +143,25 @@ function getPackageJson(targetDir) {
     return JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
 }
 
-function checkVueVersion(dependencies) {
+
+function checkVueProfile(dependencies) {
     const vueVersion = dependencies['vue'];
     if (!vueVersion) return null;
-    if (vueVersion.startsWith('2') || vueVersion.startsWith('^2') || vueVersion.startsWith('~2')) {
-        return 'vue2';
+
+    // Vue 3
+    if (vueVersion.startsWith('3') || vueVersion.startsWith('^3') || vueVersion.startsWith('~3')) {
+        return { version: 3, type: 'standard' };
     }
-    return 'vue3';
+
+    // Vue 2
+    if (vueVersion.startsWith('2') || vueVersion.startsWith('^2') || vueVersion.startsWith('~2')) {
+        // Check for Composition API Plugin (Vue 2 + Composition API)
+        if (dependencies['@vue/composition-api']) {
+            return { version: 2, type: 'composition' };
+        }
+        return { version: 2, type: 'options' };
+    }
+    return null;
 }
 
 async function getSystemPrompt(targetDir, localRulesRoot) {
@@ -217,16 +229,27 @@ ${systemPrompt}
         finalContent += parts.join('\n');
     }
 
-    // 2. Load Vue Version Specific Rules
-    const vueVer = checkVueVersion(dependencies);
-    if (vueVer === 'vue3') {
-        console.log('[Architect] Detected Vue 3. Loading Script Setup rules.');
-        const parts = await loadRulesFromFolder(baseDir, 'vue3');
-        finalContent += parts.join('\n');
-    } else if (vueVer === 'vue2') {
-        console.log('[Architect] Detected Vue 2. Loading Options API rules.');
-        const parts = await loadRulesFromFolder(baseDir, 'vue2');
-        finalContent += parts.join('\n');
+
+    // 2. Load Vue Version Specific Rules (Smart Detection)
+    const vueProfile = checkVueProfile(dependencies);
+
+    if (vueProfile) {
+        if (vueProfile.version === 3) {
+            console.log('[Architect] Detected Vue 3. Loading Script Setup rules.');
+            const parts = await loadRulesFromFolder(baseDir, 'vue3');
+            finalContent += parts.join('\n');
+        } else if (vueProfile.version === 2) {
+            if (vueProfile.type === 'composition') {
+                console.log('[Architect] Detected Vue 2 + Composition API. Loading Hybrid rules.');
+                // Loading specific composition rule for Vue 2
+                const parts = await loadRulesFromFolder(baseDir, 'vue2/vue2-composition.md');
+                finalContent += parts.join('\n');
+            } else {
+                console.log('[Architect] Detected Vue 2 (Standard). Loading Options API rules.');
+                const parts = await loadRulesFromFolder(baseDir, 'vue2/vue2-general.md');
+                finalContent += parts.join('\n');
+            }
+        }
     }
 
     // Process Layer 2: Business
