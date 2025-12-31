@@ -91,20 +91,31 @@ For more information, visit: https://github.com/your-org/my-fe-standards
 }
 
 // --- Networking Helper ---
-function fetchUrl(url) {
+// --- Networking Helper ---
+function fetchUrl(url, retries = 3) {
     return new Promise((resolve, reject) => {
         const client = url.startsWith('https') ? https : http;
 
-        logVerbose(`Fetching: ${url}`);
+        logVerbose(`Fetching: ${url} (Retries left: ${retries})`);
 
         const request = client.get(url, (res) => {
             // Handle redirects (GitHub raw URLs sometimes redirect)
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 logVerbose(`Redirecting to: ${res.headers.location}`);
-                return fetchUrl(res.headers.location).then(resolve).catch(reject);
+                return fetchUrl(res.headers.location, retries).then(resolve).catch(reject);
             }
 
             if (res.statusCode !== 200) {
+                // If it's a 5xx error or 429, maybe retry? For now, we only retry connection errors generally.
+                // But let's check if we should retry 5xx.
+                if (res.statusCode >= 500 && retries > 0) {
+                    res.resume();
+                    logWarn(`HTTP ${res.statusCode}. Retrying...`);
+                    return setTimeout(() => {
+                        fetchUrl(url, retries - 1).then(resolve).catch(reject);
+                    }, 1000);
+                }
+
                 res.resume();
                 return reject(new Error(`HTTP ${res.statusCode}: Failed to fetch ${url}`));
             }
@@ -118,12 +129,30 @@ function fetchUrl(url) {
         });
 
         request.on('error', (e) => {
+            if (retries > 0) {
+                logWarn(`Network Error (${e.code}). Retrying...`);
+                return setTimeout(() => {
+                    fetchUrl(url, retries - 1).then(resolve).catch(reject);
+                }, 1000);
+            }
+            // Enhance error message for common issues
+            if (e.code === 'ETIMEDOUT' || e.code === 'ECONNRESET' || e.code === 'ECONNREFUSED') {
+                logError(`Connection failed: ${e.code}`);
+                logError('If you are in a restricted network region (e.g. China mainland), please try using a proxy or a mirror URL.');
+                logError('Mirror Example: https://ghproxy.com/https://raw.githubusercontent.com/...');
+            }
             reject(new Error(`Network Error: ${e.message} (URL: ${url})`));
         });
 
         // Timeout handling
         request.setTimeout(REQUEST_TIMEOUT, () => {
             request.destroy();
+            if (retries > 0) {
+                logWarn(`Request Timeout. Retrying...`);
+                return setTimeout(() => {
+                    fetchUrl(url, retries - 1).then(resolve).catch(reject);
+                }, 1000);
+            }
             reject(new Error(`Request Timeout: ${url} did not respond within ${REQUEST_TIMEOUT}ms`));
         });
     });
