@@ -1,10 +1,22 @@
 #!/usr/bin/env node
 /**
- * Architect Rule Loader Script V5 (Remote Capable)
+ * Architect Rule Loader Script V6 (Enhanced Robustness)
  * 
- * New Features:
+ * Features:
  * - Supports Remote Fetch Mode via --remote <URL>
  * - Async architecture
+ * - Enhanced error handling and user-friendly messages
+ * - Verbose mode for debugging
+ * - Request timeout handling
+ * 
+ * Usage:
+ *   node rule-loader.js [options]
+ * 
+ * Options:
+ *   --help, -h        Show this help message
+ *   --remote <URL>    Fetch rules from remote URL (e.g., https://raw.githubusercontent.com/user/repo/main)
+ *   --verbose, -v     Enable verbose logging for debugging
+ *   --timeout <ms>    Set network request timeout in milliseconds (default: 10000)
  */
 
 const fs = require('fs');
@@ -15,26 +27,104 @@ const http = require('http');
 // --- Configuration ---
 const RULES_ROOT = path.resolve(__dirname, '../rules');
 const CONFIG_PATH = path.resolve(__dirname, '../config/loader-config.json');
+const DEFAULT_TIMEOUT = 10000; // 10 seconds
 
 // --- Global Context ---
 let IS_REMOTE = false;
+let IS_VERBOSE = false;
 let REMOTE_BASE_URL = '';
 let REMOTE_MANIFEST = null;
+let REQUEST_TIMEOUT = DEFAULT_TIMEOUT;
+
+// --- Logging Helpers ---
+function log(message) {
+    console.log(`[Architect] ${message}`);
+}
+
+function logVerbose(message) {
+    if (IS_VERBOSE) {
+        console.log(`[Architect:DEBUG] ${message}`);
+    }
+}
+
+function logError(message) {
+    console.error(`[Architect:ERROR] ${message}`);
+}
+
+function logWarn(message) {
+    console.warn(`[Architect:WARN] ${message}`);
+}
+
+// --- Help ---
+function showHelp() {
+    console.log(`
+╔══════════════════════════════════════════════════════════════════╗
+║           Architect Rule Loader v6 - Frontend Standards         ║
+╚══════════════════════════════════════════════════════════════════╝
+
+USAGE:
+  node rule-loader.js [options]
+
+OPTIONS:
+  --help, -h           Show this help message and exit
+  --remote <URL>       Fetch rules from a remote URL instead of local files
+                       Example: --remote https://raw.githubusercontent.com/user/repo/main
+  --verbose, -v        Enable verbose/debug logging
+  --timeout <ms>       Set network request timeout (default: 10000ms)
+
+EXAMPLES:
+  # Local mode (uses ./rules directory)
+  node rule-loader.js
+
+  # Remote mode (fetches from GitHub)
+  node rule-loader.js --remote https://raw.githubusercontent.com/myorg/fe-standards/main
+
+  # Verbose mode for debugging
+  node rule-loader.js --verbose
+
+OUTPUT:
+  Generates .codebuddy/project-rules.md in the current working directory.
+
+For more information, visit: https://github.com/your-org/my-fe-standards
+`);
+    process.exit(0);
+}
 
 // --- Networking Helper ---
 function fetchUrl(url) {
     return new Promise((resolve, reject) => {
         const client = url.startsWith('https') ? https : http;
-        client.get(url, (res) => {
+
+        logVerbose(`Fetching: ${url}`);
+
+        const request = client.get(url, (res) => {
+            // Handle redirects (GitHub raw URLs sometimes redirect)
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                logVerbose(`Redirecting to: ${res.headers.location}`);
+                return fetchUrl(res.headers.location).then(resolve).catch(reject);
+            }
+
             if (res.statusCode !== 200) {
                 res.resume();
-                return reject(new Error(`Request Failed. Status Code: ${res.statusCode} URL: ${url}`));
+                return reject(new Error(`HTTP ${res.statusCode}: Failed to fetch ${url}`));
             }
+
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => { resolve(data); });
-        }).on('error', (e) => {
-            reject(e);
+            res.on('end', () => {
+                logVerbose(`Fetched ${data.length} bytes from ${url}`);
+                resolve(data);
+            });
+        });
+
+        request.on('error', (e) => {
+            reject(new Error(`Network Error: ${e.message} (URL: ${url})`));
+        });
+
+        // Timeout handling
+        request.setTimeout(REQUEST_TIMEOUT, () => {
+            request.destroy();
+            reject(new Error(`Request Timeout: ${url} did not respond within ${REQUEST_TIMEOUT}ms`));
         });
     });
 }
@@ -46,9 +136,11 @@ async function loadConfig() {
         // Remote: Get manifest first, which contains config
         try {
             const manifestUrl = `${REMOTE_BASE_URL}/manifest.json`;
-            console.log(`[Architect] Fetching manifest from: ${manifestUrl}`);
+            log(`Fetching manifest from: ${manifestUrl}`);
             const data = await fetchUrl(manifestUrl);
             REMOTE_MANIFEST = JSON.parse(data);
+
+            logVerbose(`Manifest loaded. Version: ${REMOTE_MANIFEST.version}, Files: ${REMOTE_MANIFEST.files.length}`);
 
             // Return the embedded config
             const config = REMOTE_MANIFEST.config;
@@ -59,18 +151,22 @@ async function loadConfig() {
                     ACTION: config.layers.action
                 },
                 OUTPUT_DIR_NAME: config.output.dirName,
-                OUTPUT_FILE_NAME: config.output.fileName
+                OUTPUT_FILE_NAME: config.output.fileName,
+                FRONTMATTER: config.frontmatter || {}
             };
         } catch (e) {
-            console.error(`[Architect] Failed to fetch remote manifest: ${e.message}`);
+            logError(`Failed to fetch remote manifest: ${e.message}`);
+            logError('Please ensure the URL is correct and the manifest.json is accessible.');
             process.exit(1);
         }
     } else {
         // Local
         if (!fs.existsSync(CONFIG_PATH)) {
-            console.error(`[Architect] Config file not found: ${CONFIG_PATH}`);
+            logError(`Config file not found: ${CONFIG_PATH}`);
+            logError('Run this script from the my-fe-standards repository root, or use --remote mode.');
             process.exit(1);
         }
+        logVerbose(`Loading local config from: ${CONFIG_PATH}`);
         const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
         return {
             LAYERS: {
@@ -79,7 +175,8 @@ async function loadConfig() {
                 ACTION: config.layers.action
             },
             OUTPUT_DIR_NAME: config.output.dirName,
-            OUTPUT_FILE_NAME: config.output.fileName
+            OUTPUT_FILE_NAME: config.output.fileName,
+            FRONTMATTER: config.frontmatter || {}
         };
     }
 }
@@ -139,8 +236,18 @@ async function loadRulesFromFolder(layerDir, subFolder) {
 
 function getPackageJson(targetDir) {
     const pkgPath = path.join(targetDir, 'package.json');
-    if (!fs.existsSync(pkgPath)) return {};
-    return JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    if (!fs.existsSync(pkgPath)) {
+        logWarn(`No package.json found at: ${pkgPath}`);
+        logWarn('Running without dependency detection. Only default rules will be loaded.');
+        return {};
+    }
+    logVerbose(`Reading package.json from: ${pkgPath}`);
+    try {
+        return JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    } catch (e) {
+        logError(`Failed to parse package.json: ${e.message}`);
+        return {};
+    }
 }
 
 
@@ -183,41 +290,95 @@ async function getSystemPrompt(targetDir, localRulesRoot) {
     }
 }
 
+// --- Argument Parsing ---
+
+function parseArgs() {
+    const args = process.argv.slice(2);
+
+    // Help
+    if (args.includes('--help') || args.includes('-h')) {
+        showHelp();
+    }
+
+    // Verbose
+    if (args.includes('--verbose') || args.includes('-v')) {
+        IS_VERBOSE = true;
+        logVerbose('Verbose mode enabled.');
+    }
+
+    // Remote
+    const remoteIndex = args.indexOf('--remote');
+    if (remoteIndex !== -1) {
+        const url = args[remoteIndex + 1];
+        if (!url || url.startsWith('-')) {
+            logError('--remote requires a URL argument.');
+            logError('Example: node rule-loader.js --remote https://raw.githubusercontent.com/user/repo/main');
+            process.exit(1);
+        }
+        IS_REMOTE = true;
+        REMOTE_BASE_URL = url.replace(/\/$/, ''); // Remove trailing slash
+        logVerbose(`Remote mode enabled. Base URL: ${REMOTE_BASE_URL}`);
+    }
+
+    // Timeout
+    const timeoutIndex = args.indexOf('--timeout');
+    if (timeoutIndex !== -1) {
+        const timeoutValue = parseInt(args[timeoutIndex + 1], 10);
+        if (isNaN(timeoutValue) || timeoutValue <= 0) {
+            logWarn('Invalid --timeout value, using default 10000ms.');
+        } else {
+            REQUEST_TIMEOUT = timeoutValue;
+            logVerbose(`Request timeout set to: ${REQUEST_TIMEOUT}ms`);
+        }
+    }
+}
+
 // --- Main ---
 
 async function main() {
     // Parse Arguments
-    const remoteArgIndex = process.argv.indexOf('--remote');
-    if (remoteArgIndex !== -1 && process.argv[remoteArgIndex + 1]) {
-        IS_REMOTE = true;
-        REMOTE_BASE_URL = process.argv[remoteArgIndex + 1].replace(/\/$/, ''); // Remove trailing slash
-        console.log(`[Architect] Running in REMOTE mode. Base URL: ${REMOTE_BASE_URL}`);
-    }
+    parseArgs();
 
-    const targetDir = process.cwd(); // Assume run from project root, or process.argv[2] logic
-    console.log(`[Architect] Analyzing project at: ${targetDir}`);
+    log(IS_REMOTE ? `Running in REMOTE mode. Base URL: ${REMOTE_BASE_URL}` : 'Running in LOCAL mode.');
+
+    const targetDir = process.cwd();
+    log(`Analyzing project at: ${targetDir}`);
 
     // Load Config
-    const { LAYERS, OUTPUT_DIR_NAME, OUTPUT_FILE_NAME } = await loadConfig();
+    const { LAYERS, OUTPUT_DIR_NAME, OUTPUT_FILE_NAME, FRONTMATTER } = await loadConfig();
 
     const pkg = getPackageJson(targetDir);
     const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
     const projectDeps = Object.keys(dependencies);
 
+    logVerbose(`Detected ${projectDeps.length} dependencies.`);
+
     const systemPrompt = await getSystemPrompt(targetDir, RULES_ROOT);
 
-    let finalContent = `# Architect Rule Set
-> Generated by Architect Rule Loader V5 (${IS_REMOTE ? 'Remote' : 'Local'})
+    // Generate YAML frontmatter for CodeBuddy compatibility
+    const updatedAt = new Date().toISOString();
+    const frontmatterBlock = `---
+description: ${FRONTMATTER.description || 'Frontend Architecture Standards'}
+alwaysApply: ${FRONTMATTER.alwaysApply !== undefined ? FRONTMATTER.alwaysApply : true}
+enabled: ${FRONTMATTER.enabled !== undefined ? FRONTMATTER.enabled : true}
+updatedAt: ${updatedAt}
+provider: ${FRONTMATTER.provider || ''}
+---
+
+`;
+
+    let finalContent = `${frontmatterBlock}# Architect Rule Set
+> Generated by Architect Rule Loader V6 (${IS_REMOTE ? 'Remote' : 'Local'})
+> Generated at: ${updatedAt}
 > For: CodeBuddy / AI Coding Assistants
 
 ---
 
 ${systemPrompt}
-{{ ... }}
 `;
 
     // Process Layer 1: Base
-    console.log(`[Architect] Processing Base Layer...`);
+    log('Processing Base Layer...');
     finalContent += `\n# ${LAYERS.BASE.title}\n`;
 
     // In Remote mode, baseDir is just the ID "layer1_base". In Local, it's absolute path.
@@ -235,40 +396,47 @@ ${systemPrompt}
 
     if (vueProfile) {
         if (vueProfile.version === 3) {
-            console.log('[Architect] Detected Vue 3. Loading Script Setup rules.');
+            log('Detected Vue 3. Loading Script Setup rules.');
             const parts = await loadRulesFromFolder(baseDir, 'vue3');
             finalContent += parts.join('\n');
         } else if (vueProfile.version === 2) {
             if (vueProfile.type === 'composition') {
-                console.log('[Architect] Detected Vue 2 + Composition API. Loading Hybrid rules.');
+                log('Detected Vue 2 + Composition API. Loading Hybrid rules.');
                 // Loading specific composition rule for Vue 2
                 const parts = await loadRulesFromFolder(baseDir, 'vue2/vue2-composition.md');
                 finalContent += parts.join('\n');
             } else {
-                console.log('[Architect] Detected Vue 2 (Standard). Loading Options API rules.');
+                log('Detected Vue 2 (Standard). Loading Options API rules.');
                 const parts = await loadRulesFromFolder(baseDir, 'vue2/vue2-general.md');
                 finalContent += parts.join('\n');
             }
         }
+    } else {
+        logWarn('No Vue detected. Skipping Vue-specific rules.');
     }
 
     // Process Layer 2: Business
-    console.log(`[Architect] Processing Business Layer...`);
+    log('Processing Business Layer...');
     finalContent += `\n# ${LAYERS.BUSINESS.title}\n`;
     const bizDir = IS_REMOTE ? LAYERS.BUSINESS.id : path.join(RULES_ROOT, LAYERS.BUSINESS.id);
 
+    let businessRulesLoaded = 0;
     for (const depKey of Object.keys(LAYERS.BUSINESS.dependencies)) {
         if (projectDeps.includes(depKey)) {
-            console.log(`[Architect] Detected ${depKey}. Loading related rules.`);
+            log(`Detected ${depKey}. Loading related rules.`);
             for (const folder of LAYERS.BUSINESS.dependencies[depKey]) {
                 const parts = await loadRulesFromFolder(bizDir, folder);
                 finalContent += parts.join('\n');
+                businessRulesLoaded++;
             }
         }
     }
+    if (businessRulesLoaded === 0) {
+        logVerbose('No business-specific dependencies detected.');
+    }
 
     // Process Layer 3: Action
-    console.log(`[Architect] Processing Action Layer...`);
+    log('Processing Action Layer...');
     finalContent += `\n# ${LAYERS.ACTION.title}\n`;
     const actionDir = IS_REMOTE ? LAYERS.ACTION.id : path.join(RULES_ROOT, LAYERS.ACTION.id);
 
@@ -283,7 +451,8 @@ ${systemPrompt}
 
     const outputPath = path.join(outputDir, OUTPUT_FILE_NAME);
     fs.writeFileSync(outputPath, finalContent, 'utf-8');
-    console.log(`[Architect] Success! Rules written to ${outputPath}`);
+    log(`✅ Success! Rules written to ${outputPath}`);
+    log(`Total content size: ${(finalContent.length / 1024).toFixed(2)} KB`);
 }
 
 main().catch(err => {

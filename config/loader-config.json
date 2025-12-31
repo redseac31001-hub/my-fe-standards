@@ -20,9 +20,6 @@
                 "tdesign-vue": [
                     "tdesign"
                 ],
-                "element-plus": [
-                    "element-plus"
-                ],
                 "ant-design-vue": [
                     "antdv"
                 ],
@@ -44,7 +41,13 @@
         }
     },
     "output": {
-        "dirName": ".codebuddy",
+        "dirName": ".codebuddy/.rules",
         "fileName": "project-rules.md"
+    },
+    "frontmatter": {
+        "description": "Frontend Architecture Standards - Vue 3 + TypeScript Best Practices",
+        "alwaysApply": true,
+        "enabled": true,
+        "provider": ""
     }
 }

@@ -95,9 +95,36 @@ node rule-loader.js --remote https://statics.example.com/standards
 3.  **Reasoning**: 背后的原理（帮助 AI 理解权衡）。
 4.  **Examples**: 正面 (✅) 与反面 (❌) 的代码示例。
 
+## 🔧 快速接入 (One-Liner)
 
-# 注意两个变化：
-# 1. 域名变成了 raw.githubusercontent.com
-# 2. 路径中去掉了 /blob/
+如果你的规则仓库已托管在 GitHub，业务项目可以通过以下一键命令拉取并生成规则：
 
-curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch/scripts/rule-loader.js && node rule-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch
+```bash
+# 替换 [USER] 和 [REPO] 为你的 GitHub 用户名和仓库名
+# 替换 [BRANCH] 为分支名 (如 main 或 feature/remote-fetch)
+
+curl -O https://raw.githubusercontent.com/[USER]/[REPO]/[BRANCH]/scripts/rule-loader.js && \
+node rule-loader.js --remote https://raw.githubusercontent.com/[USER]/[REPO]/[BRANCH]
+```
+
+**⚠️ 注意**: 必须使用 `raw.githubusercontent.com` 域名，而非 `github.com/...blob/...`，否则会下载 HTML 页面而非脚本代码。
+
+### 示例 (本仓库)
+
+```bash
+curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch/scripts/rule-loader.js && \
+node rule-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch
+```
+
+## 📋 命令行帮助
+
+```bash
+node rule-loader.js --help
+```
+
+可用选项：
+- `--help, -h`: 显示帮助信息
+- `--remote <URL>`: 从远程 URL 获取规则
+- `--verbose, -v`: 启用详细日志
+- `--timeout <ms>`: 设置网络请求超时 (默认 10000ms)
+
