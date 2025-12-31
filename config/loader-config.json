@@ -14,12 +14,6 @@
             "id": "layer2_business",
             "title": "🏢 Layer 2: Business & Domain Rules",
             "dependencies": {
-                "tdesign-vue-next": [
-                    "tdesign"
-                ],
-                "tdesign-vue": [
-                    "tdesign"
-                ],
                 "ant-design-vue": [
                     "antdv"
                 ],
