@@ -29,7 +29,8 @@
             "defaults": [
                 "refactoring",
                 "debugging",
-                "testing"
+                "testing",
+                "self-verification"
             ],
             "_comment": "defaults 始终加载"
         }
