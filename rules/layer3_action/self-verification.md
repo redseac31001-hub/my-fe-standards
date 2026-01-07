@@ -3,6 +3,44 @@
 > Layer: Action
 > Context: AI 完成任务后的自我检查与验证机制
 
+<!-- @level:summary -->
+## Summary (摘要)
+
+采用 **RCI 协议**（递归式自我批评与改进）：生成 → 审查 → 改进 → 再审查。所有关键变更必须经过人类审核确认，不应盲目信任任何生成的代码。
+
+**核心检查项**：类型安全 → Lint 通过 → 构建成功 → 测试通过 → 安全审查
+
+<!-- @level:quick -->
+## Quick Reference (快速参考)
+
+### 提交前必检清单
+
+| 检查项 | 工具可用时 | 工具不可用时的替代 |
+|--------|----------|----------------------|
+| **Type Safety** | `tsc --noEmit` 无错误 | 人工确认无 `any`，类型定义完整 |
+| **Lint Clean** | `npm run lint` 通过 | 人工核对 Layer 1 规范 |
+| **Build Success** | `npm run build` 成功 | `npm run dev` 无报错 |
+| **No Console** | ESLint 规则检测 | 全局搜索 `console.log` |
+| **No TODO** | ESLint 规则检测 | 全局搜索 `// TODO` |
+
+### RCI 自问清单
+
+1. 这段代码是否解决了用户的实际问题？
+2. 是否有更简洁的实现方式？
+3. 代码是否易于理解和维护？
+4. 是否遵循了项目的既有模式和规范？
+5. 边界条件和错误处理是否完善？
+6. 是否有潜在的性能问题？
+7. 是否有安全隐患？
+8. 如果 6 个月后回来看这段代码，能快速理解吗？
+
+### 安全必检项
+
+- [ ] **No Hardcoded Secrets**: 无硬编码的密钥、密码、Token
+- [ ] **Input Validation**: 所有用户输入经过验证和转义
+- [ ] **Safe Dependencies**: 依赖包无已知安全漏洞 (`npm audit`)
+
+<!-- @level:full -->
 ## 1. Philosophy (核心理念)
 
 ### Recursive Criticism and Improvement (RCI 协议)

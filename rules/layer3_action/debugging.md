@@ -3,6 +3,39 @@
 > Layer: Action
 > Context: Bug Investigation / Runtime Issue Resolution
 
+<!-- @level:summary -->
+## Summary (摘要)
+
+调试是理解系统行为的过程。采用**假设-验证**的科学思维：先提出假设，再用日志/断点验证。按 Vue 数据流方向逐层排查：用户操作 → 事件处理 → Store → API → 状态更新 → 视图渲染。
+
+<!-- @level:quick -->
+## Quick Reference (快速参考)
+
+### 调试前检查
+
+- [ ] **Console**: 查看 DevTools Console 是否有错误
+- [ ] **Network**: 检查 API 请求状态码和响应
+- [ ] **Version**: 确认代码版本 (`git status`)
+- [ ] **Cache**: 清除缓存或硬刷新 (`Ctrl+Shift+R`)
+
+### 常见问题速查
+
+| 问题 | 排查点 |
+|------|--------|
+| 响应性丢失 | 检查是否解构了 store，使用 `storeToRefs` |
+| 异步时序 | 检查 `await` 是否正确使用 |
+| Props 未更新 | 检查是否使用 `:prop` 动态绑定 |
+
+### 调试工具
+
+| 工具 | 用途 |
+|------|------|
+| Vue DevTools | 组件树、状态、事件追踪 |
+| Console.log | 快速验证数据值 |
+| Breakpoints | 复杂逻辑单步调试 |
+| Network Tab | API 请求/响应分析 |
+
+<!-- @level:full -->
 ## 1. Mindset (思维模式)
 调试不仅仅是"找 Bug"，更是理解系统行为的过程。
 保持**假设-验证**的科学思维：先提出假设，再用日志/断点验证。

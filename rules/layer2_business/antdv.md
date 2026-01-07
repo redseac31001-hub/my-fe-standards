@@ -3,6 +3,42 @@
 > Layer: Business
 > Context: UI Component Library Usage (Vue 3 + Ant Design Vue 4.x / Vue 2 + Ant Design Vue 1.x)
 
+<!-- @level:summary -->
+## Summary (摘要)
+
+Ant Design Vue 组件库使用规范。核心要点：按需引入组件、使用 a-form 进行表单校验、表格指定唯一 rowKey、Modal 设置 destroyOnClose。
+
+<!-- @level:quick -->
+## Quick Reference (快速参考)
+
+### 核心规则
+
+| 场景 | 规则 |
+|------|------|
+| 组件引入 | 按需引入，使用 `unplugin-vue-components` |
+| 样式定制 | 使用 CSS Variables 或 ConfigProvider，禁止 `!important` |
+| 表单校验 | 使用 `<a-form>` + `rules`，禁止手写校验逻辑 |
+| 表格 | 指定唯一 `rowKey`，大数据量使用 `virtual` |
+| 弹窗 | 设置 `destroyOnClose`，避免状态残留 |
+
+### 常用消息提示
+
+```typescript
+import { message, notification, Modal } from 'ant-design-vue';
+
+message.success('保存成功');           // 操作反馈
+notification.info({ message, description }); // 重要通知
+Modal.confirm({ title, onOk });        // 确认操作
+```
+
+### 禁止写法
+
+- 全量引入 Ant Design Vue
+- 使用数组索引作为 rowKey
+- 手动校验表单字段（应使用 rules）
+- 在循环中创建大量 Modal 实例
+
+<!-- @level:full -->
 ## 1. The Rule
 
 ### 组件使用原则

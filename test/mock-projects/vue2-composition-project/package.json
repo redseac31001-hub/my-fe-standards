@@ -1,0 +1,12 @@
+{
+  "name": "mock-vue2-composition-project",
+  "version": "1.0.0",
+  "description": "模拟 Vue 2 + Composition API 业务项目",
+  "dependencies": {
+    "vue": "^2.6.14",
+    "@vue/composition-api": "^1.7.0"
+  },
+  "devDependencies": {
+    "webpack": "^5.0.0"
+  }
+}

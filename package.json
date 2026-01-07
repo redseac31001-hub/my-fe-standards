@@ -1,16 +1,21 @@
 {
   "name": "my-fe-standards",
   "version": "1.0.0",
+  "description": "前端架构师规则库 - AI 编程助手知识源",
   "dependencies": {
     "vue": "^3.0.0",
     "tdesign-vue-next": "^1.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
   },
   "scripts": {
-    "build:manifest": "node scripts/generate-manifest.js",
-    "test:local": "node scripts/rule-loader.js",
-    "test:remote": "node scripts/rule-loader.js --remote http://localhost:8080"
+    "build:scripts": "tsc -p scripts/tsconfig.json",
+    "build:manifest": "node scripts/dist/generate-manifest.js",
+    "build": "npm run build:scripts && npm run build:manifest",
+    "test:local": "node scripts/dist/rule-loader.js",
+    "test:remote": "node scripts/dist/rule-loader.js --remote http://localhost:8080",
+    "test:integration": "node test/run-tests.js"
   }
 }

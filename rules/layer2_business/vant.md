@@ -3,6 +3,42 @@
 > Layer: Business
 > Context: Mobile UI Component Library Usage (Vue 3 + Vant 4.x / Vue 2 + Vant 2.x)
 
+<!-- @level:summary -->
+## Summary (摘要)
+
+Vant 移动端 UI 组件库使用规范。核心要点：按需引入组件、使用 postcss 适配移动端、长列表使用虚拟滚动、表单设置正确的 inputmode。
+
+<!-- @level:quick -->
+## Quick Reference (快速参考)
+
+### 核心规则
+
+| 场景 | 规则 |
+|------|------|
+| 组件引入 | 按需引入，使用 `unplugin-vue-components` |
+| 样式定制 | 使用 CSS Variables，禁止 `!important` |
+| 移动端适配 | 使用 `postcss-px-to-viewport`，基准 375px |
+| 长列表 | 使用 `<van-list>` + 无限滚动 |
+| 表单输入 | 设置正确的 `type` 和 `inputmode` |
+
+### 常用场景速查
+
+| 场景 | 推荐方案 |
+|------|----------|
+| 数字输入 | `type="tel"` + `inputmode="numeric"` |
+| 下拉刷新 | `<van-pull-refresh>` 包裹列表 |
+| 骨架屏 | `<van-skeleton>` 提升首屏体验 |
+| 图片懒加载 | `<van-image lazy-load>` |
+| 安全区域 | 使用 `safe-area-inset-bottom` CSS 变量 |
+
+### 禁止写法
+
+- 全量引入 Vant（打包体积过大）
+- 硬编码像素值（不适配不同屏幕）
+- 长列表不使用虚拟滚动
+- 移动端表单不设置 inputmode
+
+<!-- @level:full -->
 ## 1. The Rule
 
 ### 组件使用原则

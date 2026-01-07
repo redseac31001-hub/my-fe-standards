@@ -1,0 +1,14 @@
+{
+  "name": "mock-vue3-project",
+  "version": "1.0.0",
+  "description": "模拟 Vue 3 业务项目，用于测试规则加载",
+  "dependencies": {
+    "vue": "^3.3.0",
+    "pinia": "^2.1.0",
+    "vue-router": "^4.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  }
+}

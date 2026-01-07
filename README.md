@@ -41,29 +41,48 @@ rules/
 | **Layer 2 (Business)** | 检测到特定依赖时加载 | 如检测到 `tdesign-vue-next`，则加载 TDesign 规范 |
 | **Layer 3 (Action)** | 始终加载 | 供 AI Agent 根据用户任务（重构/调试/测试）调用 |
 
-## 🛠️ 自动化工具 (Rule Loader v3)
+## 🛠️ 自动化工具 (Rule Loader v6)
 
 本仓库提供了一个自动化脚本，能够：
 - 扫描目标项目的 `package.json` 依赖
 - **智能检测 Vue 2/Vue 3** 并加载对应规则
 - 按三层架构拼装规则文件
 
+### 项目结构
+
+```text
+scripts/
+├── src/                    # TypeScript 源码
+│   ├── rule-loader.ts      # 规则加载器
+│   ├── generate-manifest.ts # 清单生成器
+│   └── types/
+│       └── index.ts        # 共享类型定义
+├── dist/                   # 编译产物 (用户直接使用)
+│   ├── rule-loader.js
+│   └── generate-manifest.js
+└── tsconfig.json
+```
 
 **使用方法:**
 
 ### 方式 A: 本地加载 (Local Mode)
 
 1.  克隆本仓库到本地。
-2.  运行命令：
+2.  安装依赖并编译：
 ```bash
-node scripts/rule-loader.js
+npm install
+npm run build:scripts
+```
+3.  运行命令：
+```bash
+node scripts/dist/rule-loader.js
 ```
 
 ### 方式 B: HTTP 远程加载 (Remote Fetch Mode) 🌟
 
 适合 CI/CD 或快速接入，无需克隆整个仓库。
 
-1.  **服务端准备**: 
+1.  **服务端准备**:
     在服务器上托管本仓库的 `rules/` 目录和通过 `npm run build:manifest` 生成的 `manifest.json`。
     比如托管在: `https://statics.example.com/standards/`
 
@@ -103,7 +122,7 @@ node rule-loader.js --remote https://statics.example.com/standards
 # 替换 [USER] 和 [REPO] 为你的 GitHub 用户名和仓库名
 # 替换 [BRANCH] 为分支名 (如 main 或 feature/remote-fetch)
 
-curl -O https://raw.githubusercontent.com/[USER]/[REPO]/[BRANCH]/scripts/rule-loader.js && \
+curl -O https://raw.githubusercontent.com/[USER]/[REPO]/[BRANCH]/scripts/dist/rule-loader.js && \
 node rule-loader.js --remote https://raw.githubusercontent.com/[USER]/[REPO]/[BRANCH]
 ```
 
@@ -112,14 +131,104 @@ node rule-loader.js --remote https://raw.githubusercontent.com/[USER]/[REPO]/[BR
 ### 示例 (本仓库)
 
 ```bash
-curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch/scripts/rule-loader.js && \
+curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch/scripts/dist/rule-loader.js && \
 node rule-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch
+```
+
+## 🔐 私有仓库接入 (推荐) 🌟
+
+对于私有仓库，使用 `architect-bootstrap.js` 引导脚本，利用本地 git 凭证自动拉取规则。
+
+### 优势
+
+- ✅ **无需配置 Token**: 利用本地已配置的 git 凭证 (SSH Key / Credential Helper)
+- ✅ **统一命令**: 所有开发者执行相同的 `npm run rules:update`
+- ✅ **自动缓存**: 规则文件本地缓存，避免重复拉取
+- ✅ **支持私有仓库**: 完美支持 GitHub/GitLab/Gitee 私有仓库
+
+### 业务项目接入步骤
+
+**步骤 1**: 下载引导脚本到业务项目根目录
+
+```bash
+# 从公开位置下载，或手动复制
+curl -O https://your-internal-server/architect-bootstrap.js
+# 或者从规则仓库手动复制 scripts/dist/architect-bootstrap.js
+```
+
+**步骤 2**: 在业务项目 `package.json` 中添加配置
+
+```json
+{
+  "scripts": {
+    "rules:update": "node architect-bootstrap.js"
+  },
+  "architect": {
+    "repo": "git@github.com:your-org/my-fe-standards.git",
+    "branch": "main"
+  }
+}
+```
+
+**步骤 3**: 执行命令生成规则
+
+```bash
+npm run rules:update
+```
+
+### 配置选项
+
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `repo` | 规则仓库地址 (SSH 或 HTTPS) | - |
+| `branch` | 分支名 | `main` |
+| `useCache` | 是否启用缓存 | `true` |
+| `cacheExpiry` | 缓存过期时间 (毫秒) | `3600000` (1小时) |
+
+### 完整配置示例
+
+```json
+{
+  "architect": {
+    "repo": "git@github.com:your-org/my-fe-standards.git",
+    "branch": "main",
+    "useCache": true,
+    "cacheExpiry": 3600000
+  }
+}
+```
+
+### Git 凭证配置
+
+确保本地 git 凭证已正确配置：
+
+**SSH 方式 (推荐)**:
+```bash
+# 检查 SSH key 是否已添加
+ssh -T git@github.com
+
+# 如果未配置，生成并添加 SSH key
+ssh-keygen -t ed25519 -C "your_email@example.com"
+ssh-add ~/.ssh/id_ed25519
+# 然后将公钥添加到 GitHub/GitLab
+```
+
+**HTTPS 方式**:
+```bash
+# 配置凭证缓存
+git config --global credential.helper cache
+
+# 或使用系统凭证管理器 (Windows)
+git config --global credential.helper manager-core
+
+# 或使用 macOS Keychain
+git config --global credential.helper osxkeychain
 ```
 
 ## 📋 命令行帮助
 
 ```bash
-node rule-loader.js --help
+node scripts/dist/rule-loader.js --help
 ```
 
 可用选项：
@@ -127,4 +236,32 @@ node rule-loader.js --help
 - `--remote <URL>`: 从远程 URL 获取规则
 - `--verbose, -v`: 启用详细日志
 - `--timeout <ms>`: 设置网络请求超时 (默认 10000ms)
+
+## 🔨 开发指南
+
+### 构建脚本
+
+```bash
+# 安装依赖
+npm install
+
+# 编译 TypeScript 脚本
+npm run build:scripts
+
+# 生成 manifest.json
+npm run build:manifest
+
+# 一键构建 (脚本 + manifest)
+npm run build
+```
+
+### 本地测试
+
+```bash
+# 本地模式测试
+npm run test:local
+
+# 远程模式测试
+npm run test:remote
+```
 

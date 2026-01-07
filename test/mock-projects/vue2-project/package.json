@@ -1,0 +1,11 @@
+{
+  "name": "mock-vue2-project",
+  "version": "1.0.0",
+  "description": "模拟 Vue 2 业务项目，用于测试规则加载",
+  "dependencies": {
+    "vue": "^2.7.0"
+  },
+  "devDependencies": {
+    "webpack": "^5.0.0"
+  }
+}

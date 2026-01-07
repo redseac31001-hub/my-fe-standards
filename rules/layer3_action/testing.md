@@ -3,6 +3,42 @@
 > Layer: Action
 > Context: Writing and Organizing Tests for Vue + TypeScript Projects
 
+<!-- @level:summary -->
+## Summary (摘要)
+
+测试行为而非实现，追求对代码变更的信心而非盲目追求覆盖率。测试金字塔：Unit (大量) → Component (中等) → E2E (少量)。
+
+<!-- @level:quick -->
+## Quick Reference (快速参考)
+
+### 测试金字塔
+
+| 类型 | ��标 | 工具 |
+|------|------|------|
+| Unit | 纯函数、Composables、Store | Vitest |
+| Component | 组件渲染、用户交互 | Vue Test Utils |
+| E2E | 完整用户流程 | Playwright |
+
+### 应该测试
+
+- 业务逻辑：Store actions、工具函数
+- 用户交互：按钮点击、表单提交
+- 边界条件：空数据、错误状态
+
+### 不必测试
+
+- 组件内部私有方法
+- UI 框架本身的功能
+- 纯展示性组件
+
+### 测试检查清单
+
+- [ ] **Isolation**: 测试相互独立
+- [ ] **Deterministic**: 结果稳定无随机性
+- [ ] **Fast**: 毫秒级完成
+- [ ] **Readable**: 描述清晰
+
+<!-- @level:full -->
 ## 1. Philosophy (测试理念)
 *   **Test Behavior, Not Implementation**: 测试用户可见的行为，而非内部实现细节。
 *   **Confidence over Coverage**: 追求对代码变更的信心，而非盲目追求覆盖率数字。

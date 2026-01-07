@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2025-12-31T09:46:32.619Z",
+  "generatedAt": "2026-01-07T11:19:59.673Z",
   "version": "1.0.0",
   "config": {
     "_comment": "Architect Rule Loader 配置文件 - 定义各层规则的加载策略",
@@ -35,7 +35,176 @@
           "testing",
           "self-verification"
         ],
-        "_comment": "defaults 始终加载"
+        "_comment": "defaults 始终加载，可通过 --task 参数筛选"
+      }
+    },
+    "tasks": {
+      "_comment": "任务类型定义 - 用于渐进式披露，按任务筛选相关规则",
+      "definitions": {
+        "refactoring": {
+          "name": "重构",
+          "description": "代码重构、优化、清理技术债务",
+          "aliases": [
+            "refactor",
+            "optimize",
+            "cleanup"
+          ]
+        },
+        "debugging": {
+          "name": "调试",
+          "description": "Bug 修复、问题排查、错误处理",
+          "aliases": [
+            "debug",
+            "fix",
+            "bugfix",
+            "troubleshoot"
+          ]
+        },
+        "testing": {
+          "name": "测试",
+          "description": "编写测试、测试策略、覆盖率",
+          "aliases": [
+            "test",
+            "unit-test",
+            "e2e"
+          ]
+        },
+        "new-feature": {
+          "name": "新功能",
+          "description": "开发新功能、添加新特性",
+          "aliases": [
+            "feature",
+            "implement",
+            "add"
+          ]
+        },
+        "code-review": {
+          "name": "代码审查",
+          "description": "代码审查、PR 审核",
+          "aliases": [
+            "review",
+            "pr"
+          ]
+        }
+      },
+      "ruleRelevance": {
+        "_comment": "规则与任务的相关性 (0-1)，未列出的默认为 0.5",
+        "layer1_base": {
+          "architecture/feature-based-structure": {
+            "refactoring": 0.9,
+            "new-feature": 0.95,
+            "code-review": 0.8,
+            "debugging": 0.3,
+            "testing": 0.4
+          },
+          "typescript/strict-types": {
+            "refactoring": 0.85,
+            "new-feature": 0.9,
+            "code-review": 0.9,
+            "debugging": 0.7,
+            "testing": 0.6
+          },
+          "vue3/vue3-script-setup": {
+            "refactoring": 0.9,
+            "new-feature": 0.95,
+            "code-review": 0.85,
+            "debugging": 0.5,
+            "testing": 0.5
+          },
+          "vue2/vue2-general": {
+            "refactoring": 0.9,
+            "new-feature": 0.95,
+            "code-review": 0.85,
+            "debugging": 0.6,
+            "testing": 0.5
+          },
+          "vue2/vue2-composition": {
+            "refactoring": 0.9,
+            "new-feature": 0.95,
+            "code-review": 0.85,
+            "debugging": 0.5,
+            "testing": 0.5
+          }
+        },
+        "layer2_business": {
+          "antdv": {
+            "new-feature": 0.95,
+            "refactoring": 0.7,
+            "code-review": 0.8,
+            "debugging": 0.6,
+            "testing": 0.5
+          },
+          "vant": {
+            "new-feature": 0.95,
+            "refactoring": 0.7,
+            "code-review": 0.8,
+            "debugging": 0.6,
+            "testing": 0.5
+          }
+        },
+        "layer3_action": {
+          "refactoring": {
+            "refactoring": 1,
+            "code-review": 0.8,
+            "new-feature": 0.4,
+            "debugging": 0.3,
+            "testing": 0.3
+          },
+          "debugging": {
+            "debugging": 1,
+            "refactoring": 0.4,
+            "code-review": 0.5,
+            "new-feature": 0.3,
+            "testing": 0.4
+          },
+          "testing": {
+            "testing": 1,
+            "code-review": 0.7,
+            "new-feature": 0.6,
+            "refactoring": 0.5,
+            "debugging": 0.4
+          },
+          "self-verification": {
+            "code-review": 1,
+            "refactoring": 0.8,
+            "new-feature": 0.7,
+            "debugging": 0.6,
+            "testing": 0.7
+          }
+        }
+      },
+      "thresholds": {
+        "_comment": "相关性阈值，低于此值的规则不加载",
+        "default": 0.5,
+        "strict": 0.7,
+        "loose": 0.3
+      }
+    },
+    "detailLevels": {
+      "_comment": "详略级别配置 - 用于渐进式披露，控制规则内容的详细程度",
+      "summary": {
+        "name": "摘要",
+        "description": "仅加载规则摘要，适合快速浏览",
+        "markers": [
+          "@level:summary"
+        ]
+      },
+      "quick": {
+        "name": "快速参考",
+        "description": "加载摘要和快速参考，适合日常开发",
+        "markers": [
+          "@level:summary",
+          "@level:quick"
+        ]
+      },
+      "full": {
+        "name": "完整",
+        "description": "加载全部内容，适合深入学习",
+        "markers": [
+          "@level:summary",
+          "@level:quick",
+          "@level:full"
+        ]
       }
     },
     "output": {
@@ -72,37 +241,37 @@
     },
     {
       "path": "rules/layer1_base/vue3/vue3-script-setup.md",
-      "size": 2303,
+      "size": 3168,
       "name": "vue3-script-setup.md"
     },
     {
       "path": "rules/layer2_business/antdv.md",
-      "size": 4635,
+      "size": 5818,
       "name": "antdv.md"
     },
     {
       "path": "rules/layer2_business/vant.md",
-      "size": 6227,
+      "size": 7446,
       "name": "vant.md"
     },
     {
       "path": "rules/layer3_action/debugging.md",
-      "size": 2477,
+      "size": 3618,
       "name": "debugging.md"
     },
     {
       "path": "rules/layer3_action/refactoring.md",
-      "size": 774,
+      "size": 1438,
       "name": "refactoring.md"
     },
     {
       "path": "rules/layer3_action/self-verification.md",
-      "size": 10811,
+      "size": 12404,
       "name": "self-verification.md"
     },
     {
       "path": "rules/layer3_action/testing.md",
-      "size": 3273,
+      "size": 4253,
       "name": "testing.md"
     },
     {
