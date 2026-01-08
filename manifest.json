@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-01-07T11:19:59.673Z",
+  "generatedAt": "2026-01-08T09:21:43.608Z",
   "version": "1.0.0",
   "config": {
     "_comment": "Architect Rule Loader 配置文件 - 定义各层规则的加载策略",
@@ -271,7 +271,7 @@
     },
     {
       "path": "rules/layer3_action/testing.md",
-      "size": 4253,
+      "size": 4260,
       "name": "testing.md"
     },
     {
