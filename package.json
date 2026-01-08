@@ -15,6 +15,7 @@
     "build": "npm run build:scripts && npm run build:manifest",
     "test:local": "node scripts/dist/rule-loader.js",
     "test:remote": "node scripts/dist/rule-loader.js --remote http://localhost:8080",
+    "test:remote:github": "node scripts/dist/rule-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch",
     "test:integration": "node test/run-tests.js"
   }
 }
