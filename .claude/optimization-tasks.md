@@ -87,34 +87,6 @@
   - [x] 检查生成结果（更新了时间戳和文件大小）
   - [x] 提交到 feature/remote-fetch 分支（commit: chore: 重新生成 manifest.json）
 
-#### TASK-027: 合并到 main 分支
-- **状态**: `[ ]` 待开始
-- **优先级**: P0
-- **描述**: 将 feature/remote-fetch 合并到 main
-- **内容要点**:
-  - [ ] 确保所有修改已提交
-  - [ ] 切换到 main 分支
-  - [ ] 合并 feature/remote-fetch
-  - [ ] 推送到远程
-
-#### TASK-027: 合并到 main 分支
-- **状态**: `[ ]` 待开始
-- **优先级**: P0
-- **描述**: 将 feature/remote-fetch 合并到 main
-- **内容要点**:
-  - [ ] 确保所有修改已提交
-  - [ ] 切换到 main 分支
-  - [ ] 合并 feature/remote-fetch
-  - [ ] 推送到远程
-
-#### TASK-028: 验证 main 分支
-- **状态**: `[ ]` 待开始
-- **优先级**: P0
-- **描述**: 验证 main 分支功能完整性
-- **内容要点**:
-  - [ ] 在 main 分支运行测试
-  - [ ] 验证功能正常
-
 ### 1.3 工程化完善
 
 #### TASK-005: 单元测试覆盖
