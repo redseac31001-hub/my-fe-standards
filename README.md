@@ -139,6 +139,8 @@ node rule-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/
 
 对于私有仓库，使用 `architect-bootstrap.js` 引导脚本，利用本地 git 凭证自动拉取规则。
 
+> 📖 **详细文档**: 完整的接入指南请参阅 [docs/remote-usage-guide.md](docs/remote-usage-guide.md)，包含 CI/CD 集成、故障排查、最佳实践等内容。
+
 ### 优势
 
 - ✅ **无需配置 Token**: 利用本地已配置的 git 凭证 (SSH Key / Credential Helper)
