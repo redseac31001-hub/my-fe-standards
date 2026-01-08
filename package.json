@@ -3,12 +3,11 @@
   "version": "1.0.0",
   "description": "前端架构师规则库 - AI 编程助手知识源",
   "dependencies": {
-    "vue": "^3.0.0",
-    "tdesign-vue-next": "^1.0.0"
+    "vue": "^3.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
   },
   "scripts": {
     "build:scripts": "tsc -p scripts/tsconfig.json",
