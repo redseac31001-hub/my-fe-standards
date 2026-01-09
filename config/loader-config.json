@@ -1,4 +1,5 @@
 {
+    "$schema": "./loader-config.schema.json",
     "_comment": "Architect Rule Loader 配置文件 - 定义各层规则的加载策略",
     "layers": {
         "base": {

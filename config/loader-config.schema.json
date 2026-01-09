@@ -1,0 +1,309 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/main/config/loader-config.schema.json",
+  "title": "Architect Rule Loader Configuration",
+  "description": "配置文件定义各层规则的加载策略",
+  "type": "object",
+  "required": ["layers", "tasks", "detailLevels", "output", "frontmatter"],
+  "properties": {
+    "_comment": {
+      "type": "string",
+      "description": "配置文件注释"
+    },
+    "layers": {
+      "type": "object",
+      "description": "规则层级配置",
+      "required": ["base", "business", "action"],
+      "properties": {
+        "base": {
+          "type": "object",
+          "description": "Layer 1: 基础技术栈规范",
+          "required": ["id", "title", "staticDeps"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "层级标识符",
+              "const": "layer1_base"
+            },
+            "title": {
+              "type": "string",
+              "description": "层级标题"
+            },
+            "staticDeps": {
+              "type": "array",
+              "description": "始终加载的规则文件夹",
+              "items": {
+                "type": "string"
+              }
+            },
+            "_comment": {
+              "type": "string"
+            }
+          }
+        },
+        "business": {
+          "type": "object",
+          "description": "Layer 2: 业务层规范",
+          "required": ["id", "title", "dependencies"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "层级标识符",
+              "const": "layer2_business"
+            },
+            "title": {
+              "type": "string",
+              "description": "层级标题"
+            },
+            "dependencies": {
+              "type": "object",
+              "description": "依赖映射：npm包名 -> 规则文件夹名数组",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "_comment": {
+              "type": "string"
+            }
+          }
+        },
+        "action": {
+          "type": "object",
+          "description": "Layer 3: 行动清单",
+          "required": ["id", "title", "defaults"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "层级标识符",
+              "const": "layer3_action"
+            },
+            "title": {
+              "type": "string",
+              "description": "层级标题"
+            },
+            "defaults": {
+              "type": "array",
+              "description": "默认加载的规则",
+              "items": {
+                "type": "string"
+              }
+            },
+            "_comment": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "tasks": {
+      "type": "object",
+      "description": "任务类型定义 - 用于渐进式披露",
+      "required": ["definitions", "ruleRelevance", "thresholds"],
+      "properties": {
+        "_comment": {
+          "type": "string"
+        },
+        "definitions": {
+          "type": "object",
+          "description": "任务类型定义",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["name", "description", "aliases"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "任务名称"
+              },
+              "description": {
+                "type": "string",
+                "description": "任务描述"
+              },
+              "aliases": {
+                "type": "array",
+                "description": "任务别名",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "ruleRelevance": {
+          "type": "object",
+          "description": "规则与任务的相关性 (0-1)",
+          "properties": {
+            "layer1_base": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            },
+            "layer2_business": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            },
+            "layer3_action": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "description": "相关性阈值",
+          "required": ["default", "strict", "loose"],
+          "properties": {
+            "_comment": {
+              "type": "string"
+            },
+            "default": {
+              "type": "number",
+              "description": "默认阈值",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "strict": {
+              "type": "number",
+              "description": "严格阈值",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "loose": {
+              "type": "number",
+              "description": "宽松阈值",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      }
+    },
+    "detailLevels": {
+      "type": "object",
+      "description": "详略级别配置 - 用于渐进式披露",
+      "required": ["summary", "quick", "full"],
+      "properties": {
+        "_comment": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "object",
+          "description": "摘要级别",
+          "required": ["name", "description", "markers"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "markers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "quick": {
+          "type": "object",
+          "description": "快速参考级别",
+          "required": ["name", "description", "markers"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "markers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "full": {
+          "type": "object",
+          "description": "完整级别",
+          "required": ["name", "description", "markers"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "markers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "description": "输出配置",
+      "required": ["dirName", "fileName"],
+      "properties": {
+        "dirName": {
+          "type": "string",
+          "description": "输出目录名"
+        },
+        "fileName": {
+          "type": "string",
+          "description": "输出文件名"
+        }
+      }
+    },
+    "frontmatter": {
+      "type": "object",
+      "description": "Frontmatter 配置",
+      "required": ["description", "alwaysApply", "enabled", "provider"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "规则集描述"
+        },
+        "alwaysApply": {
+          "type": "boolean",
+          "description": "是否始终应用"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "是否启用"
+        },
+        "provider": {
+          "type": "string",
+          "description": "提供者"
+        }
+      }
+    }
+  }
+}
