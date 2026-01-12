@@ -81,6 +81,7 @@ const ctx = {
 // --- 全局配置缓存 ---
 let tasksConfig = null;
 let detailLevelsConfig = null;
+let skillsConfig = null;
 // ============ 日志工具 ============
 function log(message) {
     console.log(`[Architect] ${message}`);
@@ -324,6 +325,198 @@ function extractContentByLevel(content, level) {
     logVerbose(`Extracted ${filteredSections.length} sections for level: ${level}`);
     return result;
 }
+// ============ Skills 系统函数 ============
+/**
+ * 解析 YAML frontmatter
+ * 支持有引号和无引号两种格式
+ */
+function parseYamlFrontmatter(content) {
+    const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n/;
+    const match = content.match(frontmatterRegex);
+    if (!match)
+        return null;
+    const frontmatterText = match[1];
+    const nameMatch = frontmatterText.match(/^name:\s*(.+)$/m);
+    // 支持有引号和无引号两种格式
+    let descMatch = frontmatterText.match(/^description:\s*["'](.+)["']$/m);
+    if (!descMatch) {
+        descMatch = frontmatterText.match(/^description:\s*(.+)$/m);
+    }
+    if (!nameMatch || !descMatch)
+        return null;
+    return {
+        name: nameMatch[1].trim(),
+        description: descMatch[1].trim(),
+    };
+}
+/**
+ * 解析单个 SKILL.md 文件
+ */
+function parseSkillFile(skillId, content) {
+    const frontmatter = parseYamlFrontmatter(content);
+    if (!frontmatter) {
+        logWarn(`Failed to parse frontmatter for skill: ${skillId}`);
+        return null;
+    }
+    // 移除 frontmatter，保留 markdown 内容
+    const contentWithoutFrontmatter = content.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, '');
+    return {
+        metadata: {
+            id: skillId,
+            name: frontmatter.name,
+            description: frontmatter.description,
+        },
+        content: contentWithoutFrontmatter,
+    };
+}
+/**
+ * 加载所有技能
+ */
+async function loadSkills(skillsPath) {
+    const skills = [];
+    if (ctx.isRemote) {
+        // 远程模式：从 manifest 中查找 custom-skills 目录下的 SKILL.md 文件
+        const skillFiles = ctx.remoteManifest.files.filter((f) => f.path.startsWith(skillsPath) && f.path.endsWith('/SKILL.md'));
+        for (const file of skillFiles) {
+            const skillId = file.path.split('/')[1]; // 提取技能 ID（文件夹名）
+            const fileUrl = `${ctx.remoteBaseUrl}/${file.path}`;
+            try {
+                const content = await fetchUrl(fileUrl);
+                const skill = parseSkillFile(skillId, content);
+                if (skill) {
+                    skills.push(skill);
+                    logVerbose(`Loaded skill: ${skillId}`);
+                }
+            }
+            catch (e) {
+                logWarn(`Failed to load skill: ${skillId}`);
+            }
+        }
+    }
+    else {
+        // 本地模式：读取 custom-skills 目录
+        const skillsDir = path.resolve(__dirname, '../../', skillsPath);
+        if (!fs.existsSync(skillsDir)) {
+            logWarn(`Skills directory not found: ${skillsDir}`);
+            return skills;
+        }
+        const skillDirs = fs.readdirSync(skillsDir).filter((name) => {
+            const fullPath = path.join(skillsDir, name);
+            return fs.statSync(fullPath).isDirectory();
+        });
+        for (const skillId of skillDirs) {
+            const skillFile = path.join(skillsDir, skillId, 'SKILL.md');
+            if (!fs.existsSync(skillFile)) {
+                logVerbose(`Skipping ${skillId}: no SKILL.md found`);
+                continue;
+            }
+            try {
+                const content = fs.readFileSync(skillFile, 'utf-8');
+                const skill = parseSkillFile(skillId, content);
+                if (skill) {
+                    skills.push(skill);
+                    logVerbose(`Loaded skill: ${skillId}`);
+                }
+            }
+            catch (e) {
+                logWarn(`Failed to load skill: ${skillId}`);
+            }
+        }
+    }
+    return skills;
+}
+/**
+ * 生成技能激活提示词
+ */
+function generateSkillsActivationPrompt(skills) {
+    if (skills.length === 0) {
+        return '';
+    }
+    // 生成技能列表表格
+    let skillsTable = '| 技能名称 | 技能 ID | 触发条件 |\n|---------|---------|----------|\n';
+    for (const skill of skills) {
+        skillsTable += `| **${skill.metadata.name}** | \`${skill.metadata.id}\` | ${skill.metadata.description} |\n`;
+    }
+    // 生成技能详情章节
+    let skillsDetails = '';
+    for (const skill of skills) {
+        skillsDetails += `\n## ${skill.metadata.name} (\`${skill.metadata.id}\`)\n\n`;
+        skillsDetails += `**触发条件**：${skill.metadata.description}\n\n`;
+        skillsDetails += `**详细指南**：\n\n`;
+        skillsDetails += skill.content;
+        skillsDetails += '\n\n---\n';
+    }
+    return `
+
+# 🎯 智能技能激活系统
+
+## 技能检测和激活指南
+
+作为 AI 编程助手，你需要根据用户的请求内容，**动态激活**相关的技能。这个系统模拟了 Claude Code + Skills 的动态激活能力。
+
+### 📋 可用技能列表
+
+${skillsTable}
+
+### ⚡ 技能激活原则
+
+1. **关键词匹配**：根据用户请求中的关键词，识别相关技能
+2. **上下文理解**：结合用户的上下文（文件类型、任务类型等）判断
+3. **主动应用**：识别到相关技能后，主动按照技能指南执行
+4. **显式说明**：在回复中简要说明你应用了哪个技能
+
+### 📌 使用示例
+
+**场景 1：代码审查**
+
+用户："审查这段代码，看看有什么问题"
+
+你的思考过程：
+1. 识别关键词：审查、代码
+2. 激活技能：frontend-code-review
+3. 按照技能指南执行审查流程
+
+你的回复："我将按照前端代码审查技能的检查清单来审查这段代码..."
+
+---
+
+**场景 2：组件重构**
+
+用户："这个组件太复杂了，帮我重构一下"
+
+你的思考过程：
+1. 识别关键词：复杂、重构
+2. 激活技能：component-refactoring
+3. 按照技能指南执行重构流程
+
+你的回复："我将按照组件重构技能的模式来重构这个组件..."
+
+---
+
+**场景 3：测试编写**
+
+用户："为这个组件添加测试"
+
+你的思考过程：
+1. 识别关键词：测试
+2. 激活技能：frontend-testing
+3. 按照技能指南执行测试编写流程
+
+你的回复："我将按照前端测试技能的规范来编写测试..."
+
+### ⚠️ 重要提醒
+
+- **不要机械应用**：根据实际情况灵活应用技能
+- **保持灵活性**：如果用户有特殊要求，优先遵循用户意图
+- **持续学习**：根据用户反馈调整技能应用策略
+
+---
+
+# 📚 技能详情
+
+${skillsDetails}
+`;
+}
 // ============ 配置加载 ============
 async function loadConfig() {
     if (ctx.isRemote) {
@@ -336,6 +529,7 @@ async function loadConfig() {
             const config = ctx.remoteManifest.config;
             tasksConfig = config.tasks || null;
             detailLevelsConfig = config.detailLevels || null;
+            skillsConfig = config.skills || null;
             return {
                 LAYERS: {
                     BASE: config.layers.base,
@@ -344,6 +538,7 @@ async function loadConfig() {
                 },
                 TASKS: tasksConfig,
                 DETAIL_LEVELS: detailLevelsConfig,
+                SKILLS: skillsConfig,
                 OUTPUT_DIR_NAME: config.output.dirName,
                 OUTPUT_FILE_NAME: config.output.fileName,
                 FRONTMATTER: config.frontmatter || {},
@@ -366,6 +561,7 @@ async function loadConfig() {
         const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
         tasksConfig = config.tasks || null;
         detailLevelsConfig = config.detailLevels || null;
+        skillsConfig = config.skills || null;
         return {
             LAYERS: {
                 BASE: config.layers.base,
@@ -374,6 +570,7 @@ async function loadConfig() {
             },
             TASKS: tasksConfig,
             DETAIL_LEVELS: detailLevelsConfig,
+            SKILLS: skillsConfig,
             OUTPUT_DIR_NAME: config.output.dirName,
             OUTPUT_FILE_NAME: config.output.fileName,
             FRONTMATTER: config.frontmatter || {},
@@ -484,6 +681,177 @@ async function getSystemPrompt(targetDir, localRulesRoot) {
         return '';
     }
 }
+// ============ 智能规则激活提示词生成 ============
+/**
+ * 生成智能规则激活提示词
+ * 指导 AI 模型根据任务类型动态激活相关规则
+ */
+function generateSmartActivationPrompt() {
+    if (!tasksConfig) {
+        return ''; // 无任务配置时不生成激活提示词
+    }
+    const taskDefinitions = tasksConfig.definitions;
+    const ruleRelevance = tasksConfig.ruleRelevance;
+    // 生成任务类型识别表格
+    let taskRecognitionTable = '| 任务类型 | 关键词 | 典型场景 |\n|---------|--------|----------|\n';
+    for (const [taskId, def] of Object.entries(taskDefinitions)) {
+        const keywords = def.aliases.join('、');
+        const examples = getTaskExamples(taskId);
+        taskRecognitionTable += `| **${def.name} (${taskId})** | ${keywords} | ${examples} |\n`;
+    }
+    // 生成规则激活策略
+    let activationStrategies = '';
+    for (const [taskId, def] of Object.entries(taskDefinitions)) {
+        const relevantRules = getRelevantRulesForTask(taskId, ruleRelevance);
+        activationStrategies += generateTaskActivationStrategy(taskId, def.name, relevantRules);
+    }
+    return `
+
+# 🎯 智能规则激活系统
+
+## 任务检测和规则激活指南
+
+作为 AI 编程助手，你需要根据用户的请求类型，**动态激活**相关的规则集。这个系统模拟了 Claude Code + Skills 的动态激活能力。
+
+### 📋 任务类型识别
+
+请根据用户请求中的关键词和上下文，识别任务类型：
+
+${taskRecognitionTable}
+
+### ⚡ 规则激活策略
+
+根据识别的任务类型，**重点参考**以下规则集：
+
+${activationStrategies}
+
+### 🧠 智能应用原则
+
+1. **上下文优先**：如果用户明确提到某个技术栈或框架，优先应用相关规则
+2. **渐进式应用**：先应用高相关性规则（≥0.8），再根据需要参考中等相关性规则（0.5-0.8）
+3. **灵活调整**：如果用户的请求跨越多个任务类型，综合应用相关规则
+4. **显式说明**：在回复中简要说明你应用了哪些规则，增强透明度
+
+### 📌 示例对话
+
+**场景 1：重构任务**
+
+用户："重构这个组件，使用 Composition API"
+
+你的思考过程：
+1. 识别任务类型：重构 (refactoring)
+2. 激活规则：architecture/feature-based-structure (0.9)、vue3/vue3-script-setup (0.9)、refactoring checklist (1.0)
+3. 重点关注：组件结构、Composition API 最佳实践、重构步骤
+
+你的回复："我将按照 Vue 3 Composition API 最佳实践和重构检查清单来重构这个组件..."
+
+---
+
+**场景 2：调试任务**
+
+用户："这个函数报错了，帮我看看"
+
+你的思考过程：
+1. 识别任务类型：调试 (debugging)
+2. 激活规则：debugging checklist (1.0)、typescript/strict-types (0.7)
+3. 重点关注：错误排查步骤、类型安全检查
+
+你的回复："让我按照调试检查清单来排查这个错误..."
+
+---
+
+**场景 3：新功能开发**
+
+用户："实现一个用户登录表单"
+
+你的思考过程：
+1. 识别任务类型：新功能 (new-feature)
+2. 激活规则：architecture (0.95)、vue3/vue3-script-setup (0.95)、typescript (0.9)、业务规则 (0.95)
+3. 重点关注：架构设计、组件实现、类型定义、UI 组件库使用
+
+你的回复："我将按照 Feature-Based 架构和 Vue 3 最佳实践来实现这个登录表单..."
+
+### ⚠️ 重要提醒
+
+- **不要机械应用所有规则**：根据任务类型选择性应用，避免信息过载
+- **保持灵活性**：用户的需求可能不完全符合某个任务类型，根据实际情况调整
+- **优先用户意图**：如果用户明确要求某种方式，优先遵循用户意图而非规则
+- **持续学习**：根据用户反馈调整规则应用策略
+
+---
+`;
+}
+/**
+ * 获取任务的典型场景示例
+ */
+function getTaskExamples(taskId) {
+    const examples = {
+        'refactoring': '"重构这个组件"、"优化代码结构"',
+        'debugging': '"修复这个 bug"、"为什么报错"',
+        'testing': '"添加测试"、"如何测试这个功能"',
+        'new-feature': '"实现登录功能"、"添加搜索"',
+        'code-review': '"审查这段代码"、"有什么问题"',
+    };
+    return examples[taskId] || '相关开发任务';
+}
+/**
+ * 获取任务的相关规则列表
+ */
+function getRelevantRulesForTask(taskId, ruleRelevance) {
+    const relevantRules = [];
+    for (const [layerId, layerRules] of Object.entries(ruleRelevance)) {
+        for (const [ruleId, taskRelevances] of Object.entries(layerRules)) {
+            const relevance = taskRelevances[taskId];
+            if (relevance !== undefined && relevance >= 0.5) {
+                relevantRules.push({ layer: layerId, rule: ruleId, relevance });
+            }
+        }
+    }
+    // 按相关性降序排序
+    relevantRules.sort((a, b) => b.relevance - a.relevance);
+    return relevantRules;
+}
+/**
+ * 生成单个任务的激活策略
+ */
+function generateTaskActivationStrategy(taskId, taskName, relevantRules) {
+    if (relevantRules.length === 0) {
+        return '';
+    }
+    // 分类规则：高相关性（≥0.8）、中等相关性（0.5-0.8）
+    const highRelevance = relevantRules.filter((r) => r.relevance >= 0.8);
+    const mediumRelevance = relevantRules.filter((r) => r.relevance >= 0.5 && r.relevance < 0.8);
+    let strategy = `#### ${taskName} (${taskId})\n\n`;
+    if (highRelevance.length > 0) {
+        strategy += '**🔥 必读规则**（相关性 ≥ 0.8）：\n';
+        for (const rule of highRelevance.slice(0, 5)) {
+            // 最多显示 5 个
+            strategy += `- ${formatRuleName(rule.layer, rule.rule)} (${rule.relevance.toFixed(2)})\n`;
+        }
+        strategy += '\n';
+    }
+    if (mediumRelevance.length > 0) {
+        strategy += '**⭐ 参考规则**（相关性 0.5-0.8）：\n';
+        for (const rule of mediumRelevance.slice(0, 3)) {
+            // 最多显示 3 个
+            strategy += `- ${formatRuleName(rule.layer, rule.rule)} (${rule.relevance.toFixed(2)})\n`;
+        }
+        strategy += '\n';
+    }
+    return strategy;
+}
+/**
+ * 格式化规则名称
+ */
+function formatRuleName(layerId, ruleId) {
+    const layerNames = {
+        layer1_base: 'Layer 1',
+        layer2_business: 'Layer 2',
+        layer3_action: 'Layer 3',
+    };
+    const layerName = layerNames[layerId] || layerId;
+    return `${layerName}: ${ruleId}`;
+}
 // ============ 参数解析 ============
 function parseArgs() {
     const args = process.argv.slice(2);
@@ -579,7 +947,7 @@ async function main() {
     const targetDir = process.cwd();
     log(`Project: ${targetDir}`);
     // 加载配置
-    const { LAYERS, TASKS, OUTPUT_DIR_NAME, OUTPUT_FILE_NAME, FRONTMATTER } = await loadConfig();
+    const { LAYERS, TASKS, SKILLS, OUTPUT_DIR_NAME, OUTPUT_FILE_NAME, FRONTMATTER } = await loadConfig();
     // 验证任务类型
     if (ctx.taskType && TASKS) {
         const resolvedTask = resolveTaskType(ctx.taskType);
@@ -612,8 +980,18 @@ provider: ${FRONTMATTER.provider || ''}${taskInfo}${detailInfo}
 ---
 
 `;
+    // 生成智能规则激活提示词
+    const smartActivationPrompt = generateSmartActivationPrompt();
+    // 加载和生成技能激活提示词
+    let skillsActivationPrompt = '';
+    if (SKILLS && SKILLS.enabled) {
+        log('Loading custom skills...');
+        const skills = await loadSkills(SKILLS.path);
+        log(`Loaded ${skills.length} skills.`);
+        skillsActivationPrompt = generateSkillsActivationPrompt(skills);
+    }
     let finalContent = `${frontmatterBlock}# Architect Rule Set
-> Generated by Architect Rule Loader V7 (${ctx.isRemote ? 'Remote' : 'Local'})
+> Generated by Architect Rule Loader V7 (${ctx.isRemote ? 'Remote' : 'Local'})${smartActivationPrompt ? ' - Enhanced with Skills-like Activation' : ''}
 > Generated at: ${updatedAt}
 ${ctx.taskType ? `> Task Filter: ${ctx.taskType} (threshold: ${ctx.relevanceThreshold})` : '> Task Filter: None (all rules loaded)'}
 > Detail Level: ${ctx.detailLevel}
@@ -622,6 +1000,8 @@ ${ctx.taskType ? `> Task Filter: ${ctx.taskType} (threshold: ${ctx.relevanceThre
 ---
 
 ${systemPrompt}
+${smartActivationPrompt}
+${skillsActivationPrompt}
 `;
     let rulesLoaded = 0;
     let rulesSkipped = 0;

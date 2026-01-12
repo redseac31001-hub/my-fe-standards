@@ -176,6 +176,11 @@
             "markers": ["@level:summary", "@level:quick", "@level:full"]
         }
     },
+    "skills": {
+        "_comment": "自定义技能配置 - 模拟 Claude Code + Skills 的动态激活能力",
+        "enabled": true,
+        "path": "custom-skills"
+    },
     "output": {
         "dirName": ".codebuddy/.rules",
         "fileName": "project-rules.md"

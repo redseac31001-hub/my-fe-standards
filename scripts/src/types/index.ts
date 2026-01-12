@@ -240,6 +240,7 @@ export interface RawLoaderConfig {
   };
   tasks?: TasksConfig;
   detailLevels?: DetailLevelsConfig;
+  skills?: SkillsConfig;
   output: OutputConfig;
   frontmatter?: FrontmatterConfig;
 }
@@ -255,7 +256,44 @@ export interface LoaderConfig {
   };
   TASKS: TasksConfig | null;
   DETAIL_LEVELS: DetailLevelsConfig | null;
+  SKILLS: SkillsConfig | null;
   OUTPUT_DIR_NAME: string;
   OUTPUT_FILE_NAME: string;
   FRONTMATTER: FrontmatterConfig;
+}
+
+// ============ Skills 系统类型 ============
+
+/**
+ * 技能元数据（从 YAML frontmatter 解析）
+ */
+export interface SkillMetadata {
+  /** 技能 ID（文件夹名） */
+  id: string;
+  /** 技能名称 */
+  name: string;
+  /** 技能描述（包含触发条件） */
+  description: string;
+}
+
+/**
+ * 完整技能结构
+ */
+export interface Skill {
+  /** 技能元数据 */
+  metadata: SkillMetadata;
+  /** 技能内容（SKILL.md 的 markdown 内容，不含 frontmatter） */
+  content: string;
+}
+
+/**
+ * Skills 配置
+ */
+export interface SkillsConfig {
+  /** 是否启用 skills */
+  enabled: boolean;
+  /** skills 目录路径（相对于项目根目录） */
+  path: string;
+  /** 注释 */
+  _comment?: string;
 }
