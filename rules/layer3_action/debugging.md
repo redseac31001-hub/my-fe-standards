@@ -1,3 +1,8 @@
+---
+name: Debugging Checklist
+description: 调试检查清单与策略。涵盖数据流追踪、常见问题排查、调试工具推荐。
+---
+
 # Debugging Checklist & Strategy
 
 > Layer: Action

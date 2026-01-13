@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-01-13T03:19:04.947Z",
+  "generatedAt": "2026-01-13T09:27:50.674Z",
   "version": "1.0.0",
   "config": {
     "$schema": "./loader-config.schema.json",
@@ -277,22 +277,22 @@
     },
     {
       "path": "rules/layer3_action/debugging.md",
-      "size": 3618,
+      "size": 3768,
       "name": "debugging.md"
     },
     {
       "path": "rules/layer3_action/refactoring.md",
-      "size": 1438,
+      "size": 1575,
       "name": "refactoring.md"
     },
     {
       "path": "rules/layer3_action/self-verification.md",
-      "size": 12404,
+      "size": 12553,
       "name": "self-verification.md"
     },
     {
       "path": "rules/layer3_action/testing.md",
-      "size": 4260,
+      "size": 4434,
       "name": "testing.md"
     },
     {
@@ -362,7 +362,7 @@
     },
     {
       "path": "custom-skills/frontend-code-review/SKILL.md",
-      "size": 2863,
+      "size": 2868,
       "name": "SKILL.md"
     },
     {
@@ -412,7 +412,7 @@
     },
     {
       "path": "custom-skills/frontend-testing/SKILL.md",
-      "size": 2181,
+      "size": 2169,
       "name": "SKILL.md"
     },
     {

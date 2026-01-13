@@ -1,3 +1,8 @@
+---
+name: Refactoring Checklist
+description: 重构检查清单与策略。关注可读性、可测试性、代码整洁度。
+---
+
 # Refactoring Checklist & Strategy
 
 > Layer: Action

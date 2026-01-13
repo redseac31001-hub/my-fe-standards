@@ -19,7 +19,7 @@ See [references/code-quality.md](references/code-quality.md), [references/perfor
 Flag each rule violation with urgency metadata so future reviewers can prioritize fixes.
 
 ## Review Process
-1. Open the relevant component/module. Gather lines that relate to class names, React Flow hooks, prop memoization, and styling.
+1. Open the relevant component/module. Gather lines that relate to class names, custom hooks/composables, prop handling, and styling.
 2. For each rule in the review point, note where the code deviates and capture a representative snippet.
 3. Compose the review section per the template below. Group violations first by **Urgent** flag, then by category order (Code Quality, Performance, Business Logic).
 

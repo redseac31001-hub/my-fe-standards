@@ -1,11 +1,11 @@
 ---
 name: frontend-testing
-description: Generate tests for Dify frontend components (React/Vue). Supports Vitest, Jest, Vue Test Utils, and React Testing Library. Triggers on testing requests, spec files, or coverage improvements.
+description: Generate tests for frontend components (React/Vue). Supports Vitest, Jest, Vue Test Utils, and React Testing Library. Triggers on testing requests, spec files, or coverage improvements.
 ---
 
 # Frontend Testing Skill
 
-Generate high-quality frontend tests for Dify components (React & Vue).
+Generate high-quality frontend tests for React & Vue components.
 
 ## Framework Detection
 
