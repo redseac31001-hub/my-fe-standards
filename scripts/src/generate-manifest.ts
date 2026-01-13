@@ -14,6 +14,7 @@ import type { ManifestFile, Manifest, RawLoaderConfig } from './types';
 const RULES_ROOT = path.resolve(__dirname, '../../rules');
 const CONFIG_PATH = path.resolve(__dirname, '../../config/loader-config.json');
 const OUTPUT_PATH = path.resolve(__dirname, '../../manifest.json');
+const SKILLS_ROOT = path.resolve(__dirname, '../../custom-skills');
 
 /**
  * 递归扫描目录，收集所有 Markdown 文件
@@ -24,6 +25,11 @@ const OUTPUT_PATH = path.resolve(__dirname, '../../manifest.json');
 function scanDirectory(dir: string, relativeTo: string): ManifestFile[] {
   let results: ManifestFile[] = [];
 
+  // 目录不存在则跳过
+  if (!fs.existsSync(dir)) {
+    return results;
+  }
+
   const list = fs.readdirSync(dir);
 
   list.forEach((file) => {
@@ -33,7 +39,7 @@ function scanDirectory(dir: string, relativeTo: string): ManifestFile[] {
 
     if (stat.isDirectory()) {
       results = results.concat(scanDirectory(fullPath, relativeTo));
-    } else if (file.endsWith('.md')) {
+    } else if (file.endsWith('.md')) { // 目前只收集 md 文件
       results.push({
         path: relativePath,
         size: stat.size,
@@ -51,12 +57,19 @@ function scanDirectory(dir: string, relativeTo: string): ManifestFile[] {
 function main(): void {
   console.log('[Manifest] Scanning rules directory...');
 
-  // 1. 读取所有规则文件
-  const files = scanDirectory(RULES_ROOT, path.resolve(__dirname, '../..'));
-
-  // 2. 读取 Loader 配置
+  // 2. 读取 Loader 配置 (先读取配置以决定是否扫描 skills)
   const configContent = fs.readFileSync(CONFIG_PATH, 'utf-8');
   const config: RawLoaderConfig = JSON.parse(configContent);
+
+  // 1. 读取规则文件
+  let files = scanDirectory(RULES_ROOT, path.resolve(__dirname, '../..'));
+  
+  // 1.1 扫描 Skills 目录 (如果启用)
+  if (config.skills && config.skills.enabled) {
+    console.log('[Manifest] Scanning custom-skills directory...');
+    const skillFiles = scanDirectory(SKILLS_ROOT, path.resolve(__dirname, '../..'));
+    files = files.concat(skillFiles);
+  }
 
   // 3. 构造 Manifest 对象
   const manifest: Manifest = {

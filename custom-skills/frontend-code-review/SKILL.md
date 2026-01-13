@@ -1,12 +1,12 @@
 ---
 name: frontend-code-review
-description: "Trigger when the user requests a review of frontend files (e.g., `.tsx`, `.ts`, `.js`). Support both pending-change reviews and focused file reviews while applying the checklist rules."
+description: "Trigger when the user requests a review of frontend files (e.g., `.tsx`, `.ts`, `.js`, `.vue`). Support both pending-change reviews and focused file reviews while applying the checklist rules."
 ---
 
 # Frontend Code Review
 
 ## Intent
-Use this skill whenever the user asks to review frontend code (especially `.tsx`, `.ts`, or `.js` files). Support two review modes:
+Use this skill whenever the user asks to review frontend code (especially `.tsx`, `.ts`, `.js` or `.vue` files). Support two review modes:
 
 1. **Pending-change review** – inspect staged/working-tree files slated for commit and flag checklist violations before submission.
 2. **File-targeted review** – review the specific file(s) the user names and report the relevant checklist findings.

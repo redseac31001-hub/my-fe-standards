@@ -374,52 +374,93 @@ function parseSkillFile(skillId, content) {
  */
 async function loadSkills(skillsPath) {
     const skills = [];
+    const localSkillsDir = path.resolve(process.cwd(), '.codebuddy/skills');
+    // 1. 确保本地技能目录存在
+    if (!fs.existsSync(localSkillsDir)) {
+        fs.mkdirSync(localSkillsDir, { recursive: true });
+    }
     if (ctx.isRemote) {
-        // 远程模式：从 manifest 中查找 custom-skills 目录下的 SKILL.md 文件
-        const skillFiles = ctx.remoteManifest.files.filter((f) => f.path.startsWith(skillsPath) && f.path.endsWith('/SKILL.md'));
+        // === 远程模式：从 manifest 查找所有 custom-skills 下的文件进行下载 ===
+        const skillFiles = ctx.remoteManifest.files.filter((f) => f.path.startsWith(skillsPath));
+        logVerbose(`Found ${skillFiles.length} remote skill files to download.`);
+        // 1.1 下载所有关联文件 (SKILL.md, references/*.md)
         for (const file of skillFiles) {
-            const skillId = file.path.split('/')[1]; // 提取技能 ID（文件夹名）
+            const relativePath = file.path.substring(skillsPath.length + 1); // remove "custom-skills/" prefix
+            const localFilePath = path.join(localSkillsDir, relativePath);
+            const localFileDir = path.dirname(localFilePath);
+            if (!fs.existsSync(localFileDir)) {
+                fs.mkdirSync(localFileDir, { recursive: true });
+            }
             const fileUrl = `${ctx.remoteBaseUrl}/${file.path}`;
             try {
                 const content = await fetchUrl(fileUrl);
-                const skill = parseSkillFile(skillId, content);
-                if (skill) {
-                    skills.push(skill);
-                    logVerbose(`Loaded skill: ${skillId}`);
-                }
+                fs.writeFileSync(localFilePath, content, 'utf-8');
+                logVerbose(`Downloaded: ${relativePath}`);
             }
             catch (e) {
-                logWarn(`Failed to load skill: ${skillId}`);
+                logWarn(`Failed to download: ${file.path}`);
+            }
+        }
+        // 1.2 解析 SKILL.md 构建索引 (仅用于生成 Prompt)
+        const skillDirs = fs.readdirSync(localSkillsDir).filter(f => {
+            try {
+                return fs.statSync(path.join(localSkillsDir, f)).isDirectory();
+            }
+            catch (_a) {
+                return false;
+            }
+        });
+        for (const skillId of skillDirs) {
+            const skillFile = path.join(localSkillsDir, skillId, 'SKILL.md');
+            if (fs.existsSync(skillFile)) {
+                const content = fs.readFileSync(skillFile, 'utf-8');
+                const skill = parseSkillFile(skillId, content);
+                if (skill)
+                    skills.push(skill);
             }
         }
     }
     else {
-        // 本地模式：读取 custom-skills 目录
-        const skillsDir = path.resolve(__dirname, '../../', skillsPath);
-        if (!fs.existsSync(skillsDir)) {
-            logWarn(`Skills directory not found: ${skillsDir}`);
+        // === 本地模式：复制 custom-skills 目录到 .codebuddy/skills ===
+        const sourceSkillsDir = path.resolve(__dirname, '../../', skillsPath);
+        if (!fs.existsSync(sourceSkillsDir)) {
+            logWarn(`Skills directory not found: ${sourceSkillsDir}`);
             return skills;
         }
-        const skillDirs = fs.readdirSync(skillsDir).filter((name) => {
-            const fullPath = path.join(skillsDir, name);
-            return fs.statSync(fullPath).isDirectory();
+        // 递归复制函数
+        function copyRecursive(src, dest) {
+            if (!fs.existsSync(src))
+                return;
+            const stats = fs.statSync(src);
+            if (stats.isDirectory()) {
+                if (!fs.existsSync(dest))
+                    fs.mkdirSync(dest, { recursive: true });
+                fs.readdirSync(src).forEach(childItemName => {
+                    copyRecursive(path.join(src, childItemName), path.join(dest, childItemName));
+                });
+            }
+            else {
+                fs.copyFileSync(src, dest);
+            }
+        }
+        logVerbose(`Syncing skills from ${sourceSkillsDir} to ${localSkillsDir}`);
+        copyRecursive(sourceSkillsDir, localSkillsDir);
+        // 解析构建索引
+        const skillDirs = fs.readdirSync(localSkillsDir).filter(f => {
+            try {
+                return fs.statSync(path.join(localSkillsDir, f)).isDirectory();
+            }
+            catch (_a) {
+                return false;
+            }
         });
         for (const skillId of skillDirs) {
-            const skillFile = path.join(skillsDir, skillId, 'SKILL.md');
-            if (!fs.existsSync(skillFile)) {
-                logVerbose(`Skipping ${skillId}: no SKILL.md found`);
-                continue;
-            }
-            try {
+            const skillFile = path.join(localSkillsDir, skillId, 'SKILL.md');
+            if (fs.existsSync(skillFile)) {
                 const content = fs.readFileSync(skillFile, 'utf-8');
                 const skill = parseSkillFile(skillId, content);
-                if (skill) {
+                if (skill)
                     skills.push(skill);
-                    logVerbose(`Loaded skill: ${skillId}`);
-                }
-            }
-            catch (e) {
-                logWarn(`Failed to load skill: ${skillId}`);
             }
         }
     }
@@ -428,93 +469,45 @@ async function loadSkills(skillsPath) {
 /**
  * 生成技能激活提示词
  */
+/**
+ * 生成技能激活提示词 (仅索引，指向本地文件)
+ */
 function generateSkillsActivationPrompt(skills) {
     if (skills.length === 0) {
         return '';
     }
-    // 生成技能列表表格
-    let skillsTable = '| 技能名称 | 技能 ID | 触发条件 |\n|---------|---------|----------|\n';
+    // 生成技能路由表 (Routing Table)
+    let skillsTable = '| 技能名称 | 技能 ID (Path) | 触发场景 |\n|---------|---|----------|\n';
     for (const skill of skills) {
         skillsTable += `| **${skill.metadata.name}** | \`${skill.metadata.id}\` | ${skill.metadata.description} |\n`;
     }
-    // 生成技能详情章节
-    let skillsDetails = '';
-    for (const skill of skills) {
-        skillsDetails += `\n## ${skill.metadata.name} (\`${skill.metadata.id}\`)\n\n`;
-        skillsDetails += `**触发条件**：${skill.metadata.description}\n\n`;
-        skillsDetails += `**详细指南**：\n\n`;
-        skillsDetails += skill.content;
-        skillsDetails += '\n\n---\n';
-    }
     return `
+# 🧩 动态技能索引 (Dynamic Skills Index)
 
-# 🎯 智能技能激活系统
+本规则库采用 **动态加载模式**，不会一次性加载所有技能详情，以节省上下文窗口。
+所有技能定义文件已下载至您的项目中 (\`.codebuddy/skills/\`)。
 
-## 技能检测和激活指南
-
-作为 AI 编程助手，你需要根据用户的请求内容，**动态激活**相关的技能。这个系统模拟了 Claude Code + Skills 的动态激活能力。
-
-### 📋 可用技能列表
+## 已安装技能表
 
 ${skillsTable}
 
-### ⚡ 技能激活原则
+## 🚀 技能调用指令 (System Instruction)
 
-1. **关键词匹配**：根据用户请求中的关键词，识别相关技能
-2. **上下文理解**：结合用户的上下文（文件类型、任务类型等）判断
-3. **主动应用**：识别到相关技能后，主动按照技能指南执行
-4. **显式说明**：在回复中简要说明你应用了哪个技能
+作为智能 Agent，请遵循以下 "**渐进式加载 (Progressive Loading)**" 流程：
 
-### 📌 使用示例
+1.  **识别意图**: 分析用户请求是否匹配上述表格中的触发场景。
+2.  **动态加载**: 如果匹配，请**主动调用工具** (如 \`read_file\`) 读取对应的技能入口文件：
+    - 路径: \`.codebuddy/skills/<技能ID>/SKILL.md\`
+3.  **遵循指引**: 读取 \`SKILL.md\` 后，根据其中的路由逻辑 (Router Logic)，判断是否需要进一步读取 \`references/\` 下的特定技术栈文档（如 Vue 2 vs Vue 3）。
+4.  **执行操作**: 基于完整的上下文执行用户的重构、审查或测试任务。
 
-**场景 1：代码审查**
-
-用户："审查这段代码，看看有什么问题"
-
-你的思考过程：
-1. 识别关键词：审查、代码
-2. 激活技能：frontend-code-review
-3. 按照技能指南执行审查流程
-
-你的回复："我将按照前端代码审查技能的检查清单来审查这段代码..."
-
----
-
-**场景 2：组件重构**
-
-用户："这个组件太复杂了，帮我重构一下"
-
-你的思考过程：
-1. 识别关键词：复杂、重构
-2. 激活技能：component-refactoring
-3. 按照技能指南执行重构流程
-
-你的回复："我将按照组件重构技能的模式来重构这个组件..."
-
----
-
-**场景 3：测试编写**
-
-用户："为这个组件添加测试"
-
-你的思考过程：
-1. 识别关键词：测试
-2. 激活技能：frontend-testing
-3. 按照技能指南执行测试编写流程
-
-你的回复："我将按照前端测试技能的规范来编写测试..."
-
-### ⚠️ 重要提醒
-
-- **不要机械应用**：根据实际情况灵活应用技能
-- **保持灵活性**：如果用户有特殊要求，优先遵循用户意图
-- **持续学习**：根据用户反馈调整技能应用策略
-
----
-
-# 📚 技能详情
-
-${skillsDetails}
+**示例**:
+> 用户: "帮我重构这个组件"
+> Agent 思考: 意图匹配 \`component-refactoring\`。
+> Agent 行动: 读取文件 \`.codebuddy/skills/component-refactoring/SKILL.md\`。
+> Agent 思考 (基于 SKILL.md): 这是一个 Vue 3 项目，我需要读取 \`.codebuddy/skills/component-refactoring/references/vue/composition-api.md\`。
+> Agent 行动: 读取上述 reference 文件。
+> Agent 回复: "根据 Vue 3 重构规范，我建议..."
 `;
 }
 // ============ 配置加载 ============
@@ -1003,88 +996,193 @@ ${systemPrompt}
 ${smartActivationPrompt}
 ${skillsActivationPrompt}
 `;
-    let rulesLoaded = 0;
-    let rulesSkipped = 0;
-    // 处理 Layer 1: Base
-    log('Processing Base Layer...');
-    finalContent += `\n# ${LAYERS.BASE.title}\n`;
-    const baseDir = ctx.isRemote ? LAYERS.BASE.id : path.join(RULES_ROOT, LAYERS.BASE.id);
-    for (const folder of LAYERS.BASE.staticDeps) {
-        const parts = await loadRulesFromFolder(baseDir, folder, 'layer1_base');
-        if (parts.length > 0) {
-            finalContent += parts.join('\n');
-            rulesLoaded++;
-        }
-        else if (ctx.taskType) {
-            rulesSkipped++;
-        }
+    // ============ 规则处理逻辑 (Progressive Loading Refactor) ============
+    let rulesLoaded = 0; // Fix: Define rulesLoaded here so it's accessible
+    let rulesSkipped = 0; // Fix: Define rulesSkipped here
+    const vueProfile = checkVueProfile(dependencies); // Fix: Define vueProfile here
+    // 1. 准备本地规则缓存目录
+    const localRulesCacheDir = path.resolve(process.cwd(), '.codebuddy/rules_cache');
+    if (!fs.existsSync(localRulesCacheDir)) {
+        fs.mkdirSync(localRulesCacheDir, { recursive: true });
     }
-    // Vue 版本特定规则
-    const vueProfile = checkVueProfile(dependencies);
-    if (vueProfile) {
-        if (vueProfile.version === 3) {
-            log('Detected Vue 3. Loading Script Setup rules.');
-            const parts = await loadRulesFromFolder(baseDir, 'vue3', 'layer1_base');
-            if (parts.length > 0) {
-                finalContent += parts.join('\n');
-                rulesLoaded++;
+    // Helper to download/copy rule file and return its local path relative to project root
+    async function cacheRuleFile(layerDir, subPath) {
+        const fileName = path.basename(subPath);
+        const cacheSubDir = path.join(localRulesCacheDir, layerDir);
+        if (!fs.existsSync(cacheSubDir))
+            fs.mkdirSync(cacheSubDir, { recursive: true });
+        const localCachePath = path.join(cacheSubDir, fileName);
+        const relativeCachePath = `.codebuddy/rules_cache/${layerDir}/${fileName}`;
+        if (ctx.isRemote) {
+            // 远程下载
+            const fileUrl = `${ctx.remoteBaseUrl}/rules/${layerDir}/${subPath}`;
+            try {
+                const content = await fetchUrl(fileUrl);
+                fs.writeFileSync(localCachePath, content, 'utf-8');
+                logVerbose(`Downloaded rule to cache: ${relativeCachePath}`);
+            }
+            catch (e) {
+                logWarn(`Failed to download rule: ${fileUrl}`);
+                return '';
             }
         }
-        else if (vueProfile.version === 2) {
-            if (vueProfile.type === 'composition') {
-                log('Detected Vue 2 + Composition API.');
-                const parts = await loadRulesFromFolder(baseDir, 'vue2/vue2-composition.md', 'layer1_base');
-                if (parts.length > 0) {
-                    finalContent += parts.join('\n');
+        else {
+            // 本地复制
+            const srcPath = path.join(RULES_ROOT, layerDir, subPath);
+            if (fs.existsSync(srcPath)) {
+                fs.copyFileSync(srcPath, localCachePath);
+                logVerbose(`Cached local rule: ${relativeCachePath}`);
+            }
+            else {
+                return '';
+            }
+        }
+        return relativeCachePath;
+    }
+    // Helper to process a layer: returns Content (for eager load) or Index Entry (for lazy load)
+    async function processLayerRules(layerDef, layerId, loadMode, rulePaths) {
+        let layerContent = '';
+        let layerIndex = '';
+        for (const rulePath of rulePaths) {
+            if (!rulePath)
+                continue;
+            // 1. Cache the file first
+            const cachedPath = await cacheRuleFile(layerDef.id, rulePath);
+            if (!cachedPath)
+                continue;
+            // 2. Read content
+            const fullContent = fs.readFileSync(path.resolve(process.cwd(), cachedPath), 'utf-8');
+            // 3. Extract Metadata
+            const frontmatter = parseYamlFrontmatter(fullContent);
+            const ruleName = (frontmatter === null || frontmatter === void 0 ? void 0 : frontmatter.name) || path.basename(rulePath, '.md');
+            const description = (frontmatter === null || frontmatter === void 0 ? void 0 : frontmatter.description) || 'No description provided.';
+            if (loadMode === 'eager') {
+                // Eager Load: 提取精简内容嵌入 project-rules.md
+                // Layer 1 强制使用 quick/summary 级别，防止过长
+                const filtered = extractContentByLevel(fullContent, 'quick');
+                if (filtered) {
+                    layerContent += `\n<!-- Rule: ${ruleName} -->\n${filtered}\n`;
                     rulesLoaded++;
                 }
             }
             else {
-                log('Detected Vue 2 (Standard).');
-                const parts = await loadRulesFromFolder(baseDir, 'vue2/vue2-general.md', 'layer1_base');
-                if (parts.length > 0) {
-                    finalContent += parts.join('\n');
-                    rulesLoaded++;
-                }
+                // Lazy Load: 仅生成索引
+                layerIndex += `| **${ruleName}** | \`${cachedPath}\` | ${description} |\n`;
+                rulesLoaded++; // Count as loaded (available)
+            }
+        }
+        return { content: layerContent, index: layerIndex };
+    }
+    // --- 处理 Layer 1: Base (Eager Load - 核心原则常驻) ---
+    log('Processing Layer 1: Base (Eager Mode - Core Principles)...');
+    const layer1Rules = LAYERS.BASE.staticDeps;
+    // Handle Vue specific logic to add to layer1Rules list
+    if (vueProfile) {
+        if (vueProfile.version === 3)
+            layer1Rules.push('vue3/vue3-script-setup.md'); // assuming structure
+        else if (vueProfile.version === 2) {
+            if (vueProfile.type === 'composition')
+                layer1Rules.push('vue2/vue2-composition.md');
+            else
+                layer1Rules.push('vue2/vue2-general.md');
+        }
+    }
+    // Custom logic to handle the 'vue3' folder or file correctly if strictly defined in staticDeps or logic above
+    // For simplicity based on original code, we re-use the specific logic but adapt to list:
+    // Note: Original code had specific folder logic. We adhere to caching individual files. 
+    // We will iterate staticDeps and Vue logic to build a list of file paths relative to layer dir.
+    const layer1Files = [];
+    // 1. Static Deps (folders or files)
+    for (const item of LAYERS.BASE.staticDeps) {
+        // Check if it's a dir or file. In remote mode we can't easily check dir listing without manifest
+        // So we rely on Manifest for remote, fs for local.
+        if (ctx.isRemote) {
+            const matches = ctx.remoteManifest.files.filter(f => f.path.startsWith(`rules/${LAYERS.BASE.id}/${item}`) && f.path.endsWith('.md'));
+            matches.forEach(m => layer1Files.push(m.path.replace(`rules/${LAYERS.BASE.id}/`, '')));
+        }
+        else {
+            const p = path.join(RULES_ROOT, LAYERS.BASE.id, item);
+            if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
+                fs.readdirSync(p).filter(f => f.endsWith('.md')).forEach(f => layer1Files.push(`${item}/${f}`));
+            }
+            else if (p.endsWith('.md')) {
+                layer1Files.push(item);
             }
         }
     }
-    else {
-        logWarn('No Vue detected. Skipping Vue-specific rules.');
+    // 2. Vue logic
+    if (vueProfile) {
+        // similar logic for Vue files... adapting original simple hardcoded paths
+        // Original: 'vue3', 'vue2/vue2-composition.md'
+        const vueTarget = vueProfile.version === 3 ? 'vue3' : (vueProfile.type === 'composition' ? 'vue2/vue2-composition.md' : 'vue2/vue2-general.md');
+        if (ctx.isRemote) {
+            const matches = ctx.remoteManifest.files.filter(f => f.path.startsWith(`rules/${LAYERS.BASE.id}/${vueTarget}`) && f.path.endsWith('.md'));
+            matches.forEach(m => layer1Files.push(m.path.replace(`rules/${LAYERS.BASE.id}/`, '')));
+        }
+        else {
+            const p = path.join(RULES_ROOT, LAYERS.BASE.id, vueTarget);
+            if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
+                fs.readdirSync(p).filter(f => f.endsWith('.md')).forEach(f => layer1Files.push(`${vueTarget}/${f}`));
+            }
+            else if (p.endsWith('.md')) {
+                layer1Files.push(vueTarget);
+            }
+        }
     }
-    // 处理 Layer 2: Business
-    log('Processing Business Layer...');
-    finalContent += `\n# ${LAYERS.BUSINESS.title}\n`;
-    const bizDir = ctx.isRemote ? LAYERS.BUSINESS.id : path.join(RULES_ROOT, LAYERS.BUSINESS.id);
+    const layer1Result = await processLayerRules(LAYERS.BASE, LAYERS.BASE.id, 'eager', [...new Set(layer1Files)]);
+    finalContent += `\n# ${LAYERS.BASE.title} (Core Principles)\n`;
+    finalContent += `> 这些是本项目必须遵守的核心规范（如 TypeScript、架构模式）。\n\n`;
+    finalContent += layer1Result.content;
+    // --- 处理 Layer 2: Business (Lazy Load - 索引模式) ---
+    log('Processing Layer 2: Business (Lazy Mode - Index Only)...');
+    const layer2Files = [];
     for (const depKey of Object.keys(LAYERS.BUSINESS.dependencies)) {
         if (projectDeps.includes(depKey)) {
-            log(`Detected ${depKey}. Loading related rules.`);
-            for (const folder of LAYERS.BUSINESS.dependencies[depKey]) {
-                const parts = await loadRulesFromFolder(bizDir, folder, 'layer2_business');
-                if (parts.length > 0) {
-                    finalContent += parts.join('\n');
-                    rulesLoaded++;
+            log(`Detected ${depKey}. Indexing related rules.`);
+            for (const item of LAYERS.BUSINESS.dependencies[depKey]) {
+                // Resolve file paths similar to above
+                if (ctx.isRemote) {
+                    const matches = ctx.remoteManifest.files.filter(f => f.path.startsWith(`rules/${LAYERS.BUSINESS.id}/${item}`) && f.path.endsWith('.md'));
+                    matches.forEach(m => layer2Files.push(m.path.replace(`rules/${LAYERS.BUSINESS.id}/`, '')));
                 }
-                else if (ctx.taskType) {
-                    rulesSkipped++;
+                else {
+                    const p = path.join(RULES_ROOT, LAYERS.BUSINESS.id, item);
+                    if (fs.existsSync(p)) {
+                        if (fs.statSync(p).isDirectory()) {
+                            fs.readdirSync(p).filter(f => f.endsWith('.md')).forEach(f => layer2Files.push(`${item}/${f}`));
+                        }
+                        else {
+                            layer2Files.push(item); // .md suffix already in config usually? or strictly Item is folder/file
+                        }
+                    }
+                    else if (fs.existsSync(p + '.md')) {
+                        layer2Files.push(item + '.md');
+                    }
                 }
             }
         }
     }
-    // 处理 Layer 3: Action
-    log('Processing Action Layer...');
-    finalContent += `\n# ${LAYERS.ACTION.title}\n`;
-    const actionDir = ctx.isRemote ? LAYERS.ACTION.id : path.join(RULES_ROOT, LAYERS.ACTION.id);
+    const layer2Result = await processLayerRules(LAYERS.BUSINESS, LAYERS.BUSINESS.id, 'lazy', [...new Set(layer2Files)]);
+    // --- 处理 Layer 3: Action (Lazy Load - 索引模式) ---
+    log('Processing Layer 3: Action (Lazy Mode - Index Only)...');
+    const layer3Files = [];
     for (const item of LAYERS.ACTION.defaults) {
-        const parts = await loadRulesFromFolder(actionDir, item + '.md', 'layer3_action');
-        if (parts.length > 0) {
-            finalContent += parts.join('\n');
-            rulesLoaded++;
-        }
-        else if (ctx.taskType) {
-            rulesSkipped++;
-        }
+        const fileName = item + '.md';
+        layer3Files.push(fileName);
     }
+    const layer3Result = await processLayerRules(LAYERS.ACTION, LAYERS.ACTION.id, 'lazy', layer3Files);
+    // --- 生成统一索引表 ---
+    let indexTable = '';
+    if (layer2Result.index || layer3Result.index) {
+        indexTable += `\n# 📚 规则参考手册索引 (Rule Reference Index)\n`;
+        indexTable += `> 以下规则包含具体的技术栈实现细节（如 UI 库用法、特定任务流程）。\n`;
+        indexTable += `> **请按需读取**：当你的任务涉及以下领域时，请主动读取对应的本地文件。\n\n`;
+        indexTable += `| 规则名称 | 本地文件路径 (Local Path) | 说明 |\n`;
+        indexTable += `|---|---|---|\n`;
+        indexTable += layer2Result.index;
+        indexTable += layer3Result.index;
+    }
+    finalContent += indexTable;
     // 输出
     const outputDir = path.join(targetDir, OUTPUT_DIR_NAME);
     if (!fs.existsSync(outputDir))
