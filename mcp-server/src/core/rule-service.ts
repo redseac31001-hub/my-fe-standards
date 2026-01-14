@@ -64,6 +64,9 @@ export class RuleService {
     taskType?: string,
     detailLevel: string = 'full'
   ): Promise<string> {
+    // 智能推荐详略级别
+    const recommendedLevel = this.recommendDetailLevel(taskType, detailLevel);
+
     // 读取 package.json
     const pkg = this.getPackageJson(projectPath);
     const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
@@ -75,7 +78,13 @@ export class RuleService {
     let output = '# 前端架构规则\n\n';
     output += `> 项目路径: ${projectPath}\n`;
     output += `> 任务类型: ${taskType || 'all'}\n`;
-    output += `> 详略级别: ${detailLevel}\n\n`;
+    output += `> 详略级别: ${recommendedLevel}`;
+
+    // 如果使用了推荐级别，添加说明
+    if (recommendedLevel !== detailLevel) {
+      output += ` (推荐级别，原始: ${detailLevel})`;
+    }
+    output += '\n\n';
 
     // 添加 Vue 信息
     if (vueProfile) {
@@ -85,13 +94,19 @@ export class RuleService {
     }
 
     // 加载 Layer 1 规则（基础层）
-    output += await this.loadLayer1Rules(vueProfile, detailLevel as DetailLevel);
+    const layer1Content = await this.loadLayer1Rules(vueProfile, recommendedLevel as DetailLevel);
+    output += layer1Content;
 
     // 加载 Layer 2 规则（业务层）
-    output += await this.loadLayer2Rules(dependencies, detailLevel as DetailLevel);
+    const layer2Content = await this.loadLayer2Rules(dependencies, recommendedLevel as DetailLevel);
+    output += layer2Content;
 
     // 加载 Layer 3 规则（动作层）
-    output += await this.loadLayer3Rules(taskType, detailLevel as DetailLevel);
+    const layer3Content = await this.loadLayer3Rules(taskType, recommendedLevel as DetailLevel);
+    output += layer3Content;
+
+    // 添加内容大小统计
+    output += this.generateSizeStats(layer1Content + layer2Content + layer3Content, recommendedLevel);
 
     return output;
   }
@@ -142,7 +157,7 @@ export class RuleService {
   /**
    * 搜索规则库
    */
-  async searchRules(query: string, layer?: string): Promise<any[]> {
+  async searchRules(query: string, layer?: string, detailLevel: string = 'summary'): Promise<any[]> {
     const results: any[] = [];
     const searchDir = layer ? path.join(this.rulesRoot, layer) : this.rulesRoot;
 
@@ -167,13 +182,15 @@ export class RuleService {
 
           if (lowerContent.includes(lowerQuery)) {
             const ruleId = path.join(basePath, file.replace('.md', ''));
-            const summary = this.extractSummary(content);
+
+            // 根据 detailLevel 提取内容
+            const extractedContent = this.extractContentByLevel(content, detailLevel as DetailLevel);
 
             results.push({
               ruleId,
               file: file,
               path: fullPath,
-              summary,
+              content: extractedContent,
               matches: this.countMatches(content, query),
             });
           }
@@ -190,6 +207,57 @@ export class RuleService {
   }
 
   // ============ 私有辅助方法 ============
+
+  /**
+   * 智能推荐详略级别
+   */
+  private recommendDetailLevel(taskType: string | undefined, currentLevel: string): string {
+    // 如果用户明确指定了非 full 级别，尊重用户选择
+    if (currentLevel !== 'full') {
+      return currentLevel;
+    }
+
+    // 根据任务类型推荐级别
+    const recommendations: Record<string, string> = {
+      'debugging': 'quick',        // 调试：快速参考即可
+      'code-review': 'summary',    // 代码审查：摘要即可
+      'testing': 'quick',          // 测试：快速参考
+      'refactoring': 'full',       // 重构：需要完整内容
+      'new-feature': 'full',       // 新功能：需要完整内容
+      'all': 'quick',              // 全部：默认快速参考
+    };
+
+    return recommendations[taskType || 'all'] || currentLevel;
+  }
+
+  /**
+   * 生成内容大小统计
+   */
+  private generateSizeStats(content: string, currentLevel: string): string {
+    const currentSize = Buffer.byteLength(content, 'utf-8');
+    const formatSize = (bytes: number) => {
+      if (bytes < 1024) return `${bytes}B`;
+      return `${(bytes / 1024).toFixed(2)}KB`;
+    };
+
+    let stats = '\n---\n\n## 📊 内容统计\n\n';
+    stats += `- **当前级别**: ${currentLevel}\n`;
+    stats += `- **当前大小**: ${formatSize(currentSize)}\n\n`;
+
+    // 估算其他级别的大小（基于经验比例）
+    const sizeEstimates = {
+      summary: currentSize * 0.2,  // 摘要约为 20%
+      quick: currentSize * 0.5,    // 快速约为 50%
+      full: currentSize,           // 完整为 100%
+    };
+
+    stats += '**各级别预估大小**：\n';
+    stats += `- summary: ${formatSize(sizeEstimates.summary)} (约 20%)\n`;
+    stats += `- quick: ${formatSize(sizeEstimates.quick)} (约 50%)\n`;
+    stats += `- full: ${formatSize(sizeEstimates.full)} (100%)\n`;
+
+    return stats;
+  }
 
   /**
    * 读取 package.json

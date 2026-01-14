@@ -29,7 +29,15 @@ export declare class RuleService {
     /**
      * 搜索规则库
      */
-    searchRules(query: string, layer?: string): Promise<any[]>;
+    searchRules(query: string, layer?: string, detailLevel?: string): Promise<any[]>;
+    /**
+     * 智能推荐详略级别
+     */
+    private recommendDetailLevel;
+    /**
+     * 生成内容大小统计
+     */
+    private generateSizeStats;
     /**
      * 读取 package.json
      */

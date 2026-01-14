@@ -107,6 +107,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             enum: ['layer1_base', 'layer2_business', 'layer3_action'],
             description: '限定层级（可选）',
           },
+          detailLevel: {
+            type: 'string',
+            enum: ['summary', 'quick', 'full'],
+            description: '详略级别（可选，默认 summary）',
+          },
         },
         required: ['query'],
       },
@@ -178,7 +183,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'search_rules': {
         const results = await ruleService.searchRules(
           args.query as string,
-          args.layer as string | undefined
+          args.layer as string | undefined,
+          (args.detailLevel as string) || 'summary'
         );
         return {
           content: [
