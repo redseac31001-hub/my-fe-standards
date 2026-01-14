@@ -98,6 +98,50 @@ npm start
 FE_STANDARDS_REMOTE_URL=https://example.com/standards npm start
 ```
 
+### 方式 5: 通过 npm 使用（推荐，零克隆）⭐
+
+**无需克隆项目，直接使用**：
+
+在 MCP 配置文件中添加：
+
+```json
+{
+  "mcpServers": {
+    "fe-standards": {
+      "command": "npx",
+      "args": ["-y", "fe-standards-mcp-server"],
+      "env": {
+        "FE_STANDARDS_REMOTE_URL": "https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/mcp-server"
+      }
+    }
+  }
+}
+```
+
+**优势**：
+- ✅ 无需克隆项目
+- ✅ 无需安装依赖
+- ✅ 无需构建
+- ✅ 自动使用最新版本
+- ✅ 团队成员零配置负担
+
+**首次启动**：npx 会自动下载包（约 1-2 秒）
+**后续启动**：使用缓存，启动速度快
+
+**版本锁定**（推荐）：
+```json
+{
+  "mcpServers": {
+    "fe-standards": {
+      "command": "npx",
+      "args": ["-y", "fe-standards-mcp-server@1.0.0"]
+    }
+  }
+}
+```
+
+> 📝 **注意**：此方式需要先将 MCP 服务器发布到 npm。详见 [DEPLOYMENT.md](./DEPLOYMENT.md)
+
 ## 🛠️ 可用工具
 
 ### 1. `get_project_rules`
