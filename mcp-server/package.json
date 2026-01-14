@@ -1,0 +1,32 @@
+{
+  "name": "fe-standards-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for Frontend Architecture Standards",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "fe-standards-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch & node --watch dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "frontend",
+    "standards",
+    "architecture",
+    "rules"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
