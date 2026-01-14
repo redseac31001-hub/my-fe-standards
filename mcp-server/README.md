@@ -26,9 +26,9 @@ npm run build
 
 ## 🚀 使用方法
 
-### 方式 1: 在 Claude Desktop 中使用
+### 方式 1: 本地模式（默认）
 
-编辑 Claude Desktop 的配置文件（`~/Library/Application Support/Claude/claude_desktop_config.json` 或 Windows 上的对应路径）：
+在 Claude Desktop 的配置文件中：
 
 ```json
 {
@@ -41,7 +41,36 @@ npm run build
 }
 ```
 
-### 方式 2: 在 CodeBuddy 中使用
+### 方式 2: 远程模式
+
+通过环境变量配置远程规则库 URL：
+
+```json
+{
+  "mcpServers": {
+    "fe-standards": {
+      "command": "node",
+      "args": ["/path/to/mcp-server/dist/index.js"],
+      "env": {
+        "FE_STANDARDS_REMOTE_URL": "https://raw.githubusercontent.com/your-org/my-fe-standards/main"
+      }
+    }
+  }
+}
+```
+
+**远程模式优势**：
+- ✅ 无需本地规则库文件
+- ✅ 自动获取最新规则
+- ✅ 支持私有仓库（通过 GitHub Token）
+- ✅ 团队规则统一管理
+
+**远程 URL 示例**：
+- GitHub: `https://raw.githubusercontent.com/user/repo/branch`
+- GitLab: `https://gitlab.com/user/repo/-/raw/branch`
+- 自建服务器: `https://your-server.com/standards`
+
+### 方式 3: 在 CodeBuddy 中使用
 
 如果 CodeBuddy 支持 MCP，在其配置文件中添加：
 
@@ -50,19 +79,23 @@ npm run build
   "mcpServers": {
     "fe-standards": {
       "command": "node",
-      "args": ["/path/to/mcp-server/dist/index.js"]
+      "args": ["/path/to/mcp-server/dist/index.js"],
+      "env": {
+        "FE_STANDARDS_REMOTE_URL": "https://your-remote-url"
+      }
     }
   }
 }
 ```
 
-### 方式 3: 直接运行测试
+### 方式 4: 直接运行测试
 
 ```bash
-# 启动服务器
+# 本地模式
 npm start
 
-# 服务器将监听 stdio，等待 MCP 客户端连接
+# 远程模式
+FE_STANDARDS_REMOTE_URL=https://example.com/standards npm start
 ```
 
 ## 🛠️ 可用工具

@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as https from 'https';
+import * as http from 'http';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 // ES 模块中获取 __dirname
@@ -13,9 +15,34 @@ export class RuleService {
     cache = new Map();
     rulesRoot;
     configPath;
-    constructor() {
+    remoteUrl;
+    manifest;
+    isRemote = false;
+    constructor(remoteUrl) {
         this.rulesRoot = path.resolve(__dirname, '../../rules');
         this.configPath = path.resolve(__dirname, '../../config/loader-config.json');
+        if (remoteUrl) {
+            this.remoteUrl = remoteUrl;
+            this.isRemote = true;
+            console.error(`[MCP] 远程模式已启用: ${remoteUrl}`);
+        }
+    }
+    /**
+     * 初始化远程模式（加载 manifest）
+     */
+    async initialize() {
+        if (this.isRemote && this.remoteUrl) {
+            try {
+                const manifestUrl = `${this.remoteUrl}/manifest.json`;
+                const data = await this.fetchUrl(manifestUrl);
+                this.manifest = JSON.parse(data);
+                console.error(`[MCP] Manifest 已加载: ${this.manifest.files.length} 个文件`);
+            }
+            catch (error) {
+                console.error(`[MCP] 加载 manifest 失败: ${error.message}`);
+                throw error;
+            }
+        }
     }
     /**
      * 获取项目的前端架构规则
@@ -64,6 +91,18 @@ export class RuleService {
      * 按 ID 获取单个规则
      */
     async getRuleById(ruleId, detailLevel = 'full') {
+        // 远程模式
+        if (this.isRemote && this.remoteUrl) {
+            const fileUrl = `${this.remoteUrl}/rules/${ruleId}.md`;
+            try {
+                const content = await this.fetchUrl(fileUrl);
+                return this.extractContentByLevel(content, detailLevel);
+            }
+            catch (error) {
+                throw new Error(`远程规则加载失败: ${error.message}`);
+            }
+        }
+        // 本地模式
         const rulePath = path.join(this.rulesRoot, `${ruleId}.md`);
         if (!fs.existsSync(rulePath)) {
             throw new Error(`Rule not found: ${ruleId}`);
@@ -342,6 +381,63 @@ export class RuleService {
             }
         }
         return output;
+    }
+    /**
+     * 从远程 URL 获取内容（带重试机制）
+     */
+    fetchUrl(url, retries = 3) {
+        return new Promise((resolve, reject) => {
+            const client = url.startsWith('https') ? https : http;
+            const request = client.get(url, (res) => {
+                // 处理重定向
+                if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    this.fetchUrl(res.headers.location, retries).then(resolve).catch(reject);
+                    return;
+                }
+                // 处理错误状态码
+                if (res.statusCode !== 200) {
+                    if (res.statusCode && res.statusCode >= 500 && retries > 0) {
+                        res.resume();
+                        setTimeout(() => {
+                            this.fetchUrl(url, retries - 1).then(resolve).catch(reject);
+                        }, 1000);
+                        return;
+                    }
+                    res.resume();
+                    reject(new Error(`HTTP ${res.statusCode}: Failed to fetch ${url}`));
+                    return;
+                }
+                // 读取响应数据
+                let data = '';
+                res.on('data', (chunk) => {
+                    data += chunk.toString();
+                });
+                res.on('end', () => {
+                    resolve(data);
+                });
+            });
+            // 处理网络错误
+            request.on('error', (e) => {
+                if (retries > 0) {
+                    setTimeout(() => {
+                        this.fetchUrl(url, retries - 1).then(resolve).catch(reject);
+                    }, 1000);
+                    return;
+                }
+                reject(new Error(`Network Error: ${e.message} (URL: ${url})`));
+            });
+            // 设置超时
+            request.setTimeout(10000, () => {
+                request.destroy();
+                if (retries > 0) {
+                    setTimeout(() => {
+                        this.fetchUrl(url, retries - 1).then(resolve).catch(reject);
+                    }, 1000);
+                    return;
+                }
+                reject(new Error(`Request Timeout: ${url}`));
+            });
+        });
     }
 }
 //# sourceMappingURL=rule-service.js.map

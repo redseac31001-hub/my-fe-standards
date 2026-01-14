@@ -7,6 +7,9 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { RuleService } from './core/rule-service.js';
 
+// 从环境变量读取远程 URL
+const REMOTE_URL = process.env.FE_STANDARDS_REMOTE_URL;
+
 // 初始化 MCP 服务器
 const server = new Server(
   {
@@ -21,7 +24,13 @@ const server = new Server(
 );
 
 // 初始化规则服务
-const ruleService = new RuleService();
+const ruleService = new RuleService(REMOTE_URL);
+
+// 初始化远程模式（如果启用）
+if (REMOTE_URL) {
+  console.error(`[MCP] 正在初始化远程模式...`);
+  await ruleService.initialize();
+}
 
 // 注册工具列表
 server.setRequestHandler(ListToolsRequestSchema, async () => ({

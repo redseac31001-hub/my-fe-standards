@@ -6,7 +6,14 @@ export declare class RuleService {
     private cache;
     private rulesRoot;
     private configPath;
-    constructor();
+    private remoteUrl?;
+    private manifest?;
+    private isRemote;
+    constructor(remoteUrl?: string);
+    /**
+     * 初始化远程模式（加载 manifest）
+     */
+    initialize(): Promise<void>;
     /**
      * 获取项目的前端架构规则
      */
@@ -63,5 +70,9 @@ export declare class RuleService {
      * 从目录加载所有规则
      */
     private loadRulesFromDir;
+    /**
+     * 从远程 URL 获取内容（带重试机制）
+     */
+    private fetchUrl;
 }
 //# sourceMappingURL=rule-service.d.ts.map
