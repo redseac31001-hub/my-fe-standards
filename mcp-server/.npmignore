@@ -1,0 +1,16 @@
+# 源代码（不发布）
+src/
+tsconfig.json
+
+# 规则库（使用远程模式获取）
+rules/
+config/
+
+# 开发文件
+*.log
+.vscode/
+.idea/
+.DS_Store
+
+# 文档（可选保留）
+DEPLOYMENT.md

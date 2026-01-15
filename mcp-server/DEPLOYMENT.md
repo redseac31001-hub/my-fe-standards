@@ -39,6 +39,125 @@
 
 ---
 
+## ⚙️ 当前配置
+
+### package.json（发布相关配置）
+
+```json
+{
+  "name": "fe-standards-mcp-server",
+  "version": "1.0.0-beta.1",
+  "description": "MCP Server for Frontend Architecture Standards",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "fe-standards-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/redseac31001-hub/my-fe-standards.git"
+  }
+}
+```
+
+**关键字段说明**：
+| 字段 | 作用 |
+|------|------|
+| `files` | 白名单，只发布 dist/ 目录 |
+| `prepublishOnly` | 发布前自动执行构建 |
+| `bin` | 注册可执行命令 |
+
+### .npmignore（排除文件）
+
+```
+# 源代码（不发布）
+src/
+tsconfig.json
+
+# 规则库（使用远程模式获取）
+rules/
+config/
+
+# 开发文件
+*.log
+.vscode/
+.idea/
+.DS_Store
+
+# 文档（可选保留）
+DEPLOYMENT.md
+```
+
+### 发布内容验证
+
+执行 `npm pack --dry-run` 预览发布内容：
+
+```
+npm notice 📦  fe-standards-mcp-server@1.0.0-beta.1
+npm notice Tarball Contents
+npm notice 7.9kB  README.md
+npm notice 19.4kB dist/core/rule-service.js
+npm notice 6.7kB  dist/index.js
+npm notice 901B   package.json
+npm notice package size: 17.9 kB
+npm notice total files: 14
+```
+
+---
+
+## 🌐 npm 镜像源配置
+
+### Token 认证方式（推荐）
+
+使用 Token 认证可以避免在终端中输入密码：
+
+```bash
+# 1. 登录 npmjs.com，进入 Access Tokens 页面
+# 2. 生成 Publish 类型的 Token
+# 3. 配置 Token（只对 npmjs.org 生效，不影响其他镜像源）
+npm config set //registry.npmjs.org/:_authToken=你的Token
+```
+
+**作用域说明**：
+| 镜像源 | 是否受影响 |
+|--------|-----------|
+| `registry.npmjs.org` | ✅ 使用 Token |
+| `registry.npmmirror.com`（淘宝） | ❌ 不受影响 |
+| 其他私有镜像 | ❌ 不受影响 |
+
+### 淘宝镜像用户发布指南
+
+如果全局 registry 是淘宝镜像，发布时需要指定官方源：
+
+```bash
+# 方式 1：发布时指定 registry（推荐）
+npm publish --registry=https://registry.npmjs.org
+
+# 方式 2：临时切换
+npm config set registry https://registry.npmjs.org
+npm publish
+npm config set registry https://registry.npmmirror.com  # 改回淘宝
+```
+
+### 查看当前配置
+
+```bash
+# 查看所有配置
+npm config list
+
+# 查看 registry
+npm config get registry
+```
+
+---
+
 ## 📦 发布到 npm
 
 ### 步骤 1: 准备发布配置
@@ -343,6 +462,53 @@ npm unpublish fe-standards-mcp-server --force
 ```
 
 **注意**：npm 不鼓励撤销发布，建议发布新版本修复问题。
+
+---
+
+## 📋 npm 包管理规则
+
+### 删除/覆盖限制
+
+| 操作 | 是否允许 | 说明 |
+|------|---------|------|
+| 覆盖同版本号 | ❌ 不允许 | 必须更新版本号 |
+| 删除包（72小时内） | ✅ 允许 | `npm unpublish 包名@版本` |
+| 删除包（72小时后） | ❌ 不允许 | 只能废弃 `npm deprecate` |
+| 删除后重发同名包 | ⚠️ 24小时后 | 删除后需等待24小时 |
+
+### 测试版本命名建议
+
+```bash
+# 测试版本（可在72小时内删除）
+1.0.0-beta.1
+1.0.0-alpha.1
+1.0.0-rc.1
+
+# 正式版本（谨慎发布）
+1.0.0
+```
+
+### 版本更新命令
+
+```bash
+# 测试版本
+npm version prerelease --preid=beta  # 1.0.0 -> 1.0.1-beta.0
+
+# 正式版本
+npm version patch   # 1.0.0 -> 1.0.1
+npm version minor   # 1.0.0 -> 1.1.0
+npm version major   # 1.0.0 -> 2.0.0
+```
+
+### 废弃版本（替代删除）
+
+```bash
+# 废弃指定版本
+npm deprecate fe-standards-mcp-server@1.0.0 "此版本有问题，请使用 1.0.1"
+
+# 废弃整个包
+npm deprecate fe-standards-mcp-server "此包已停止维护"
+```
 
 ---
 
