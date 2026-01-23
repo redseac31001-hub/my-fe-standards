@@ -258,6 +258,52 @@ function shouldLoadRule(layerId, ruleId) {
     logVerbose(`Rule ${layerId}/${ruleId}: relevance=${relevance.toFixed(2)}, threshold=${ctx.relevanceThreshold}, load=${shouldLoad}`);
     return shouldLoad;
 }
+/**
+ * 更新项目的 .gitignore 文件，添加 .codebuddy 目录
+ */
+function updateGitignore(projectDir) {
+    const gitignorePath = path.join(projectDir, '.gitignore');
+    const entriesToAdd = [
+        '# Architect Rule Loader - Generated files',
+        '.codebuddy/',
+    ];
+    try {
+        let gitignoreContent = '';
+        let needsUpdate = false;
+        // 读取现有 .gitignore 文件（如果存在）
+        if (fs.existsSync(gitignorePath)) {
+            gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
+            // 检查是否已包含 .codebuddy/
+            if (!gitignoreContent.includes('.codebuddy/')) {
+                needsUpdate = true;
+            }
+        }
+        else {
+            // .gitignore 不存在，需要创建
+            needsUpdate = true;
+        }
+        if (needsUpdate) {
+            // 确保文件末尾有换行符
+            if (gitignoreContent && !gitignoreContent.endsWith('\n')) {
+                gitignoreContent += '\n';
+            }
+            // 添加新条目
+            if (gitignoreContent) {
+                gitignoreContent += '\n';
+            }
+            gitignoreContent += entriesToAdd.join('\n') + '\n';
+            // 写入文件
+            fs.writeFileSync(gitignorePath, gitignoreContent, 'utf-8');
+            logVerbose('Updated .gitignore to include .codebuddy/');
+        }
+        else {
+            logVerbose('.gitignore already includes .codebuddy/, skipping update');
+        }
+    }
+    catch (error) {
+        logWarn(`Failed to update .gitignore: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
 // ============ 详略级别内容解析 ============
 /**
  * 根据详略级别提取规则内容
@@ -1199,6 +1245,8 @@ ${skillsActivationPrompt}
         fs.mkdirSync(outputDir, { recursive: true });
     const outputPath = path.join(outputDir, OUTPUT_FILE_NAME);
     fs.writeFileSync(outputPath, finalContent, 'utf-8');
+    // 更新 .gitignore
+    updateGitignore(targetDir);
     log('');
     log('═══════════════════════════════════════════════════════════════════');
     log(`✅ Success! Rules written to ${outputPath}`);
