@@ -182,7 +182,7 @@
         "path": "custom-skills"
     },
     "output": {
-        "dirName": ".codebuddy/.rules",
+        "dirName": ".codebuddy/rules",
         "fileName": "project-rules.md"
     },
     "frontmatter": {
