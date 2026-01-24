@@ -1,269 +1,204 @@
-# Architect Rule Loader (前端架构师规则库)
+# 前端架构师规则库 (CodeBuddy 专用版)
 
-这是一个标准化的前端专家规则库，旨在作为 **CodeBuddy** 等 AI 编程助手的知识源 (Context Source)。
-通过维护一系列高质量、结构化的 `.md` 规则文件，我们确保 AI 助手在辅助编码时能够遵循团队的最佳实践、设计模式和代码规范。
+> 专为 **CodeBuddy (GLM-4.7)** 优化的前端开发规范知识库
 
-## 🎯 核心目标
+这是一个标准化的前端专家规则库，旨在作为 CodeBuddy AI 编程助手的知识源 (Context Source)。通过维护一系列高质量、结构化的规则文件，确保 AI 助手在辅助编码时遵循团队的最佳实践和代码规范。
 
-*   **统一规范**: 确保所有团队成员（及 AI 助手）产出的代码风格一致。
-*   **最佳实践**: 内置 Vue 3 + TypeScript 生态的架构师级建议。
-*   **知识沉淀**: 将团队的隐性知识转化为显性的 Markdown 文档。
+## 🎯 核心特性
 
-## 📂 目录结构（三层架构）
+- **三层规则架构**：基础层 + 业务层 + 动作层，渐进式加载
+- **技能系统**：支持 CodeBuddy Skills，动态加载专业技能
+- **智能检测**：自动识别 Vue 2/3 版本和 UI 库依赖
+- **远程加载**：支持 HTTP 远程模式和 Git 私有仓库模式
+- **全中文支持**：规则内容和提示词全部使用简体中文
 
-本规则库采用 **分层规则引擎** 设计，将规则按职责划分为三层：
-
-```text
-rules/
-├── _meta/                 # 📋 元信息 (不被加载到项目)
-│   └── rule-template.md   #    规则编写模板
-│
-├── layer1_base/           # 🧱 基础层 - 通用技术标准
-│   ├── architecture/      #    架构规范 (目录结构等)
-│   ├── typescript/        #    TypeScript 类型安全规范
-│   ├── vue3/              #    Vue 3 最佳实践 (Script Setup)
-│   └── vue2/              #    Vue 2 兼容规则 (Options API)
-│
-├── layer2_business/       # 🏢 业务层 - 项目特定规范
-│   └── tdesign.md         #    TDesign UI 库使用规范
-│
-└── layer3_action/         # ⚡ 动作层 - 任务型检查清单
-    ├── refactoring.md     #    重构检查清单
-    ├── debugging.md       #    调试检查清单
-    └── testing.md         #    测试策略
-```
-
-### 三层职责说明
-
-| 层级 | 加载条件 | 内容 |
-|------|----------|------|
-| **Layer 1 (Base)** | 自动加载 | 通用的 Vue/TS/架构规范，根据项目 Vue 版本自动分流 |
-| **Layer 2 (Business)** | 检测到特定依赖时加载 | 如检测到 `tdesign-vue-next`，则加载 TDesign 规范 |
-| **Layer 3 (Action)** | 始终加载 | 供 AI Agent 根据用户任务（重构/调试/测试）调用 |
-
-## 🛠️ 自动化工具 (Rule Loader v6)
-
-本仓库提供了一个自动化脚本，能够：
-- 扫描目标项目的 `package.json` 依赖
-- **智能检测 Vue 2/Vue 3** 并加载对应规则
-- 按三层架构拼装规则文件
-
-### 项目结构
+## 📂 目录结构
 
 ```text
-scripts/
-├── src/                    # TypeScript 源码
-│   ├── rule-loader.ts      # 规则加载器
-│   ├── generate-manifest.ts # 清单生成器
-│   └── types/
-│       └── index.ts        # 共享类型定义
-├── dist/                   # 编译产物 (用户直接使用)
-│   ├── rule-loader.js
-│   └── generate-manifest.js
-└── tsconfig.json
+my-fe-standards/
+├── config/
+│   └── loader-config.json      # 加载器配置
+├── custom-skills/              # 🧩 技能库 (CodeBuddy Skills)
+│   ├── component-refactoring/  #    组件重构技能
+│   ├── frontend-code-review/   #    代码审查技能
+│   ├── frontend-testing/       #    前端测试技能
+│   └── skill-creator/          #    技能创建指南
+├── mcp-server/                 # 🔌 MCP Server (待后续实现)
+├── rules/
+│   ├── layer1_base/            # 🧱 基础层 - 通用技术标准
+│   │   ├── architecture/       #    架构规范
+│   │   ├── typescript/         #    TypeScript 类型安全
+│   │   ├── vue3/               #    Vue 3 最佳实践
+│   │   └── vue2/               #    Vue 2 兼容规则
+│   ├── layer2_business/        # 🏢 业务层 - UI 库规范
+│   │   ├── antdv.md            #    Ant Design Vue
+│   │   └── vant.md             #    Vant UI
+│   └── layer3_action/          # ⚡ 动作层 - 任务检查清单
+│       ├── refactoring.md      #    重构检查清单
+│       ├── debugging.md        #    调试检查清单
+│       ├── testing.md          #    测试策略
+│       └── self-verification.md #   自检清单
+└── scripts/
+    ├── codebuddy-loader.js     # 规则加载器
+    └── generate-manifest.js    # Manifest 生成器
 ```
 
-**使用方法:**
+## 🚀 快速开始
 
-### 方式 A: 本地加载 (Local Mode)
-
-1.  克隆本仓库到本地。
-2.  安装依赖并编译：
-```bash
-npm install
-npm run build:scripts
-```
-3.  运行命令：
-```bash
-node scripts/dist/rule-loader.js
-```
-
-### 方式 B: HTTP 远程加载 (Remote Fetch Mode) 🌟
-
-适合 CI/CD 或快速接入，无需克隆整个仓库。
-
-1.  **服务端准备**:
-    在服务器上托管本仓库的 `rules/` 目录和通过 `npm run build:manifest` 生成的 `manifest.json`。
-    比如托管在: `https://statics.example.com/standards/`
-
-2.  **客户端使用**:
-    在任意项目中，只需下载 `rule-loader.js` 脚本，然后运行：
+### 方式一：本地模式
 
 ```bash
-# 例子
-node rule-loader.js --remote https://statics.example.com/standards
+# 1. 克隆仓库
+git clone -b feature/codebuddy-glm https://github.com/redseac31001-hub/my-fe-standards.git
+cd my-fe-standards
+
+# 2. 在目标项目中运行加载器
+node scripts/codebuddy-loader.js /path/to/your/project
 ```
 
-> 脚本会自动请求远端的 manifest 清单，智能分析当前项目依赖，只下载需要的规则文件。
-
-
-脚本将会在您的项目目录下生成 `.codebuddy/project-rules.md`。CodeBuddy 代码助手会自动读取此文件作为编程上下文。
-
-## 🚀 如何使用 (For CodeBuddy)
-
-在 VSCode 中使用 CodeBuddy 时，可以通过配置将本仓库的 `rules` 目录添加为上下文来源，或者在 Prompt 中引用特定的规则文件。
-
-**例如：**
-> "Refactor this component following the rules in @rules/layer1_base/vue3/vue3-script-setup.md"
-
-## 📝 规则编写指南
-
-请参考 `rules/_meta/rule-template.md` 编写新的规则。每条规则应包含：
-1.  **Context**: 适用场景。
-2.  **The Rule**: 具体的规范描述。
-3.  **Reasoning**: 背后的原理（帮助 AI 理解权衡）。
-4.  **Examples**: 正面 (✅) 与反面 (❌) 的代码示例。
-
-## 🔧 快速接入 (One-Liner)
-
-如果你的规则仓库已托管在 GitHub，业务项目可以通过以下一键命令拉取并生成规则：
+### 方式二：远程模式 (推荐)
 
 ```bash
-# 替换 [USER] 和 [REPO] 为你的 GitHub 用户名和仓库名
-# 替换 [BRANCH] 为分支名 (如 main 或 feature/remote-fetch)
+# 下载加载器脚本到项目根目录
+curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/codebuddy-loader.js
 
-curl -O https://raw.githubusercontent.com/[USER]/[REPO]/[BRANCH]/scripts/dist/rule-loader.js && \
-node rule-loader.js --remote https://raw.githubusercontent.com/[USER]/[REPO]/[BRANCH]
+# 从远程加载规则
+node codebuddy-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
 ```
 
-**⚠️ 注意**: 必须使用 `raw.githubusercontent.com` 域名，而非 `github.com/...blob/...`，否则会下载 HTML 页面而非脚本代码。
-
-### 示例 (本仓库)
+### 方式三：Git 私有仓库模式
 
 ```bash
-curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch/scripts/dist/rule-loader.js && \
-node rule-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch
-```
-
-## 🔐 私有仓库接入 (推荐) 🌟
-
-对于私有仓库，使用 `architect-bootstrap.js` 引导脚本，利用本地 git 凭证自动拉取规则。
-
-> 📖 **详细文档**: 完整的接入指南请参阅 [docs/remote-usage-guide.md](docs/remote-usage-guide.md)，包含 CI/CD 集成、故障排查、最佳实践等内容。
-
-### 优势
-
-- ✅ **无需配置 Token**: 利用本地已配置的 git 凭证 (SSH Key / Credential Helper)
-- ✅ **统一命令**: 所有开发者执行相同的 `npm run rules:update`
-- ✅ **自动缓存**: 规则文件本地缓存，避免重复拉取
-- ✅ **支持私有仓库**: 完美支持 GitHub/GitLab/Gitee 私有仓库
-
-### 业务项目接入步骤
-
-**步骤 1**: 下载引导脚本到业务项目根目录
-
-```bash
-# 从公开位置下载，或手动复制
-curl -O https://your-internal-server/architect-bootstrap.js
-# 或者从规则仓库手动复制 scripts/dist/architect-bootstrap.js
-```
-
-**步骤 2**: 在业务项目 `package.json` 中添加配置
-
-```json
+# 在 package.json 中添加配置
 {
   "scripts": {
     "rules:update": "node architect-bootstrap.js"
   },
   "architect": {
     "repo": "git@github.com:your-org/my-fe-standards.git",
-    "branch": "main"
+    "branch": "feature/codebuddy-glm"
   }
 }
-```
 
-**步骤 3**: 执行命令生成规则
-
-```bash
+# 执行更新
 npm run rules:update
 ```
 
-### 配置选项
+## 📋 三层规则架构
 
-| 字段 | 说明 | 默认值 |
-|------|------|--------|
-| `repo` | 规则仓库地址 (SSH 或 HTTPS) | - |
-| `branch` | 分支名 | `main` |
-| `useCache` | 是否启用缓存 | `true` |
-| `cacheExpiry` | 缓存过期时间 (毫秒) | `3600000` (1小时) |
+| 层级 | 加载模式 | 内容 |
+|------|----------|------|
+| **Layer 1 (Base)** | Eager 加载 | 通用的 Vue/TS/架构规范，根据项目自动分流 |
+| **Layer 2 (Business)** | Lazy 加载 | 检测到特定 UI 库依赖时加载对应规范 |
+| **Layer 3 (Action)** | Lazy 加载 | 任务检查清单，按需读取 |
 
-### 完整配置示例
+### 渐进式加载
 
-```json
-{
-  "architect": {
-    "repo": "git@github.com:your-org/my-fe-standards.git",
-    "branch": "main",
-    "useCache": true,
-    "cacheExpiry": 3600000
-  }
-}
-```
+- **Layer 1** 规则直接嵌入 `project-rules.md`（核心规范常驻）
+- **Layer 2/3** 规则生成索引，缓存到 `.codebuddy/rules_cache/`
+- CodeBuddy 根据任务类型使用 `read_file` 按需加载
 
-### Git 凭证配置
+## 🧩 技能系统
 
-确保本地 git 凭证已正确配置：
+本规则库支持 CodeBuddy Skills 功能，提供以下技能：
 
-**SSH 方式 (推荐)**:
-```bash
-# 检查 SSH key 是否已添加
-ssh -T git@github.com
+| 技能 | 触发场景 |
+|------|----------|
+| **component-refactoring** | 组件重构、代码优化 |
+| **frontend-code-review** | 代码审查、PR Review |
+| **frontend-testing** | 编写测试、测试策略 |
+| **skill-creator** | 创建新技能 |
 
-# 如果未配置，生成并添加 SSH key
-ssh-keygen -t ed25519 -C "your_email@example.com"
-ssh-add ~/.ssh/id_ed25519
-# 然后将公钥添加到 GitHub/GitLab
-```
+### 技能调用
 
-**HTTPS 方式**:
-```bash
-# 配置凭证缓存
-git config --global credential.helper cache
+当 CodeBuddy 识别到相关任务时，会自动：
+1. 读取 `.codebuddy/skills/<技能ID>/SKILL.md`
+2. 根据路由逻辑加载 `references/` 下的详细文档
+3. 基于完整上下文执行任务
 
-# 或使用系统凭证管理器 (Windows)
-git config --global credential.helper manager-core
-
-# 或使用 macOS Keychain
-git config --global credential.helper osxkeychain
-```
-
-## 📋 命令行帮助
+## 🔧 命令行选项
 
 ```bash
-node scripts/dist/rule-loader.js --help
+node codebuddy-loader.js [options]
 ```
 
-可用选项：
-- `--help, -h`: 显示帮助信息
-- `--remote <URL>`: 从远程 URL 获取规则
-- `--verbose, -v`: 启用详细日志
-- `--timeout <ms>`: 设置网络请求超时 (默认 10000ms)
+| 选项 | 说明 |
+|------|------|
+| `--help, -h` | 显示帮助信息 |
+| `--remote <URL>` | 从远程 URL 获取规则 |
+| `--task <type>` | 按任务类型筛选规则 |
+| `--threshold <n>` | 设置相关性阈值 (0-1) |
+| `--verbose, -v` | 启用详细日志 |
+| `--timeout <ms>` | 设置网络请求超时 |
+
+### 任务类型
+
+- `refactoring` - 代码重构、优化
+- `debugging` - Bug 修复、问题排查
+- `testing` - 编写测试、测试策略
+- `new-feature` - 开发新功能
+- `code-review` - 代码审查
+
+## 📖 输出说明
+
+加载器会在目标项目生成以下文件：
+
+```text
+.codebuddy/
+├── rules/
+│   └── project-rules.md    # 主规则文件 (CodeBuddy 自动读取)
+├── rules_cache/            # 规则缓存 (按需读取)
+│   ├── layer2_business/
+│   └── layer3_action/
+└── skills/                 # 技能文件 (动态加载)
+```
 
 ## 🔨 开发指南
 
-### 构建脚本
+### 生成 Manifest
 
 ```bash
-# 安装依赖
-npm install
-
-# 编译 TypeScript 脚本
-npm run build:scripts
-
-# 生成 manifest.json
-npm run build:manifest
-
-# 一键构建 (脚本 + manifest)
-npm run build
+node scripts/generate-manifest.js
 ```
 
-### 本地测试
+### 测试加载器
 
 ```bash
 # 本地模式测试
-npm run test:local
+node scripts/codebuddy-loader.js
 
 # 远程模式测试
-npm run test:remote
+node scripts/codebuddy-loader.js --remote <URL> --verbose
 ```
 
+### 添加新规则
+
+1. 在对应层级目录创建 `.md` 文件
+2. 参考 `rules/_meta/rule-template.md` 编写规则
+3. 运行 `node scripts/generate-manifest.js` 更新清单
+
+## 📝 规则编写指南
+
+每条规则应包含：
+
+1. **Context**: 适用场景
+2. **The Rule**: 具体的规范描述
+3. **Reasoning**: 背后的原理（帮助 AI 理解权衡）
+4. **Examples**: 正面 (✅) 与反面 (❌) 的代码示例
+
+## 🔗 相关文档
+
+- [远程接入指南](docs/remote-usage-guide.md)
+- [技能系统说明](custom-skills/custom-skills-guide.md)
+- [技能增强文档](README-SKILLS-ENHANCEMENT.md)
+
+## 📌 版本信息
+
+- **版本**: 2.0.0
+- **适用工具**: CodeBuddy (GLM-4.7)
+- **分支**: feature/codebuddy-glm
+- **更新日期**: 2026-01-24
+
+## 📄 许可证
+
+MIT

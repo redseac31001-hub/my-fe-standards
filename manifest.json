@@ -1,22 +1,23 @@
 {
-  "generatedAt": "2026-01-24T07:44:16.601Z",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "generatedAt": "2026-01-24T10:35:34.864Z",
+  "aiTool": "CodeBuddy",
+  "model": "GLM-4.7",
   "config": {
-    "$schema": "./loader-config.schema.json",
-    "_comment": "Architect Rule Loader 配置文件 - 定义各层规则的加载策略",
     "layers": {
       "base": {
         "id": "layer1_base",
-        "title": "🧱 Layer 1: Base Standards (Foundation)",
+        "title": "Layer 1: 基础规范",
         "staticDeps": [
           "architecture",
           "typescript"
         ],
-        "_comment": "staticDeps 始终加载，Vue 版本由脚本动态检测"
+        "loadMode": "eager",
+        "_comment": "Vue 版本由脚本动态检测"
       },
       "business": {
         "id": "layer2_business",
-        "title": "🏢 Layer 2: Business & Domain Rules",
+        "title": "Layer 2: 业务规范",
         "dependencies": {
           "ant-design-vue": [
             "antdv"
@@ -25,19 +26,28 @@
             "vant"
           ]
         },
+        "loadMode": "lazy",
         "_comment": "key=npm包名, value=对应要加载的规则文件夹名数组"
       },
       "action": {
         "id": "layer3_action",
-        "title": "⚡ Layer 3: Action Checklists",
+        "title": "Layer 3: 任务检查清单",
         "defaults": [
           "refactoring",
           "debugging",
           "testing",
-          "self-verification"
+          "self-verification",
+          "defensive-coding"
         ],
+        "loadMode": "lazy",
         "_comment": "defaults 始终加载，可通过 --task 参数筛选"
       }
+    },
+    "skills": {
+      "_comment": "自定义技能配置 - CodeBuddy 已支持 Skills 功能",
+      "enabled": true,
+      "path": "custom-skills",
+      "loadMode": "lazy"
     },
     "tasks": {
       "_comment": "任务类型定义 - 用于渐进式披露，按任务筛选相关规则",
@@ -104,73 +114,28 @@
             "code-review": 0.9,
             "debugging": 0.7,
             "testing": 0.6
-          },
-          "vue3/vue3-script-setup": {
-            "refactoring": 0.9,
-            "new-feature": 0.95,
-            "code-review": 0.85,
-            "debugging": 0.5,
-            "testing": 0.5
-          },
-          "vue2/vue2-general": {
-            "refactoring": 0.9,
-            "new-feature": 0.95,
-            "code-review": 0.85,
-            "debugging": 0.6,
-            "testing": 0.5
-          },
-          "vue2/vue2-composition": {
-            "refactoring": 0.9,
-            "new-feature": 0.95,
-            "code-review": 0.85,
-            "debugging": 0.5,
-            "testing": 0.5
-          }
-        },
-        "layer2_business": {
-          "antdv": {
-            "new-feature": 0.95,
-            "refactoring": 0.7,
-            "code-review": 0.8,
-            "debugging": 0.6,
-            "testing": 0.5
-          },
-          "vant": {
-            "new-feature": 0.95,
-            "refactoring": 0.7,
-            "code-review": 0.8,
-            "debugging": 0.6,
-            "testing": 0.5
           }
         },
         "layer3_action": {
           "refactoring": {
             "refactoring": 1,
             "code-review": 0.8,
-            "new-feature": 0.4,
-            "debugging": 0.3,
-            "testing": 0.3
+            "new-feature": 0.4
           },
           "debugging": {
             "debugging": 1,
             "refactoring": 0.4,
-            "code-review": 0.5,
-            "new-feature": 0.3,
-            "testing": 0.4
+            "code-review": 0.5
           },
           "testing": {
             "testing": 1,
             "code-review": 0.7,
-            "new-feature": 0.6,
-            "refactoring": 0.5,
-            "debugging": 0.4
+            "new-feature": 0.6
           },
           "self-verification": {
             "code-review": 1,
             "refactoring": 0.8,
-            "new-feature": 0.7,
-            "debugging": 0.6,
-            "testing": 0.7
+            "new-feature": 0.7
           }
         }
       },
@@ -181,264 +146,267 @@
         "loose": 0.3
       }
     },
-    "detailLevels": {
-      "_comment": "详略级别配置 - 用于渐进式披露，控制规则内容的详细程度",
-      "summary": {
-        "name": "摘要",
-        "description": "仅加载规则摘要，适合快速浏览",
-        "markers": [
-          "@level:summary"
-        ]
-      },
-      "quick": {
-        "name": "快速参考",
-        "description": "加载摘要和快速参考，适合日常开发",
-        "markers": [
-          "@level:summary",
-          "@level:quick"
-        ]
-      },
-      "full": {
-        "name": "完整",
-        "description": "加载全部内容，适合深入学习",
-        "markers": [
-          "@level:summary",
-          "@level:quick",
-          "@level:full"
-        ]
-      }
-    },
-    "skills": {
-      "_comment": "自定义技能配置 - 模拟 Claude Code + Skills 的动态激活能力",
-      "enabled": true,
-      "path": "custom-skills"
-    },
     "output": {
       "dirName": ".codebuddy/rules",
       "fileName": "project-rules.md"
     },
     "frontmatter": {
-      "description": "Frontend Architecture Standards - Vue 3 + TypeScript Best Practices",
+      "description": "前端架构规范 - CodeBuddy GLM-4.7 专用版",
       "alwaysApply": true,
-      "enabled": true,
-      "provider": ""
+      "enabled": true
     }
   },
   "files": [
     {
-      "path": "rules/codebuddy-rules.md",
-      "size": 8440,
-      "name": "codebuddy-rules.md"
-    },
-    {
       "path": "rules/layer1_base/architecture/feature-based-structure.md",
+      "name": "feature-based-structure",
       "size": 2191,
-      "name": "feature-based-structure.md"
+      "mtime": "2025-12-30T05:30:19.408Z"
     },
     {
       "path": "rules/layer1_base/typescript/api-request.md",
+      "name": "api-request",
       "size": 14908,
-      "name": "api-request.md"
+      "mtime": "2026-01-09T08:29:48.810Z"
     },
     {
       "path": "rules/layer1_base/typescript/strict-types.md",
+      "name": "strict-types",
       "size": 2887,
-      "name": "strict-types.md"
+      "mtime": "2026-01-24T05:49:02.564Z"
     },
     {
       "path": "rules/layer1_base/vue2/vue2-composition.md",
+      "name": "vue2-composition",
       "size": 1530,
-      "name": "vue2-composition.md"
+      "mtime": "2025-12-30T08:23:12.895Z"
     },
     {
       "path": "rules/layer1_base/vue2/vue2-general.md",
+      "name": "vue2-general",
       "size": 4163,
-      "name": "vue2-general.md"
+      "mtime": "2025-12-30T07:20:27.263Z"
     },
     {
       "path": "rules/layer1_base/vue3/pinia.md",
+      "name": "pinia",
       "size": 7313,
-      "name": "pinia.md"
+      "mtime": "2026-01-09T08:03:19.686Z"
     },
     {
       "path": "rules/layer1_base/vue3/router.md",
+      "name": "router",
       "size": 7965,
-      "name": "router.md"
+      "mtime": "2026-01-09T08:19:57.639Z"
     },
     {
       "path": "rules/layer1_base/vue3/vue3-script-setup.md",
+      "name": "vue3-script-setup",
       "size": 3168,
-      "name": "vue3-script-setup.md"
+      "mtime": "2026-01-07T10:52:41.293Z"
     },
     {
       "path": "rules/layer2_business/antdv.md",
+      "name": "antdv",
       "size": 5818,
-      "name": "antdv.md"
+      "mtime": "2026-01-07T10:49:40.315Z"
     },
     {
       "path": "rules/layer2_business/vant.md",
+      "name": "vant",
       "size": 7446,
-      "name": "vant.md"
+      "mtime": "2026-01-07T10:48:17.338Z"
     },
     {
       "path": "rules/layer3_action/debugging.md",
+      "name": "debugging",
       "size": 3768,
-      "name": "debugging.md"
+      "mtime": "2026-01-13T09:26:03.373Z"
     },
     {
       "path": "rules/layer3_action/defensive-coding.md",
+      "name": "defensive-coding",
       "size": 8852,
-      "name": "defensive-coding.md"
+      "mtime": "2026-01-24T05:48:13.678Z"
     },
     {
       "path": "rules/layer3_action/refactoring.md",
+      "name": "refactoring",
       "size": 4444,
-      "name": "refactoring.md"
+      "mtime": "2026-01-24T05:45:32.727Z"
     },
     {
       "path": "rules/layer3_action/self-verification.md",
+      "name": "self-verification",
       "size": 14502,
-      "name": "self-verification.md"
+      "mtime": "2026-01-24T05:47:04.139Z"
     },
     {
       "path": "rules/layer3_action/testing.md",
+      "name": "testing",
       "size": 4434,
-      "name": "testing.md"
+      "mtime": "2026-01-13T09:25:58.963Z"
     },
     {
       "path": "rules/skills/skills-refactoring.md",
+      "name": "skills-refactoring",
       "size": 5653,
-      "name": "skills-refactoring.md"
-    },
-    {
-      "path": "rules/_meta/rule-template.md",
-      "size": 1261,
-      "name": "rule-template.md"
+      "mtime": "2026-01-12T06:38:05.982Z"
     },
     {
       "path": "custom-skills/component-refactoring/references/complexity-patterns.md",
+      "name": "complexity-patterns",
       "size": 11890,
-      "name": "complexity-patterns.md"
+      "mtime": "2026-01-11T22:20:06.000Z"
     },
     {
       "path": "custom-skills/component-refactoring/references/component-splitting.md",
+      "name": "component-splitting",
       "size": 11677,
-      "name": "component-splitting.md"
+      "mtime": "2026-01-11T22:20:06.000Z"
     },
     {
       "path": "custom-skills/component-refactoring/references/hook-extraction.md",
+      "name": "hook-extraction",
       "size": 8520,
-      "name": "hook-extraction.md"
+      "mtime": "2026-01-11T22:20:06.000Z"
     },
     {
       "path": "custom-skills/component-refactoring/references/vue/component-splitting.md",
+      "name": "component-splitting",
       "size": 1654,
-      "name": "component-splitting.md"
+      "mtime": "2026-01-13T03:03:41.598Z"
     },
     {
       "path": "custom-skills/component-refactoring/references/vue/composition-api.md",
+      "name": "composition-api",
       "size": 2815,
-      "name": "composition-api.md"
+      "mtime": "2026-01-13T03:03:37.690Z"
     },
     {
       "path": "custom-skills/component-refactoring/references/vue/options-api.md",
+      "name": "options-api",
       "size": 1669,
-      "name": "options-api.md"
+      "mtime": "2026-01-13T03:03:39.632Z"
     },
     {
       "path": "custom-skills/component-refactoring/SKILL.md",
+      "name": "SKILL",
       "size": 2629,
-      "name": "SKILL.md"
+      "mtime": "2026-01-13T03:04:15.114Z"
     },
     {
       "path": "custom-skills/custom-skills-guide.md",
+      "name": "custom-skills-guide",
       "size": 17442,
-      "name": "custom-skills-guide.md"
+      "mtime": "2026-01-12T06:37:24.605Z"
     },
     {
       "path": "custom-skills/frontend-code-review/references/business-logic.md",
+      "name": "business-logic",
       "size": 619,
-      "name": "business-logic.md"
+      "mtime": "2026-01-11T22:15:46.000Z"
     },
     {
       "path": "custom-skills/frontend-code-review/references/code-quality.md",
+      "name": "code-quality",
       "size": 2463,
-      "name": "code-quality.md"
+      "mtime": "2026-01-13T03:04:25.030Z"
     },
     {
       "path": "custom-skills/frontend-code-review/references/performance.md",
+      "name": "performance",
       "size": 928,
-      "name": "performance.md"
+      "mtime": "2026-01-11T22:15:46.000Z"
     },
     {
       "path": "custom-skills/frontend-code-review/SKILL.md",
+      "name": "SKILL",
       "size": 2868,
-      "name": "SKILL.md"
+      "mtime": "2026-01-13T09:25:39.857Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/async-testing.md",
+      "name": "async-testing",
       "size": 8463,
-      "name": "async-testing.md"
+      "mtime": "2026-01-11T22:31:30.000Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/checklist.md",
+      "name": "checklist",
       "size": 5910,
-      "name": "checklist.md"
+      "mtime": "2026-01-11T22:31:30.000Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/common-patterns.md",
+      "name": "common-patterns",
       "size": 11738,
-      "name": "common-patterns.md"
+      "mtime": "2026-01-11T22:31:30.000Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/domain-components.md",
+      "name": "domain-components",
       "size": 15261,
-      "name": "domain-components.md"
+      "mtime": "2026-01-11T22:31:30.000Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/mocking.md",
+      "name": "mocking",
       "size": 9399,
-      "name": "mocking.md"
+      "mtime": "2026-01-11T22:31:30.000Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/vue/common-patterns.md",
+      "name": "common-patterns",
       "size": 1371,
-      "name": "common-patterns.md"
+      "mtime": "2026-01-13T03:04:50.987Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/vue/testing-vue2.md",
+      "name": "testing-vue2",
       "size": 1171,
-      "name": "testing-vue2.md"
+      "mtime": "2026-01-13T03:04:46.958Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/vue/testing-vue3.md",
+      "name": "testing-vue3",
       "size": 1431,
-      "name": "testing-vue3.md"
+      "mtime": "2026-01-13T03:04:49.247Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/workflow.md",
+      "name": "workflow",
       "size": 7972,
-      "name": "workflow.md"
+      "mtime": "2026-01-11T22:31:30.000Z"
     },
     {
       "path": "custom-skills/frontend-testing/SKILL.md",
+      "name": "SKILL",
       "size": 2169,
-      "name": "SKILL.md"
+      "mtime": "2026-01-13T09:25:37.956Z"
     },
     {
       "path": "custom-skills/skill-creator/references/output-patterns.md",
+      "name": "output-patterns",
       "size": 1817,
-      "name": "output-patterns.md"
+      "mtime": "2026-01-11T22:32:44.000Z"
     },
     {
       "path": "custom-skills/skill-creator/references/workflows.md",
+      "name": "workflows",
       "size": 819,
-      "name": "workflows.md"
+      "mtime": "2026-01-11T22:32:44.000Z"
     },
     {
       "path": "custom-skills/skill-creator/SKILL.md",
+      "name": "SKILL",
       "size": 17798,
-      "name": "SKILL.md"
+      "mtime": "2026-01-11T22:32:44.000Z"
     }
-  ]
+  ],
+  "stats": {
+    "totalFiles": 41,
+    "ruleFiles": 16,
+    "skillFiles": 25
+  }
 }

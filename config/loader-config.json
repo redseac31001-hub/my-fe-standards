@@ -1,38 +1,41 @@
 {
     "$schema": "./loader-config.schema.json",
-    "_comment": "Architect Rule Loader 配置文件 - 定义各层规则的加载策略",
+    "_comment": "CodeBuddy GLM-4.7 专用配置 - 完整三层架构版",
+    "mode": "codebuddy",
+    "aiTool": {
+        "name": "CodeBuddy",
+        "model": "GLM-4.7",
+        "tools": {
+            "readFile": "read_file",
+            "searchContent": "search_content",
+            "searchFile": "search_file",
+            "listFiles": "list_files",
+            "replaceInFile": "replace_in_file"
+        }
+    },
     "layers": {
         "base": {
             "id": "layer1_base",
-            "title": "🧱 Layer 1: Base Standards (Foundation)",
-            "staticDeps": [
-                "architecture",
-                "typescript"
-            ],
-            "_comment": "staticDeps 始终加载，Vue 版本由脚本动态检测"
+            "title": "Layer 1: 基础规范",
+            "staticDeps": ["architecture", "typescript"],
+            "loadMode": "eager",
+            "_comment": "Vue 版本由脚本动态检测"
         },
         "business": {
             "id": "layer2_business",
-            "title": "🏢 Layer 2: Business & Domain Rules",
+            "title": "Layer 2: 业务规范",
             "dependencies": {
-                "ant-design-vue": [
-                    "antdv"
-                ],
-                "vant": [
-                    "vant"
-                ]
+                "ant-design-vue": ["antdv"],
+                "vant": ["vant"]
             },
+            "loadMode": "lazy",
             "_comment": "key=npm包名, value=对应要加载的规则文件夹名数组"
         },
         "action": {
             "id": "layer3_action",
-            "title": "⚡ Layer 3: Action Checklists",
-            "defaults": [
-                "refactoring",
-                "debugging",
-                "testing",
-                "self-verification"
-            ],
+            "title": "Layer 3: 任务检查清单",
+            "defaults": ["refactoring", "debugging", "testing", "self-verification", "defensive-coding"],
+            "loadMode": "lazy",
             "_comment": "defaults 始终加载，可通过 --task 参数筛选"
         }
     },
@@ -81,73 +84,28 @@
                     "code-review": 0.9,
                     "debugging": 0.7,
                     "testing": 0.6
-                },
-                "vue3/vue3-script-setup": {
-                    "refactoring": 0.9,
-                    "new-feature": 0.95,
-                    "code-review": 0.85,
-                    "debugging": 0.5,
-                    "testing": 0.5
-                },
-                "vue2/vue2-general": {
-                    "refactoring": 0.9,
-                    "new-feature": 0.95,
-                    "code-review": 0.85,
-                    "debugging": 0.6,
-                    "testing": 0.5
-                },
-                "vue2/vue2-composition": {
-                    "refactoring": 0.9,
-                    "new-feature": 0.95,
-                    "code-review": 0.85,
-                    "debugging": 0.5,
-                    "testing": 0.5
-                }
-            },
-            "layer2_business": {
-                "antdv": {
-                    "new-feature": 0.95,
-                    "refactoring": 0.7,
-                    "code-review": 0.8,
-                    "debugging": 0.6,
-                    "testing": 0.5
-                },
-                "vant": {
-                    "new-feature": 0.95,
-                    "refactoring": 0.7,
-                    "code-review": 0.8,
-                    "debugging": 0.6,
-                    "testing": 0.5
                 }
             },
             "layer3_action": {
                 "refactoring": {
                     "refactoring": 1.0,
                     "code-review": 0.8,
-                    "new-feature": 0.4,
-                    "debugging": 0.3,
-                    "testing": 0.3
+                    "new-feature": 0.4
                 },
                 "debugging": {
                     "debugging": 1.0,
                     "refactoring": 0.4,
-                    "code-review": 0.5,
-                    "new-feature": 0.3,
-                    "testing": 0.4
+                    "code-review": 0.5
                 },
                 "testing": {
                     "testing": 1.0,
                     "code-review": 0.7,
-                    "new-feature": 0.6,
-                    "refactoring": 0.5,
-                    "debugging": 0.4
+                    "new-feature": 0.6
                 },
                 "self-verification": {
                     "code-review": 1.0,
                     "refactoring": 0.8,
-                    "new-feature": 0.7,
-                    "debugging": 0.6,
-                    "testing": 0.7
+                    "new-feature": 0.7
                 }
             }
         },
@@ -158,37 +116,24 @@
             "loose": 0.3
         }
     },
-    "detailLevels": {
-        "_comment": "详略级别配置 - 用于渐进式披露，控制规则内容的详细程度",
-        "summary": {
-            "name": "摘要",
-            "description": "仅加载规则摘要，适合快速浏览",
-            "markers": ["@level:summary"]
-        },
-        "quick": {
-            "name": "快速参考",
-            "description": "加载摘要和快速参考，适合日常开发",
-            "markers": ["@level:summary", "@level:quick"]
-        },
-        "full": {
-            "name": "完整",
-            "description": "加载全部内容，适合深入学习",
-            "markers": ["@level:summary", "@level:quick", "@level:full"]
-        }
-    },
     "skills": {
-        "_comment": "自定义技能配置 - 模拟 Claude Code + Skills 的动态激活能力",
+        "_comment": "自定义技能配置 - CodeBuddy 已支持 Skills 功能",
         "enabled": true,
-        "path": "custom-skills"
+        "path": "custom-skills",
+        "loadMode": "lazy"
+    },
+    "mcpServer": {
+        "_comment": "MCP Server 配置 - CodeBuddy 已支持，待后续实现",
+        "enabled": false,
+        "path": "mcp-server"
     },
     "output": {
         "dirName": ".codebuddy/rules",
         "fileName": "project-rules.md"
     },
     "frontmatter": {
-        "description": "Frontend Architecture Standards - Vue 3 + TypeScript Best Practices",
+        "description": "前端架构规范 - CodeBuddy GLM-4.7 专用版",
         "alwaysApply": true,
-        "enabled": true,
-        "provider": ""
+        "enabled": true
     }
 }
