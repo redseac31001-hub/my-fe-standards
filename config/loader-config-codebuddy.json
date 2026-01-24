@@ -1,0 +1,22 @@
+{
+    "$schema": "./loader-config.schema.json",
+    "_comment": "CodeBuddy GLM-4.7 专用配置 - 简化版本",
+    "mode": "codebuddy",
+    "layers": {
+        "base": {
+            "id": "rules",
+            "title": "前端架构规范",
+            "files": ["codebuddy-rules.md"],
+            "_comment": "CodeBuddy 版本使用单一整合规则文件"
+        }
+    },
+    "output": {
+        "dirName": ".codebuddy/rules",
+        "fileName": "project-rules.md"
+    },
+    "frontmatter": {
+        "description": "前端架构规范 - CodeBuddy GLM-4.7 专用版",
+        "alwaysApply": true,
+        "enabled": true
+    }
+}

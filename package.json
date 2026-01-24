@@ -1,7 +1,7 @@
 {
   "name": "my-fe-standards",
   "version": "1.0.0",
-  "description": "前端架构师规则库 - AI 编程助手知识源",
+  "description": "前端架构师规则库 - AI 编程助手知识源 (CodeBuddy GLM-4.7 专用版)",
   "dependencies": {
     "vue": "^3.0.0"
   },
@@ -13,11 +13,8 @@
     "build:scripts": "tsc -p scripts/tsconfig.json",
     "build:manifest": "node scripts/dist/generate-manifest.js",
     "build": "npm run build:scripts && npm run build:manifest",
-    "test:local": "node scripts/dist/rule-loader.js",
-    "test:remote": "node scripts/dist/rule-loader.js --remote http://localhost:8080",
-    "test:remote:github": "node scripts/dist/rule-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch",
-    "remote:github": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch/scripts/dist/rule-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/remote-fetch",
-    "test:remote:full": "node test/test-remote-full.js",
-    "test:integration": "node test/run-tests.js"
+    "test:local": "node scripts/codebuddy-loader.js",
+    "codebuddy": "node scripts/codebuddy-loader.js",
+    "codebuddy:install": "node scripts/codebuddy-loader.js"
   }
 }

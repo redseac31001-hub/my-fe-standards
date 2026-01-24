@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-01-23T08:55:00.129Z",
+  "generatedAt": "2026-01-24T07:44:16.601Z",
   "version": "1.0.0",
   "config": {
     "$schema": "./loader-config.schema.json",
@@ -226,6 +226,11 @@
   },
   "files": [
     {
+      "path": "rules/codebuddy-rules.md",
+      "size": 8440,
+      "name": "codebuddy-rules.md"
+    },
+    {
       "path": "rules/layer1_base/architecture/feature-based-structure.md",
       "size": 2191,
       "name": "feature-based-structure.md"
@@ -237,7 +242,7 @@
     },
     {
       "path": "rules/layer1_base/typescript/strict-types.md",
-      "size": 1764,
+      "size": 2887,
       "name": "strict-types.md"
     },
     {
@@ -281,13 +286,18 @@
       "name": "debugging.md"
     },
     {
+      "path": "rules/layer3_action/defensive-coding.md",
+      "size": 8852,
+      "name": "defensive-coding.md"
+    },
+    {
       "path": "rules/layer3_action/refactoring.md",
-      "size": 1575,
+      "size": 4444,
       "name": "refactoring.md"
     },
     {
       "path": "rules/layer3_action/self-verification.md",
-      "size": 12553,
+      "size": 14502,
       "name": "self-verification.md"
     },
     {

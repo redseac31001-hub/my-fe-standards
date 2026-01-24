@@ -14,6 +14,45 @@ TypeScript 的核心价值在于类型安全。过度使用 `any` 或忽略类�
 *   **推荐** 使用 Interface 定义对象形状，使用 Type 定义联合类型或函数签名。
 *   **必须** 为所有导出的函数定义明确的返回类型 (Explicit Return Types)，这有助于编译器优化和文档生成。
 
+## 2.1 ⚠️ 灵活性指南（重要）
+
+### 何时可以放宽类型要求
+
+| 场景 | 处理方式 | 说明 |
+|------|----------|------|
+| **遗留代码兼容** | 不强制立即修复 | 仅在修改相关逻辑时顺便优化 |
+| **快速原型** | 允许临时 `any` | 正式代码必须移除 |
+| **第三方库兼容** | 允许 `as unknown as T` | 当库类型定义不完整时 |
+| **与当前任务无关的代码** | 保持现状 | 不要"顺手"修复无关问题 |
+
+### 遗留代码处理原则
+
+```typescript
+// ✅ 正确：修改的代码移除 any
+function updateUser(user: User): void {  // 修改这个函数时，同时修复类型
+  // ...
+}
+
+// ❌ 错误：顺手修复无关代码
+function unrelatedFunction(data: any) {  // 与当前任务无关，保持现状
+  // ...
+}
+```
+
+### 第三方库兼容
+
+```typescript
+// ✅ 允许：第三方库类型不完整时
+const result = thirdPartyLib.getData() as unknown as ExpectedType
+
+// ✅ 允许：声明文件补丁
+declare module 'some-library' {
+  interface SomeType {
+    missingProperty: string
+  }
+}
+```
+
 ## 3. Reasoning (核心原理)
 *   **Safety**: 防止运行时错误（Undefined is not a function）。
 *   **Refactoring Confidence**: 强类型让大规模重构变得安全且容易。

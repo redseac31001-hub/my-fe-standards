@@ -85,6 +85,7 @@ test/mock-projects/**/.codebuddy/
 
 # 本项目自身生成的规则文件 (用于测试)
 /.codebuddy/
+testdemo
 
 # 业务项目的缓存目录
 .architect-cache/
