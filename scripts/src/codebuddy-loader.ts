@@ -22,25 +22,35 @@
  *   --timeout <ms>    设置网络请求超时（默认 10000ms）
  */
 
-const fs = require('fs');
-const path = require('path');
-const https = require('https');
-const http = require('http');
+import * as fs from 'fs';
+import * as path from 'path';
+import * as https from 'https';
+import * as http from 'http';
+import {
+  Context,
+  Manifest,
+  LoaderConfig,
+  VueProfile,
+  RuleContent,
+  RuleIndexItem,
+  SkillMetadata,
+  PackageJson,
+} from './types';
 
 // ============ 配置常量 ============
 
-const SCRIPT_DIR = __dirname;
-const PROJECT_ROOT = path.resolve(SCRIPT_DIR, '..');
-const RULES_ROOT = path.join(PROJECT_ROOT, 'rules');
-const CONFIG_PATH = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
-const SKILLS_ROOT = path.join(PROJECT_ROOT, 'custom-skills');
+const SCRIPT_DIR: string = __dirname;
+const PROJECT_ROOT: string = path.resolve(SCRIPT_DIR, '../..');
+const RULES_ROOT: string = path.join(PROJECT_ROOT, 'rules');
+const CONFIG_PATH: string = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
+const SKILLS_ROOT: string = path.join(PROJECT_ROOT, 'custom-skills');
 
-const DEFAULT_TIMEOUT = 10000;
-const DEFAULT_THRESHOLD = 0.5;
+const DEFAULT_TIMEOUT: number = 10000;
+const DEFAULT_THRESHOLD: number = 0.5;
 
 // ============ 全局上下文 ============
 
-const ctx = {
+const ctx: Context = {
   isRemote: false,
   isVerbose: false,
   remoteBaseUrl: '',
@@ -52,27 +62,27 @@ const ctx = {
 
 // ============ 日志工具 ============
 
-function log(message) {
+function log(message: string): void {
   console.log(`[CodeBuddy] ${message}`);
 }
 
-function logVerbose(message) {
+function logVerbose(message: string): void {
   if (ctx.isVerbose) {
     console.log(`[CodeBuddy:DEBUG] ${message}`);
   }
 }
 
-function logError(message) {
+function logError(message: string): void {
   console.error(`[CodeBuddy:ERROR] ${message}`);
 }
 
-function logWarn(message) {
+function logWarn(message: string): void {
   console.warn(`[CodeBuddy:WARN] ${message}`);
 }
 
 // ============ 帮助信息 ============
 
-function showHelp() {
+function showHelp(): void {
   console.log(`
 ╔══════════════════════════════════════════════════════════════════╗
 ║      CodeBuddy 规则加载器 v2.0 - 三层架构 + 技能系统              ║
@@ -115,7 +125,7 @@ function showHelp() {
 
 // ============ 网络请求 ============
 
-function fetchUrl(url, retries = 3) {
+function fetchUrl(url: string, retries: number = 3): Promise<string> {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
 
@@ -123,14 +133,14 @@ function fetchUrl(url, retries = 3) {
 
     const request = client.get(url, (res) => {
       // 处理重定向
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         logVerbose(`Redirecting to: ${res.headers.location}`);
         fetchUrl(res.headers.location, retries).then(resolve).catch(reject);
         return;
       }
 
       if (res.statusCode !== 200) {
-        if (res.statusCode >= 500 && retries > 0) {
+        if (res.statusCode && res.statusCode >= 500 && retries > 0) {
           res.resume();
           logWarn(`HTTP ${res.statusCode}. Retrying...`);
           setTimeout(() => {
@@ -145,14 +155,14 @@ function fetchUrl(url, retries = 3) {
       }
 
       let data = '';
-      res.on('data', (chunk) => { data += chunk.toString(); });
+      res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
       res.on('end', () => {
         logVerbose(`Fetched ${data.length} bytes from ${url}`);
         resolve(data);
       });
     });
 
-    request.on('error', (e) => {
+    request.on('error', (e: NodeJS.ErrnoException) => {
       if (retries > 0) {
         logWarn(`Network Error (${e.code}). Retrying...`);
         setTimeout(() => {
@@ -179,17 +189,17 @@ function fetchUrl(url, retries = 3) {
 
 // ============ 配置加载 ============
 
-async function loadConfig() {
+async function loadConfig(): Promise<LoaderConfig> {
   if (ctx.isRemote) {
     try {
       const manifestUrl = `${ctx.remoteBaseUrl}/manifest.json`;
       log(`正在从远程加载配置: ${manifestUrl}`);
       const data = await fetchUrl(manifestUrl);
-      ctx.remoteManifest = JSON.parse(data);
+      ctx.remoteManifest = JSON.parse(data) as Manifest;
       logVerbose(`Manifest 加载成功. Version: ${ctx.remoteManifest.version}`);
-      return ctx.remoteManifest.config;
+      return ctx.remoteManifest.config as LoaderConfig;
     } catch (e) {
-      logError(`远程 manifest 加载失败: ${e.message}`);
+      logError(`远程 manifest 加载失败: ${(e as Error).message}`);
       process.exit(1);
     }
   } else {
@@ -198,27 +208,27 @@ async function loadConfig() {
       process.exit(1);
     }
     logVerbose(`加载本地配置: ${CONFIG_PATH}`);
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')) as LoaderConfig;
   }
 }
 
 // ============ 项目依赖检测 ============
 
-function getPackageJson(targetDir) {
+function getPackageJson(targetDir: string): PackageJson {
   const pkgPath = path.join(targetDir, 'package.json');
   if (!fs.existsSync(pkgPath)) {
     logWarn(`未找到 package.json: ${pkgPath}`);
     return {};
   }
   try {
-    return JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as PackageJson;
   } catch (e) {
-    logError(`解析 package.json 失败: ${e.message}`);
+    logError(`解析 package.json 失败: ${(e as Error).message}`);
     return {};
   }
 }
 
-function checkVueProfile(dependencies) {
+function checkVueProfile(dependencies: Record<string, string>): VueProfile | null {
   const vueVersion = dependencies['vue'];
   if (!vueVersion) return null;
 
@@ -237,7 +247,7 @@ function checkVueProfile(dependencies) {
 
 // ============ 规则加载 ============
 
-async function loadRuleFile(layerId, filePath) {
+async function loadRuleFile(layerId: string, filePath: string): Promise<string> {
   if (ctx.isRemote) {
     const fileUrl = `${ctx.remoteBaseUrl}/rules/${layerId}/${filePath}`;
     try {
@@ -255,13 +265,13 @@ async function loadRuleFile(layerId, filePath) {
   }
 }
 
-async function loadLayerRules(layerId, folders) {
-  const contents = [];
+async function loadLayerRules(layerId: string, folders: string[]): Promise<RuleContent[]> {
+  const contents: RuleContent[] = [];
 
   for (const folder of folders) {
     if (ctx.isRemote) {
       // 远程模式：从 manifest 查找文件
-      const matchingFiles = ctx.remoteManifest.files.filter(
+      const matchingFiles = ctx.remoteManifest!.files.filter(
         f => f.path.startsWith(`rules/${layerId}/${folder}`) && f.path.endsWith('.md')
       );
       for (const file of matchingFiles) {
@@ -301,8 +311,8 @@ async function loadLayerRules(layerId, folders) {
 
 // ============ 技能系统 ============
 
-async function loadSkills(skillsPath) {
-  const skills = [];
+async function loadSkills(skillsPath: string): Promise<SkillMetadata[]> {
+  const skills: SkillMetadata[] = [];
   const localSkillsDir = path.join(process.cwd(), '.codebuddy/skills');
 
   // 确保目录存在
@@ -312,7 +322,7 @@ async function loadSkills(skillsPath) {
 
   const sourceDir = ctx.isRemote ? null : path.join(PROJECT_ROOT, skillsPath);
 
-  if (!ctx.isRemote && fs.existsSync(sourceDir)) {
+  if (!ctx.isRemote && sourceDir && fs.existsSync(sourceDir)) {
     // 本地模式：复制技能文件
     copyRecursive(sourceDir, localSkillsDir);
 
@@ -335,7 +345,7 @@ async function loadSkills(skillsPath) {
   return skills;
 }
 
-function copyRecursive(src, dest) {
+function copyRecursive(src: string, dest: string): void {
   if (!fs.existsSync(src)) return;
   const stat = fs.statSync(src);
   if (stat.isDirectory()) {
@@ -348,7 +358,7 @@ function copyRecursive(src, dest) {
   }
 }
 
-function parseSkillMetadata(skillId, content) {
+function parseSkillMetadata(skillId: string, content: string): SkillMetadata | null {
   const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
   if (!frontmatterMatch) return null;
 
@@ -368,7 +378,7 @@ function parseSkillMetadata(skillId, content) {
 
 // ============ 提示词生成 ============
 
-function generateSkillsPrompt(skills) {
+function generateSkillsPrompt(skills: SkillMetadata[]): string {
   if (skills.length === 0) return '';
 
   let table = '| 技能名称 | 技能 ID | 触发场景 |\n|---------|---------|----------|\n';
@@ -408,10 +418,8 @@ ${table}
 `;
 }
 
-function generateRuleActivationPrompt(config) {
-  const tasks = config.tasks?.definitions || {};
-
-  let table = '| 任务类型 | 关键词 | 重点规则 |\n|---------|--------|---------|\n';
+function generateRuleActivationPrompt(_config: LoaderConfig): string {
+  let table = '| 任务类型 | 关键词 | 重点规则 |\n|---------|--------|--------|\n';
   table += '| 重构 | refactor, optimize, cleanup | Layer1 架构规范 + Layer3 重构检查清单 |\n';
   table += '| 调试 | debug, fix, bugfix | Layer3 调试检查清单 + TypeScript 类型规范 |\n';
   table += '| 新功能 | feature, implement, add | Layer1 全部 + Layer2 UI 库规范 |\n';
@@ -431,7 +439,7 @@ ${table}
 
 // ============ .gitignore 更新 ============
 
-function updateGitignore(projectDir) {
+function updateGitignore(projectDir: string): void {
   const gitignorePath = path.join(projectDir, '.gitignore');
   const entry = '.codebuddy/';
 
@@ -452,13 +460,13 @@ function updateGitignore(projectDir) {
     fs.writeFileSync(gitignorePath, content, 'utf-8');
     logVerbose('已更新 .gitignore');
   } catch (error) {
-    logWarn(`更新 .gitignore 失败: ${error.message}`);
+    logWarn(`更新 .gitignore 失败: ${(error as Error).message}`);
   }
 }
 
 // ============ 参数解析 ============
 
-function parseArgs() {
+function parseArgs(): void {
   const args = process.argv.slice(2);
 
   if (args.includes('--help') || args.includes('-h')) {
@@ -474,6 +482,13 @@ function parseArgs() {
     const url = args[remoteIndex + 1];
     if (!url || url.startsWith('-')) {
       logError('--remote 需要 URL 参数');
+      process.exit(1);
+    }
+    // 验证 URL 格式
+    try {
+      new URL(url);
+    } catch {
+      logError('--remote 需要有效的 URL 格式（如 https://example.com）');
       process.exit(1);
     }
     ctx.isRemote = true;
@@ -509,7 +524,7 @@ function parseArgs() {
 
 // ============ 主函数 ============
 
-async function main() {
+async function main(): Promise<void> {
   parseArgs();
 
   log('CodeBuddy 规则加载器 v2.0 (三层架构 + 技能系统)');
@@ -528,7 +543,7 @@ async function main() {
 
   // 检测项目依赖
   const pkg = getPackageJson(targetDir);
-  const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+  const dependencies: Record<string, string> = { ...pkg.dependencies, ...pkg.devDependencies };
   const vueProfile = checkVueProfile(dependencies);
 
   if (vueProfile) {
@@ -557,7 +572,7 @@ updatedAt: ${updatedAt}
   // ============ Layer 1: Base (Eager Load) ============
   log('处理 Layer 1: 基础规范 (Eager Load)...');
 
-  const layer1Folders = [...(layers.base?.staticDeps || [])];
+  const layer1Folders: string[] = [...(layers.base?.staticDeps || [])];
 
   // 根据 Vue 版本添加规则
   if (vueProfile) {
@@ -580,7 +595,7 @@ updatedAt: ${updatedAt}
   // ============ Layer 2: Business (Lazy Load - Index Only) ============
   log('处理 Layer 2: 业务规范 (Lazy Load)...');
 
-  const layer2Index = [];
+  const layer2Index: RuleIndexItem[] = [];
   const businessDeps = layers.business?.dependencies || {};
 
   for (const [depName, ruleFolders] of Object.entries(businessDeps)) {
@@ -609,7 +624,7 @@ updatedAt: ${updatedAt}
   // ============ Layer 3: Action (Lazy Load - Index Only) ============
   log('处理 Layer 3: 任务检查清单 (Lazy Load)...');
 
-  const layer3Index = [];
+  const layer3Index: RuleIndexItem[] = [];
   const actionDefaults = layers.action?.defaults || [];
 
   for (const item of actionDefaults) {
@@ -677,7 +692,7 @@ updatedAt: ${updatedAt}
   log('═══════════════════════════════════════════════════════════════════');
 }
 
-main().catch((err) => {
+main().catch((err: Error) => {
   logError(`Fatal Error: ${err.message}`);
   process.exit(1);
 });

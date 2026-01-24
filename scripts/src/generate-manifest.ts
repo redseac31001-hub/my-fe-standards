@@ -9,24 +9,25 @@
  *   node generate-manifest.js
  */
 
-const fs = require('fs');
-const path = require('path');
+import * as fs from 'fs';
+import * as path from 'path';
+import { ManifestFile, Manifest, LoaderConfig } from './types';
 
-const PROJECT_ROOT = path.resolve(__dirname, '..');
-const RULES_ROOT = path.join(PROJECT_ROOT, 'rules');
-const SKILLS_ROOT = path.join(PROJECT_ROOT, 'custom-skills');
-const CONFIG_PATH = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
-const OUTPUT_PATH = path.join(PROJECT_ROOT, 'manifest.json');
+const PROJECT_ROOT: string = path.resolve(__dirname, '../..');
+const RULES_ROOT: string = path.join(PROJECT_ROOT, 'rules');
+const SKILLS_ROOT: string = path.join(PROJECT_ROOT, 'custom-skills');
+const CONFIG_PATH: string = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
+const OUTPUT_PATH: string = path.join(PROJECT_ROOT, 'manifest.json');
 
-function log(message) {
+function log(message: string): void {
   console.log(`[Manifest] ${message}`);
 }
 
 /**
  * 递归扫描目录，收集所有 .md 文件
  */
-function scanDirectory(dir, basePath = '') {
-  const files = [];
+function scanDirectory(dir: string, basePath: string = ''): ManifestFile[] {
+  const files: ManifestFile[] = [];
 
   if (!fs.existsSync(dir)) {
     return files;
@@ -60,21 +61,26 @@ function scanDirectory(dir, basePath = '') {
 /**
  * 主函数
  */
-function main() {
+function main(): void {
   log('开始生成 manifest.json...');
 
   // 1. 加载配置
-  let config = {};
+  let config: Partial<LoaderConfig> = {};
   if (fs.existsSync(CONFIG_PATH)) {
-    config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    log('已加载配置文件');
+    try {
+      config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')) as LoaderConfig;
+      log('已加载配置文件');
+    } catch (e) {
+      log(`错误: 配置文件格式无效 - ${(e as Error).message}`);
+      process.exit(1);
+    }
   } else {
     log('警告: 配置文件不存在，使用默认配置');
   }
 
   // 2. 扫描规则文件
   log('扫描 rules/ 目录...');
-  const ruleFiles = scanDirectory(RULES_ROOT).map(f => ({
+  const ruleFiles: ManifestFile[] = scanDirectory(RULES_ROOT).map(f => ({
     ...f,
     path: `rules/${f.path}`,
   }));
@@ -82,23 +88,23 @@ function main() {
 
   // 3. 扫描技能文件
   log('扫描 custom-skills/ 目录...');
-  const skillFiles = scanDirectory(SKILLS_ROOT).map(f => ({
+  const skillFiles: ManifestFile[] = scanDirectory(SKILLS_ROOT).map(f => ({
     ...f,
     path: `custom-skills/${f.path}`,
   }));
   log(`  找到 ${skillFiles.length} 个技能文件`);
 
   // 4. 构建 manifest
-  const manifest = {
+  const manifest: Manifest = {
     version: '2.0.0',
     generatedAt: new Date().toISOString(),
     aiTool: 'CodeBuddy',
     model: 'GLM-4.7',
     config: {
       layers: config.layers || {},
-      skills: config.skills || {},
+      skills: config.skills || { enabled: false, path: '' },
       tasks: config.tasks || {},
-      output: config.output || {},
+      output: config.output || { dirName: '', fileName: '' },
       frontmatter: config.frontmatter || {},
     },
     files: [...ruleFiles, ...skillFiles],

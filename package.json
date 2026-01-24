@@ -13,8 +13,8 @@
     "build:scripts": "tsc -p scripts/tsconfig.json",
     "build:manifest": "node scripts/dist/generate-manifest.js",
     "build": "npm run build:scripts && npm run build:manifest",
-    "test:local": "node scripts/codebuddy-loader.js",
-    "codebuddy": "node scripts/codebuddy-loader.js",
-    "codebuddy:install": "node scripts/codebuddy-loader.js"
+    "codebuddy": "node scripts/dist/codebuddy-loader.js",
+    "codebuddy:install": "node scripts/dist/codebuddy-loader.js",
+    "serve": "node scripts/dist/simple-server.js"
   }
 }
