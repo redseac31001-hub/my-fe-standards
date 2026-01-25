@@ -1,6 +1,6 @@
 {
-  "version": "2.0.0",
-  "generatedAt": "2026-01-24T13:00:31.342Z",
+  "version": "2.1.0",
+  "generatedAt": "2026-01-25T00:00:00.000Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -43,11 +43,51 @@
         "_comment": "defaults 始终加载，可通过 --task 参数筛选"
       }
     },
+    "agents": {
+      "_comment": "Agent 系统配置 - 独立执行单元",
+      "enabled": true,
+      "path": "agents",
+      "loadMode": "lazy",
+      "definitions": {
+        "security-reviewer": {
+          "name": "安全审查",
+          "description": "XSS、CSRF、敏感数据泄露检测",
+          "triggers": ["安全审查", "security", "xss", "csrf", "owasp"],
+          "permissions": ["read_file", "grep_search"],
+          "relatedSkills": ["frontend-code-review"],
+          "relatedRules": ["layer3_action/defensive-coding"]
+        },
+        "performance-profiler": {
+          "name": "性能分析",
+          "description": "Lighthouse、Web Vitals、渲染性能诊断",
+          "triggers": ["性能分析", "performance", "lighthouse", "web vitals"],
+          "permissions": ["read_file", "bash"],
+          "relatedSkills": ["performance-optimization"]
+        },
+        "planner": {
+          "name": "任务规划",
+          "description": "复杂任务分解、实现步骤规划、风险评估",
+          "triggers": ["规划", "plan", "任务分解", "设计方案"],
+          "permissions": ["read_file"],
+          "relatedRules": ["layer3_action/refactoring", "layer3_action/testing"]
+        }
+      }
+    },
     "skills": {
       "_comment": "自定义技能配置 - CodeBuddy 已支持 Skills 功能",
       "enabled": true,
       "path": "custom-skills",
-      "loadMode": "lazy"
+      "loadMode": "lazy",
+      "registry": [
+        "component-refactoring",
+        "frontend-code-review",
+        "frontend-testing",
+        "skill-creator",
+        "state-management",
+        "performance-optimization",
+        "build-optimization",
+        "i18n-a11y"
+      ]
     },
     "tasks": {
       "_comment": "任务类型定义 - 用于渐进式披露，按任务筛选相关规则",

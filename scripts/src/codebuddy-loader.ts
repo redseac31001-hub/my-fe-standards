@@ -34,6 +34,7 @@ import {
   RuleContent,
   RuleIndexItem,
   SkillMetadata,
+  AgentMetadata,
   PackageJson,
 } from './types';
 
@@ -44,6 +45,7 @@ const PROJECT_ROOT: string = path.resolve(SCRIPT_DIR, '../..');
 const RULES_ROOT: string = path.join(PROJECT_ROOT, 'rules');
 const CONFIG_PATH: string = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
 const SKILLS_ROOT: string = path.join(PROJECT_ROOT, 'custom-skills');
+const AGENTS_ROOT: string = path.join(PROJECT_ROOT, 'agents');
 
 const DEFAULT_TIMEOUT: number = 10000;
 const DEFAULT_THRESHOLD: number = 0.5;
@@ -376,6 +378,126 @@ function parseSkillMetadata(skillId: string, content: string): SkillMetadata | n
   };
 }
 
+// ============ Agent 系统 ============
+
+async function loadAgents(agentsPath: string): Promise<AgentMetadata[]> {
+  const agents: AgentMetadata[] = [];
+  const localAgentsDir = path.join(process.cwd(), '.codebuddy/agents');
+
+  // 确保目录存在
+  if (!fs.existsSync(localAgentsDir)) {
+    fs.mkdirSync(localAgentsDir, { recursive: true });
+  }
+
+  const sourceDir = ctx.isRemote ? null : path.join(PROJECT_ROOT, agentsPath);
+
+  if (!ctx.isRemote && sourceDir && fs.existsSync(sourceDir)) {
+    // 本地模式：复制 Agent 文件
+    copyRecursive(sourceDir, localAgentsDir);
+
+    // 解析 AGENT.md
+    const agentDirs = fs.readdirSync(localAgentsDir).filter(f => {
+      const fullPath = path.join(localAgentsDir, f);
+      return fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory();
+    });
+
+    for (const agentId of agentDirs) {
+      const agentFile = path.join(localAgentsDir, agentId, 'AGENT.md');
+      if (fs.existsSync(agentFile)) {
+        const content = fs.readFileSync(agentFile, 'utf-8');
+        const metadata = parseAgentMetadata(agentId, content);
+        if (metadata) agents.push(metadata);
+      }
+    }
+  }
+
+  return agents;
+}
+
+function parseAgentMetadata(agentId: string, content: string): AgentMetadata | null {
+  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (!frontmatterMatch) return null;
+
+  const frontmatter = frontmatterMatch[1];
+  const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
+  let descMatch = frontmatter.match(/^description:\s*["'](.+)["']$/m);
+  if (!descMatch) descMatch = frontmatter.match(/^description:\s*(.+)$/m);
+
+  if (!nameMatch || !descMatch) return null;
+
+  // 解析 triggers
+  const triggers: string[] = [];
+  const triggersMatch = frontmatter.match(/^triggers:\s*\n((?:\s+-\s*.+\n?)+)/m);
+  if (triggersMatch) {
+    const triggerLines = triggersMatch[1].split('\n');
+    for (const line of triggerLines) {
+      const match = line.match(/^\s+-\s*["']?(.+?)["']?\s*$/);
+      if (match) triggers.push(match[1]);
+    }
+  }
+
+  // 解析 permissions
+  const permissions: string[] = [];
+  const permMatch = frontmatter.match(/permissions:\s*\n\s+tools:\s*\n((?:\s+-\s*.+\n?)+)/m);
+  if (permMatch) {
+    const permLines = permMatch[1].split('\n');
+    for (const line of permLines) {
+      const match = line.match(/^\s+-\s*(.+?)\s*$/);
+      if (match) permissions.push(match[1]);
+    }
+  }
+
+  return {
+    id: agentId,
+    name: nameMatch[1].trim(),
+    description: descMatch[1].trim(),
+    triggers,
+    permissions,
+  };
+}
+
+function generateAgentsPrompt(agents: AgentMetadata[]): string {
+  if (agents.length === 0) return '';
+
+  let table = '| Agent 名称 | Agent ID | 触发场景 | 权限 |\n|-----------|----------|----------|------|\n';
+  for (const agent of agents) {
+    const triggerText = agent.triggers.slice(0, 3).join(', ') + (agent.triggers.length > 3 ? '...' : '');
+    const permText = agent.permissions.join(', ') || '-';
+    table += `| **${agent.name}** | \`${agent.id}\` | ${triggerText} | ${permText} |\n`;
+  }
+
+  return `
+# 🤖 Agent 系统索引 (Agents Index)
+
+本规则库支持 **Agent 执行模式**，Agent 文件已下载至 \`.codebuddy/agents/\`。
+
+## 已安装 Agents
+
+${table}
+
+## 🚀 Agent 调用指南 (CodeBuddy)
+
+当用户请求匹配上述触发场景时，请：
+
+1. **识别意图**: 分析用户请求是否匹配表格中的触发场景
+2. **读取 Agent**: 调用 \`read_file\` 工具读取 \`.codebuddy/agents/<Agent ID>/AGENT.md\`
+3. **执行工作流**: 根据 AGENT.md 中定义的工作流执行任务
+4. **加载资源**: 按需读取 checklists/、metrics/、frameworks/ 等子目录资源
+5. **生成报告**: 使用 templates/ 目录中的模板输出结果
+
+**示例**:
+> 用户: "帮我做一下安全审查"
+> 行动: read_file(".codebuddy/agents/security-reviewer/AGENT.md")
+
+## Agent 与 Skill 的区别
+
+| 维度 | Agent | Skill |
+|------|-------|-------|
+| **定位** | 独立决策执行者 | 知识包/工具集 |
+| **执行模式** | 完整工作流 | 提供知识上下文 |
+`;
+}
+
 // ============ 提示词生成 ============
 
 function generateSkillsPrompt(skills: SkillMetadata[]): string {
@@ -668,6 +790,14 @@ updatedAt: ${updatedAt}
     const skills = await loadSkills(skillsConfig.path || 'custom-skills');
     log(`已加载 ${skills.length} 个技能`);
     finalContent += generateSkillsPrompt(skills);
+  }
+
+  // ============ Agent 系统 ============
+  log('加载 Agent 系统...');
+  const agents = await loadAgents('agents');
+  if (agents.length > 0) {
+    log(`已加载 ${agents.length} 个 Agents`);
+    finalContent += generateAgentsPrompt(agents);
   }
 
   // ============ 输出文件 ============

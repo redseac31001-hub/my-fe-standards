@@ -32,6 +32,7 @@ export interface Manifest {
 export interface ManifestConfig {
   layers: LayersConfig;
   skills: SkillsConfig;
+  agents?: AgentConfig;
   tasks: TasksConfig;
   output: OutputConfig;
   frontmatter: FrontmatterConfig;
@@ -150,6 +151,43 @@ export interface SkillMetadata {
   id: string;
   name: string;
   description: string;
+}
+
+// ============ Agent 系统类型 ============
+
+/**
+ * Agent 元数据
+ */
+export interface AgentMetadata {
+  id: string;
+  name: string;
+  description: string;
+  triggers: string[];
+  permissions: string[];
+  relatedSkills?: string[];
+  relatedRules?: string[];
+}
+
+/**
+ * Agent 配置
+ */
+export interface AgentConfig {
+  enabled: boolean;
+  path: string;
+  loadMode: 'eager' | 'lazy';
+  definitions?: Record<string, AgentDefinition>;
+}
+
+/**
+ * Agent 定义
+ */
+export interface AgentDefinition {
+  name: string;
+  description: string;
+  triggers: string[];
+  permissions: string[];
+  relatedSkills?: string[];
+  relatedRules?: string[];
 }
 
 // ============ Package.json 类型 ============
