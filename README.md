@@ -45,7 +45,16 @@ my-fe-standards/
 
 ## 🚀 快速开始
 
-### 方式一：本地模式
+### 方式一：远程一键执行 (推荐)
+
+无需下载任何文件，直接从远程拉取脚本并执行：
+
+```bash
+# 一键远程加载规则（无需预先下载脚本）
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
+```
+
+### 方式二：本地模式
 
 ```bash
 # 1. 克隆仓库
@@ -53,17 +62,10 @@ git clone -b feature/codebuddy-glm https://github.com/redseac31001-hub/my-fe-sta
 cd my-fe-standards
 
 # 2. 在目标项目中运行加载器
-node scripts/codebuddy-loader.js /path/to/your/project
-```
+node scripts/dist/codebuddy-loader.js /path/to/your/project
 
-### 方式二：远程模式 (推荐)
-
-```bash
-# 下载加载器脚本到项目根目录
-curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/codebuddy-loader.js
-
-# 从远程加载规则
-node codebuddy-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
+# 或使用 npm 脚本
+npm run codebuddy
 ```
 
 ### 方式三：Git 私有仓库模式
@@ -154,6 +156,34 @@ node codebuddy-loader.js [options]
 ```
 
 ## 🔨 开发指南
+
+### 可用的 npm 脚本
+
+| 命令 | 说明 |
+|------|------|
+| `npm run build` | 编译 TypeScript + 生成 manifest.json |
+| `npm run build:scripts` | 仅编译 TypeScript 脚本 |
+| `npm run build:manifest` | 仅生成规则清单 manifest.json |
+| `npm run codebuddy` | 本地模式运行加载器 |
+| `npm run serve` | 启动本地 HTTP 服务器（测试用） |
+| `npm run remote` | **远程模式测试**：从 GitHub 远程拉取脚本和规则 |
+
+### 远程模式测试
+
+`npm run remote` 命令用于验证完整的远程拉取流程：
+
+```bash
+# 1. 先将代码推送到 GitHub
+git add . && git commit -m "更新规则" && git push
+
+# 2. 运行远程测试
+npm run remote
+```
+
+该命令会：
+1. 从 GitHub Raw URL 下载 `codebuddy-loader.js`
+2. 执行加载器，从远程拉取 `manifest.json` 和规则文件
+3. 在当前目录生成 `.codebuddy/` 配置
 
 ### 生成 Manifest
 

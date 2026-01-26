@@ -55,7 +55,22 @@ Architect Rule Loader 支持业务项目从远程获取前端规范规则，自�
 
 ## 快速开始
 
-### 最简接入 (私有仓库，3步完成)
+### 最简接入 (一键远程执行，推荐)
+
+无需下载任何文件，直接从远程拉取脚本并执行：
+
+```bash
+# 一键远程加载规则（curl 管道方式）
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
+```
+
+**优势**：
+- ✅ 无需预先下载脚本
+- ✅ 无临时文件
+- ✅ 一步完成（下载+执行同时进行）
+- ✅ 跨平台支持（Linux/macOS/Windows 10+）
+
+### 私有仓库接入 (3步完成)
 
 **步骤 1**: 下载引导脚本到业务项目根目录
 
