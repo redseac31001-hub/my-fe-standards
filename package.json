@@ -15,6 +15,7 @@
     "build": "npm run build:scripts && npm run build:manifest",
     "codebuddy": "node scripts/dist/codebuddy-loader.js",
     "codebuddy:install": "node scripts/dist/codebuddy-loader.js",
-    "serve": "node scripts/dist/simple-server.js"
+    "serve": "node scripts/dist/simple-server.js",
+    "remote": "npx https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm"
   }
 }
