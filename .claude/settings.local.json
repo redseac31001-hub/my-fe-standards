@@ -2,6 +2,9 @@
   "permissions": {
     "additionalDirectories": [
       "E:\\mygit\\ralph\\"
+    ],
+    "allow": [
+      "Bash(powershell.exe:*)"
     ]
   }
 }
