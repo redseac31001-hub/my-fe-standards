@@ -1,7 +1,7 @@
 {
   "name": "my-fe-standards",
-  "version": "1.0.0",
-  "description": "前端架构师规则库 - AI 编程助手知识源 (CodeBuddy GLM-4.7 专用版)",
+  "version": "2.0.0",
+  "description": "AI 辅助开发平台 - 前端架构师规则库 + Ralph 自主编码系统",
   "dependencies": {
     "vue": "^3.0.0"
   },
@@ -16,6 +16,8 @@
     "codebuddy": "node scripts/dist/codebuddy-loader.js",
     "codebuddy:install": "node scripts/dist/codebuddy-loader.js",
     "serve": "node scripts/dist/simple-server.js",
-    "remote": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm"
+    "remote": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm",
+    "ralph": "bash scripts/ralph/ralph.sh",
+    "ralph:claude": "bash scripts/ralph/ralph.sh --tool claude"
   }
 }

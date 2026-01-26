@@ -1,0 +1,36 @@
+{
+  "name": "fe-standards-mcp-server",
+  "version": "1.0.0",
+  "description": "前端架构师规则库 MCP 服务器 - 集成 Ralph 自主编码能力",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "fe-standards-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "fe-standards",
+    "ralph",
+    "ai-agent",
+    "codebuddy"
+  ],
+  "license": "MIT"
+}

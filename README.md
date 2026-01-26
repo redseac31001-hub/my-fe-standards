@@ -1,15 +1,21 @@
-# 前端架构师规则库 (CodeBuddy 专用版)
+# AI 辅助开发平台
 
-> 专为 **CodeBuddy (GLM-4.7)** 优化的前端开发规范知识库
+> **前端架构师规则库 + Ralph 自主编码系统**
 
-这是一个标准化的前端专家规则库，旨在作为 CodeBuddy AI 编程助手的知识源 (Context Source)。通过维护一系列高质量、结构化的规则文件，确保 AI 助手在辅助编码时遵循团队的最佳实践和代码规范。
+这是一个完整的 AI 辅助开发平台，集成了：
+- **规则引擎**：三层规则架构，为 CodeBuddy (GLM-4.7) 提供知识源
+- **技能系统**：可扩展的专业技能库
+- **Ralph 自主代理**：基于 PRD 的自主编码循环系统
+- **MCP Server**：标准化工具接口
 
 ## 🎯 核心特性
 
 - **三层规则架构**：基础层 + 业务层 + 动作层，渐进式加载
 - **技能系统**：支持 CodeBuddy Skills，动态加载专业技能
+- **Ralph 自主编码**：PRD 驱动的自主开发循环
 - **智能检测**：自动识别 Vue 2/3 版本和 UI 库依赖
 - **远程加载**：支持 HTTP 远程模式和 Git 私有仓库模式
+- **多工具支持**：CodeBuddy / Claude Code / Amp
 - **全中文支持**：规则内容和提示词全部使用简体中文
 
 ## 📂 目录结构
@@ -18,29 +24,27 @@
 my-fe-standards/
 ├── config/
 │   └── loader-config.json      # 加载器配置
-├── custom-skills/              # 🧩 技能库 (CodeBuddy Skills)
+├── custom-skills/              # 🧩 技能库
 │   ├── component-refactoring/  #    组件重构技能
 │   ├── frontend-code-review/   #    代码审查技能
 │   ├── frontend-testing/       #    前端测试技能
+│   ├── prd/                    #    PRD 生成技能 (新增)
+│   ├── ralph-converter/        #    PRD 转换技能 (新增)
 │   └── skill-creator/          #    技能创建指南
-├── mcp-server/                 # 🔌 MCP Server (待后续实现)
+├── packages/
+│   └── agent/                  # 🤖 Ralph Agent (Claude SDK)
+├── mcp-server/                 # 🔌 MCP Server
 ├── rules/
 │   ├── layer1_base/            # 🧱 基础层 - 通用技术标准
-│   │   ├── architecture/       #    架构规范
-│   │   ├── typescript/         #    TypeScript 类型安全
-│   │   ├── vue3/               #    Vue 3 最佳实践
-│   │   └── vue2/               #    Vue 2 兼容规则
 │   ├── layer2_business/        # 🏢 业务层 - UI 库规范
-│   │   ├── antdv.md            #    Ant Design Vue
-│   │   └── vant.md             #    Vant UI
 │   └── layer3_action/          # ⚡ 动作层 - 任务检查清单
-│       ├── refactoring.md      #    重构检查清单
-│       ├── debugging.md        #    调试检查清单
-│       ├── testing.md          #    测试策略
-│       └── self-verification.md #   自检清单
 └── scripts/
-    ├── codebuddy-loader.js     # 规则加载器
-    └── generate-manifest.js    # Manifest 生成器
+    ├── dist/                   # 编译后的脚本
+    ├── src/                    # TypeScript 源码
+    └── ralph/                  # 🚀 Ralph 自主编码系统 (新增)
+        ├── ralph.sh            #    自主循环脚本
+        ├── prompt.md           #    Amp 提示词
+        └── CLAUDE.md           #    Claude Code 提示词
 ```
 
 ## 🚀 快速开始
