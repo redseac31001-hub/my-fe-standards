@@ -105,20 +105,31 @@
 
 **预估时间**: 0.5 小时
 **优先级**: 🔴 高（阻塞后续工作）
+**状态**: ⬜ 待开始
 
 ### 任务清单
 
 | # | 任务 | 验收标准 | 状态 |
 |---|------|----------|------|
-| 0.5.1 | 搜索所有引用 `rule-loader.js` 的文件 | 输出文件列表 | ⬜ |
+| 0.5.1 | 全仓检索旧入口引用 | 搜索 `rule-loader.js`/`rule-loader.ts`/`architect-bootstrap` 等，输出文件列表 | ⬜ |
 | 0.5.2 | 统一更新为 `codebuddy-loader.js` | 所有引用一致 | ⬜ |
-| 0.5.3 | 更新 README.md 中的命令示例 | 示例可执行 | ⬜ |
-| 0.5.4 | 检查 docs/ 目录的一致性 | 无过时引用 | ⬜ |
+| 0.5.3 | 更新 README.md Quick Start | 本地/远程示例可执行，与实际脚本一致 | ⬜ |
+| 0.5.4 | 更新 docs/ 目录命令片段 | 无过时引用，无两套入口 | ⬜ |
+| 0.5.5 | 更新测试脚本引用 | 检查 `test/run-tests.js` 等是否仍指向旧 loader | ⬜ |
+| 0.5.6 | 明确入口命名策略 | 确定"唯一推荐命令"与"兼容命令" | ⬜ |
+
+> 2026-01-27 补充（来源：Codex 建议）：增加 0.5.5、0.5.6 任务
 
 ### 交付物
 
 - 更新后的文档文件列表
 - 变更日志记录
+
+### Phase 0.5 验收标准
+
+- [ ] 所有文档中的 `rule-loader.js` 已更新为 `codebuddy-loader.js`
+- [ ] README.md 中的命令示例可正常执行
+- [ ] 无两套入口/两套分支的文档冲突
 
 ---
 
@@ -126,6 +137,7 @@
 
 **预估时间**: 2-3 小时
 **优先级**: 🔴 高（核心能力）
+**状态**: ⬜ 待开始
 
 ### 文件结构
 
@@ -146,17 +158,37 @@ scripts/
 |---|------|----------|------|------|
 | 1.1 | 创建类型定义文件 | TypeScript 编译通过 | 15min | ⬜ |
 | 1.2 | 实现目录扫描功能 | 正确生成目录树 | 30min | ⬜ |
-| 1.3 | 实现配置加载（双层） | 优先级正确 | 20min | ⬜ |
-| 1.4 | 实现 SA001 检测 | 识别 type-grouped 目录 | 15min | ⬜ |
+| 1.3 | 实现配置加载（双层） | project > global > default，输出 `configSource` | 20min | ⬜ |
+| 1.4 | 实现 SA001 检测 | 识别 type-grouped 目录，含智能豁免 | 15min | ⬜ |
 | 1.5 | 实现 SA002 检测 | 识别过深嵌套 | 15min | ⬜ |
 | 1.6 | 实现 SA003 检测 | 识别巨型文件 | 15min | ⬜ |
-| 1.7 | 实现 SA004 检测 | 识别近似命名 | 20min | ⬜ |
+| 1.7 | 实现 SA004 检测 | 识别近似命名，含性能防护 | 20min | ⬜ |
 | 1.8 | 实现 SA005 检测（简化版） | 路径规则检测 | 20min | ⬜ |
 | 1.9 | 实现评分算法 | 输出 0-100 分数 | 10min | ⬜ |
-| 1.10 | 实现 JSON 输出 | 符合契约格式 | 15min | ⬜ |
-| 1.11 | 实现 Markdown 输出 | 人类可读报告 | 15min | ⬜ |
+| 1.10 | 实现 JSON 输出 | `summary/violations/scores` 稳定，`structure` 仅 full 模式 | 15min | ⬜ |
+| 1.11 | 实现 Markdown 输出 | 一屏摘要 + 违规表 + 下一步建议 | 15min | ⬜ |
 | 1.12 | 添加 CLI 入口 | 命令行可执行 | 10min | ⬜ |
-| 1.13 | 编译并测试 | `npm run build` 成功 | 10min | ⬜ |
+| 1.13 | 实现性能防护 | maxDepth、ignorePatterns（node_modules/dist/.git） | 10min | ⬜ |
+| 1.14 | 编译并测试 | `npm run build` 成功 | 10min | ⬜ |
+
+> 2026-01-27 补充（来源：Codex 建议）：
+> - 1.3 增加 `configSource` 输出要求
+> - 1.4 增加 SA001 智能豁免（三重判断）
+> - 1.7 增加 SA004 性能防护配置
+> - 1.10 明确稳定字段要求
+> - 1.11 增加 Actionable 输出要求
+> - 新增 1.13 性能防护任务
+
+### Phase 1 验收标准
+
+- [ ] `npm run build:scripts` 编译成功
+- [ ] `node scripts/dist/structure-analyzer.js <path>` 可执行
+- [ ] JSON 输出符合接口契约
+- [ ] Markdown 输出人类可读
+- [ ] 5 条规则全部生效，每条输出 `code/severity/message/path/suggestion`
+- [ ] 双层配置优先级正确
+- [ ] SA001 智能豁免生效（白名单 + features 检测 + 规模阈值）
+- [ ] SA004 性能防护生效（maxPairsPerDirectory、maxTotalChecks、minNameLength）
 
 ### 接口契约（最终版）
 
@@ -370,6 +402,7 @@ naming = 25 - (SA004数量 × 5) - (SA005数量 × 1)，最低 0
 
 **预估时间**: 1-2 小时
 **优先级**: 🟠 中
+**状态**: ⬜ 待开始
 
 ### 文件结构
 
@@ -387,9 +420,23 @@ mcp-server/
 |---|------|----------|------|------|
 | 2.1 | 定义 `analyze_project_structure` 工具 | 符合 MCP 规范 | 20min | ⬜ |
 | 2.2 | 集成 structure-analyzer 脚本 | 可调用脚本 | 30min | ⬜ |
-| 2.3 | 实现 mode 参数切换 | 三种模式正确 | 15min | ⬜ |
-| 2.4 | 添加错误处理 | 友好错误提示 | 15min | ⬜ |
-| 2.5 | 测试 MCP 工具调用 | AI 可成功调用 | 20min | ⬜ |
+| 2.3 | 实现 mode 参数切换 | 三种模式正确，默认 `problems_only` | 15min | ⬜ |
+| 2.4 | 添加错误处理 | 路径不存在/无权限/超时返回可读错误 | 15min | ⬜ |
+| 2.5 | 实现 Token 控制 | 限制 topN、evidence 长度、tree 按需 | 15min | ⬜ |
+| 2.6 | 测试 MCP 工具调用 | AI 可成功调用 | 20min | ⬜ |
+
+> 2026-01-27 补充（来源：Codex 建议）：
+> - 2.3 明确默认 mode
+> - 2.4 增加具体错误类型
+> - 新增 2.5 Token 控制任务
+
+### Phase 2 验收标准
+
+- [ ] MCP 工具注册成功
+- [ ] AI 可通过 MCP 调用 `analyze_project_structure`
+- [ ] 三种 mode 输出正确
+- [ ] 默认 `mode=problems_only`，禁止默认返回完整树
+- [ ] Token 消耗在合理范围内
 
 ### MCP 工具定义
 
@@ -437,6 +484,7 @@ mcp-server/
 
 **预估时间**: 0.5 小时
 **优先级**: 🟠 中（实现 Agent 调用能力）
+**状态**: ⬜ 待开始
 
 ### 文件结构
 
@@ -454,10 +502,25 @@ agents/
 
 | # | 任务 | 验收标准 | 预估 | 状态 |
 |---|------|----------|------|------|
-| 2.5.1 | 创建 AGENT.md | 符合 Agent 规范 | 15min | ⬜ |
+| 2.5.1 | 创建 AGENT.md | 符合 Agent 规范，触发词覆盖"结构分析/目录审查/架构健康" | 15min | ⬜ |
 | 2.5.2 | 编写结构检查清单 | 5 条规则说明 | 10min | ⬜ |
-| 2.5.3 | 编写报告模板 | 完整输出格式 | 5min | ⬜ |
+| 2.5.3 | 编写报告模板 | 输出格式与 Phase 1 Markdown 对齐 | 5min | ⬜ |
 | 2.5.4 | 更新 AGENTS.md 注册 | 新 Agent 列入 | 5min | ⬜ |
+| 2.5.5 | 编写协作交接条件 | 明确何时转交 planner/security-reviewer | 5min | ⬜ |
+
+> 2026-01-27 补充（来源：Codex 建议）：
+> - 2.5.1 明确触发词覆盖范围
+> - 2.5.3 要求与 P0 Markdown 对齐
+> - 新增 2.5.5 协作交接条件
+
+### Phase 2.5 验收标准
+
+- [ ] `agents/structure-analyzer/AGENT.md` 符合规范
+- [ ] Agent 已在 `agents/AGENTS.md` 中注册
+- [ ] 触发词可正确识别（"结构分析"、"目录审查"等）
+- [ ] Agent 可成功调用 MCP 工具
+- [ ] 报告模板输出格式正确
+- [ ] 协作交接条件明确（何时建议转交其他 Agent）
 
 ### AGENT.md 内容
 
@@ -556,6 +619,7 @@ Agent 响应：
 
 **预估时间**: 1 小时
 **优先级**: 🟡 中（支持 Agent 和直接调用）
+**状态**: ⬜ 待开始
 
 ### 文件结构
 
@@ -573,10 +637,23 @@ custom-skills/
 
 | # | 任务 | 验收标准 | 预估 | 状态 |
 |---|------|----------|------|------|
-| 3.1 | 创建 SKILL.md（可执行版） | 符合技能规范，含工具绑定 | 20min | ⬜ |
+| 3.1 | 创建 SKILL.md（可执行版） | 符合技能规范，含工具绑定，引导用户确认目标路径 | 20min | ⬜ |
 | 3.2 | 编写正确模式示例 | 3+ 示例 | 15min | ⬜ |
 | 3.3 | 编写反模式清单 | 5+ 反模式 | 15min | ⬜ |
-| 3.4 | 编写重构策略 | 3 套路径 | 10min | ⬜ |
+| 3.4 | 编写重构策略 | 2-3 套路径（小步/一次性/适配层），含风险与回滚建议 | 10min | ⬜ |
+
+> 2026-01-27 补充（来源：Codex 建议）：
+> - 3.1 增加"引导用户确认目标路径"要求
+> - 3.4 明确每条路径需含风险与回滚建议
+
+### Phase 3 验收标准
+
+- [ ] SKILL.md 符合技能规范，含工具绑定
+- [ ] Skill 触发词可正确识别
+- [ ] Skill 可自动调用 MCP 工具
+- [ ] 包含 3+ 正确模式示例
+- [ ] 包含 5+ 反模式说明
+- [ ] 包含 2-3 套重构策略，每条含风险与回滚建议
 
 ### SKILL.md 内容（可执行版）
 
@@ -733,45 +810,14 @@ When invoked, follow this template:
 
 ---
 
-*计划版本: 1.1 | 创建日期: 2026-01-26 | 最后更新: 2026-01-27*
+## 📜 版本历史
 
-> 版本 1.1 变更：
-> - 类型文件从 `.d.ts` 改为 `.ts`（Codex 建议）
-> - 新增 SA001 智能豁免逻辑（三重判断）
-> - 新增 SA004 性能防护配置项
+| 版本 | 日期 | 修改内容 |
+|------|------|----------|
+| 1.0 | 2026-01-26 | 初始版本 |
+| 1.1 | 2026-01-27 | 类型文件从 `.d.ts` 改为 `.ts`；新增 SA001 智能豁免逻辑；新增 SA004 性能防护配置项 |
+| 1.2 | 2026-01-27 | 整合任务清单（合并 Codex 补充到各 Phase）；删除重复的验收标准章节；每个 Phase 增加独立验收标准 |
 
 ---
 
-## 🧾 执行检查清单（Codex 补充）
-
-> 更新时间: 2026-01-27T10:47:49+08:00
-
-### Phase 0.5：文档一致性清理
-- [ ] 全仓检索 `rule-loader.js` / `rule-loader.ts` / `architect-bootstrap` 等旧入口引用（README、docs、test、scripts）
-- [ ] 统一对外入口命名与示例命令：明确“唯一推荐命令”与“兼容命令（如保留旧名 wrapper）”
-- [ ] 更新 `README.md` 的 Quick Start（本地/远程）并确保示例与实际脚本一致
-- [ ] 更新 `docs/` 下所有命令片段，避免出现两套分支/两套入口
-- [ ] 更新测试脚本引用（重点检查 `test/run-tests.js` 等是否仍指向旧 loader 文件名）
-
-### Phase 1 (P0)：Structure-Analyzer 核心脚本
-- [ ] 明确输入默认值：`targetPath/srcDir/maxDepth/mode/ignorePatterns/limitTopFiles`
-- [ ] 明确输出稳定字段：`summary/violations/scores` 必须稳定；`structure` 仅 `mode=full` 时输出
-- [ ] 双层配置优先级正确：project > global > default，并输出 `configSource`
-- [ ] SA001-005：每条规则都输出 `code/severity/message/path/suggestion`，并支持配置禁用
-- [ ] **SA001 智能豁免**：实现三重判断（白名单 + features 检测 + 规模阈值）
-- [ ] **SA004 性能防护**：实现 `maxPairsPerDirectory`、`maxTotalChecks`、`minNameLength` 配置
-- [ ] 性能防护：maxDepth、ignorePatterns（node_modules/dist/.git 等）
-- [ ] Markdown 报告格式：一屏摘要 + 违规表 + 下一步建议（Actionable）
-
-### Phase 2 (P1)：MCP 工具集成
-- [ ] `analyze_project_structure` 默认 `mode=problems_only`，禁止默认返回完整树
-- [ ] 错误处理：路径不存在/无权限/扫描超时等返回可读错误
-- [ ] Token 控制：限制 topN、限制 evidence 字段长度、tree 按需
-
-### Phase 2.5：Agent
-- [ ] 触发词覆盖“结构分析/目录审查/架构健康”等，且输出模板与 P0 Markdown 对齐
-- [ ] 与 `planner/security-reviewer/performance-profiler` 的交接条件写清楚（何时建议转交）
-
-### Phase 3：Skill
-- [ ] 引导用户确认目标路径；调用 MCP 后按固定模板产出报告
-- [ ] 提供 2-3 条改造路径（小步/一次性/适配层），每条包含风险与回滚建议
+*本计划遵循 [EXECUTION_PRINCIPLES.md](../EXECUTION_PRINCIPLES.md) 和 [plans/README.md](./README.md) 规范*
