@@ -8,6 +8,44 @@
 
 ---
 
+## 📌 需求验证（遵循 EXECUTION_PRINCIPLES.md）
+
+### 目标用户
+
+| 角色 | 描述 |
+|------|------|
+| **团队成员** | 日常开发人员，需要快速了解项目结构健康度 |
+| **新入职员工** | 接手遗留项目时，需要评估代码组织质量 |
+| **技术负责人** | 代码评审时，需要客观的结构质量指标 |
+
+### 用户场景
+
+| 场景 | 触发条件 | 期望结果 | 成功标准 |
+|------|----------|----------|----------|
+| **新项目评估** | 成员接手遗留项目 | 30秒内了解结构健康度 | 输出健康度评分 + 关键问题清单 |
+| **定期审查** | 迭代末期/技术债务盘点 | 识别需要重构的目录 | 违规项按严重度排序 |
+| **代码评审** | PR 涉及目录结构变更 | 评估变更对整体结构的影响 | 提供改进建议 |
+| **自然语言触发** | 用户说"帮我分析项目结构" | AI 自动执行分析并输出报告 | 无需手动执行命令 |
+
+### 宪章对齐
+
+本功能服务于 `PROJECT_CHARTER.md` 以下目标：
+
+| 宪章目标 | 本功能贡献 |
+|----------|------------|
+| **第2节 - 项目感知** | 自动检测项目结构，生成针对性的健康度报告 |
+| **第2节 - 零配置接入** | 一条命令即可获得结构分析结果 |
+| **第5节 - 核心场景** | 扩展"技术栈检测"能力，增加结构质量评估 |
+
+### 用户价值验收标准（全局）
+
+- [ ] 用户执行一条命令，30秒内看到结构健康度报告
+- [ ] 用户通过自然语言（"结构分析"/"目录审查"）即可触发分析
+- [ ] 报告清晰标注问题位置和改进建议，无需额外解释
+- [ ] 用户无需阅读文档即可理解报告内容
+
+---
+
 ## 📋 决策记录
 
 | 决策点 | 最终决定 | 决策者 | 日期 |
@@ -96,7 +134,7 @@ scripts/
 ├── src/
 │   ├── structure-analyzer.ts      # 主入口
 │   └── types/
-│       └── structure-analyzer.d.ts # 类型定义
+│       └── structure-analyzer.ts  # 类型定义（使用 .ts 而非 .d.ts，与现有风格一致）
 ├── dist/
 │   └── structure-analyzer.js      # 编译输出（提交到Git）
 └── tsconfig.json
@@ -229,6 +267,83 @@ interface DirectoryNode {
 | SA004 | similar-naming | warning | 同级目录下命名相似度 > `similarityThreshold` | -5/对 |
 | SA005 | feature-violation | info | `features/*/internal/` 被其他 feature 路径引用 | -1/个 |
 
+### SA001 智能豁免逻辑（2026-01-27 补充）
+
+> 来源：Codex(GPT-5) 建议 + Claude-Opus-4 实现方案
+
+为避免误报 `src/components` 等合理的通用组件目录，SA001 实现三重判断：
+
+```typescript
+// SA001 判定逻辑增强
+interface SA001Context {
+  hasFeatureDir: boolean;    // 项目是否存在 features/ 目录
+  fileCount: number;         // 当前目录内文件数量
+}
+
+function shouldReportSA001(dirName: string, context: SA001Context, config: Config): boolean {
+  // 1. 白名单豁免：通用目录默认不报警
+  const whitelist = config.sa001Whitelist || ['components', 'shared', 'common', 'assets'];
+  if (whitelist.includes(dirName)) return false;
+
+  // 2. 结构检测：仅当项目存在 features/ 目录时才报警
+  //    （说明项目已采用 Feature-Based 架构，此时按类型分组才是反模式）
+  if (!context.hasFeatureDir) return false;
+
+  // 3. 规模阈值：目录内文件数 > N 时才报警，避免误伤小型模块
+  const minFiles = config.sa001MinFiles || 10;
+  if (context.fileCount < minFiles) return false;
+
+  return true;
+}
+```
+
+**配置项**：
+```json
+{
+  "structureAnalyzer": {
+    "sa001Whitelist": ["components", "shared", "common", "assets"],
+    "sa001MinFiles": 10
+  }
+}
+```
+
+### SA004 性能防护配置（2026-01-27 补充）
+
+> 来源：Codex(GPT-5) 建议 + Claude-Opus-4 实现方案
+
+SA004（命名相似度检测）使用 Levenshtein 算法，两两比较会产生 O(n²) 复杂度。为防止大型项目性能问题，增加以下防护配置：
+
+```typescript
+interface SA004Config {
+  enabled: boolean;              // 是否启用，默认 true
+  similarityThreshold: number;   // 相似度阈值，默认 0.8
+  maxPairsPerDirectory: number;  // 同目录最多比较对数，默认 50
+  maxTotalChecks: number;        // 全局最多检查次数，默认 500
+  minNameLength: number;         // 最小名称长度（太短不比较），默认 3
+}
+```
+
+**配置示例**：
+```json
+{
+  "structureAnalyzer": {
+    "sa004": {
+      "enabled": true,
+      "similarityThreshold": 0.8,
+      "maxPairsPerDirectory": 50,
+      "maxTotalChecks": 500,
+      "minNameLength": 3
+    }
+  }
+}
+```
+
+**实现要点**：
+1. 仅在同一父目录内比较文件/目录名
+2. 超过 `maxPairsPerDirectory` 后跳过当前目录
+3. 超过 `maxTotalChecks` 后停止全局检查，输出警告
+4. 名称长度 < `minNameLength` 的项目不参与比较
+
 ### 评分算法
 
 ```
@@ -245,7 +360,7 @@ naming = 25 - (SA004数量 × 5) - (SA005数量 × 1)，最低 0
 ### 交付物
 
 - `scripts/src/structure-analyzer.ts`
-- `scripts/src/types/structure-analyzer.d.ts`
+- `scripts/src/types/structure-analyzer.ts`（使用 .ts 而非 .d.ts）
 - `scripts/dist/structure-analyzer.js`
 - `config/loader-config.json` 更新（添加 structureAnalyzer 节点）
 
@@ -618,4 +733,45 @@ When invoked, follow this template:
 
 ---
 
-*计划版本: 1.0 | 创建日期: 2026-01-26 | 最后更新: 2026-01-26*
+*计划版本: 1.1 | 创建日期: 2026-01-26 | 最后更新: 2026-01-27*
+
+> 版本 1.1 变更：
+> - 类型文件从 `.d.ts` 改为 `.ts`（Codex 建议）
+> - 新增 SA001 智能豁免逻辑（三重判断）
+> - 新增 SA004 性能防护配置项
+
+---
+
+## 🧾 执行检查清单（Codex 补充）
+
+> 更新时间: 2026-01-27T10:47:49+08:00
+
+### Phase 0.5：文档一致性清理
+- [ ] 全仓检索 `rule-loader.js` / `rule-loader.ts` / `architect-bootstrap` 等旧入口引用（README、docs、test、scripts）
+- [ ] 统一对外入口命名与示例命令：明确“唯一推荐命令”与“兼容命令（如保留旧名 wrapper）”
+- [ ] 更新 `README.md` 的 Quick Start（本地/远程）并确保示例与实际脚本一致
+- [ ] 更新 `docs/` 下所有命令片段，避免出现两套分支/两套入口
+- [ ] 更新测试脚本引用（重点检查 `test/run-tests.js` 等是否仍指向旧 loader 文件名）
+
+### Phase 1 (P0)：Structure-Analyzer 核心脚本
+- [ ] 明确输入默认值：`targetPath/srcDir/maxDepth/mode/ignorePatterns/limitTopFiles`
+- [ ] 明确输出稳定字段：`summary/violations/scores` 必须稳定；`structure` 仅 `mode=full` 时输出
+- [ ] 双层配置优先级正确：project > global > default，并输出 `configSource`
+- [ ] SA001-005：每条规则都输出 `code/severity/message/path/suggestion`，并支持配置禁用
+- [ ] **SA001 智能豁免**：实现三重判断（白名单 + features 检测 + 规模阈值）
+- [ ] **SA004 性能防护**：实现 `maxPairsPerDirectory`、`maxTotalChecks`、`minNameLength` 配置
+- [ ] 性能防护：maxDepth、ignorePatterns（node_modules/dist/.git 等）
+- [ ] Markdown 报告格式：一屏摘要 + 违规表 + 下一步建议（Actionable）
+
+### Phase 2 (P1)：MCP 工具集成
+- [ ] `analyze_project_structure` 默认 `mode=problems_only`，禁止默认返回完整树
+- [ ] 错误处理：路径不存在/无权限/扫描超时等返回可读错误
+- [ ] Token 控制：限制 topN、限制 evidence 字段长度、tree 按需
+
+### Phase 2.5：Agent
+- [ ] 触发词覆盖“结构分析/目录审查/架构健康”等，且输出模板与 P0 Markdown 对齐
+- [ ] 与 `planner/security-reviewer/performance-profiler` 的交接条件写清楚（何时建议转交）
+
+### Phase 3：Skill
+- [ ] 引导用户确认目标路径；调用 MCP 后按固定模板产出报告
+- [ ] 提供 2-3 条改造路径（小步/一次性/适配层），每条包含风险与回滚建议
