@@ -655,7 +655,12 @@ updatedAt: ${updatedAt}
             layer1Folders.push('vue3');
         }
         else if (vueProfile.version === 2) {
-            layer1Folders.push(vueProfile.type === 'composition' ? 'vue2' : 'vue2');
+            if (vueProfile.type === 'composition') {
+                layer1Folders.push('vue2/vue2-composition.md');
+            }
+            else {
+                layer1Folders.push('vue2/vue2-general.md');
+            }
         }
     }
     const layer1Rules = await loadLayerRules(((_b = layers.base) === null || _b === void 0 ? void 0 : _b.id) || 'layer1_base', layer1Folders);

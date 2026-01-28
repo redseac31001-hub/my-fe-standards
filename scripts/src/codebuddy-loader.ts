@@ -701,7 +701,11 @@ updatedAt: ${updatedAt}
     if (vueProfile.version === 3) {
       layer1Folders.push('vue3');
     } else if (vueProfile.version === 2) {
-      layer1Folders.push(vueProfile.type === 'composition' ? 'vue2' : 'vue2');
+      if (vueProfile.type === 'composition') {
+        layer1Folders.push('vue2/vue2-composition.md');
+      } else {
+        layer1Folders.push('vue2/vue2-general.md');
+      }
     }
   }
 

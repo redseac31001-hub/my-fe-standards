@@ -2,7 +2,7 @@
 
 ## 📋 概述
 
-智能规则激活系统是对 Architect Rule Loader 的增强，让 CodeBuddy 能够像 Claude Code + Skills 那样**动态激活**相关规则。
+智能规则激活系统是对 CodeBuddy Rule Loader 的增强，让 CodeBuddy 能够像 Claude Code + Skills 那样**动态激活**相关规则。
 
 ## 🎯 核心能力
 
@@ -34,37 +34,26 @@
 
 ## 🚀 使用方式
 
-### 方式 1：无任务过滤（默认）
-
-生成包含所有规则的 project-rules.md，AI 模型根据用户请求动态选择应用：
+### 方式 1：无任务过滤（推荐新手）
 
 ```bash
-node scripts/dist/rule-loader.js
+npm run build:scripts
+node scripts/dist/codebuddy-loader.js
 ```
 
-**生成的文件包含**：
-- 智能规则激活系统章节
-- 所有层级的完整规则
-- AI 模型会根据用户请求自动识别任务类型并激活相关规则
+生成包含所有规则的 project-rules.md，AI 模型会根据用户请求自动识别任务类型并激活相关规则。
 
-**适用场景**：
-- 通用开发场景
-- 不确定具体任务类型
-- 希望 AI 模型自动判断
-
-### 方式 2：任务过滤（推荐）
-
-预先过滤规则，只加载与特定任务相关的规则：
+### 方式 2：任务过滤（推荐进阶）
 
 ```bash
 # 重构任务
-node scripts/dist/rule-loader.js --task refactoring
+node scripts/dist/codebuddy-loader.js --task refactoring
 
 # 调试任务
-node scripts/dist/rule-loader.js --task debugging --threshold 0.7
+node scripts/dist/codebuddy-loader.js --task debugging --threshold 0.7
 
 # 新功能开发
-node scripts/dist/rule-loader.js --task new-feature --detail-level quick
+node scripts/dist/codebuddy-loader.js --task new-feature --threshold 0.5
 ```
 
 **生成的文件包含**：
@@ -77,20 +66,7 @@ node scripts/dist/rule-loader.js --task new-feature --detail-level quick
 - 希望减少 token 消耗
 - 需要更聚焦的规则集
 
-### 方式 3：详略级别控制
-
-控制规则内容的详细程度：
-
-```bash
-# 摘要级别（最精简）
-node scripts/dist/rule-loader.js --detail-level summary
-
-# 快速参考级别（日常使用）
-node scripts/dist/rule-loader.js --detail-level quick
-
-# 完整级别（深入学习）
-node scripts/dist/rule-loader.js --detail-level full
-```
+> 说明：当前版本不支持 `--detail-level`，如需更精简的输出，建议通过 `--task` + `--threshold` 控制规则集范围。
 
 ## 📌 实际使用示例
 
@@ -100,7 +76,7 @@ node scripts/dist/rule-loader.js --detail-level full
 
 **命令**：
 ```bash
-node scripts/dist/rule-loader.js --task refactoring --threshold 0.8
+node scripts/dist/codebuddy-loader.js --task refactoring --threshold 0.8
 ```
 
 **生成的规则集**：
@@ -122,7 +98,7 @@ node scripts/dist/rule-loader.js --task refactoring --threshold 0.8
 
 **命令**：
 ```bash
-node scripts/dist/rule-loader.js --task debugging --threshold 0.7
+node scripts/dist/codebuddy-loader.js --task debugging --threshold 0.7
 ```
 
 **生成的规则集**：
@@ -141,7 +117,7 @@ node scripts/dist/rule-loader.js --task debugging --threshold 0.7
 
 **命令**：
 ```bash
-node scripts/dist/rule-loader.js --task new-feature
+node scripts/dist/codebuddy-loader.js --task new-feature
 ```
 
 **生成的规则集**：
@@ -225,18 +201,16 @@ node scripts/dist/rule-loader.js --task new-feature
 
 ### 3. 控制详略级别
 
-- **快速开发**：`--detail-level quick`（日常使用）
-- **深入学习**：`--detail-level full`（完整内容）
-- **快速浏览**：`--detail-level summary`（仅摘要）
+当前版本不支持 `--detail-level`。建议通过提高 `--threshold` 来减少规则数量，并用 `--task` 聚焦任务场景。
 
 ### 4. 组合使用
 
 ```bash
-# 重构任务 + 严格过滤 + 快速参考
-node scripts/dist/rule-loader.js --task refactoring --threshold 0.7 --detail-level quick
+# 重构任务 + 严格过滤
+node scripts/dist/codebuddy-loader.js --task refactoring --threshold 0.7
 
-# 新功能 + 标准过滤 + 完整内容
-node scripts/dist/rule-loader.js --task new-feature --detail-level full
+# 新功能 + 标准过滤
+node scripts/dist/codebuddy-loader.js --task new-feature --threshold 0.5
 ```
 
 ## 🚨 注意事项

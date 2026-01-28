@@ -3,7 +3,7 @@
 ## 执行摘要
 
 **项目名称**: my-fe-standards (前端架构师规则库)
-**当前分支**: feature/remote-fetch
+**当前分支**: feature/codebuddy-glm
 **综合评分**: 8.0/10 (良好,核心功能完整,有改进空间)
 **项目状态**: 核心功能已完成,可用于生产环境
 
@@ -26,37 +26,28 @@
 
 ### 2.1 规则加载系统 ✅ 完整实现 (9/10)
 
-**实现文件**: `scripts/src/rule-loader.ts` (1330行)
+**实现文件**: `scripts/src/codebuddy-loader.ts` (1330行)
 
 **核心能力**:
 - ✅ 本地/远程双模式加载
-- ✅ 渐进式披露系统 (任务过滤 + 详略级别 + 相关性阈值)
+- ✅ 渐进式披露系统 (任务过滤 + 相关性阈值)
 - ✅ 三层架构规则加载 (Eager/Lazy混合策略)
 - ✅ Vue 2/3 智能检测
 - ✅ Skills 动态加载
 - ✅ 网络请求优化 (重试/超时/重定向)
 
 **技术亮点**:
-1. **渐进式披露**: 支持 `--task`, `--detail-level`, `--threshold` 参数动态控制规则内容
+1. **渐进式披露**: 支持 `--task`, `--threshold` 参数动态控制规则集范围
 2. **智能激活**: 基于任务类型和相关性评分自动激活规则
 3. **Eager/Lazy混合**: Layer 1 Eager Load, Layer 2/3 Lazy Load (索引模式)
 
 **测试结果**: ✅ 集成测试 4/4 通过, E2E测试通过
 
-### 2.2 私有仓库接入方案 ✅ 完整实现 (9/10)
+### 2.2 私有仓库接入方案 ⚠️ 当前未提供
 
-**实现文件**: `scripts/dist/architect-bootstrap.js` (547行)
+当前仓库仅提供 `codebuddy-loader.js`（本地/远程静态 HTTP）这一套接入方式。
 
-**核心能力**:
-- ✅ 利用本地 git 凭证自动拉取私有仓库
-- ✅ 支持 SSH 和 HTTPS 两种认证方式
-- ✅ 本地缓存机制 (默认1小时过期)
-- ✅ 用户确认流程 (可通过 --yes 跳过)
-
-**优势**:
-- 无需配置 Token
-- 统一命令 (npm run rules:update)
-- 完美支持 GitHub/GitLab/Gitee 私有仓库
+如需企业内网/私有环境使用，建议将规则仓库构建产物（`manifest.json`、`rules/`、`config/`）部署到内网静态服务器，然后使用 `--remote` 接入。
 
 ### 2.3 Custom Skills 系统 ✅ 部分实现 (7/10)
 
@@ -97,7 +88,6 @@
 **配置能力**:
 - 三层架构定义 (Base/Business/Action)
 - 任务系统配置 (5种任务类型 + 相关性矩阵)
-- 详略级别配置 (summary/quick/full)
 - Skills 配置 (enabled: true, path: "custom-skills")
 
 ---
@@ -165,7 +155,6 @@ custom-skills/
 
 **未覆盖场景**:
 - ❌ 任务类型过滤 (`--task` 参数)
-- ❌ 详略级别控制 (`--detail-level` 参数)
 - ❌ 相关性阈值 (`--threshold` 参数)
 - ❌ 网络超时处理
 - ❌ 缓存机制验证
@@ -181,9 +170,9 @@ custom-skills/
 
 **文档优点**:
 - ✅ 结构清晰,示例丰富
-- ✅ 涵盖本地/远程、公开/私有仓库等多种场景
+- ✅ 涵盖本地/远程静态 HTTP 等常见接入场景
 - ✅ 提供详细的故障排查指南
-- ✅ 文档与代码完全一致
+- ✅ 文档与代码基本一致（以 `codebuddy-loader.js` 实现为准）
 
 **文档不足**:
 - ⚠️ 缺少系统架构图和数据流图
@@ -207,7 +196,7 @@ custom-skills/
 - **影响**: 核心逻辑 (1330行) 完全没有单元测试覆盖
 - **建议**:
   1. 使用 Vitest 添加单元测试
-  2. 测试 rule-loader 和 generate-manifest 核心逻辑
+  2. 测试 codebuddy-loader 和 generate-manifest 核心逻辑
   3. 覆盖边界情况和错误处理
 
 ### 5.2 中等问题 (P1 - 强烈建议)
@@ -244,13 +233,13 @@ custom-skills/
 ## 六、关键文件路径
 
 ### 核心脚本
-- `E:\mygit\my-fe-standards\scripts\src\rule-loader.ts` (1330行)
+- `E:\mygit\my-fe-standards\scripts\src\codebuddy-loader.ts` (1330行)
 - `E:\mygit\my-fe-standards\scripts\src\generate-manifest.ts` (88行)
 - `E:\mygit\my-fe-standards\scripts\src\types\index.ts` (299行)
 
 ### 编译产物
-- `E:\mygit\my-fe-standards\scripts\dist\rule-loader.js` (1214行)
-- `E:\mygit\my-fe-standards\scripts\dist\architect-bootstrap.js` (547行)
+- `E:\mygit\my-fe-standards\scripts\dist\codebuddy-loader.js` (1214行)
+- `E:\mygit\my-fe-standards\scripts\dist\codebuddy-loader.js` (547行)
 - `E:\mygit\my-fe-standards\scripts\dist\generate-manifest.js` (108行)
 
 ### 配置文件
@@ -304,7 +293,7 @@ custom-skills/
 
 ### 短期 (1-2周)
 1. 修复 MCP Server 实现 (从 feature/mcp-server 分支恢复或重新实现)
-2. 添加核心逻辑的单元测试 (rule-loader.ts, generate-manifest.ts)
+2. 添加核心逻辑的单元测试 (codebuddy-loader.ts, generate-manifest.ts)
 3. 创建 Vue 专用的 custom-skills
 
 ### 中期 (1-2月)

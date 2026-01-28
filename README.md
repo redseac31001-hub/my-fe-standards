@@ -65,30 +65,21 @@ curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/fe
 git clone -b feature/codebuddy-glm https://github.com/redseac31001-hub/my-fe-standards.git
 cd my-fe-standards
 
-# 2. 在目标项目中运行加载器
-node scripts/dist/codebuddy-loader.js /path/to/your/project
+# 2. 在目标项目根目录运行加载器
+cd /path/to/your/project
+node /path/to/my-fe-standards/scripts/dist/codebuddy-loader.js
 
 # 或使用 npm 脚本
 npm run codebuddy
 ```
 
-### 方式三：Git 私有仓库模式
+### 方式三：Git 私有仓库模式（暂未支持）
 
-```bash
-# 在 package.json 中添加配置
-{
-  "scripts": {
-    "rules:update": "node architect-bootstrap.js"
-  },
-  "architect": {
-    "repo": "git@github.com:your-org/my-fe-standards.git",
-    "branch": "feature/codebuddy-glm"
-  }
-}
+当前版本的 `codebuddy-loader.js` 仅支持：
+- 本地模式：从本仓库读取 `rules/` + `config/`
+- 远程模式：通过 `--remote <URL>` 从静态 HTTP 源读取 `manifest.json` + `rules/`
 
-# 执行更新
-npm run rules:update
-```
+如需在企业内网/私有环境使用，建议将规则仓库构建产物（`manifest.json`、`rules/`、`config/`）部署到内网静态服务器，然后使用 `--remote` 接入。
 
 ## 📋 三层规则架构
 

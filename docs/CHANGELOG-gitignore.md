@@ -20,7 +20,7 @@
 
 **添加的内容**:
 ```gitignore
-# Architect Rule Loader - Generated files
+# CodeBuddy 生成文件
 .codebuddy/
 ```
 
@@ -28,7 +28,7 @@
 
 ## 修改的文件
 
-### 1. scripts/src/rule-loader.ts
+### 1. scripts/src/codebuddy-loader.ts
 
 **新增函数** (行 269-317):
 ```typescript
@@ -47,7 +47,7 @@ function updateGitignore(projectDir: string): void
 updateGitignore(targetDir);
 ```
 
-### 2. scripts/dist/rule-loader.js
+### 2. scripts/dist/codebuddy-loader.js
 
 **状态**: 已重新编译
 
@@ -71,16 +71,16 @@ updateGitignore(targetDir);
 mkdir test-project && cd test-project
 npm init -y
 echo '{"dependencies": {"vue": "^3.0.0"}}' > package.json
-node rule-loader.js --verbose
+node codebuddy-loader.js --verbose
 cat .gitignore  # 验证结果
 
 # 测试 2: 现有项目
 echo "node_modules/" > .gitignore
-node rule-loader.js --verbose
+node codebuddy-loader.js --verbose
 cat .gitignore  # 验证结果
 
 # 测试 3: 已包含条目
-node rule-loader.js --verbose  # 应输出 "skipping update"
+node codebuddy-loader.js --verbose  # 应输出 "skipping update"
 ```
 
 ---

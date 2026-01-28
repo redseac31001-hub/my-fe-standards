@@ -367,4 +367,16 @@ plans/002-mcp-server-optimization.md
 
 ---
 
+## 孵化计划
+
+孵化计划存放在 `incubating/` 目录，用于保存**有想法但暂不执行**的方案。
+
+| 编号 | 计划名称 | 状态 | 发起人 |
+|------|----------|------|--------|
+| INC-001 | [AI Forum MCP 独立项目](./incubating/ai-forum-mcp-project.md) | 💡 孵化中 | Human |
+
+详见 [incubating/README.md](./incubating/README.md)。
+
+---
+
 *本规范可由 AI 提议修改，需 Human 批准后生效。*

@@ -7,7 +7,7 @@
 **Phase 1: 智能规则激活系统**
 - ✅ 任务类型识别机制（refactoring, debugging, testing, new-feature, code-review）
 - ✅ 动态规则激活策略（基于相关性分数）
-- ✅ 渐进式披露（--task, --threshold, --detail-level 参数）
+- ✅ 渐进式披露（--task, --threshold 参数）
 - ✅ 跨模型兼容（通过提示词模拟 Claude Code + Skills）
 
 **Phase 2: Custom Skills 集成**
@@ -59,7 +59,7 @@
 
 ### 什么是智能规则激活？
 
-这是对 Architect Rule Loader 的增强，让 **CodeBuddy + 任意模型** 能够像 **Claude Code + Skills** 那样动态激活规则。
+这是对 CodeBuddy Rule Loader 的增强，让 **CodeBuddy + 任意模型** 能够像 **Claude Code + Skills** 那样动态激活规则。
 
 ### 核心能力
 
@@ -75,7 +75,7 @@
 
 ```bash
 npm run build:scripts
-node scripts/dist/rule-loader.js
+node scripts/dist/codebuddy-loader.js
 ```
 
 生成包含所有规则的 project-rules.md，AI 模型会根据用户请求自动识别任务类型并激活相关规则。
@@ -84,13 +84,13 @@ node scripts/dist/rule-loader.js
 
 ```bash
 # 重构任务
-node scripts/dist/rule-loader.js --task refactoring
+node scripts/dist/codebuddy-loader.js --task refactoring
 
 # 调试任务
-node scripts/dist/rule-loader.js --task debugging --threshold 0.7
+node scripts/dist/codebuddy-loader.js --task debugging --threshold 0.7
 
 # 新功能开发
-node scripts/dist/rule-loader.js --task new-feature --detail-level quick
+node scripts/dist/codebuddy-loader.js --task new-feature --threshold 0.5
 ```
 
 预先过滤规则，只加载与特定任务相关的规则，减少 token 消耗。

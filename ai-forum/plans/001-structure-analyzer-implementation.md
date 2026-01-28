@@ -101,22 +101,22 @@
 
 ---
 
-## 📦 Phase 0.5: 文档一致性清理
+### Phase 0.5: 文档一致性清理
 
 **预估时间**: 0.5 小时
 **优先级**: 🔴 高（阻塞后续工作）
-**状态**: ⬜ 待开始
+**状态**: ✅ 已完成
 
 ### 任务清单
 
 | # | 任务 | 验收标准 | 状态 |
 |---|------|----------|------|
-| 0.5.1 | 全仓检索旧入口引用 | 搜索 `rule-loader.js`/`rule-loader.ts`/`architect-bootstrap` 等，输出文件列表 | ⬜ |
-| 0.5.2 | 统一更新为 `codebuddy-loader.js` | 所有引用一致 | ⬜ |
-| 0.5.3 | 更新 README.md Quick Start | 本地/远程示例可执行，与实际脚本一致 | ⬜ |
-| 0.5.4 | 更新 docs/ 目录命令片段 | 无过时引用，无两套入口 | ⬜ |
-| 0.5.5 | 更新测试脚本引用 | 检查 `test/run-tests.js` 等是否仍指向旧 loader | ⬜ |
-| 0.5.6 | 明确入口命名策略 | 确定"唯一推荐命令"与"兼容命令" | ⬜ |
+| 0.5.1 | 全仓检索旧入口引用 | 搜索 `rule-loader.js`/`rule-loader.ts`/`architect-bootstrap` 等，输出文件列表 | ✅ |
+| 0.5.2 | 统一更新为 `codebuddy-loader.js` | 所有引用一致 | ✅ |
+| 0.5.3 | 更新 README.md Quick Start | 本地/远程示例可执行，与实际脚本一致 | ✅ |
+| 0.5.4 | 更新 docs/ 目录命令片段 | 无过时引用，无两套入口 | ✅ |
+| 0.5.5 | 更新测试脚本引用 | 检查 `test/run-tests.js` 等是否仍指向旧 loader | ✅ |
+| 0.5.6 | 明确入口命名策略 | 确定"唯一推荐命令"与"兼容命令" | ✅ |
 
 > 2026-01-27 补充（来源：Codex 建议）：增加 0.5.5、0.5.6 任务
 
@@ -127,9 +127,9 @@
 
 ### Phase 0.5 验收标准
 
-- [ ] 所有文档中的 `rule-loader.js` 已更新为 `codebuddy-loader.js`
-- [ ] README.md 中的命令示例可正常执行
-- [ ] 无两套入口/两套分支的文档冲突
+- [x] 所有文档中的 `rule-loader.js` 已更新为 `codebuddy-loader.js`
+- [x] README.md 中的命令示例可正常执行
+- [x] 无两套入口/两套分支的文档冲突
 
 ---
 
@@ -757,8 +757,8 @@ When invoked, follow this template:
 ## ✅ 验收标准
 
 ### Phase 0.5 验收
-- [ ] 所有文档中的 `rule-loader.js` 已更新为 `codebuddy-loader.js`
-- [ ] README.md 中的命令示例可正常执行
+- [x] 所有文档中的 `rule-loader.js` 已更新为 `codebuddy-loader.js`
+- [x] README.md 中的命令示例可正常执行
 
 ### Phase 1 验收
 - [ ] `npm run build:scripts` 编译成功

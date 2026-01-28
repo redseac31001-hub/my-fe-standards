@@ -11,7 +11,7 @@ const path = require('path');
 
 // 测试配置
 const MOCK_PROJECTS_DIR = path.join(__dirname, 'mock-projects');
-const RULE_LOADER_PATH = path.join(__dirname, '..', 'scripts', 'dist', 'rule-loader.js');
+const RULE_LOADER_PATH = path.join(__dirname, '..', 'scripts', 'dist', 'codebuddy-loader.js');
 
 // 测试用例
 const TEST_CASES = [
@@ -77,7 +77,7 @@ function logWarn(message) {
  */
 function runTestCase(testCase) {
   const projectDir = path.join(MOCK_PROJECTS_DIR, testCase.dir);
-  const outputDir = path.join(projectDir, '.codebuddy', '.rules');
+  const outputDir = path.join(projectDir, '.codebuddy', 'rules');
   const outputFile = path.join(outputDir, 'project-rules.md');
 
   log(`\n${colors.bold}测试: ${testCase.name}${colors.reset}`);
@@ -146,7 +146,7 @@ function runTestCase(testCase) {
  */
 function main() {
   log(`\n${colors.bold}╔══════════════════════════════════════════════════════════════════╗${colors.reset}`);
-  log(`${colors.bold}║           Architect Rule Loader 集成测试                          ║${colors.reset}`);
+  log(`${colors.bold}║           CodeBuddy Loader 集成测试                                ║${colors.reset}`);
   log(`${colors.bold}╚══════════════════════════════════════════════════════════════════╝${colors.reset}`);
 
   // 检查规则加载器是否存在

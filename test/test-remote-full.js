@@ -4,7 +4,7 @@
  * 完整的远程拉取测试脚本
  *
  * 模拟真实用户场景：
- * 1. 从 GitHub 下载 rule-loader.js
+ * 1. 从 GitHub 下载 codebuddy-loader.js
  * 2. 执行下载的脚本拉取规则
  *
  * 使用方法：
@@ -18,13 +18,14 @@ const { execSync } = require('child_process');
 
 // 配置
 const GITHUB_REPO = 'redseac31001-hub/my-fe-standards';
-const BRANCH = 'feature/remote-fetch';
-const RULE_LOADER_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/${BRANCH}/scripts/dist/rule-loader.js`;
+// 注意：这里应指向实际包含 scripts/dist/codebuddy-loader.js 的分支
+const BRANCH = 'feature/codebuddy-glm';
+const RULE_LOADER_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/${BRANCH}/scripts/dist/codebuddy-loader.js`;
 const REMOTE_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/${BRANCH}`;
 
 // 临时目录
 const TEMP_DIR = path.join(__dirname, '.temp-remote-test');
-const DOWNLOADED_LOADER = path.join(TEMP_DIR, 'rule-loader.js');
+const DOWNLOADED_LOADER = path.join(TEMP_DIR, 'codebuddy-loader.js');
 
 console.log('╔══════════════════════════════════════════════════════════════════╗');
 console.log('║          完整远程拉取测试 (Full Remote Fetch Test)              ║');
@@ -43,8 +44,8 @@ fs.mkdirSync(TEMP_DIR, { recursive: true });
 console.log('[1/3] ✅ 临时目录已创建:', TEMP_DIR);
 console.log('');
 
-// 下载 rule-loader.js
-console.log('[2/3] 从 GitHub 下载 rule-loader.js...');
+// 下载 codebuddy-loader.js
+console.log('[2/3] 从 GitHub 下载 codebuddy-loader.js...');
 console.log('      URL:', RULE_LOADER_URL);
 
 https.get(RULE_LOADER_URL, (res) => {
@@ -59,11 +60,11 @@ https.get(RULE_LOADER_URL, (res) => {
   fileStream.on('finish', () => {
     fileStream.close();
     const fileSize = fs.statSync(DOWNLOADED_LOADER).size;
-    console.log(`[2/3] ✅ rule-loader.js 下载成功 (${(fileSize / 1024).toFixed(2)} KB)`);
+    console.log(`[2/3] ✅ codebuddy-loader.js 下载成功 (${(fileSize / 1024).toFixed(2)} KB)`);
     console.log('');
 
-    // 执行下载的 rule-loader.js
-    console.log('[3/3] 执行下载的 rule-loader.js 拉取规则...');
+    // 执行下载的 codebuddy-loader.js
+    console.log('[3/3] 执行下载的 codebuddy-loader.js 拉取规则...');
     console.log('      远程地址:', REMOTE_BASE_URL);
     console.log('');
 
@@ -82,9 +83,9 @@ https.get(RULE_LOADER_URL, (res) => {
       console.log('║                    ✅ 测试成功完成                               ║');
       console.log('╠══════════════════════════════════════════════════════════════════╣');
       console.log('║  验证项目:                                                       ║');
-      console.log('║  ✓ 从 GitHub 下载 rule-loader.js                                ║');
+      console.log('║  ✓ 从 GitHub 下载 codebuddy-loader.js                                ║');
       console.log('║  ✓ 执行下载的脚本拉取规则                                       ║');
-      console.log('║  ✓ 生成规则文件到 .codebuddy/.rules/project-rules.md           ║');
+      console.log('║  ✓ 生成规则文件到 .codebuddy/rules/project-rules.md            ║');
       console.log('╚══════════════════════════════════════════════════════════════════╝');
 
       // 清理临时目录

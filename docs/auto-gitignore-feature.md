@@ -2,7 +2,7 @@
 
 ## 功能概述
 
-规则加载器 (rule-loader) 现在会**自动更新业务项目的 `.gitignore` 文件**，将生成的 `.codebuddy/` 目录添加到忽略列表中，避免将 AI 生成的规则文件提交到版本控制系统。
+规则加载器 (codebuddy-loader) 现在会**自动更新业务项目的 `.gitignore` 文件**，将生成的 `.codebuddy/` 目录添加到忽略列表中，避免将 AI 生成的规则文件提交到版本控制系统。
 
 ---
 
@@ -22,7 +22,7 @@
 ### 2. 添加的内容
 
 ```gitignore
-# Architect Rule Loader - Generated files
+# CodeBuddy 生成文件
 .codebuddy/
 ```
 
@@ -56,7 +56,7 @@ my-project/
 
 **运行规则加载器**:
 ```bash
-node rule-loader.js
+node codebuddy-loader.js
 ```
 
 **结果**:
@@ -73,7 +73,7 @@ my-project/
 
 **生成的 .gitignore**:
 ```gitignore
-# Architect Rule Loader - Generated files
+# CodeBuddy 生成文件
 .codebuddy/
 ```
 
@@ -98,7 +98,7 @@ dist/
 
 **运行规则加载器**:
 ```bash
-node rule-loader.js
+node codebuddy-loader.js
 ```
 
 **更新后的 .gitignore**:
@@ -107,7 +107,7 @@ node_modules/
 dist/
 .env
 
-# Architect Rule Loader - Generated files
+# CodeBuddy 生成文件
 .codebuddy/
 ```
 
@@ -123,15 +123,15 @@ node_modules/
 
 **运行规则加载器**:
 ```bash
-node rule-loader.js --verbose
+node codebuddy-loader.js --verbose
 ```
 
 **输出**:
 ```
-[Architect:DEBUG] .gitignore already includes .codebuddy/, skipping update
+[CodeBuddy] (no output)
 ```
 
-**结果**: 不会重复添加，保持原样
+**结果**: 不会重复添加，保持原样（当前实现会直接返回，不打印日志）
 
 ---
 
@@ -139,7 +139,7 @@ node rule-loader.js --verbose
 
 ### 核心函数
 
-**位置**: `scripts/src/rule-loader.ts:269-317`
+**位置**: `scripts/src/codebuddy-loader.ts:564`
 
 ```typescript
 /**
@@ -147,62 +147,42 @@ node rule-loader.js --verbose
  */
 function updateGitignore(projectDir: string): void {
   const gitignorePath = path.join(projectDir, '.gitignore');
-  const entriesToAdd = [
-    '# Architect Rule Loader - Generated files',
-    '.codebuddy/',
-  ];
+  const entry = '.codebuddy/';
 
   try {
-    let gitignoreContent = '';
-    let needsUpdate = false;
-
-    // 读取现有 .gitignore 文件（如果存在）
+    let content = '';
     if (fs.existsSync(gitignorePath)) {
-      gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
-
-      // 检查是否已包含 .codebuddy/
-      if (!gitignoreContent.includes('.codebuddy/')) {
-        needsUpdate = true;
+      content = fs.readFileSync(gitignorePath, 'utf-8');
+      if (content.includes(entry)) {
+        return;
       }
-    } else {
-      // .gitignore 不存在，需要创建
-      needsUpdate = true;
     }
 
-    if (needsUpdate) {
-      // 确保文件末尾有换行符
-      if (gitignoreContent && !gitignoreContent.endsWith('\n')) {
-        gitignoreContent += '\n';
-      }
-
-      // 添加新条目
-      if (gitignoreContent) {
-        gitignoreContent += '\n';
-      }
-      gitignoreContent += entriesToAdd.join('\n') + '\n';
-
-      // 写入文件
-      fs.writeFileSync(gitignorePath, gitignoreContent, 'utf-8');
-      logVerbose('Updated .gitignore to include .codebuddy/');
-    } else {
-      logVerbose('.gitignore already includes .codebuddy/, skipping update');
+    if (content && !content.endsWith('\n')) {
+      content += '\n';
     }
+    content += `\n# CodeBuddy 生成文件\n${entry}\n`;
+
+    fs.writeFileSync(gitignorePath, content, 'utf-8');
+    logVerbose('已更新 .gitignore');
   } catch (error) {
-    logWarn(`Failed to update .gitignore: ${error instanceof Error ? error.message : String(error)}`);
+    logWarn(`更新 .gitignore 失败: ${(error as Error).message}`);
   }
 }
 ```
 
 ### 调用位置
 
-**位置**: `scripts/src/rule-loader.ts:1318`
+**位置**: `scripts/src/codebuddy-loader.ts:816`
 
 ```typescript
-// 输出
-const outputDir = path.join(targetDir, OUTPUT_DIR_NAME);
-if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+// 输出文件
+const outputDir = path.join(targetDir, output?.dirName || '.codebuddy/rules');
+if (!fs.existsSync(outputDir)) {
+  fs.mkdirSync(outputDir, { recursive: true });
+}
 
-const outputPath = path.join(outputDir, OUTPUT_FILE_NAME);
+const outputPath = path.join(outputDir, output?.fileName || 'project-rules.md');
 fs.writeFileSync(outputPath, finalContent, 'utf-8');
 
 // 更新 .gitignore
@@ -210,7 +190,7 @@ updateGitignore(targetDir);  // ⭐ 在这里调用
 
 log('');
 log('═══════════════════════════════════════════════════════════════════');
-log(`✅ Success! Rules written to ${outputPath}`);
+log(`✅ 成功! 规则文件已写入: ${outputPath}`);
 ```
 
 ---
@@ -252,7 +232,6 @@ log(`✅ Success! Rules written to ${outputPath}`);
 
 不同开发者可能需要不同的规则配置：
 - 使用不同的任务类型 (`--task`)
-- 使用不同的详略级别 (`--detail-level`)
 - 使用不同的相关性阈值 (`--threshold`)
 
 **解决方案**:
@@ -314,12 +293,12 @@ npm init -y
 echo '{"dependencies": {"vue": "^3.0.0"}}' > package.json
 
 # 运行规则加载器
-node /path/to/rule-loader.js --verbose
+node /path/to/codebuddy-loader.js --verbose
 
 # 验证结果
 cat .gitignore
 # 输出:
-# # Architect Rule Loader - Generated files
+# # CodeBuddy 生成文件
 # .codebuddy/
 ```
 
@@ -330,14 +309,14 @@ cat .gitignore
 echo "node_modules/" > .gitignore
 
 # 运行规则加载器
-node /path/to/rule-loader.js --verbose
+node /path/to/codebuddy-loader.js --verbose
 
 # 验证结果
 cat .gitignore
 # 输出:
 # node_modules/
 #
-# # Architect Rule Loader - Generated files
+# # CodeBuddy 生成文件
 # .codebuddy/
 ```
 
@@ -345,17 +324,17 @@ cat .gitignore
 
 ```bash
 # 再次运行
-node /path/to/rule-loader.js --verbose
+node /path/to/codebuddy-loader.js --verbose
 
 # 输出:
-# [Architect:DEBUG] .gitignore already includes .codebuddy/, skipping update
+# (no output)
 
 # 验证结果（不会重复添加）
 cat .gitignore
 # 输出:
 # node_modules/
 #
-# # Architect Rule Loader - Generated files
+# # CodeBuddy 生成文件
 # .codebuddy/
 ```
 
@@ -407,12 +386,12 @@ npm run rules:update
 
 **生产环境**:
 ```bash
-npm run rules:update -- --task new-feature --detail-level quick
+npm run rules:update -- --task new-feature
 ```
 
 **测试环境**:
 ```bash
-npm run rules:update -- --task testing --detail-level full
+npm run rules:update -- --task testing
 ```
 
 ---
