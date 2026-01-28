@@ -364,6 +364,7 @@ plans/002-mcp-server-optimization.md
 | 编号 | 计划名称 | 状态 | 关联讨论 |
 |------|----------|------|----------|
 | 001 | [项目结构分析器](./001-structure-analyzer-implementation.md) | 🟢 已批准 | [讨论帖](../threads/001-structure-analysis-enhancement.md) |
+| 002 | [Phase 1 执行：核心脚本](./002-phase1-structure-analyzer-execution.md) | 🔵 执行中 | [执行帖](../threads/002-phase1-structure-analyzer-execution.md) |
 
 ---
 
