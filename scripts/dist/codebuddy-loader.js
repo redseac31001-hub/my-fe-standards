@@ -396,6 +396,151 @@ async function loadAgents(agentsPath) {
     }
     return agents;
 }
+// ============ 脚本分发系统 ============
+/**
+ * 需要分发的脚本列表
+ */
+const SCRIPTS_TO_DISTRIBUTE = [
+    'structure-analyzer.js',
+];
+/**
+ * 分发可执行脚本到业务项目
+ */
+async function distributeScripts(targetDir) {
+    const distributed = [];
+    const localScriptsDir = path.join(targetDir, '.codebuddy/scripts');
+    // 确保目录存在
+    if (!fs.existsSync(localScriptsDir)) {
+        fs.mkdirSync(localScriptsDir, { recursive: true });
+    }
+    if (ctx.isRemote) {
+        // 远程模式：从远程下载脚本
+        for (const scriptName of SCRIPTS_TO_DISTRIBUTE) {
+            const scriptUrl = `${ctx.remoteBaseUrl}/scripts/dist/${scriptName}`;
+            try {
+                const content = await fetchUrl(scriptUrl);
+                const destPath = path.join(localScriptsDir, scriptName);
+                fs.writeFileSync(destPath, content, 'utf-8');
+                distributed.push(scriptName);
+                logVerbose(`已下载脚本: ${scriptName}`);
+            }
+            catch (e) {
+                logWarn(`脚本下载失败: ${scriptName} - ${e.message}`);
+            }
+        }
+    }
+    else {
+        // 本地模式：从本地复制脚本
+        const sourceDir = path.join(PROJECT_ROOT, 'scripts/dist');
+        for (const scriptName of SCRIPTS_TO_DISTRIBUTE) {
+            const srcPath = path.join(sourceDir, scriptName);
+            if (fs.existsSync(srcPath)) {
+                const destPath = path.join(localScriptsDir, scriptName);
+                fs.copyFileSync(srcPath, destPath);
+                distributed.push(scriptName);
+                logVerbose(`已复制脚本: ${scriptName}`);
+            }
+            else {
+                logWarn(`脚本不存在: ${srcPath}`);
+            }
+        }
+    }
+    // 生成脚本使用说明
+    if (distributed.length > 0) {
+        const readmePath = path.join(localScriptsDir, 'README.md');
+        fs.writeFileSync(readmePath, generateScriptsReadme(distributed), 'utf-8');
+    }
+    return distributed;
+}
+/**
+ * 生成脚本目录的 README
+ */
+function generateScriptsReadme(scripts) {
+    const lines = [
+        '# CodeBuddy 工具脚本',
+        '',
+        '> 自动生成，请勿手动编辑',
+        '',
+        '## 已安装脚本',
+        '',
+        '| 脚本 | 说明 | 用法 |',
+        '|------|------|------|',
+    ];
+    for (const script of scripts) {
+        if (script === 'structure-analyzer.js') {
+            lines.push(`| \`${script}\` | 项目结构分析器 | \`node .codebuddy/scripts/${script} .\` |`);
+        }
+        else {
+            lines.push(`| \`${script}\` | - | \`node .codebuddy/scripts/${script}\` |`);
+        }
+    }
+    lines.push('');
+    lines.push('## 使用示例');
+    lines.push('');
+    lines.push('### 项目结构分析');
+    lines.push('');
+    lines.push('```bash');
+    lines.push('# 分析当前项目');
+    lines.push('node .codebuddy/scripts/structure-analyzer.js .');
+    lines.push('');
+    lines.push('# 输出 JSON 格式');
+    lines.push('node .codebuddy/scripts/structure-analyzer.js . --output json');
+    lines.push('');
+    lines.push('# 完整模式（含目录树）');
+    lines.push('node .codebuddy/scripts/structure-analyzer.js . --mode full');
+    lines.push('```');
+    lines.push('');
+    return lines.join('\n');
+}
+/**
+ * 生成脚本使用提示词
+ */
+function generateScriptsPrompt(scripts) {
+    if (scripts.length === 0)
+        return '';
+    let table = '| 脚本 | 说明 | 用法 |\n|------|------|------|\n';
+    for (const script of scripts) {
+        if (script === 'structure-analyzer.js') {
+            table += `| \`${script}\` | 项目结构分析器 | \`node .codebuddy/scripts/${script} .\` |\n`;
+        }
+        else {
+            table += `| \`${script}\` | - | \`node .codebuddy/scripts/${script}\` |\n`;
+        }
+    }
+    return `
+# 🔧 工具脚本索引 (Scripts Index)
+
+本规则库包含可执行脚本，已安装至 \`.codebuddy/scripts/\`。
+
+## 已安装脚本
+
+${table}
+
+## 🚀 脚本调用指南 (CodeBuddy)
+
+当用户请求执行结构分析、健康度检查等任务时，可以：
+
+1. **直接调用脚本**（推荐）:
+   \`\`\`bash
+   node .codebuddy/scripts/structure-analyzer.js .
+   \`\`\`
+
+2. **或使用 MCP 工具**（如已配置）:
+   \`\`\`
+   analyze_project_structure({ projectPath: "." })
+   \`\`\`
+
+## 脚本与 Skill/Agent 的关系
+
+| 组件 | 职责 | 位置 |
+|------|------|------|
+| **脚本** | 实际执行逻辑 | \`.codebuddy/scripts/\` |
+| **Skill** | 知识上下文 | \`.codebuddy/skills/\` |
+| **Agent** | 工作流定义 | \`.codebuddy/agents/\` |
+
+**调用链**: Skill/Agent 提供知识 → 脚本执行分析 → 生成报告
+`;
+}
 function parseAgentMetadata(agentId, content) {
     const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
     if (!frontmatterMatch)
@@ -742,6 +887,13 @@ updatedAt: ${updatedAt}
         log(`已加载 ${agents.length} 个 Agents`);
         finalContent += generateAgentsPrompt(agents);
     }
+    // ============ 脚本分发 ============
+    log('分发工具脚本...');
+    const distributedScripts = await distributeScripts(targetDir);
+    if (distributedScripts.length > 0) {
+        log(`已分发 ${distributedScripts.length} 个脚本`);
+        finalContent += generateScriptsPrompt(distributedScripts);
+    }
     // ============ 输出文件 ============
     const outputDir = path.join(targetDir, (output === null || output === void 0 ? void 0 : output.dirName) || '.codebuddy/rules');
     if (!fs.existsSync(outputDir)) {
@@ -758,6 +910,7 @@ updatedAt: ${updatedAt}
     log(`   Layer 1 规则: ${layer1Rules.length} 个`);
     log(`   Layer 2 索引: ${layer2Index.length} 个`);
     log(`   Layer 3 索引: ${layer3Index.length} 个`);
+    log(`   工具脚本: ${distributedScripts.length} 个`);
     log('═══════════════════════════════════════════════════════════════════');
 }
 main().catch((err) => {

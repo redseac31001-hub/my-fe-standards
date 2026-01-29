@@ -16,6 +16,7 @@
 
 | Agent | 名称 | 职责 | 触发场景 |
 |-------|------|------|----------|
+| `structure-analyzer` | 结构分析 | 目录反模式检测、健康度评分 | "结构分析"、"目录审查"、"架构检查" |
 | `security-reviewer` | 安全审查 | XSS/CSRF/OWASP 检测 | "安全审查"、"security"、"xss" |
 | `performance-profiler` | 性能分析 | Lighthouse/Web Vitals 诊断 | "性能分析"、"performance"、"lighthouse" |
 | `planner` | 任务规划 | 复杂任务分解与风险评估 | "规划"、"plan"、"任务分解" |
@@ -41,6 +42,10 @@
 ```
 agents/
 ├── AGENTS.md                    # 本文件 - Agent 系统说明
+├── structure-analyzer/          # 结构分析 Agent (新增)
+│   ├── AGENT.md                 # Agent 定义文件
+│   ├── checklists/              # 检测清单
+│   └── templates/               # 报告模板
 ├── security-reviewer/           # 安全审查 Agent
 │   ├── AGENT.md                 # Agent 定义文件
 │   ├── checklists/              # 检测清单
@@ -94,11 +99,12 @@ permissions:
 
 Agent 可以关联 Layer3 Action 规则：
 
+- `structure-analyzer` → `layer1_base/architecture/feature-based-structure.md`
 - `security-reviewer` → `layer3_action/defensive-coding.md`
 - `performance-profiler` → `layer3_action/self-verification.md`
 - `planner` → `layer3_action/refactoring.md`, `layer3_action/testing.md`
 
 ---
 
-**版本**: 1.0.0
-**更新日期**: 2026-01-25
+**版本**: 1.1.0
+**更新日期**: 2026-01-28

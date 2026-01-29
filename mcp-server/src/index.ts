@@ -10,6 +10,7 @@ import {
 import { z } from 'zod'
 import * as fs from 'fs/promises'
 import * as path from 'path'
+import { execSync } from 'child_process'
 
 // ============================================================
 // Schema 定义（运行时类型验证）
@@ -69,6 +70,14 @@ const RalphSetWorkdirArgsSchema = z.object({
   path: z.string().min(1, '路径不能为空'),
 })
 
+// Structure Analyzer 参数 Schema
+const AnalyzeProjectStructureArgsSchema = z.object({
+  projectPath: z.string().min(1, '项目路径不能为空'),
+  mode: z.enum(['problems_only', 'summary', 'full']).optional().default('problems_only'),
+  maxDepth: z.number().int().positive().optional().default(5),
+  limitTopFiles: z.number().int().positive().optional().default(20),
+})
+
 // ============================================================
 // 服务器状态（使用闭包封装，避免全局可变状态）
 // ============================================================
@@ -97,7 +106,7 @@ const serverState = createServerState(process.cwd())
 // 辅助函数（纯函数，无副作用）
 // ============================================================
 
-interface PrdReadResult {
+type PrdReadResult = {
   success: true
   data: PrdConfig
 } | {
@@ -317,6 +326,36 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {},
       },
     },
+    {
+      name: 'analyze_project_structure',
+      description: '分析目标项目的目录结构，检测反模式并生成健康度报告。默认返回精简的问题列表，避免消耗过多 Token。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: {
+            type: 'string',
+            description: '项目根目录的绝对路径',
+          },
+          mode: {
+            type: 'string',
+            enum: ['problems_only', 'summary', 'full'],
+            default: 'problems_only',
+            description: '输出模式：problems_only(仅违规项)、summary(含统计)、full(含完整树)',
+          },
+          maxDepth: {
+            type: 'number',
+            default: 5,
+            description: '最大扫描深度',
+          },
+          limitTopFiles: {
+            type: 'number',
+            default: 20,
+            description: '返回的 TopN 最大文件数量',
+          },
+        },
+        required: ['projectPath'],
+      },
+    },
   ],
 }))
 
@@ -513,6 +552,105 @@ ${next.notes ? `\n备注: ${next.notes}` : ''}
     }
 
     default:
+      // 处理 analyze_project_structure 工具
+      if (name === 'analyze_project_structure') {
+        const parsed = AnalyzeProjectStructureArgsSchema.safeParse(args)
+        if (!parsed.success) {
+          return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+        }
+
+        const { projectPath, mode, maxDepth, limitTopFiles } = parsed.data
+
+        // 验证路径
+        const validation = await validateDirectory(projectPath)
+        if (!validation.valid) {
+          return { content: [{ type: 'text', text: `❌ ${validation.error}` }] }
+        }
+
+        try {
+          // 获取 structure-analyzer 脚本路径
+          const scriptPath = path.resolve(__dirname, '../../scripts/dist/structure-analyzer.js')
+
+          // 构建命令
+          const cmd = `node "${scriptPath}" "${validation.resolved}" --mode ${mode} --max-depth ${maxDepth} --limit ${limitTopFiles} --output json`
+
+          // 执行分析
+          const output = execSync(cmd, {
+            encoding: 'utf-8',
+            timeout: 60000, // 60秒超时
+            maxBuffer: 10 * 1024 * 1024 // 10MB 缓冲
+          })
+
+          // 解析 JSON 结果
+          const result = JSON.parse(output)
+
+          // 根据 mode 控制输出大小
+          let responseText = ''
+
+          if (mode === 'problems_only') {
+            // 最精简模式：仅返回违规项和评分
+            responseText = `📊 结构分析结果
+
+**项目**: ${result.projectName}
+**健康度评分**: ${result.scores.total}/100
+**配置来源**: ${result.configSource}
+
+**分项得分**:
+- 特性结构: ${result.scores.breakdown.featureStructure}/25
+- 目录深度: ${result.scores.breakdown.depth}/25
+- 文件大小: ${result.scores.breakdown.fileSize}/25
+- 命名规范: ${result.scores.breakdown.naming}/25
+
+**违规项** (${result.violations.length} 个):
+${result.violations.slice(0, 20).map((v: { severity: string; code: string; message: string; path: string }) =>
+  `- [${v.severity}] ${v.code}: ${v.message} (${path.basename(v.path)})`
+).join('\n')}
+${result.violations.length > 20 ? `\n... 还有 ${result.violations.length - 20} 个问题` : ''}`
+          } else if (mode === 'summary') {
+            // 摘要模式：包含统计信息
+            responseText = `📊 结构分析结果
+
+**项目**: ${result.projectName}
+**健康度评分**: ${result.scores.total}/100
+**分析时间**: ${result.analyzedAt}
+**配置来源**: ${result.configSource}
+
+**统计**:
+- 总文件数: ${result.summary.totalFiles}
+- 总目录数: ${result.summary.totalDirectories}
+- 最大深度: ${result.summary.maxDepth}
+
+**分项得分**:
+- 特性结构: ${result.scores.breakdown.featureStructure}/25
+- 目录深度: ${result.scores.breakdown.depth}/25
+- 文件大小: ${result.scores.breakdown.fileSize}/25
+- 命名规范: ${result.scores.breakdown.naming}/25
+
+**最大文件 Top 5**:
+${result.summary.topLargestFiles.slice(0, 5).map((f: { path: string; lines: number; sizeKB: number }) =>
+  `- ${path.basename(f.path)}: ${f.lines} 行, ${f.sizeKB}KB`
+).join('\n')}
+
+**违规项** (${result.violations.length} 个):
+${result.violations.slice(0, 30).map((v: { severity: string; code: string; message: string; path: string; suggestion: string }) =>
+  `- [${v.severity}] ${v.code}: ${v.message}\n  位置: ${v.path}\n  建议: ${v.suggestion}`
+).join('\n\n')}
+${result.violations.length > 30 ? `\n... 还有 ${result.violations.length - 30} 个问题` : ''}`
+          } else {
+            // full 模式：返回完整 JSON
+            responseText = JSON.stringify(result, null, 2)
+          }
+
+          return { content: [{ type: 'text', text: responseText }] }
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error)
+          if (errMsg.includes('ETIMEDOUT') || errMsg.includes('timeout')) {
+            return { content: [{ type: 'text', text: `❌ 分析超时，项目可能过大。请尝试减小 maxDepth 参数。` }] }
+          }
+          return { content: [{ type: 'text', text: `❌ 分析失败: ${errMsg}` }] }
+        }
+      }
+
       return { content: [{ type: 'text', text: `❌ 未知工具: ${name}` }] }
   }
 })

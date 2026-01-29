@@ -1,6 +1,6 @@
 {
-  "version": "2.1.0",
-  "generatedAt": "2026-01-25T00:00:00.000Z",
+  "version": "2.0.0",
+  "generatedAt": "2026-01-29T04:19:21.816Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -43,51 +43,11 @@
         "_comment": "defaults 始终加载，可通过 --task 参数筛选"
       }
     },
-    "agents": {
-      "_comment": "Agent 系统配置 - 独立执行单元",
-      "enabled": true,
-      "path": "agents",
-      "loadMode": "lazy",
-      "definitions": {
-        "security-reviewer": {
-          "name": "安全审查",
-          "description": "XSS、CSRF、敏感数据泄露检测",
-          "triggers": ["安全审查", "security", "xss", "csrf", "owasp"],
-          "permissions": ["read_file", "grep_search"],
-          "relatedSkills": ["frontend-code-review"],
-          "relatedRules": ["layer3_action/defensive-coding"]
-        },
-        "performance-profiler": {
-          "name": "性能分析",
-          "description": "Lighthouse、Web Vitals、渲染性能诊断",
-          "triggers": ["性能分析", "performance", "lighthouse", "web vitals"],
-          "permissions": ["read_file", "bash"],
-          "relatedSkills": ["performance-optimization"]
-        },
-        "planner": {
-          "name": "任务规划",
-          "description": "复杂任务分解、实现步骤规划、风险评估",
-          "triggers": ["规划", "plan", "任务分解", "设计方案"],
-          "permissions": ["read_file"],
-          "relatedRules": ["layer3_action/refactoring", "layer3_action/testing"]
-        }
-      }
-    },
     "skills": {
       "_comment": "自定义技能配置 - CodeBuddy 已支持 Skills 功能",
       "enabled": true,
       "path": "custom-skills",
-      "loadMode": "lazy",
-      "registry": [
-        "component-refactoring",
-        "frontend-code-review",
-        "frontend-testing",
-        "skill-creator",
-        "state-management",
-        "performance-optimization",
-        "build-optimization",
-        "i18n-a11y"
-      ]
+      "loadMode": "lazy"
     },
     "tasks": {
       "_comment": "任务类型定义 - 用于渐进式披露，按任务筛选相关规则",
@@ -294,6 +254,12 @@
       "mtime": "2026-01-12T06:38:05.982Z"
     },
     {
+      "path": "custom-skills/build-optimization/SKILL.md",
+      "name": "SKILL",
+      "size": 4454,
+      "mtime": "2026-01-25T12:14:48.187Z"
+    },
+    {
       "path": "custom-skills/component-refactoring/references/complexity-patterns.md",
       "name": "complexity-patterns",
       "size": 11890,
@@ -426,6 +392,30 @@
       "mtime": "2026-01-13T09:25:37.956Z"
     },
     {
+      "path": "custom-skills/i18n-a11y/SKILL.md",
+      "name": "SKILL",
+      "size": 4712,
+      "mtime": "2026-01-25T12:14:51.145Z"
+    },
+    {
+      "path": "custom-skills/performance-optimization/SKILL.md",
+      "name": "SKILL",
+      "size": 4231,
+      "mtime": "2026-01-25T12:14:45.392Z"
+    },
+    {
+      "path": "custom-skills/prd/SKILL.md",
+      "name": "SKILL",
+      "size": 7410,
+      "mtime": "2026-01-26T05:49:39.876Z"
+    },
+    {
+      "path": "custom-skills/ralph-converter/SKILL.md",
+      "name": "SKILL",
+      "size": 7744,
+      "mtime": "2026-01-26T05:49:51.892Z"
+    },
+    {
       "path": "custom-skills/skill-creator/references/output-patterns.md",
       "name": "output-patterns",
       "size": 1817,
@@ -442,11 +432,41 @@
       "name": "SKILL",
       "size": 17798,
       "mtime": "2026-01-11T22:32:44.000Z"
+    },
+    {
+      "path": "custom-skills/state-management/SKILL.md",
+      "name": "SKILL",
+      "size": 4375,
+      "mtime": "2026-01-25T12:14:42.906Z"
+    },
+    {
+      "path": "custom-skills/structure-review/references/anti-patterns.md",
+      "name": "anti-patterns",
+      "size": 6736,
+      "mtime": "2026-01-29T03:09:08.861Z"
+    },
+    {
+      "path": "custom-skills/structure-review/references/feature-based-patterns.md",
+      "name": "feature-based-patterns",
+      "size": 5615,
+      "mtime": "2026-01-29T03:09:06.140Z"
+    },
+    {
+      "path": "custom-skills/structure-review/references/refactoring-strategies.md",
+      "name": "refactoring-strategies",
+      "size": 7044,
+      "mtime": "2026-01-29T03:09:11.257Z"
+    },
+    {
+      "path": "custom-skills/structure-review/SKILL.md",
+      "name": "SKILL",
+      "size": 4360,
+      "mtime": "2026-01-29T04:04:20.269Z"
     }
   ],
   "stats": {
-    "totalFiles": 41,
+    "totalFiles": 51,
     "ruleFiles": 16,
-    "skillFiles": 25
+    "skillFiles": 35
   }
 }
