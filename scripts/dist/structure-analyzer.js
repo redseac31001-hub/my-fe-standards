@@ -50,6 +50,7 @@ exports.analyze = analyze;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const structure_analyzer_1 = require("./types/structure-analyzer");
+const report_manager_1 = require("./report-manager");
 // ============ 配置加载 ============
 /**
  * 加载配置（双层：project > global > default）
@@ -691,6 +692,104 @@ function countDirectories(node) {
     }
     return count;
 }
+// ============ 报告持久化 ============
+/**
+ * 将分析结果转换为架构快照
+ */
+function toArchitectureSnapshot(result) {
+    const issueCount = {
+        error: result.violations.filter(v => v.severity === 'error').length,
+        warning: result.violations.filter(v => v.severity === 'warning').length,
+        info: result.violations.filter(v => v.severity === 'info').length,
+    };
+    // 判断结构类型
+    let structureType = 'unknown';
+    const hasFeatureViolations = result.violations.some(v => v.code === 'SA001');
+    if (!hasFeatureViolations && result.scores.breakdown.featureStructure >= 20) {
+        structureType = 'feature-based';
+    }
+    else if (hasFeatureViolations && result.scores.breakdown.featureStructure < 15) {
+        structureType = 'type-based';
+    }
+    else if (hasFeatureViolations) {
+        structureType = 'hybrid';
+    }
+    return {
+        meta: {
+            version: '1.0.0',
+            projectName: result.projectName,
+            analyzedAt: result.analyzedAt,
+            analyzedBy: 'structure-analyzer',
+        },
+        summary: {
+            healthScore: result.scores.total,
+            totalFiles: result.summary.totalFiles,
+            totalLines: result.summary.topLargestFiles.reduce((sum, f) => sum + f.lines, 0),
+            issueCount,
+        },
+        structure: {
+            type: structureType,
+            depth: result.summary.maxDepth,
+            directories: result.summary.totalDirectories,
+        },
+        violations: result.violations.map(v => ({
+            rule: v.code,
+            severity: v.severity,
+            path: v.path,
+            message: v.message,
+            suggestion: v.suggestion,
+        })),
+        scores: {
+            featureStructure: result.scores.breakdown.featureStructure,
+            directoryDepth: result.scores.breakdown.depth,
+            fileSize: result.scores.breakdown.fileSize,
+            namingConvention: result.scores.breakdown.naming,
+        },
+    };
+}
+/**
+ * 保存分析报告
+ */
+function saveReports(targetPath, result) {
+    try {
+        // 保存架构快照
+        const snapshot = toArchitectureSnapshot(result);
+        (0, report_manager_1.saveArchitectureSnapshot)(targetPath, snapshot);
+        // 追加健康度数据点
+        const today = new Date().toISOString().slice(0, 10);
+        const dataPoint = {
+            date: today,
+            healthScore: result.scores.total,
+            breakdown: {
+                architecture: result.scores.breakdown.featureStructure + result.scores.breakdown.depth,
+                modules: 0, // 由 module-mapper 填充
+                codeQuality: result.scores.breakdown.fileSize + result.scores.breakdown.naming,
+            },
+            snapshot: 'architecture/latest.json',
+        };
+        (0, report_manager_1.appendHealthDataPoint)(targetPath, dataPoint);
+        console.log(`[Reports] 已保存架构快照到 .codebuddy/reports/architecture/`);
+    }
+    catch (error) {
+        console.warn(`[Reports] 保存报告失败: ${error.message}`);
+    }
+}
+/**
+ * 检查是否有可复用的报告
+ */
+function checkExistingReport(targetPath) {
+    try {
+        const manifest = (0, report_manager_1.readManifest)(targetPath);
+        if (manifest.reports.architecture) {
+            const ageHours = (0, report_manager_1.getReportAgeHours)(manifest.reports.architecture.generatedAt);
+            return { exists: true, ageHours };
+        }
+    }
+    catch (_a) {
+        // 忽略
+    }
+    return { exists: false, ageHours: -1 };
+}
 // ============ CLI 入口 ============
 /**
  * 解析命令行参数
@@ -698,6 +797,7 @@ function countDirectories(node) {
 function parseArgs(args) {
     const options = {
         targetPath: '',
+        noSave: false,
     };
     for (let i = 0; i < args.length; i++) {
         const arg = args[i];
@@ -718,6 +818,9 @@ function parseArgs(args) {
         }
         else if (arg === '--limit' && args[i + 1]) {
             options.limitTopFiles = parseInt(args[++i], 10);
+        }
+        else if (arg === '--no-save') {
+            options.noSave = true;
         }
         else if (!arg.startsWith('-') && !options.targetPath) {
             options.targetPath = arg;
@@ -743,6 +846,7 @@ Structure Analyzer - 项目结构分析器
   --config <path>     自定义配置文件路径
   --max-depth <n>     最大扫描深度 (默认: 10)
   --limit <n>         TopN 文件数量 (默认: 20)
+  --no-save           不保存报告到 .codebuddy/reports/
   -h, --help          显示帮助信息
 
 示例:
@@ -767,6 +871,11 @@ function main() {
         process.exit(1);
     }
     try {
+        // 检查是否有可复用的报告
+        const existing = checkExistingReport(options.targetPath);
+        if (existing.exists && existing.ageHours < 24 && existing.ageHours >= 0) {
+            console.log(`[Reports] 发现 ${existing.ageHours} 小时前的报告，可通过 --no-save 跳过保存`);
+        }
         const result = analyze(options);
         const outputFormat = options.outputFormat || 'markdown';
         if (outputFormat === 'json' || outputFormat === 'both') {
@@ -777,6 +886,10 @@ function main() {
                 console.log('\n---\n');
             }
             console.log(formatMarkdown(result));
+        }
+        // 保存报告
+        if (!options.noSave) {
+            saveReports(path.resolve(options.targetPath), result);
         }
     }
     catch (error) {

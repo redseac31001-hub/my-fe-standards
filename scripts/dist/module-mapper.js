@@ -49,6 +49,7 @@ exports.analyzeModules = analyzeModules;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const module_mapper_1 = require("./types/module-mapper");
+const report_manager_1 = require("./report-manager");
 // ============ 业务识别函数 ============
 /**
  * 根据目录名识别业务信息
@@ -880,6 +881,7 @@ function analyzeModules(options) {
 function parseArgs(args) {
     const options = {
         targetPath: '',
+        noSave: false,
     };
     for (let i = 0; i < args.length; i++) {
         const arg = args[i];
@@ -897,6 +899,9 @@ function parseArgs(args) {
         }
         else if (arg === '--max-depth' && args[i + 1]) {
             options.maxDepth = parseInt(args[++i], 10);
+        }
+        else if (arg === '--no-save') {
+            options.noSave = true;
         }
         else if (!arg.startsWith('-') && !options.targetPath) {
             options.targetPath = arg;
@@ -921,6 +926,7 @@ Module Mapper - 功能模块图谱分析器
   --output <format>   输出格式: json | markdown | mermaid (默认: markdown)
   --no-deps           跳过依赖分析（加快速度）
   --max-depth <n>     最大扫描深度 (默认: 5)
+  --no-save           不保存报告到 .codebuddy/reports/
   -h, --help          显示帮助信息
 
 示例:
@@ -928,6 +934,102 @@ Module Mapper - 功能模块图谱分析器
   node module-mapper.js ./my-project --mode full --output json
   node module-mapper.js ./my-project --mode graph --output mermaid
 `);
+}
+/**
+ * 将分析结果转换为模块图谱快照
+ */
+function toModuleMapSnapshot(result) {
+    var _a;
+    // 按分类统计
+    const categories = {};
+    for (const module of result.modules) {
+        const cat = ((_a = module.business) === null || _a === void 0 ? void 0 : _a.category) || '其他';
+        if (!categories[cat]) {
+            categories[cat] = { modules: [], totalFiles: 0, totalLines: 0 };
+        }
+        categories[cat].modules.push(module.name);
+        categories[cat].totalFiles += module.stats.files;
+        categories[cat].totalLines += module.stats.lines;
+    }
+    // 转换模块列表
+    const modules = result.modules.map(m => {
+        var _a, _b, _c;
+        return ({
+            name: m.name,
+            chineseName: ((_a = m.business) === null || _a === void 0 ? void 0 : _a.chineseName) || m.name,
+            category: ((_b = m.business) === null || _b === void 0 ? void 0 : _b.category) || '其他',
+            type: m.type,
+            path: m.path,
+            routePath: (_c = m.business) === null || _c === void 0 ? void 0 : _c.routePath,
+            stats: {
+                files: m.stats.files,
+                lines: m.stats.lines,
+                components: m.stats.components,
+            },
+            healthScore: m.healthScore,
+            subModules: m.subModules.map(s => ({
+                name: s.name,
+                chineseName: s.chineseName,
+                files: s.files,
+                lines: s.lines,
+            })),
+            dependencies: m.internalDeps.slice(0, 10),
+            dependents: m.relatedModules,
+        });
+    });
+    return {
+        meta: {
+            version: '1.0.0',
+            projectName: result.projectName,
+            analyzedAt: result.analyzedAt,
+            analyzedBy: 'module-mapper',
+        },
+        summary: {
+            totalModules: result.summary.totalModules,
+            avgHealthScore: result.summary.avgHealthScore,
+            circularDeps: result.summary.circularDeps,
+            isolatedModules: result.summary.isolatedModules,
+        },
+        categories,
+        modules,
+        graph: {
+            nodes: result.dependencyGraph.nodes,
+            edges: result.dependencyGraph.edges.map(e => ({
+                from: e.from,
+                to: e.to,
+                weight: e.count,
+            })),
+        },
+    };
+}
+/**
+ * 保存模块图谱报告
+ */
+function saveReports(targetPath, result) {
+    try {
+        const snapshot = toModuleMapSnapshot(result);
+        (0, report_manager_1.saveModuleMapSnapshot)(targetPath, snapshot);
+        console.log(`[Reports] 已保存模块图谱到 .codebuddy/reports/modules/`);
+    }
+    catch (error) {
+        console.warn(`[Reports] 保存报告失败: ${error.message}`);
+    }
+}
+/**
+ * 检查是否有可复用的报告
+ */
+function checkExistingReport(targetPath) {
+    try {
+        const manifest = (0, report_manager_1.readManifest)(targetPath);
+        if (manifest.reports.modules) {
+            const ageHours = (0, report_manager_1.getReportAgeHours)(manifest.reports.modules.generatedAt);
+            return { exists: true, ageHours };
+        }
+    }
+    catch (_a) {
+        // 忽略
+    }
+    return { exists: false, ageHours: -1 };
 }
 /**
  * 主入口
@@ -945,6 +1047,11 @@ function main() {
         process.exit(1);
     }
     try {
+        // 检查是否有可复用的报告
+        const existing = checkExistingReport(options.targetPath);
+        if (existing.exists && existing.ageHours < 24 && existing.ageHours >= 0) {
+            console.log(`[Reports] 发现 ${existing.ageHours} 小时前的报告，可通过 --no-save 跳过保存`);
+        }
         const result = analyzeModules(options);
         const outputFormat = options.outputFormat || 'markdown';
         if (outputFormat === 'json') {
@@ -955,6 +1062,10 @@ function main() {
         }
         else {
             console.log(formatMarkdown(result));
+        }
+        // 保存报告
+        if (!options.noSave) {
+            saveReports(path.resolve(options.targetPath), result);
         }
     }
     catch (error) {

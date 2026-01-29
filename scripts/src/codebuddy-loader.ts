@@ -486,11 +486,15 @@ async function loadAgents(agentsPath: string): Promise<AgentMetadata[]> {
 const SCRIPTS_TO_DISTRIBUTE: Array<{ file: string; dependencies?: string[] }> = [
   {
     file: 'structure-analyzer.js',
-    dependencies: ['types/structure-analyzer.js']
+    dependencies: ['types/structure-analyzer.js', 'types/reports.js', 'report-manager.js']
   },
   {
     file: 'module-mapper.js',
-    dependencies: ['types/module-mapper.js']
+    dependencies: ['types/module-mapper.js', 'types/reports.js', 'report-manager.js']
+  },
+  {
+    file: 'report-manager.js',
+    dependencies: ['types/reports.js']
   },
 ];
 

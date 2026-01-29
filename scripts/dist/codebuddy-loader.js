@@ -465,11 +465,15 @@ async function loadAgents(agentsPath) {
 const SCRIPTS_TO_DISTRIBUTE = [
     {
         file: 'structure-analyzer.js',
-        dependencies: ['types/structure-analyzer.js']
+        dependencies: ['types/structure-analyzer.js', 'types/reports.js', 'report-manager.js']
     },
     {
         file: 'module-mapper.js',
-        dependencies: ['types/module-mapper.js']
+        dependencies: ['types/module-mapper.js', 'types/reports.js', 'report-manager.js']
+    },
+    {
+        file: 'report-manager.js',
+        dependencies: ['types/reports.js']
     },
 ];
 /**
