@@ -897,5 +897,7 @@ function main() {
         process.exit(1);
     }
 }
-// 运行
-main();
+// CLI 入口 - 仅当作为主模块运行时才执行
+if (require.main === module) {
+    main();
+}

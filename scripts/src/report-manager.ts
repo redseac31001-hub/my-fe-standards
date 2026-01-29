@@ -970,5 +970,7 @@ export {
   getReportAgeHours,
 };
 
-// CLI 入口
-main();
+// CLI 入口 - 仅当作为主模块运行时才执行
+if (require.main === module) {
+  main();
+}
