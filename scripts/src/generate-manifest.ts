@@ -2,7 +2,7 @@
 /**
  * Manifest 生成器 - CodeBuddy 版
  *
- * 扫描 rules/ 和 custom-skills/ 目录，生成 manifest.json
+ * 扫描 rules/、custom-skills/ 和 agents/ 目录，生成 manifest.json
  * 用于远程加载模式
  *
  * 用法：
@@ -16,6 +16,7 @@ import { ManifestFile, Manifest, LoaderConfig } from './types';
 const PROJECT_ROOT: string = path.resolve(__dirname, '../..');
 const RULES_ROOT: string = path.join(PROJECT_ROOT, 'rules');
 const SKILLS_ROOT: string = path.join(PROJECT_ROOT, 'custom-skills');
+const AGENTS_ROOT: string = path.join(PROJECT_ROOT, 'agents');
 const CONFIG_PATH: string = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
 const OUTPUT_PATH: string = path.join(PROJECT_ROOT, 'manifest.json');
 
@@ -94,7 +95,15 @@ function main(): void {
   }));
   log(`  找到 ${skillFiles.length} 个技能文件`);
 
-  // 4. 构建 manifest
+  // 4. 扫描 Agent 文件
+  log('扫描 agents/ 目录...');
+  const agentFiles: ManifestFile[] = scanDirectory(AGENTS_ROOT).map(f => ({
+    ...f,
+    path: `agents/${f.path}`,
+  }));
+  log(`  找到 ${agentFiles.length} 个 Agent 文件`);
+
+  // 5. 构建 manifest
   const manifest: Manifest = {
     version: '2.0.0',
     generatedAt: new Date().toISOString(),
@@ -107,15 +116,16 @@ function main(): void {
       output: config.output || { dirName: '', fileName: '' },
       frontmatter: config.frontmatter || {},
     },
-    files: [...ruleFiles, ...skillFiles],
+    files: [...ruleFiles, ...skillFiles, ...agentFiles],
     stats: {
-      totalFiles: ruleFiles.length + skillFiles.length,
+      totalFiles: ruleFiles.length + skillFiles.length + agentFiles.length,
       ruleFiles: ruleFiles.length,
       skillFiles: skillFiles.length,
+      agentFiles: agentFiles.length,
     },
   };
 
-  // 5. 写入文件
+  // 6. 写入文件
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify(manifest, null, 2), 'utf-8');
 
   log('');
@@ -123,6 +133,7 @@ function main(): void {
   log(`✅ 成功! manifest.json 已生成`);
   log(`   规则文件: ${ruleFiles.length} 个`);
   log(`   技能文件: ${skillFiles.length} 个`);
+  log(`   Agent文件: ${agentFiles.length} 个`);
   log(`   总计: ${manifest.stats.totalFiles} 个文件`);
   log('═══════════════════════════════════════════════════════════════════');
 }

@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-01-29T04:19:21.816Z",
+  "generatedAt": "2026-01-29T04:59:11.183Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -462,11 +462,78 @@
       "name": "SKILL",
       "size": 4360,
       "mtime": "2026-01-29T04:04:20.269Z"
+    },
+    {
+      "path": "agents/AGENTS.md",
+      "name": "AGENTS",
+      "size": 3538,
+      "mtime": "2026-01-29T03:04:40.434Z"
+    },
+    {
+      "path": "agents/performance-profiler/AGENT.md",
+      "name": "AGENT",
+      "size": 4374,
+      "mtime": "2026-01-25T12:11:47.379Z"
+    },
+    {
+      "path": "agents/performance-profiler/templates/performance-report.md",
+      "name": "performance-report",
+      "size": 2719,
+      "mtime": "2026-01-25T12:11:49.500Z"
+    },
+    {
+      "path": "agents/planner/AGENT.md",
+      "name": "AGENT",
+      "size": 4188,
+      "mtime": "2026-01-25T12:11:52.035Z"
+    },
+    {
+      "path": "agents/planner/templates/implementation-plan.md",
+      "name": "implementation-plan",
+      "size": 2754,
+      "mtime": "2026-01-25T12:11:54.666Z"
+    },
+    {
+      "path": "agents/security-reviewer/AGENT.md",
+      "name": "AGENT",
+      "size": 4600,
+      "mtime": "2026-01-25T12:09:35.771Z"
+    },
+    {
+      "path": "agents/security-reviewer/checklists/xss-checklist.md",
+      "name": "xss-checklist",
+      "size": 1973,
+      "mtime": "2026-01-25T12:09:38.182Z"
+    },
+    {
+      "path": "agents/security-reviewer/templates/security-report.md",
+      "name": "security-report",
+      "size": 1758,
+      "mtime": "2026-01-25T12:09:40.891Z"
+    },
+    {
+      "path": "agents/structure-analyzer/AGENT.md",
+      "name": "AGENT",
+      "size": 5369,
+      "mtime": "2026-01-29T04:05:24.138Z"
+    },
+    {
+      "path": "agents/structure-analyzer/checklists/structure-checklist.md",
+      "name": "structure-checklist",
+      "size": 4014,
+      "mtime": "2026-01-29T03:03:35.388Z"
+    },
+    {
+      "path": "agents/structure-analyzer/templates/structure-report.md",
+      "name": "structure-report",
+      "size": 3103,
+      "mtime": "2026-01-29T03:03:37.987Z"
     }
   ],
   "stats": {
-    "totalFiles": 51,
+    "totalFiles": 62,
     "ruleFiles": 16,
-    "skillFiles": 35
+    "skillFiles": 35,
+    "agentFiles": 11
   }
 }

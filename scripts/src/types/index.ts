@@ -42,6 +42,7 @@ export interface ManifestStats {
   totalFiles: number;
   ruleFiles: number;
   skillFiles: number;
+  agentFiles?: number;
 }
 
 // ============ 配置相关类型 ============
