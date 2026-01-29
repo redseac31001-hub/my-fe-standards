@@ -705,23 +705,42 @@ function parseAgentMetadata(agentId: string, content: string): AgentMetadata | n
     }
   }
 
+  // 解析 workflow_summary
+  let workflowSummary: string | undefined;
+  const workflowMatch = frontmatter.match(/workflow_summary:\s*\|\s*\n((?:\s+.+\n?)+)/m);
+  if (workflowMatch) {
+    workflowSummary = workflowMatch[1]
+      .split('\n')
+      .map(line => line.replace(/^\s{2}/, ''))
+      .join('\n')
+      .trim();
+  }
+
   return {
     id: agentId,
     name: nameMatch[1].trim(),
     description: descMatch[1].trim(),
     triggers,
     permissions,
+    workflowSummary,
   };
 }
 
 function generateAgentsPrompt(agents: AgentMetadata[]): string {
   if (agents.length === 0) return '';
 
-  let table = '| Agent 名称 | Agent ID | 触发场景 | 权限 |\n|-----------|----------|----------|------|\n';
+  // 生成 Agent 详情列表（包含工作流程摘要）
+  let agentDetails = '';
   for (const agent of agents) {
-    const triggerText = agent.triggers.slice(0, 3).join(', ') + (agent.triggers.length > 3 ? '...' : '');
-    const permText = agent.permissions.join(', ') || '-';
-    table += `| **${agent.name}** | \`${agent.id}\` | ${triggerText} | ${permText} |\n`;
+    const triggerText = agent.triggers.join(', ');
+    agentDetails += `### ${agent.name} (\`${agent.id}\`)\n\n`;
+    agentDetails += `- **描述**: ${agent.description}\n`;
+    agentDetails += `- **触发词**: ${triggerText}\n`;
+
+    if (agent.workflowSummary) {
+      agentDetails += `\n${agent.workflowSummary}\n`;
+    }
+    agentDetails += '\n';
   }
 
   return `
@@ -731,21 +750,18 @@ function generateAgentsPrompt(agents: AgentMetadata[]): string {
 
 ## 已安装 Agents
 
-${table}
+${agentDetails}
 
 ## 🚀 Agent 调用指南 (CodeBuddy)
 
 当用户请求匹配上述触发场景时，请：
 
-1. **识别意图**: 分析用户请求是否匹配表格中的触发场景
-2. **读取 Agent**: 调用 \`read_file\` 工具读取 \`.codebuddy/agents/<Agent ID>/AGENT.md\`
-3. **执行工作流**: 根据 AGENT.md 中定义的工作流执行任务
-4. **加载资源**: 按需读取 checklists/、metrics/、frameworks/ 等子目录资源
-5. **生成报告**: 使用 templates/ 目录中的模板输出结果
+1. **识别意图**: 分析用户请求是否匹配上述触发词
+2. **检查工作流程**: 如果 Agent 有 "必须按顺序执行" 的工作流程，**严格按步骤执行**
+3. **执行脚本**: 运行工作流程中列出的脚本命令
+4. **生成报告**: 合并结果输出完整报告
 
-**示例**:
-> 用户: "帮我做一下安全审查"
-> 行动: read_file(".codebuddy/agents/security-reviewer/AGENT.md")
+**重要**: 如果 Agent 定义了工作流程摘要，必须按顺序执行所有步骤，不可跳过！
 
 ## Agent 与 Skill 的区别
 

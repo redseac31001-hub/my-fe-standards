@@ -165,6 +165,7 @@ export interface AgentMetadata {
   description: string;
   triggers: string[];
   permissions: string[];
+  workflowSummary?: string;
   relatedSkills?: string[];
   relatedRules?: string[];
 }

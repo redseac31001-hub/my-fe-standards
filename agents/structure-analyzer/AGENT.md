@@ -13,6 +13,11 @@ triggers:
   - "分析项目结构"
   - "全面分析"
   - "项目评估"
+workflow_summary: |
+  ⚠️ **必须按顺序执行以下步骤**:
+  1. **模块识别**: `node .codebuddy/scripts/module-mapper.js . --mode summary`
+  2. **结构分析**: `node .codebuddy/scripts/structure-analyzer.js . --mode summary`
+  3. **综合报告**: 合并两个结果，输出完整架构审查报告
 permissions:
   tools:
     - read_file

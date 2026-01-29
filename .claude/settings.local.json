@@ -4,7 +4,8 @@
       "Bash(powershell.exe:*)",
       "Bash(npm run build:scripts)",
       "Bash(npm run build:manifest)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(npm run build)"
     ],
     "additionalDirectories": [
       "E:\\mygit\\ralph\\"
