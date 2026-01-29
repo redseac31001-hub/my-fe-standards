@@ -1,10 +1,13 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(powershell.exe:*)",
+      "Bash(npm run build:scripts)",
+      "Bash(npm run build:manifest)",
+      "Bash(node:*)"
+    ],
     "additionalDirectories": [
       "E:\\mygit\\ralph\\"
-    ],
-    "allow": [
-      "Bash(powershell.exe:*)"
     ]
   }
 }

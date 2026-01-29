@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-01-29T04:59:11.183Z",
+  "generatedAt": "2026-01-29T07:24:36.026Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -398,6 +398,24 @@
       "mtime": "2026-01-25T12:14:51.145Z"
     },
     {
+      "path": "custom-skills/module-mapping/references/dependency-analysis.md",
+      "name": "dependency-analysis",
+      "size": 3515,
+      "mtime": "2026-01-29T06:06:12.430Z"
+    },
+    {
+      "path": "custom-skills/module-mapping/references/vue-module-patterns.md",
+      "name": "vue-module-patterns",
+      "size": 3529,
+      "mtime": "2026-01-29T06:06:09.462Z"
+    },
+    {
+      "path": "custom-skills/module-mapping/SKILL.md",
+      "name": "SKILL",
+      "size": 3618,
+      "mtime": "2026-01-29T06:05:10.010Z"
+    },
+    {
       "path": "custom-skills/performance-optimization/SKILL.md",
       "name": "SKILL",
       "size": 4231,
@@ -514,8 +532,8 @@
     {
       "path": "agents/structure-analyzer/AGENT.md",
       "name": "AGENT",
-      "size": 5369,
-      "mtime": "2026-01-29T04:05:24.138Z"
+      "size": 8295,
+      "mtime": "2026-01-29T07:20:37.328Z"
     },
     {
       "path": "agents/structure-analyzer/checklists/structure-checklist.md",
@@ -531,9 +549,9 @@
     }
   ],
   "stats": {
-    "totalFiles": 62,
+    "totalFiles": 65,
     "ruleFiles": 16,
-    "skillFiles": 35,
+    "skillFiles": 38,
     "agentFiles": 11
   }
 }

@@ -488,6 +488,10 @@ const SCRIPTS_TO_DISTRIBUTE: Array<{ file: string; dependencies?: string[] }> = 
     file: 'structure-analyzer.js',
     dependencies: ['types/structure-analyzer.js']
   },
+  {
+    file: 'module-mapper.js',
+    dependencies: ['types/module-mapper.js']
+  },
 ];
 
 /**

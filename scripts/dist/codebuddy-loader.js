@@ -467,6 +467,10 @@ const SCRIPTS_TO_DISTRIBUTE = [
         file: 'structure-analyzer.js',
         dependencies: ['types/structure-analyzer.js']
     },
+    {
+        file: 'module-mapper.js',
+        dependencies: ['types/module-mapper.js']
+    },
 ];
 /**
  * 分发可执行脚本到业务项目
