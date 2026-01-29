@@ -4,6 +4,85 @@
  * 功能模块图谱分析器的接口和类型
  */
 
+// ============ 业务分类定义 ============
+
+/**
+ * 业务分类
+ */
+export type BusinessCategory =
+  | '用户认证'
+  | '用户管理'
+  | '业务办理'
+  | '数据管理'
+  | '系统设置'
+  | '通用组件'
+  | '工具函数'
+  | '其他';
+
+/**
+ * 业务关键词映射
+ */
+export interface BusinessKeywordMapping {
+  /** 关键词（目录名/文件名） */
+  keyword: string;
+  /** 中文名称 */
+  name: string;
+  /** 业务分类 */
+  category: BusinessCategory;
+  /** 别名列表 */
+  aliases?: string[];
+}
+
+/**
+ * 默认业务关键词映射表
+ */
+export const BUSINESS_KEYWORDS: BusinessKeywordMapping[] = [
+  // 用户认证
+  { keyword: 'login', name: '登录', category: '用户认证', aliases: ['signin', 'auth'] },
+  { keyword: 'register', name: '注册', category: '用户认证', aliases: ['signup'] },
+  { keyword: 'verification', name: '身份验证', category: '用户认证', aliases: ['verify', 'validate'] },
+  { keyword: 'password', name: '密码管理', category: '用户认证', aliases: ['pwd', 'forgot'] },
+  { keyword: 'captcha', name: '验证码', category: '用户认证' },
+  { keyword: 'sso', name: '单点登录', category: '用户认证' },
+
+  // 用户管理
+  { keyword: 'account', name: '账户', category: '用户管理', aliases: ['user', 'profile'] },
+  { keyword: 'personal', name: '个人中心', category: '用户管理', aliases: ['mine', 'my'] },
+  { keyword: 'settings', name: '设置', category: '用户管理', aliases: ['setting', 'config'] },
+  { keyword: 'enterprise', name: '企业信息', category: '用户管理', aliases: ['company', 'corp'] },
+
+  // 业务办理
+  { keyword: 'registry', name: '注册开户', category: '业务办理', aliases: ['reg'] },
+  { keyword: 'selfSign', name: '自助签约', category: '业务办理', aliases: ['self-sign', 'selfsign'] },
+  { keyword: 'fillInfo', name: '信息填写', category: '业务办理', aliases: ['fill-info', 'fillinfo'] },
+  { keyword: 'openAccount', name: '开户', category: '业务办理', aliases: ['open-account', 'openaccount'] },
+  { keyword: 'apply', name: '申请', category: '业务办理', aliases: ['application'] },
+  { keyword: 'order', name: '订单', category: '业务办理', aliases: ['orders'] },
+  { keyword: 'payment', name: '支付', category: '业务办理', aliases: ['pay'] },
+  { keyword: 'transaction', name: '交易', category: '业务办理', aliases: ['trans'] },
+
+  // 数据管理
+  { keyword: 'dashboard', name: '仪表盘', category: '数据管理', aliases: ['home', 'index'] },
+  { keyword: 'report', name: '报表', category: '数据管理', aliases: ['reports', 'statistics'] },
+  { keyword: 'list', name: '列表', category: '数据管理', aliases: ['table'] },
+  { keyword: 'detail', name: '详情', category: '数据管理', aliases: ['details', 'info'] },
+
+  // 系统设置
+  { keyword: 'admin', name: '管理后台', category: '系统设置', aliases: ['management'] },
+  { keyword: 'permission', name: '权限管理', category: '系统设置', aliases: ['role', 'auth'] },
+  { keyword: 'system', name: '系统管理', category: '系统设置', aliases: ['sys'] },
+
+  // 通用组件
+  { keyword: 'components', name: '公共组件', category: '通用组件', aliases: ['component', 'common'] },
+  { keyword: 'layouts', name: '布局组件', category: '通用组件', aliases: ['layout'] },
+
+  // 工具函数
+  { keyword: 'utils', name: '工具函数', category: '工具函数', aliases: ['util', 'helpers', 'helper'] },
+  { keyword: 'hooks', name: 'Hooks', category: '工具函数', aliases: ['composables', 'composable'] },
+  { keyword: 'api', name: 'API接口', category: '工具函数', aliases: ['apis', 'services', 'service'] },
+  { keyword: 'store', name: '状态管理', category: '工具函数', aliases: ['stores', 'vuex', 'pinia'] },
+];
+
 // ============ 模块类型定义 ============
 
 /**
@@ -21,10 +100,19 @@ export interface ModuleInfo {
   path: string;
   /** 模块类型 */
   type: ModuleType;
+  /** 业务信息 */
+  business: {
+    /** 中文名称 */
+    chineseName: string;
+    /** 业务分类 */
+    category: BusinessCategory;
+    /** 路由路径 */
+    routePath?: string;
+  };
   /** 页面入口列表 */
   entries: string[];
   /** 子模块列表 */
-  subModules: string[];
+  subModules: SubModuleInfo[];
   /** 内部依赖（项目内模块） */
   internalDeps: string[];
   /** 外部依赖（npm 包） */
@@ -37,6 +125,26 @@ export interface ModuleInfo {
   healthScore: number;
   /** 问题列表 */
   issues: ModuleIssue[];
+}
+
+/**
+ * 子模块信息
+ */
+export interface SubModuleInfo {
+  /** 子模块名称 */
+  name: string;
+  /** 中文名称 */
+  chineseName: string;
+  /** 业务分类 */
+  category: BusinessCategory;
+  /** 路径 */
+  path: string;
+  /** 文件数 */
+  files: number;
+  /** 代码行数 */
+  lines: number;
+  /** 健康度 */
+  healthScore: number;
 }
 
 /**

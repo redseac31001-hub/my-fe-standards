@@ -49,6 +49,83 @@ exports.analyzeModules = analyzeModules;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const module_mapper_1 = require("./types/module-mapper");
+// ============ 业务识别函数 ============
+/**
+ * 根据目录名识别业务信息
+ */
+function identifyBusiness(dirName) {
+    const lowerName = dirName.toLowerCase();
+    for (const mapping of module_mapper_1.BUSINESS_KEYWORDS) {
+        if (lowerName === mapping.keyword.toLowerCase()) {
+            return { chineseName: mapping.name, category: mapping.category };
+        }
+        if (mapping.aliases) {
+            for (const alias of mapping.aliases) {
+                if (lowerName === alias.toLowerCase()) {
+                    return { chineseName: mapping.name, category: mapping.category };
+                }
+            }
+        }
+        // 部分匹配（包含关键词）
+        if (lowerName.includes(mapping.keyword.toLowerCase())) {
+            return { chineseName: mapping.name, category: mapping.category };
+        }
+    }
+    // 未匹配到，返回默认值
+    return { chineseName: dirName, category: '其他' };
+}
+/**
+ * 解析路由配置文件
+ */
+function parseRouterConfig(srcPath) {
+    const routeMap = new Map();
+    // 常见路由文件路径
+    const routerPaths = [
+        path.join(srcPath, 'router/index.ts'),
+        path.join(srcPath, 'router/index.js'),
+        path.join(srcPath, 'router/routes.ts'),
+        path.join(srcPath, 'router/routes.js'),
+        path.join(srcPath, 'routes/index.ts'),
+        path.join(srcPath, 'routes/index.js'),
+    ];
+    for (const routerPath of routerPaths) {
+        if (fs.existsSync(routerPath)) {
+            try {
+                const content = fs.readFileSync(routerPath, 'utf-8');
+                // 匹配路由定义: path: '/xxx', component: () => import('@/views/xxx')
+                const routeRegex = /path:\s*['"]([^'"]+)['"][^}]*component:\s*\([^)]*\)\s*=>\s*import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+                let match;
+                while ((match = routeRegex.exec(content)) !== null) {
+                    const routePath = match[1];
+                    const componentPath = match[2];
+                    // 提取视图名称
+                    const viewMatch = componentPath.match(/@\/views\/([^'"]+)/);
+                    if (viewMatch) {
+                        const viewName = viewMatch[1].replace(/\/index(\.vue)?$/, '').replace(/\.vue$/, '');
+                        routeMap.set(viewName, { path: routePath });
+                    }
+                }
+                // 匹配 meta.title
+                const metaRegex = /path:\s*['"]([^'"]+)['"][^}]*meta:\s*\{[^}]*title:\s*['"]([^'"]+)['"]/g;
+                while ((match = metaRegex.exec(content)) !== null) {
+                    const routePath = match[1];
+                    const title = match[2];
+                    // 更新已存在的路由信息
+                    for (const [viewName, info] of routeMap.entries()) {
+                        if (info.path === routePath) {
+                            routeMap.set(viewName, { ...info, title });
+                        }
+                    }
+                }
+            }
+            catch (_a) {
+                // 忽略解析错误
+            }
+            break; // 找到一个就停止
+        }
+    }
+    return routeMap;
+}
 // ============ 工具函数 ============
 /**
  * 检查是否应该忽略
@@ -146,7 +223,7 @@ function resolveModuleName(importPath, currentModule, srcPath) {
 /**
  * 扫描目录获取模块列表
  */
-function scanModules(srcPath, config, maxDepth) {
+function scanModules(srcPath, config, maxDepth, routeMap) {
     const modules = [];
     for (const pattern of config.modulePatterns) {
         const moduleDirPath = path.join(srcPath, pattern.pattern);
@@ -164,14 +241,14 @@ function scanModules(srcPath, config, maxDepth) {
                 const subDirPath = path.join(moduleDirPath, subDir);
                 const subStat = fs.statSync(subDirPath);
                 if (subStat.isDirectory()) {
-                    const moduleInfo = analyzeModule(subDirPath, `${pattern.pattern}/${subDir}`, pattern.type, config, maxDepth);
+                    const moduleInfo = analyzeModule(subDirPath, `${pattern.pattern}/${subDir}`, pattern.type, config, maxDepth, routeMap);
                     modules.push(moduleInfo);
                 }
             }
         }
         else {
             // 整个目录作为一个模块
-            const moduleInfo = analyzeModule(moduleDirPath, pattern.pattern, pattern.type, config, maxDepth);
+            const moduleInfo = analyzeModule(moduleDirPath, pattern.pattern, pattern.type, config, maxDepth, routeMap);
             modules.push(moduleInfo);
         }
     }
@@ -180,17 +257,37 @@ function scanModules(srcPath, config, maxDepth) {
 /**
  * 分析单个模块
  */
-function analyzeModule(modulePath, moduleName, moduleType, config, maxDepth) {
+function analyzeModule(modulePath, moduleName, moduleType, config, maxDepth, routeMap) {
     const stats = collectModuleStats(modulePath, config, maxDepth, 0);
     const entries = findEntries(modulePath, config);
-    const subModules = findSubModules(modulePath, config);
+    const subModules = findSubModulesDetailed(modulePath, moduleName, config, maxDepth);
     const { internalDeps, externalDeps } = collectDependencies(modulePath, config, maxDepth, 0);
     const issues = detectIssues(stats, internalDeps.length, config);
     const healthScore = calculateHealthScore(stats, issues, internalDeps.length, config);
+    // 识别业务信息
+    const dirName = path.basename(modulePath);
+    const businessInfo = identifyBusiness(dirName);
+    // 尝试从路由配置获取路由路径
+    let routePath;
+    if (routeMap) {
+        const routeInfo = routeMap.get(moduleName) || routeMap.get(dirName);
+        if (routeInfo) {
+            routePath = routeInfo.path;
+            // 如果路由有 title，优先使用
+            if (routeInfo.title) {
+                businessInfo.chineseName = routeInfo.title;
+            }
+        }
+    }
     return {
         name: moduleName,
         path: modulePath,
         type: moduleType,
+        business: {
+            chineseName: businessInfo.chineseName,
+            category: businessInfo.category,
+            routePath,
+        },
         entries,
         subModules,
         internalDeps,
@@ -290,7 +387,45 @@ function findEntries(modulePath, config) {
     return entries;
 }
 /**
- * 查找子模块
+ * 查找子模块（详细版）
+ */
+function findSubModulesDetailed(modulePath, parentModuleName, config, maxDepth) {
+    const subModules = [];
+    try {
+        const entries = fs.readdirSync(modulePath);
+        for (const entry of entries) {
+            if (shouldIgnore(entry, config.ignorePatterns))
+                continue;
+            const entryPath = path.join(modulePath, entry);
+            const stat = fs.statSync(entryPath);
+            if (stat.isDirectory()) {
+                // 检查子目录是否包含代码文件
+                const subStats = collectModuleStats(entryPath, config, maxDepth, 0);
+                if (subStats.files > 0) {
+                    // 识别子模块业务信息
+                    const businessInfo = identifyBusiness(entry);
+                    // 计算子模块健康度
+                    const healthScore = Math.max(0, 100 - (subStats.maxFileLines > 500 ? 30 : 0) - (subStats.files > 20 ? 20 : 0));
+                    subModules.push({
+                        name: entry,
+                        chineseName: businessInfo.chineseName,
+                        category: businessInfo.category,
+                        path: entryPath,
+                        files: subStats.files,
+                        lines: subStats.lines,
+                        healthScore,
+                    });
+                }
+            }
+        }
+    }
+    catch (_a) {
+        // 忽略错误
+    }
+    return subModules;
+}
+/**
+ * 查找子模块（简化版，保留兼容）
  */
 function findSubModules(modulePath, config) {
     const subModules = [];
@@ -558,6 +693,7 @@ function generateMermaidGraph(graph, modules) {
  * 生成 Markdown 输出
  */
 function formatMarkdown(result) {
+    var _a, _b, _c, _d;
     const lines = [];
     // 标题
     lines.push('# 项目功能模块图谱');
@@ -576,28 +712,44 @@ function formatMarkdown(result) {
         lines.push(`- **⚠️ 循环依赖**: ${result.summary.circularDeps} 处`);
     }
     lines.push('');
-    // 模块类型分布
-    lines.push('### 模块类型分布');
+    // 按业务分类展示模块
+    lines.push('## 📦 业务模块图谱');
     lines.push('');
-    lines.push('| 类型 | 数量 |');
-    lines.push('|------|------|');
-    for (const [type, count] of Object.entries(result.summary.modulesByType)) {
-        if (count > 0) {
-            lines.push(`| ${type} | ${count} |`);
+    // 按业务分类分组
+    const categoryMap = new Map();
+    for (const module of result.modules) {
+        const category = ((_a = module.business) === null || _a === void 0 ? void 0 : _a.category) || '其他';
+        if (!categoryMap.has(category)) {
+            categoryMap.set(category, []);
         }
+        categoryMap.get(category).push(module);
     }
-    lines.push('');
-    // 模块概览表格
-    lines.push('## 📦 模块概览');
-    lines.push('');
-    lines.push('| 模块 | 类型 | 入口数 | 文件数 | 行数 | 健康度 |');
-    lines.push('|------|------|--------|--------|------|--------|');
-    const sortedModules = [...result.modules].sort((a, b) => b.stats.lines - a.stats.lines);
-    for (const module of sortedModules) {
-        const healthIcon = module.healthScore >= 80 ? '🟢' : module.healthScore >= 60 ? '🟡' : '🔴';
-        lines.push(`| ${module.name} | ${module.type} | ${module.entries.length} | ${module.stats.files} | ${module.stats.lines.toLocaleString()} | ${healthIcon} ${module.healthScore}/100 |`);
+    // 按分类输出
+    const categoryOrder = ['用户认证', '用户管理', '业务办理', '数据管理', '系统设置', '通用组件', '工具函数', '其他'];
+    for (const category of categoryOrder) {
+        const modules = categoryMap.get(category);
+        if (!modules || modules.length === 0)
+            continue;
+        lines.push(`### ${category}`);
+        lines.push('');
+        lines.push('| 模块 | 中文名 | 路由 | 文件数 | 行数 | 健康度 |');
+        lines.push('|------|--------|------|--------|------|--------|');
+        const sortedModules = [...modules].sort((a, b) => b.stats.lines - a.stats.lines);
+        for (const module of sortedModules) {
+            const healthIcon = module.healthScore >= 80 ? '🟢' : module.healthScore >= 60 ? '🟡' : '🔴';
+            const chineseName = ((_b = module.business) === null || _b === void 0 ? void 0 : _b.chineseName) || module.name;
+            const routePath = ((_c = module.business) === null || _c === void 0 ? void 0 : _c.routePath) || '-';
+            lines.push(`| ${module.name} | ${chineseName} | ${routePath} | ${module.stats.files} | ${module.stats.lines.toLocaleString()} | ${healthIcon} ${module.healthScore}/100 |`);
+            // 输出子模块
+            if (module.subModules && module.subModules.length > 0) {
+                for (const sub of module.subModules) {
+                    const subHealthIcon = sub.healthScore >= 80 ? '🟢' : sub.healthScore >= 60 ? '🟡' : '🔴';
+                    lines.push(`| ├─ ${sub.name} | ${sub.chineseName} | - | ${sub.files} | ${sub.lines.toLocaleString()} | ${subHealthIcon} ${sub.healthScore}/100 |`);
+                }
+            }
+        }
+        lines.push('');
     }
-    lines.push('');
     // 依赖关系图
     if (result.mermaidGraph) {
         lines.push('## 🔗 模块依赖图');
@@ -607,34 +759,31 @@ function formatMarkdown(result) {
         lines.push('```');
         lines.push('');
     }
-    // 模块详情
-    lines.push('## 📋 模块详情');
-    lines.push('');
-    for (const module of sortedModules.slice(0, 10)) {
-        const healthIcon = module.healthScore >= 80 ? '🟢' : module.healthScore >= 60 ? '🟡' : '🔴';
-        lines.push(`### ${healthIcon} ${module.name}`);
+    // 模块详情（仅显示问题模块）
+    const problemModules = result.modules.filter(m => m.healthScore < 60 || m.issues.length > 0);
+    if (problemModules.length > 0) {
+        lines.push('## ⚠️ 需关注的模块');
         lines.push('');
-        lines.push(`- **路径**: \`${module.path}\``);
-        lines.push(`- **类型**: ${module.type}`);
-        lines.push(`- **健康度**: ${module.healthScore}/100`);
-        lines.push(`- **统计**: ${module.stats.files} 文件, ${module.stats.lines.toLocaleString()} 行, ${module.stats.components} 组件`);
-        if (module.entries.length > 0) {
-            lines.push(`- **入口**: ${module.entries.join(', ')}`);
-        }
-        if (module.subModules.length > 0) {
-            lines.push(`- **子模块**: ${module.subModules.join(', ')}`);
-        }
-        if (module.relatedModules.length > 0) {
-            lines.push(`- **依赖模块**: ${module.relatedModules.join(', ')}`);
-        }
-        if (module.issues.length > 0) {
-            lines.push(`- **问题**:`);
-            for (const issue of module.issues) {
-                const icon = issue.severity === 'error' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
-                lines.push(`  - ${icon} ${issue.message}`);
+        for (const module of problemModules.slice(0, 10)) {
+            const healthIcon = module.healthScore >= 80 ? '🟢' : module.healthScore >= 60 ? '🟡' : '🔴';
+            const chineseName = ((_d = module.business) === null || _d === void 0 ? void 0 : _d.chineseName) || module.name;
+            lines.push(`### ${healthIcon} ${chineseName} (${module.name})`);
+            lines.push('');
+            lines.push(`- **路径**: \`${module.path}\``);
+            lines.push(`- **健康度**: ${module.healthScore}/100`);
+            lines.push(`- **统计**: ${module.stats.files} 文件, ${module.stats.lines.toLocaleString()} 行`);
+            if (module.subModules && module.subModules.length > 0) {
+                lines.push(`- **子模块**: ${module.subModules.map(s => `${s.chineseName}(${s.name})`).join(', ')}`);
             }
+            if (module.issues.length > 0) {
+                lines.push(`- **问题**:`);
+                for (const issue of module.issues) {
+                    const icon = issue.severity === 'error' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
+                    lines.push(`  - ${icon} ${issue.message}`);
+                }
+            }
+            lines.push('');
         }
-        lines.push('');
     }
     // 关联提示
     lines.push('---');
@@ -675,8 +824,10 @@ function analyzeModules(options) {
     }
     // 使用默认配置
     const config = module_mapper_1.DEFAULT_MAPPER_CONFIG;
+    // 解析路由配置
+    const routeMap = parseRouterConfig(scanPath);
     // 扫描模块
-    const modules = scanModules(scanPath, config, maxDepth);
+    const modules = scanModules(scanPath, config, maxDepth, routeMap);
     // 构建依赖图
     const dependencyGraph = analyzeDeps ? buildDependencyGraph(modules, scanPath) : { nodes: [], edges: [] };
     // 检测循环依赖
