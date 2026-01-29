@@ -37,6 +37,7 @@ import {
   appendHealthDataPoint,
   readManifest,
   getReportAgeHours,
+  getReportsPath,
 } from './report-manager';
 
 // ============ 配置加载 ============
@@ -863,9 +864,18 @@ function toArchitectureSnapshot(result: AnalysisResult): ArchitectureSnapshot {
  */
 function saveReports(targetPath: string, result: AnalysisResult): void {
   try {
-    // 保存架构快照
+    // 保存 JSON 格式（机器可读）
     const snapshot = toArchitectureSnapshot(result);
     saveArchitectureSnapshot(targetPath, snapshot);
+
+    // 保存 Markdown 格式（人类可读）
+    const reportsPath = getReportsPath(targetPath);
+    const archDir = path.join(reportsPath, 'architecture');
+    if (!fs.existsSync(archDir)) {
+      fs.mkdirSync(archDir, { recursive: true });
+    }
+    const markdownContent = formatMarkdown(result);
+    fs.writeFileSync(path.join(archDir, 'latest.md'), markdownContent, 'utf-8');
 
     // 追加健康度数据点
     const today = new Date().toISOString().slice(0, 10);
@@ -881,7 +891,7 @@ function saveReports(targetPath: string, result: AnalysisResult): void {
     };
     appendHealthDataPoint(targetPath, dataPoint);
 
-    console.log(`[Reports] 已保存架构快照到 .codebuddy/reports/architecture/`);
+    console.log(`[Reports] 已保存架构快照到 .codebuddy/reports/architecture/ (json + md)`);
   } catch (error) {
     console.warn(`[Reports] 保存报告失败: ${(error as Error).message}`);
   }

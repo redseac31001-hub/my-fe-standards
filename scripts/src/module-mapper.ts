@@ -37,6 +37,7 @@ import {
   saveModuleMapSnapshot,
   readManifest,
   getReportAgeHours,
+  getReportsPath,
 } from './report-manager';
 
 // ============ 业务识别函数 ============
@@ -1169,9 +1170,25 @@ function toModuleMapSnapshot(result: MapperResult): ModuleMapSnapshot {
  */
 function saveReports(targetPath: string, result: MapperResult): void {
   try {
+    // 保存 JSON 格式（机器可读）
     const snapshot = toModuleMapSnapshot(result);
     saveModuleMapSnapshot(targetPath, snapshot);
-    console.log(`[Reports] 已保存模块图谱到 .codebuddy/reports/modules/`);
+
+    // 保存 Markdown 格式（人类可读）
+    const reportsPath = getReportsPath(targetPath);
+    const modulesDir = path.join(reportsPath, 'modules');
+    if (!fs.existsSync(modulesDir)) {
+      fs.mkdirSync(modulesDir, { recursive: true });
+    }
+    const markdownContent = formatMarkdown(result);
+    fs.writeFileSync(path.join(modulesDir, 'latest.md'), markdownContent, 'utf-8');
+
+    // 如果有 Mermaid 图表，单独保存
+    if (result.mermaidGraph) {
+      fs.writeFileSync(path.join(modulesDir, 'dependency-graph.mmd'), result.mermaidGraph, 'utf-8');
+    }
+
+    console.log(`[Reports] 已保存模块图谱到 .codebuddy/reports/modules/ (json + md)`);
   } catch (error) {
     console.warn(`[Reports] 保存报告失败: ${(error as Error).message}`);
   }
@@ -1239,5 +1256,7 @@ function main(): void {
   }
 }
 
-// 运行
-main();
+// CLI 入口 - 仅当作为主模块运行时才执行
+if (require.main === module) {
+  main();
+}

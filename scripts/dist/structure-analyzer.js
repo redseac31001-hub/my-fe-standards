@@ -752,9 +752,17 @@ function toArchitectureSnapshot(result) {
  */
 function saveReports(targetPath, result) {
     try {
-        // 保存架构快照
+        // 保存 JSON 格式（机器可读）
         const snapshot = toArchitectureSnapshot(result);
         (0, report_manager_1.saveArchitectureSnapshot)(targetPath, snapshot);
+        // 保存 Markdown 格式（人类可读）
+        const reportsPath = (0, report_manager_1.getReportsPath)(targetPath);
+        const archDir = path.join(reportsPath, 'architecture');
+        if (!fs.existsSync(archDir)) {
+            fs.mkdirSync(archDir, { recursive: true });
+        }
+        const markdownContent = formatMarkdown(result);
+        fs.writeFileSync(path.join(archDir, 'latest.md'), markdownContent, 'utf-8');
         // 追加健康度数据点
         const today = new Date().toISOString().slice(0, 10);
         const dataPoint = {
@@ -768,7 +776,7 @@ function saveReports(targetPath, result) {
             snapshot: 'architecture/latest.json',
         };
         (0, report_manager_1.appendHealthDataPoint)(targetPath, dataPoint);
-        console.log(`[Reports] 已保存架构快照到 .codebuddy/reports/architecture/`);
+        console.log(`[Reports] 已保存架构快照到 .codebuddy/reports/architecture/ (json + md)`);
     }
     catch (error) {
         console.warn(`[Reports] 保存报告失败: ${error.message}`);
