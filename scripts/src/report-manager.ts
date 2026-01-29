@@ -527,6 +527,355 @@ function exportMarkdown(targetDir: string): void {
   console.log(`Exported to: ${outputPath}`);
 }
 
+// ============ Phase 3: 差异对比 ============
+
+/**
+ * 架构差异
+ */
+interface ArchitectureDiff {
+  from: { date: string; healthScore: number };
+  to: { date: string; healthScore: number };
+  healthChange: number;
+  newViolations: string[];
+  resolvedViolations: string[];
+  fileChanges: {
+    added: number;
+    removed: number;
+    linesChanged: number;
+  };
+}
+
+/**
+ * 模块差异
+ */
+interface ModuleDiff {
+  added: string[];
+  removed: string[];
+  changed: Array<{
+    name: string;
+    healthChange: number;
+    filesChange: number;
+    linesChange: number;
+  }>;
+}
+
+/**
+ * 获取历史快照列表
+ */
+function getHistorySnapshots(targetDir: string, subDir: string): Array<{ name: string; date: string; path: string }> {
+  const dirPath = path.join(getReportsPath(targetDir), subDir);
+  if (!fs.existsSync(dirPath)) return [];
+
+  return fs.readdirSync(dirPath)
+    .filter(f => f.endsWith('.json') && f !== 'latest.json')
+    .map(f => {
+      const datePart = f.replace('.json', '').replace(/T/g, ' ').slice(0, 16);
+      return {
+        name: f,
+        date: datePart,
+        path: path.join(dirPath, f),
+      };
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
+ * 对比两个架构快照
+ */
+function diffArchitectureSnapshots(
+  older: ArchitectureSnapshot,
+  newer: ArchitectureSnapshot
+): ArchitectureDiff {
+  const olderViolations = new Set(older.violations.map(v => `${v.rule}:${v.path}`));
+  const newerViolations = new Set(newer.violations.map(v => `${v.rule}:${v.path}`));
+
+  const newViolations: string[] = [];
+  const resolvedViolations: string[] = [];
+
+  for (const v of newer.violations) {
+    const key = `${v.rule}:${v.path}`;
+    if (!olderViolations.has(key)) {
+      newViolations.push(`[${v.rule}] ${v.message}`);
+    }
+  }
+
+  for (const v of older.violations) {
+    const key = `${v.rule}:${v.path}`;
+    if (!newerViolations.has(key)) {
+      resolvedViolations.push(`[${v.rule}] ${v.message}`);
+    }
+  }
+
+  return {
+    from: { date: older.meta.analyzedAt, healthScore: older.summary.healthScore },
+    to: { date: newer.meta.analyzedAt, healthScore: newer.summary.healthScore },
+    healthChange: newer.summary.healthScore - older.summary.healthScore,
+    newViolations,
+    resolvedViolations,
+    fileChanges: {
+      added: Math.max(0, newer.summary.totalFiles - older.summary.totalFiles),
+      removed: Math.max(0, older.summary.totalFiles - newer.summary.totalFiles),
+      linesChanged: newer.summary.totalLines - older.summary.totalLines,
+    },
+  };
+}
+
+/**
+ * 对比两个模块图谱
+ */
+function diffModuleSnapshots(
+  older: ModuleMapSnapshot,
+  newer: ModuleMapSnapshot
+): ModuleDiff {
+  const olderModules = new Map(older.modules.map(m => [m.name, m]));
+  const newerModules = new Map(newer.modules.map(m => [m.name, m]));
+
+  const added: string[] = [];
+  const removed: string[] = [];
+  const changed: ModuleDiff['changed'] = [];
+
+  // 查找新增模块
+  for (const [name] of newerModules) {
+    if (!olderModules.has(name)) {
+      added.push(name);
+    }
+  }
+
+  // 查找删除模块
+  for (const [name] of olderModules) {
+    if (!newerModules.has(name)) {
+      removed.push(name);
+    }
+  }
+
+  // 查找变更模块
+  for (const [name, newMod] of newerModules) {
+    const oldMod = olderModules.get(name);
+    if (oldMod) {
+      const healthChange = newMod.healthScore - oldMod.healthScore;
+      const filesChange = newMod.stats.files - oldMod.stats.files;
+      const linesChange = newMod.stats.lines - oldMod.stats.lines;
+
+      if (healthChange !== 0 || filesChange !== 0 || Math.abs(linesChange) > 50) {
+        changed.push({ name, healthChange, filesChange, linesChange });
+      }
+    }
+  }
+
+  return { added, removed, changed };
+}
+
+/**
+ * 显示差异报告
+ */
+function showDiff(targetDir: string, fromDate?: string, toDate?: string): void {
+  const archLatest = readReport<ArchitectureSnapshot>(targetDir, 'architecture/latest.json');
+  const modulesLatest = readReport<ModuleMapSnapshot>(targetDir, 'modules/latest.json');
+
+  if (!archLatest && !modulesLatest) {
+    console.log('No reports found. Run analysis first.');
+    return;
+  }
+
+  // 获取历史快照
+  const historySnapshots = getHistorySnapshots(targetDir, 'architecture');
+
+  if (historySnapshots.length === 0) {
+    console.log('No historical snapshots found. Need at least 2 analyses to compare.');
+    return;
+  }
+
+  // 加载对比快照
+  let olderArch: ArchitectureSnapshot | null = null;
+
+  if (fromDate) {
+    const matchingSnapshot = historySnapshots.find(s => s.date.startsWith(fromDate));
+    if (matchingSnapshot) {
+      try {
+        olderArch = JSON.parse(fs.readFileSync(matchingSnapshot.path, 'utf-8'));
+      } catch {
+        console.log(`Failed to load snapshot: ${matchingSnapshot.path}`);
+      }
+    }
+  } else {
+    // 使用最近的历史快照
+    try {
+      olderArch = JSON.parse(fs.readFileSync(historySnapshots[0].path, 'utf-8'));
+    } catch {
+      console.log('Failed to load historical snapshot.');
+    }
+  }
+
+  if (!olderArch || !archLatest) {
+    console.log('Cannot compare: missing snapshots.');
+    return;
+  }
+
+  const diff = diffArchitectureSnapshots(olderArch, archLatest);
+
+  // 输出差异报告
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║                    Architecture Diff Report                       ║');
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+  console.log(`║ From: ${diff.from.date.slice(0, 16).padEnd(20)} Health: ${diff.from.healthScore.toString().padStart(3)}/100     ║`);
+  console.log(`║ To:   ${diff.to.date.slice(0, 16).padEnd(20)} Health: ${diff.to.healthScore.toString().padStart(3)}/100     ║`);
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+
+  // 健康度变化
+  const healthIcon = diff.healthChange > 0 ? '📈' : diff.healthChange < 0 ? '📉' : '➡️';
+  const healthSign = diff.healthChange > 0 ? '+' : '';
+  console.log(`║ Health Change: ${healthIcon} ${healthSign}${diff.healthChange} points`.padEnd(67) + '║');
+
+  // 文件变化
+  console.log(`║ Files: +${diff.fileChanges.added} / -${diff.fileChanges.removed}  Lines: ${diff.fileChanges.linesChanged > 0 ? '+' : ''}${diff.fileChanges.linesChanged}`.padEnd(67) + '║');
+
+  // 新增违规
+  if (diff.newViolations.length > 0) {
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log('║ 🔴 New Violations:'.padEnd(67) + '║');
+    for (const v of diff.newViolations.slice(0, 5)) {
+      console.log(`║   ${v.slice(0, 62).padEnd(62)}   ║`);
+    }
+    if (diff.newViolations.length > 5) {
+      console.log(`║   ... and ${diff.newViolations.length - 5} more`.padEnd(67) + '║');
+    }
+  }
+
+  // 已解决违规
+  if (diff.resolvedViolations.length > 0) {
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log('║ 🟢 Resolved Violations:'.padEnd(67) + '║');
+    for (const v of diff.resolvedViolations.slice(0, 5)) {
+      console.log(`║   ${v.slice(0, 62).padEnd(62)}   ║`);
+    }
+    if (diff.resolvedViolations.length > 5) {
+      console.log(`║   ... and ${diff.resolvedViolations.length - 5} more`.padEnd(67) + '║');
+    }
+  }
+
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
+  console.log('');
+}
+
+// ============ Phase 4: 趋势分析 ============
+
+/**
+ * 显示健康度趋势
+ */
+function showTrend(targetDir: string, days: number = 30): void {
+  const timeline = readReport<HealthTimeline>(targetDir, 'health/timeline.json');
+
+  if (!timeline || timeline.dataPoints.length === 0) {
+    console.log('No health data found. Run analysis to start tracking.');
+    return;
+  }
+
+  const recentPoints = timeline.dataPoints.slice(-days);
+
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║                    Health Trend Analysis                          ║');
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+
+  // 趋势摘要
+  const trendIcon = timeline.trends.direction === 'improving' ? '📈' :
+                    timeline.trends.direction === 'declining' ? '📉' : '➡️';
+  const trendText = timeline.trends.direction === 'improving' ? 'Improving' :
+                    timeline.trends.direction === 'declining' ? 'Declining' : 'Stable';
+
+  console.log(`║ Trend: ${trendIcon} ${trendText}`.padEnd(67) + '║');
+  console.log(`║ Change Rate: ${timeline.trends.changeRate > 0 ? '+' : ''}${timeline.trends.changeRate}% per week`.padEnd(67) + '║');
+  console.log(`║ Predicted Next: ${timeline.trends.prediction}/100`.padEnd(67) + '║');
+  console.log(`║ Data Points: ${recentPoints.length} days`.padEnd(67) + '║');
+
+  // ASCII 图表
+  if (recentPoints.length >= 2) {
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log('║ Health Score Chart (last ' + days + ' days):'.padEnd(67) + '║');
+    console.log('║'.padEnd(68) + '║');
+
+    // 计算图表
+    const chartHeight = 8;
+    const chartWidth = 50;
+    const minScore = Math.min(...recentPoints.map(p => p.healthScore));
+    const maxScore = Math.max(...recentPoints.map(p => p.healthScore));
+    const range = Math.max(maxScore - minScore, 10);
+
+    // 生成图表行
+    for (let row = chartHeight - 1; row >= 0; row--) {
+      const threshold = minScore + (range * row / (chartHeight - 1));
+      let line = `║ ${threshold.toFixed(0).padStart(3)} │`;
+
+      const step = Math.max(1, Math.floor(recentPoints.length / chartWidth));
+      for (let i = 0; i < chartWidth && i * step < recentPoints.length; i++) {
+        const point = recentPoints[i * step];
+        const normalizedScore = (point.healthScore - minScore) / range;
+        const pointRow = Math.round(normalizedScore * (chartHeight - 1));
+
+        if (pointRow === row) {
+          line += '●';
+        } else if (pointRow > row) {
+          line += '│';
+        } else {
+          line += ' ';
+        }
+      }
+
+      console.log(line.padEnd(67) + '║');
+    }
+
+    // X 轴
+    console.log('║     └' + '─'.repeat(chartWidth) + ''.padEnd(11) + '║');
+
+    // 时间标签
+    const firstDate = recentPoints[0].date.slice(5, 10);
+    const lastDate = recentPoints[recentPoints.length - 1].date.slice(5, 10);
+    console.log(`║      ${firstDate}${''.padEnd(chartWidth - 10)}${lastDate}`.padEnd(67) + '║');
+  }
+
+  // 最近数据点
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+  console.log('║ Recent Data Points:'.padEnd(67) + '║');
+
+  const lastFive = recentPoints.slice(-5).reverse();
+  for (const point of lastFive) {
+    const bar = '█'.repeat(Math.round(point.healthScore / 5));
+    const icon = point.healthScore >= 80 ? '🟢' : point.healthScore >= 60 ? '🟡' : '🔴';
+    console.log(`║   ${point.date} │ ${icon} ${point.healthScore.toString().padStart(3)}/100 ${bar}`.padEnd(67) + '║');
+  }
+
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
+  console.log('');
+}
+
+/**
+ * 显示历史快照列表
+ */
+function showHistory(targetDir: string): void {
+  const archSnapshots = getHistorySnapshots(targetDir, 'architecture');
+
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║                    Historical Snapshots                           ║');
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+
+  if (archSnapshots.length === 0) {
+    console.log('║ No historical snapshots found.'.padEnd(67) + '║');
+  } else {
+    console.log('║ Architecture Snapshots:'.padEnd(67) + '║');
+    for (const snap of archSnapshots.slice(0, 10)) {
+      console.log(`║   ${snap.date}  ${snap.name}`.padEnd(67) + '║');
+    }
+    if (archSnapshots.length > 10) {
+      console.log(`║   ... and ${archSnapshots.length - 10} more`.padEnd(67) + '║');
+    }
+  }
+
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
+  console.log('');
+}
+
 // ============ CLI ============
 
 function showHelp(): void {
@@ -539,17 +888,21 @@ Report Manager - 报告管理器
   status              查看报告状态
   cleanup             清理过期报告
     --cache-only      仅清理缓存
-    --force           强制清理所有历史
-  export              导出报告
-    --format <type>   输出格式: markdown (默认)
-  diff                对比快照
-    --from <date>     起始日期 (YYYY-MM-DD)
-    --to <date>       结束日期 (YYYY-MM-DD)
+  export              导出报告为 Markdown
+  diff                对比架构快照
+    --from <date>     起始日期 (YYYY-MM-DD，可选)
+  trend               显示健康度趋势
+    --days <n>        显示天数 (默认: 30)
+  history             列出历史快照
 
 示例:
   node report-manager.js status
   node report-manager.js cleanup
-  node report-manager.js export --format markdown
+  node report-manager.js export
+  node report-manager.js diff
+  node report-manager.js diff --from 2025-01-15
+  node report-manager.js trend --days 14
+  node report-manager.js history
 `);
 }
 
@@ -577,8 +930,22 @@ function main(): void {
       exportMarkdown(targetDir);
       break;
 
-    case 'diff':
-      console.log('Diff feature coming in Phase 3');
+    case 'diff': {
+      const fromIndex = args.indexOf('--from');
+      const fromDate = fromIndex !== -1 ? args[fromIndex + 1] : undefined;
+      showDiff(targetDir, fromDate);
+      break;
+    }
+
+    case 'trend': {
+      const daysIndex = args.indexOf('--days');
+      const days = daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
+      showTrend(targetDir, days);
+      break;
+    }
+
+    case 'history':
+      showHistory(targetDir);
       break;
 
     default:
