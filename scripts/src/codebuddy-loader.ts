@@ -417,10 +417,13 @@ async function loadAgents(agentsPath: string): Promise<AgentMetadata[]> {
 // ============ 脚本分发系统 ============
 
 /**
- * 需要分发的脚本列表
+ * 需要分发的脚本列表（含依赖）
  */
-const SCRIPTS_TO_DISTRIBUTE: string[] = [
-  'structure-analyzer.js',
+const SCRIPTS_TO_DISTRIBUTE: Array<{ file: string; dependencies?: string[] }> = [
+  {
+    file: 'structure-analyzer.js',
+    dependencies: ['types/structure-analyzer.js']
+  },
 ];
 
 /**
@@ -436,29 +439,63 @@ async function distributeScripts(targetDir: string): Promise<string[]> {
   }
 
   if (ctx.isRemote) {
-    // 远程模式：从远程下载脚本
-    for (const scriptName of SCRIPTS_TO_DISTRIBUTE) {
-      const scriptUrl = `${ctx.remoteBaseUrl}/scripts/dist/${scriptName}`;
+    // 远程模式：从远程下载脚本及其依赖
+    for (const scriptInfo of SCRIPTS_TO_DISTRIBUTE) {
+      // 下载主脚本
+      const scriptUrl = `${ctx.remoteBaseUrl}/scripts/dist/${scriptInfo.file}`;
       try {
         const content = await fetchUrl(scriptUrl);
-        const destPath = path.join(localScriptsDir, scriptName);
+        const destPath = path.join(localScriptsDir, scriptInfo.file);
         fs.writeFileSync(destPath, content, 'utf-8');
-        distributed.push(scriptName);
-        logVerbose(`已下载脚本: ${scriptName}`);
+        distributed.push(scriptInfo.file);
+        logVerbose(`已下载脚本: ${scriptInfo.file}`);
+
+        // 下载依赖文件
+        if (scriptInfo.dependencies) {
+          for (const dep of scriptInfo.dependencies) {
+            const depUrl = `${ctx.remoteBaseUrl}/scripts/dist/${dep}`;
+            try {
+              const depContent = await fetchUrl(depUrl);
+              const depDir = path.dirname(path.join(localScriptsDir, dep));
+              if (!fs.existsSync(depDir)) {
+                fs.mkdirSync(depDir, { recursive: true });
+              }
+              fs.writeFileSync(path.join(localScriptsDir, dep), depContent, 'utf-8');
+              logVerbose(`已下载依赖: ${dep}`);
+            } catch (e) {
+              logWarn(`依赖下载失败: ${dep} - ${(e as Error).message}`);
+            }
+          }
+        }
       } catch (e) {
-        logWarn(`脚本下载失败: ${scriptName} - ${(e as Error).message}`);
+        logWarn(`脚本下载失败: ${scriptInfo.file} - ${(e as Error).message}`);
       }
     }
   } else {
-    // 本地模式：从本地复制脚本
+    // 本地模式：从本地复制脚本及其依赖
     const sourceDir = path.join(PROJECT_ROOT, 'scripts/dist');
-    for (const scriptName of SCRIPTS_TO_DISTRIBUTE) {
-      const srcPath = path.join(sourceDir, scriptName);
+    for (const scriptInfo of SCRIPTS_TO_DISTRIBUTE) {
+      const srcPath = path.join(sourceDir, scriptInfo.file);
       if (fs.existsSync(srcPath)) {
-        const destPath = path.join(localScriptsDir, scriptName);
+        const destPath = path.join(localScriptsDir, scriptInfo.file);
         fs.copyFileSync(srcPath, destPath);
-        distributed.push(scriptName);
-        logVerbose(`已复制脚本: ${scriptName}`);
+        distributed.push(scriptInfo.file);
+        logVerbose(`已复制脚本: ${scriptInfo.file}`);
+
+        // 复制依赖文件
+        if (scriptInfo.dependencies) {
+          for (const dep of scriptInfo.dependencies) {
+            const depSrc = path.join(sourceDir, dep);
+            if (fs.existsSync(depSrc)) {
+              const depDir = path.dirname(path.join(localScriptsDir, dep));
+              if (!fs.existsSync(depDir)) {
+                fs.mkdirSync(depDir, { recursive: true });
+              }
+              fs.copyFileSync(depSrc, path.join(localScriptsDir, dep));
+              logVerbose(`已复制依赖: ${dep}`);
+            }
+          }
+        }
       } else {
         logWarn(`脚本不存在: ${srcPath}`);
       }
