@@ -636,6 +636,10 @@ function generateScriptsPrompt(scripts: string[]): string {
   for (const script of scripts) {
     if (script === 'structure-analyzer.js') {
       table += `| \`${script}\` | 项目结构分析器 | \`node .codebuddy/scripts/${script} .\` |\n`;
+    } else if (script === 'module-mapper.js') {
+      table += `| \`${script}\` | 模块图谱分析器 | \`node .codebuddy/scripts/${script} .\` |\n`;
+    } else if (script === 'report-manager.js') {
+      table += `| \`${script}\` | 报告管理器 | \`node .codebuddy/scripts/${script} status\` |\n`;
     } else {
       table += `| \`${script}\` | - | \`node .codebuddy/scripts/${script}\` |\n`;
     }
@@ -664,6 +668,37 @@ ${table}
    analyze_project_structure({ projectPath: "." })
    \`\`\`
 
+## 📊 报告系统 (Project Memory)
+
+分析结果自动保存到 \`.codebuddy/reports/\` 目录：
+
+\`\`\`
+.codebuddy/reports/
+├── manifest.json                 # 报告索引
+├── architecture/latest.json      # 架构快照
+├── modules/latest.json           # 模块图谱
+└── health/timeline.json          # 健康度时间线
+\`\`\`
+
+### 报告管理命令
+
+\`\`\`bash
+# 查看报告状态
+node .codebuddy/scripts/report-manager.js status
+
+# 导出 Markdown 报告
+node .codebuddy/scripts/report-manager.js export
+
+# 清理过期报告
+node .codebuddy/scripts/report-manager.js cleanup
+\`\`\`
+
+### 报告复用
+
+当报告存在且 < 24小时时，可直接读取 JSON 文件而无需重新分析：
+- 架构快照: \`.codebuddy/reports/architecture/latest.json\`
+- 模块图谱: \`.codebuddy/reports/modules/latest.json\`
+
 ## 脚本与 Skill/Agent 的关系
 
 | 组件 | 职责 | 位置 |
@@ -671,8 +706,9 @@ ${table}
 | **脚本** | 实际执行逻辑 | \`.codebuddy/scripts/\` |
 | **Skill** | 知识上下文 | \`.codebuddy/skills/\` |
 | **Agent** | 工作流定义 | \`.codebuddy/agents/\` |
+| **Reports** | 项目记忆 | \`.codebuddy/reports/\` |
 
-**调用链**: Skill/Agent 提供知识 → 脚本执行分析 → 生成报告
+**调用链**: Skill/Agent 提供知识 → 脚本执行分析 → Reports 持久化 → 后续任务复用
 `;
 }
 

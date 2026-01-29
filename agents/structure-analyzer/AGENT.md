@@ -1,6 +1,6 @@
 ---
 name: structure-analyzer
-version: 2.0.0
+version: 2.1.0
 description: 综合架构审查 Agent，自动识别功能模块并检测目录反模式，生成完整架构报告
 triggers:
   - "结构分析"
@@ -14,11 +14,23 @@ triggers:
   - "全面分析"
   - "项目评估"
 workflow_summary: |
-  ⚠️ **执行以下步骤**（步骤1和2可并行执行）:
-  1. **模块识别**: `node .codebuddy/scripts/module-mapper.js . --mode summary`
-  2. **结构分析**: `node .codebuddy/scripts/structure-analyzer.js . --mode summary`
+  ⚠️ **执行以下步骤**:
+
+  **Step 0: 检查现有报告**
+  ```bash
+  node .codebuddy/scripts/report-manager.js status
+  ```
+  - 如果报告存在且 < 24小时，询问用户是否复用
+  - 如果用户选择复用，直接读取 `.codebuddy/reports/` 下的 JSON 文件
+
+  **Step 1-2: 并行分析**（如需重新分析）
+  1. `node .codebuddy/scripts/module-mapper.js . --mode summary`
+  2. `node .codebuddy/scripts/structure-analyzer.js . --mode summary`
   （以上两步可同时执行，无依赖关系）
-  3. **综合报告**: 等待两个脚本完成后，合并结果输出完整架构审查报告
+
+  **Step 3: 综合报告**
+  - 合并分析结果，输出完整架构审查报告
+  - 报告自动保存到 `.codebuddy/reports/`
 permissions:
   tools:
     - read_file
@@ -29,6 +41,7 @@ permissions:
   scripts:
     - .codebuddy/scripts/structure-analyzer.js
     - .codebuddy/scripts/module-mapper.js
+    - .codebuddy/scripts/report-manager.js
   skills:
     - structure-review
     - module-mapping
