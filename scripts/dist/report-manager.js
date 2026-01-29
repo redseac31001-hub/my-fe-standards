@@ -775,8 +775,14 @@ Report Manager - 报告管理器
 }
 function main() {
     const args = process.argv.slice(2);
-    const command = args[0];
-    const targetDir = process.cwd();
+    let command = args[0];
+    let targetDir = process.cwd();
+    // 处理第一个参数是路径的情况（如 `.` 或 `./`）
+    if (command === '.' || command === './' || (command && command.startsWith('./') && !command.includes(' '))) {
+        // 第一个参数是路径，第二个参数是命令
+        targetDir = path.resolve(command);
+        command = args[1];
+    }
     if (!command || command === '--help' || command === '-h') {
         showHelp();
         process.exit(0);
