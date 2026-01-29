@@ -1,18 +1,19 @@
 # AI 辅助开发平台
 
-> **前端架构师规则库 + Ralph 自主编码系统**
+> **前端架构师规则库 + Ralph 自主编码系统 + 项目记忆系统**
 
 这是一个完整的 AI 辅助开发平台，集成了：
 - **规则引擎**：三层规则架构，为 CodeBuddy (GLM-4.7) 提供知识源
 - **技能系统**：可扩展的专业技能库
-- **Ralph 自主代理**：基于 PRD 的自主编码循环系统
+- **Agent 系统**：结构分析、安全审查、性能分析等智能代理
+- **Reports 项目记忆**：持久化分析结果，避免重复分析，追踪健康度趋势
 - **MCP Server**：标准化工具接口
 
 ## 🎯 核心特性
 
 - **三层规则架构**：基础层 + 业务层 + 动作层，渐进式加载
 - **技能系统**：支持 CodeBuddy Skills，动态加载专业技能
-- **Ralph 自主编码**：PRD 驱动的自主开发循环
+- **项目记忆系统**：架构快照、模块图谱、健康度时间线，差异对比和趋势分析
 - **智能检测**：自动识别 Vue 2/3 版本和 UI 库依赖
 - **远程加载**：支持 HTTP 远程模式和 Git 私有仓库模式
 - **多工具支持**：CodeBuddy / Claude Code / Amp
@@ -22,17 +23,20 @@
 
 ```text
 my-fe-standards/
+├── agents/                     # 🤖 Agent 系统
+│   ├── structure-analyzer/     #    结构分析 Agent (v2.1.0)
+│   ├── planner/               #    规划 Agent
+│   ├── security-reviewer/     #    安全审查 Agent
+│   └── performance-profiler/  #    性能分析 Agent
 ├── config/
 │   └── loader-config.json      # 加载器配置
 ├── custom-skills/              # 🧩 技能库
 │   ├── component-refactoring/  #    组件重构技能
 │   ├── frontend-code-review/   #    代码审查技能
 │   ├── frontend-testing/       #    前端测试技能
-│   ├── prd/                    #    PRD 生成技能 (新增)
-│   ├── ralph-converter/        #    PRD 转换技能 (新增)
+│   ├── prd/                    #    PRD 生成技能
+│   ├── ralph-converter/        #    PRD 转换技能
 │   └── skill-creator/          #    技能创建指南
-├── packages/
-│   └── agent/                  # 🤖 Ralph Agent (Claude SDK)
 ├── mcp-server/                 # 🔌 MCP Server
 ├── rules/
 │   ├── layer1_base/            # 🧱 基础层 - 通用技术标准
@@ -40,11 +44,11 @@ my-fe-standards/
 │   └── layer3_action/          # ⚡ 动作层 - 任务检查清单
 └── scripts/
     ├── dist/                   # 编译后的脚本
-    ├── src/                    # TypeScript 源码
-    └── ralph/                  # 🚀 Ralph 自主编码系统 (新增)
-        ├── ralph.sh            #    自主循环脚本
-        ├── prompt.md           #    Amp 提示词
-        └── CLAUDE.md           #    Claude Code 提示词
+    └── src/                    # TypeScript 源码
+        ├── codebuddy-loader.ts #    规则加载器
+        ├── structure-analyzer.ts #  项目结构分析器
+        ├── module-mapper.ts    #    模块图谱分析器
+        └── report-manager.ts   #    报告管理器
 ```
 
 ## 🚀 快速开始
@@ -94,6 +98,53 @@ npm run codebuddy
 - **Layer 1** 规则直接嵌入 `project-rules.md`（核心规范常驻）
 - **Layer 2/3** 规则生成索引，缓存到 `.codebuddy/rules_cache/`
 - CodeBuddy 根据任务类型使用 `read_file` 按需加载
+
+## 📊 项目记忆系统 (Reports)
+
+加载器会自动分发工具脚本到业务项目，支持项目分析和报告持久化：
+
+### 分析脚本
+
+```bash
+# 项目结构分析（健康度评分、违规检测）
+node .codebuddy/scripts/structure-analyzer.js .
+
+# 模块图谱分析（模块识别、依赖关系、业务分类）
+node .codebuddy/scripts/module-mapper.js .
+```
+
+### 报告管理
+
+```bash
+# 查看报告状态
+node .codebuddy/scripts/report-manager.js status
+
+# 对比架构快照差异
+node .codebuddy/scripts/report-manager.js diff
+
+# 查看健康度趋势（含 ASCII 图表）
+node .codebuddy/scripts/report-manager.js trend
+
+# 列出历史快照
+node .codebuddy/scripts/report-manager.js history
+
+# 导出 Markdown 报告
+node .codebuddy/scripts/report-manager.js export
+```
+
+### 报告目录结构
+
+```text
+.codebuddy/reports/
+├── manifest.json                 # 报告索引
+├── architecture/
+│   ├── latest.json              # 最新架构快照
+│   └── 2026-01-29T10-30-00.json # 历史快照
+├── modules/
+│   └── latest.json              # 模块图谱
+└── health/
+    └── timeline.json            # 健康度时间线
+```
 
 ## 🧩 技能系统
 
@@ -219,10 +270,10 @@ node scripts/codebuddy-loader.js --remote <URL> --verbose
 
 ## 📌 版本信息
 
-- **版本**: 2.0.0
-- **适用工具**: CodeBuddy (GLM-4.7)
+- **版本**: 2.1.0
+- **适用工具**: CodeBuddy (GLM-4.7) / Claude Code / Amp
 - **分支**: feature/codebuddy-glm
-- **更新日期**: 2026-01-24
+- **更新日期**: 2026-01-29
 
 ## 📄 许可证
 

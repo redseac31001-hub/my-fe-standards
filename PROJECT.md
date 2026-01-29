@@ -1,13 +1,13 @@
 # MY-FE-STANDARDS 项目架构图谱
 
-> 版本: 2.0.0 | 更新日期: 2026-01-27
+> 版本: 2.1.0 | 更新日期: 2026-01-29
 > 本文档记录项目的完整架构和已具备的功能能力，每完成新能力需同步更新。
 
 ---
 
 ## 项目概述
 
-**AI 辅助开发平台**：集成规则引擎 + 技能系统 + Agent 系统 + MCP Server，为团队提供统一的 AI 辅助能力。
+**AI 辅助开发平台**：集成规则引擎 + 技能系统 + Agent 系统 + Reports 项目记忆 + MCP Server，为团队提供统一的 AI 辅助能力。
 
 ---
 
@@ -30,6 +30,7 @@
 │  │                      规则加载器 (codebuddy-loader)                   │   │
 │  │  ├─ 技术栈检测 (Vue2/3, TypeScript, UI库)                           │   │
 │  │  ├─ 三层规则架构加载                                                 │   │
+│  │  ├─ 工具脚本分发 (structure-analyzer, module-mapper, report-manager) │   │
 │  │  └─ .codebuddy 配置生成                                             │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                    │                                        │
@@ -38,10 +39,19 @@
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐        │
 │  │   Rules 规则层   │    │  Skills 技能层  │    │  Agents 代理层  │        │
 │  │                 │    │                 │    │                 │        │
-│  │  Layer1: 基础   │    │  10 个技能      │    │  3 个 Agent     │        │
+│  │  Layer1: 基础   │    │  10 个技能      │    │  4 个 Agent     │        │
 │  │  Layer2: 业务   │    │  (详见下方)     │    │  (详见下方)     │        │
 │  │  Layer3: 行为   │    │                 │    │                 │        │
 │  └─────────────────┘    └─────────────────┘    └─────────────────┘        │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     Reports 项目记忆系统                             │   │
+│  │  ├─ architecture/latest.json: 架构快照                               │   │
+│  │  ├─ modules/latest.json: 模块图谱                                    │   │
+│  │  ├─ health/timeline.json: 健康度时间线                               │   │
+│  │  └─ 差异对比 + 趋势分析 + ASCII 可视化                               │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
 │                                    │                                        │
 │                                    ▼                                        │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -67,7 +77,8 @@ my-fe-standards/
 │   ├── AGENTS.md              # Agent 注册表
 │   ├── planner/               # 规划 Agent
 │   ├── security-reviewer/     # 安全审查 Agent
-│   └── performance-profiler/  # 性能分析 Agent
+│   ├── performance-profiler/  # 性能分析 Agent
+│   └── structure-analyzer/    # 结构分析 Agent (v2.1.0)
 │
 ├── ai-forum/                   # AI 协作论坛
 │   ├── PROJECT_CHARTER.md     # 项目宪章
@@ -112,7 +123,15 @@ my-fe-standards/
 │   ├── src/                   # TypeScript 源码
 │   │   ├── codebuddy-loader.ts # 规则加载器
 │   │   ├── generate-manifest.ts # 清单生成器
-│   │   └── simple-server.ts   # 简单服务器
+│   │   ├── structure-analyzer.ts # 项目结构分析器
+│   │   ├── module-mapper.ts   # 模块图谱分析器
+│   │   ├── report-manager.ts  # 报告管理器
+│   │   ├── simple-server.ts   # 简单服务器
+│   │   └── types/             # 类型定义
+│   │       ├── index.ts
+│   │       ├── structure-analyzer.ts
+│   │       ├── module-mapper.ts
+│   │       └── reports.ts
 │   └── dist/                  # 编译输出
 │
 └── manifest.json              # 资源清单
@@ -153,6 +172,17 @@ my-fe-standards/
 | | 规划 Agent | `agents/planner/` | 实施计划制定 |
 | | 安全审查 Agent | `agents/security-reviewer/` | XSS 等安全检查 |
 | | 性能分析 Agent | `agents/performance-profiler/` | 性能问题分析 |
+| | 结构分析 Agent | `agents/structure-analyzer/` | 综合架构审查，模块识别，健康度评分 |
+| **Scripts 工具脚本** | | | |
+| | 项目结构分析器 | `scripts/src/structure-analyzer.ts` | 目录结构健康度检测 (SA001-SA005) |
+| | 模块图谱分析器 | `scripts/src/module-mapper.ts` | 功能模块识别、依赖分析、业务分类 |
+| | 报告管理器 | `scripts/src/report-manager.ts` | 报告 CRUD、差异对比、趋势分析 |
+| **Reports 项目记忆** | | | |
+| | 架构快照 | `.codebuddy/reports/architecture/` | 健康度评分、违规项、结构类型 |
+| | 模块图谱 | `.codebuddy/reports/modules/` | 模块列表、依赖图、业务分类 |
+| | 健康度时间线 | `.codebuddy/reports/health/` | 每日数据点、趋势预测 |
+| | 差异对比 | `report-manager.js diff` | 快照对比、变更检测 |
+| | 趋势分析 | `report-manager.js trend` | ASCII 图表、趋势预测 |
 | **MCP Server** | | | |
 | | get_rules | `mcp-server/src/index.ts` | 获取规则内容 |
 | | get_skills | `mcp-server/src/index.ts` | 获取技能定义 |
@@ -166,10 +196,7 @@ my-fe-standards/
 
 | 能力名称 | 计划编号 | 状态 | 说明 |
 |----------|----------|------|------|
-| 项目结构分析器 | PLAN-001 | 🟢 已批准 | 目录结构健康度检测 |
-| structure-analyzer Agent | PLAN-001 | 🟢 已批准 | 结构分析 Agent |
-| structure-review Skill | PLAN-001 | 🟢 已批准 | 结构审查技能 |
-| MCP analyze_project_structure | PLAN-001 | 🟢 已批准 | 结构分析 MCP 工具 |
+| MCP analyze_project_structure | PLAN-001 | 🟡 待实现 | 结构分析 MCP 工具 |
 
 ### ❌ 暂缓能力
 
@@ -230,6 +257,7 @@ await mcp.call("get_skills", { name: "frontend-code-review" });
 
 | 日期 | 版本 | 更新内容 |
 |------|------|----------|
+| 2026-01-29 | 2.1.0 | 新增 Reports 项目记忆系统；新增 structure-analyzer、module-mapper、report-manager 脚本；新增差异对比和趋势分析功能 |
 | 2026-01-27 | 2.0.0 | 初始架构图谱；记录 10 个 Skills、3 个 Agents、MCP Server |
 
 ---
