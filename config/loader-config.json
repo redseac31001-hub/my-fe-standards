@@ -71,6 +71,13 @@
         "ruleRelevance": {
             "_comment": "规则与任务的相关性 (0-1)，未列出的默认为 0.5",
             "layer1_base": {
+                "code-quality/clean-code": {
+                    "refactoring": 1.0,
+                    "new-feature": 0.95,
+                    "code-review": 1.0,
+                    "debugging": 0.8,
+                    "testing": 0.7
+                },
                 "architecture/feature-based-structure": {
                     "refactoring": 0.9,
                     "new-feature": 0.95,

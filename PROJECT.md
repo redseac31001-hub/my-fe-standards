@@ -1,6 +1,6 @@
 # MY-FE-STANDARDS 项目架构图谱
 
-> 版本: 2.2.0 | 更新日期: 2026-01-30
+> 版本: 2.3.0 | 更新日期: 2026-01-30
 > 本文档记录项目的完整架构和已具备的功能能力，每完成新能力需同步更新。
 
 ---
@@ -154,6 +154,7 @@ my-fe-standards/
 | | 配置生成 | `scripts/src/codebuddy-loader.ts` | .codebuddy 目录配置生成 |
 | | 远程加载 | `scripts/src/codebuddy-loader.ts` | 支持远程拉取规则 |
 | **Rules 规则** | | | |
+| | 整洁代码原则 | `rules/layer1_base/code-quality/` | 命名、函数、SOLID、代码坏味道、审查清单 |
 | | 架构规范 | `rules/layer1_base/architecture/` | Feature-Based 目录结构 |
 | | Vue 2 规范 | `rules/layer1_base/vue2/` | 通用规范、Composition API |
 | | Vue 3 规范 | `rules/layer1_base/vue3/` | Script Setup、Pinia、Router |
@@ -263,6 +264,7 @@ await mcp.call("get_skills", { name: "frontend-code-review" });
 
 | 日期 | 版本 | 更新内容 |
 |------|------|----------|
+| 2026-01-30 | 2.3.0 | 新增整洁代码核心原则 (Clean Code)；code-quality 加入 Layer1 基础规则；更新评分系统 |
 | 2026-01-30 | 2.2.0 | 新增 Task Orchestrator Agent；新增 /task 命令；新增 taskbook-manager、task-executor 脚本；支持端到端计划任务执行与验收 |
 | 2026-01-29 | 2.1.0 | 新增 Reports 项目记忆系统；新增 structure-analyzer、module-mapper、report-manager 脚本；新增差异对比和趋势分析功能 |
 | 2026-01-27 | 2.0.0 | 初始架构图谱；记录 10 个 Skills、3 个 Agents、MCP Server |

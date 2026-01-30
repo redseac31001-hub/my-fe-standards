@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-01-30T07:08:12.029Z",
+  "generatedAt": "2026-01-30T07:25:06.899Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -102,6 +102,13 @@
       "ruleRelevance": {
         "_comment": "规则与任务的相关性 (0-1)，未列出的默认为 0.5",
         "layer1_base": {
+          "code-quality/clean-code": {
+            "refactoring": 1,
+            "new-feature": 0.95,
+            "code-review": 1,
+            "debugging": 0.8,
+            "testing": 0.7
+          },
           "architecture/feature-based-structure": {
             "refactoring": 0.9,
             "new-feature": 0.95,
