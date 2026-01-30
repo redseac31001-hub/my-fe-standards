@@ -1,18 +1,20 @@
 # AI 辅助开发平台
 
-> **前端架构师规则库 + Ralph 自主编码系统 + 项目记忆系统**
+> **前端架构师规则库 + Ralph 自主编码系统 + 项目记忆系统 + 计划任务系统**
 
 这是一个完整的 AI 辅助开发平台，集成了：
 - **规则引擎**：三层规则架构，为 CodeBuddy (GLM-4.7) 提供知识源
 - **技能系统**：可扩展的专业技能库
-- **Agent 系统**：结构分析、安全审查、性能分析等智能代理
+- **Agent 系统**：任务编排、结构分析、安全审查、性能分析等智能代理
 - **Reports 项目记忆**：持久化分析结果，避免重复分析，追踪健康度趋势
+- **TaskBook 计划任务**：端到端的需求分解→执行→验收闭环
 - **MCP Server**：标准化工具接口
 
 ## 🎯 核心特性
 
 - **三层规则架构**：基础层 + 业务层 + 动作层，渐进式加载
 - **技能系统**：支持 CodeBuddy Skills，动态加载专业技能
+- **计划任务系统**：/task 命令，端到端的需求分解→执行→验收
 - **项目记忆系统**：架构快照、模块图谱、健康度时间线，差异对比和趋势分析
 - **智能检测**：自动识别 Vue 2/3 版本和 UI 库依赖
 - **远程加载**：支持 HTTP 远程模式和 Git 私有仓库模式
@@ -24,6 +26,7 @@
 ```text
 my-fe-standards/
 ├── agents/                     # 🤖 Agent 系统
+│   ├── task-orchestrator/     #    任务编排 Agent (v2.2.0)
 │   ├── structure-analyzer/     #    结构分析 Agent (v2.1.0)
 │   ├── planner/               #    规划 Agent
 │   ├── security-reviewer/     #    安全审查 Agent
@@ -48,7 +51,9 @@ my-fe-standards/
         ├── codebuddy-loader.ts #    规则加载器
         ├── structure-analyzer.ts #  项目结构分析器
         ├── module-mapper.ts    #    模块图谱分析器
-        └── report-manager.ts   #    报告管理器
+        ├── report-manager.ts   #    报告管理器
+        ├── taskbook-manager.ts #    TaskBook 管理器 (v2.2.0)
+        └── task-executor.ts    #    任务执行引擎 (v2.2.0)
 ```
 
 ## 🚀 快速开始
@@ -130,6 +135,50 @@ node .codebuddy/scripts/report-manager.js history
 
 # 导出 Markdown 报告
 node .codebuddy/scripts/report-manager.js export
+```
+
+## 📋 计划任务系统 (TaskBook)
+
+使用 `/task` 命令创建端到端的计划任务：
+
+### 使用方式
+
+```bash
+# Slash Command 方式
+/task 实现用户登录功能
+/task 重构订单处理模块
+/task --type=debugging 修复支付失败问题
+
+# 关键词触发（自动识别）
+帮我实现商品搜索功能
+开发用户中心模块
+重构购物车逻辑
+```
+
+### 工作流程
+
+```
+意图识别 → 上下文收集 → 需求分解 → 用户确认 → 自动执行 → 变更追踪 → 验收闭环
+```
+
+### 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| **并行执行** | 无依赖任务自动并行，提升效率 |
+| **变更追踪** | 实时记录偏离原计划的改动及原因 |
+| **阻塞处理** | 遇到阻塞暂停，等待用户介入 |
+| **验收闭环** | 生成验收报告，请求最终确认 |
+| **任务持久化** | TaskBook 可恢复，支持中断继续 |
+
+### TaskBook 存储
+
+```text
+.codebuddy/taskbooks/
+├── active/                      # 进行中的任务书
+│   └── tb-20260130-user-auth.json
+└── history/                     # 已完成的任务书
+    └── tb-20260129-refactor.json
 ```
 
 ### 报告目录结构
@@ -270,10 +319,10 @@ node scripts/codebuddy-loader.js --remote <URL> --verbose
 
 ## 📌 版本信息
 
-- **版本**: 2.1.0
+- **版本**: 2.2.0
 - **适用工具**: CodeBuddy (GLM-4.7) / Claude Code / Amp
 - **分支**: feature/codebuddy-glm
-- **更新日期**: 2026-01-29
+- **更新日期**: 2026-01-30
 
 ## 📄 许可证
 

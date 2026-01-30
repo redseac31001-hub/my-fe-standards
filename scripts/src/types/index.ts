@@ -200,3 +200,159 @@ export interface PackageJson {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 }
+
+// ============ TaskBook 系统类型 ============
+
+/**
+ * TaskBook 状态
+ */
+export type TaskBookStatus = 'draft' | 'confirmed' | 'executing' | 'completed' | 'aborted';
+
+/**
+ * 任务类型
+ */
+export type TaskType = 'analysis' | 'design' | 'test' | 'implement' | 'review';
+
+/**
+ * 任务状态
+ */
+export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'blocked' | 'skipped';
+
+/**
+ * 任务优先级
+ */
+export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
+
+/**
+ * 变更类型
+ */
+export type ChangeType = 'added' | 'modified' | 'removed' | 'reordered';
+
+/**
+ * 任务书类型（用于分类）
+ */
+export type TaskBookType = 'new-feature' | 'refactoring' | 'debugging' | 'testing' | 'code-review';
+
+/**
+ * 单个任务定义
+ */
+export interface TaskItem {
+  id: string;
+  parentId?: string;
+  title: string;
+  type: TaskType;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dependencies: string[];
+  acceptanceCriteria: string[];
+  actualWork?: string;
+  blockedReason?: string;
+  executedBy?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+/**
+ * 变更日志条目
+ */
+export interface ChangeEntry {
+  timestamp: string;
+  taskId: string | null;
+  changeType: ChangeType;
+  reason: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+}
+
+/**
+ * 项目健康度快照
+ */
+export interface ProjectHealthSnapshot {
+  score: number;
+  issues: string[];
+}
+
+/**
+ * TaskBook 上下文
+ */
+export interface TaskBookContext {
+  projectHealth?: ProjectHealthSnapshot;
+  relatedFiles: string[];
+  dependencies: string[];
+  architectureNotes?: string;
+}
+
+/**
+ * 完整的 TaskBook 结构
+ */
+export interface TaskBook {
+  id: string;
+  title: string;
+  description: string;
+  taskType: TaskBookType;
+  createdAt: string;
+  confirmedAt?: string;
+  completedAt?: string;
+  status: TaskBookStatus;
+  context: TaskBookContext;
+  tasks: TaskItem[];
+  changelog: ChangeEntry[];
+}
+
+/**
+ * TaskBook 创建参数
+ */
+export interface CreateTaskBookParams {
+  title: string;
+  description: string;
+  taskType: TaskBookType;
+}
+
+/**
+ * 任务执行结果
+ */
+export interface TaskExecutionResult {
+  taskId: string;
+  success: boolean;
+  actualWork?: string;
+  error?: string;
+  duration?: number;
+}
+
+/**
+ * 验收报告
+ */
+export interface AcceptanceReport {
+  taskBookId: string;
+  title: string;
+  createdAt: string;
+  completedAt: string;
+  duration: string;
+  summary: {
+    totalTasks: number;
+    doneTasks: number;
+    skippedTasks: number;
+    blockedTasks: number;
+    completionRate: number;
+    changelogCount: number;
+  };
+  codeChanges?: {
+    addedFiles: number;
+    modifiedFiles: number;
+    deletedFiles: number;
+    linesAdded: number;
+    linesDeleted: number;
+  };
+  testResults?: {
+    totalTests: number;
+    passedTests: number;
+    failedTests: number;
+    skippedTests: number;
+    coverage: number;
+  };
+  recommendations: {
+    mustDo: string[];
+    suggested: string[];
+    technicalDebt: string[];
+  };
+}

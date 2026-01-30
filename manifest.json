@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-01-29T15:14:51.777Z",
+  "generatedAt": "2026-01-30T05:01:48.560Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -546,12 +546,30 @@
       "name": "structure-report",
       "size": 3103,
       "mtime": "2026-01-29T03:03:37.987Z"
+    },
+    {
+      "path": "agents/task-orchestrator/AGENT.md",
+      "name": "AGENT",
+      "size": 9450,
+      "mtime": "2026-01-30T04:24:43.891Z"
+    },
+    {
+      "path": "agents/task-orchestrator/templates/acceptance-report.md",
+      "name": "acceptance-report",
+      "size": 5541,
+      "mtime": "2026-01-30T04:24:59.472Z"
+    },
+    {
+      "path": "agents/task-orchestrator/templates/taskbook.md",
+      "name": "taskbook",
+      "size": 6537,
+      "mtime": "2026-01-30T04:24:51.696Z"
     }
   ],
   "stats": {
-    "totalFiles": 65,
+    "totalFiles": 68,
     "ruleFiles": 16,
     "skillFiles": 38,
-    "agentFiles": 11
+    "agentFiles": 14
   }
 }

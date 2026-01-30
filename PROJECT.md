@@ -1,6 +1,6 @@
 # MY-FE-STANDARDS 项目架构图谱
 
-> 版本: 2.1.0 | 更新日期: 2026-01-29
+> 版本: 2.2.0 | 更新日期: 2026-01-30
 > 本文档记录项目的完整架构和已具备的功能能力，每完成新能力需同步更新。
 
 ---
@@ -75,6 +75,7 @@ my-fe-standards/
 │
 ├── agents/                     # Agent 代理系统
 │   ├── AGENTS.md              # Agent 注册表
+│   ├── task-orchestrator/     # 任务编排 Agent (v2.2.0)
 │   ├── planner/               # 规划 Agent
 │   ├── security-reviewer/     # 安全审查 Agent
 │   ├── performance-profiler/  # 性能分析 Agent
@@ -126,6 +127,8 @@ my-fe-standards/
 │   │   ├── structure-analyzer.ts # 项目结构分析器
 │   │   ├── module-mapper.ts   # 模块图谱分析器
 │   │   ├── report-manager.ts  # 报告管理器
+│   │   ├── taskbook-manager.ts # TaskBook 管理器 (v2.2.0)
+│   │   ├── task-executor.ts   # 任务执行引擎 (v2.2.0)
 │   │   ├── simple-server.ts   # 简单服务器
 │   │   └── types/             # 类型定义
 │   │       ├── index.ts
@@ -169,6 +172,7 @@ my-fe-standards/
 | | Ralph 转换 | `custom-skills/ralph-converter/` | Ralph 格式转换 |
 | | 技能创建 | `custom-skills/skill-creator/` | 创建新技能 |
 | **Agents 代理** | | | |
+| | 任务编排 Agent | `agents/task-orchestrator/` | 端到端计划任务执行与验收，/task 命令 |
 | | 规划 Agent | `agents/planner/` | 实施计划制定 |
 | | 安全审查 Agent | `agents/security-reviewer/` | XSS 等安全检查 |
 | | 性能分析 Agent | `agents/performance-profiler/` | 性能问题分析 |
@@ -177,6 +181,8 @@ my-fe-standards/
 | | 项目结构分析器 | `scripts/src/structure-analyzer.ts` | 目录结构健康度检测 (SA001-SA005) |
 | | 模块图谱分析器 | `scripts/src/module-mapper.ts` | 功能模块识别、依赖分析、业务分类 |
 | | 报告管理器 | `scripts/src/report-manager.ts` | 报告 CRUD、差异对比、趋势分析 |
+| | TaskBook 管理器 | `scripts/src/taskbook-manager.ts` | 任务书 CRUD、变更追踪、验收报告 |
+| | 任务执行引擎 | `scripts/src/task-executor.ts` | 并行任务调度、阻塞处理、状态管理 |
 | **Reports 项目记忆** | | | |
 | | 架构快照 | `.codebuddy/reports/architecture/` | 健康度评分、违规项、结构类型 |
 | | 模块图谱 | `.codebuddy/reports/modules/` | 模块列表、依赖图、业务分类 |
@@ -257,6 +263,7 @@ await mcp.call("get_skills", { name: "frontend-code-review" });
 
 | 日期 | 版本 | 更新内容 |
 |------|------|----------|
+| 2026-01-30 | 2.2.0 | 新增 Task Orchestrator Agent；新增 /task 命令；新增 taskbook-manager、task-executor 脚本；支持端到端计划任务执行与验收 |
 | 2026-01-29 | 2.1.0 | 新增 Reports 项目记忆系统；新增 structure-analyzer、module-mapper、report-manager 脚本；新增差异对比和趋势分析功能 |
 | 2026-01-27 | 2.0.0 | 初始架构图谱；记录 10 个 Skills、3 个 Agents、MCP Server |
 

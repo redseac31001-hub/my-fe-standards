@@ -16,6 +16,7 @@
 
 | Agent | 名称 | 职责 | 触发场景 |
 |-------|------|------|----------|
+| `task-orchestrator` | 任务编排 | 端到端计划任务执行与验收 | "规划任务"、"帮我实现"、"/task" |
 | `structure-analyzer` | 结构分析 | 目录反模式检测、健康度评分 | "结构分析"、"目录审查"、"架构检查" |
 | `security-reviewer` | 安全审查 | XSS/CSRF/OWASP 检测 | "安全审查"、"security"、"xss" |
 | `performance-profiler` | 性能分析 | Lighthouse/Web Vitals 诊断 | "性能分析"、"performance"、"lighthouse" |
@@ -42,6 +43,9 @@
 ```
 agents/
 ├── AGENTS.md                    # 本文件 - Agent 系统说明
+├── task-orchestrator/           # 任务编排 Agent (新增)
+│   ├── AGENT.md                 # Agent 定义文件
+│   └── templates/               # TaskBook 和验收报告模板
 ├── structure-analyzer/          # 结构分析 Agent (新增)
 │   ├── AGENT.md                 # Agent 定义文件
 │   ├── checklists/              # 检测清单
@@ -99,6 +103,7 @@ permissions:
 
 Agent 可以关联 Layer3 Action 规则：
 
+- `task-orchestrator` → 协调 `planner`, `tdd-guide`, `code-reviewer` 执行完整任务
 - `structure-analyzer` → `layer1_base/architecture/feature-based-structure.md`
 - `security-reviewer` → `layer3_action/defensive-coding.md`
 - `performance-profiler` → `layer3_action/self-verification.md`
@@ -106,5 +111,5 @@ Agent 可以关联 Layer3 Action 规则：
 
 ---
 
-**版本**: 1.1.0
-**更新日期**: 2026-01-28
+**版本**: 1.2.0
+**更新日期**: 2026-01-30
