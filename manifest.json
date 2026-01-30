@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-01-30T05:01:48.560Z",
+  "generatedAt": "2026-01-30T06:17:26.562Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -484,8 +484,8 @@
     {
       "path": "agents/AGENTS.md",
       "name": "AGENTS",
-      "size": 3538,
-      "mtime": "2026-01-29T03:04:40.434Z"
+      "size": 3962,
+      "mtime": "2026-01-30T05:02:53.337Z"
     },
     {
       "path": "agents/performance-profiler/AGENT.md",

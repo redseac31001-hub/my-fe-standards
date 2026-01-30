@@ -475,6 +475,20 @@ const SCRIPTS_TO_DISTRIBUTE = [
         file: 'report-manager.js',
         dependencies: ['types/reports.js']
     },
+    {
+        file: 'taskbook-manager.js',
+        dependencies: ['types/index.js']
+    },
+    {
+        file: 'task-executor.js',
+        dependencies: ['types/index.js', 'taskbook-manager.js']
+    },
+];
+/**
+ * 需要分发的命令文件列表
+ */
+const COMMANDS_TO_DISTRIBUTE = [
+    'task.md',
 ];
 /**
  * 分发可执行脚本到业务项目
@@ -557,6 +571,117 @@ async function distributeScripts(targetDir) {
         fs.writeFileSync(readmePath, generateScriptsReadme(distributed), 'utf-8');
     }
     return distributed;
+}
+/**
+ * 分发 Slash Commands 到业务项目
+ */
+async function distributeCommands(targetDir) {
+    const distributed = [];
+    const localCommandsDir = path.join(targetDir, '.codebuddy/commands');
+    // 确保目录存在
+    if (!fs.existsSync(localCommandsDir)) {
+        fs.mkdirSync(localCommandsDir, { recursive: true });
+    }
+    if (ctx.isRemote) {
+        // 远程模式：从远程下载命令文件
+        for (const cmdFile of COMMANDS_TO_DISTRIBUTE) {
+            const cmdUrl = `${ctx.remoteBaseUrl}/.claude/commands/${cmdFile}`;
+            try {
+                const content = await fetchUrl(cmdUrl);
+                const destPath = path.join(localCommandsDir, cmdFile);
+                fs.writeFileSync(destPath, content, 'utf-8');
+                distributed.push(cmdFile);
+                logVerbose(`已下载命令: ${cmdFile}`);
+            }
+            catch (e) {
+                logWarn(`命令下载失败: ${cmdFile} - ${e.message}`);
+            }
+        }
+    }
+    else {
+        // 本地模式：从本地复制命令文件
+        const sourceDir = path.join(PROJECT_ROOT, '.claude/commands');
+        for (const cmdFile of COMMANDS_TO_DISTRIBUTE) {
+            const srcPath = path.join(sourceDir, cmdFile);
+            if (fs.existsSync(srcPath)) {
+                const destPath = path.join(localCommandsDir, cmdFile);
+                fs.copyFileSync(srcPath, destPath);
+                distributed.push(cmdFile);
+                logVerbose(`已复制命令: ${cmdFile}`);
+            }
+            else {
+                logWarn(`命令文件不存在: ${srcPath}`);
+            }
+        }
+    }
+    return distributed;
+}
+/**
+ * 生成命令使用提示词
+ */
+function generateCommandsPrompt(commands) {
+    if (commands.length === 0)
+        return '';
+    let table = '| 命令 | 说明 | 触发方式 |\n|------|------|----------|\n';
+    for (const cmd of commands) {
+        if (cmd === 'task.md') {
+            table += `| \`/task\` | 端到端计划任务编排 | \`/task 实现用户登录功能\` 或 "帮我实现xxx" |\n`;
+        }
+        else {
+            const cmdName = cmd.replace('.md', '');
+            table += `| \`/${cmdName}\` | - | \`/${cmdName}\` |\n`;
+        }
+    }
+    return `
+# 📋 Slash Commands 索引
+
+本规则库包含可执行的 Slash Commands，已安装至 \`.codebuddy/commands/\`。
+
+## 已安装命令
+
+${table}
+
+## 🚀 /task 命令使用指南
+
+\`/task\` 是端到端的计划任务编排命令，支持：
+
+### 触发方式
+
+\`\`\`bash
+# Slash Command 方式
+/task 实现用户登录功能
+/task 重构订单处理模块
+
+# 关键词自动触发
+帮我实现商品搜索功能
+开发用户中心模块
+重构购物车逻辑
+\`\`\`
+
+### 工作流程
+
+\`\`\`
+意图识别 → 上下文收集 → 需求分解 → 用户确认 → 自动执行 → 变更追踪 → 验收闭环
+\`\`\`
+
+### 核心特性
+
+- **并行执行**: 无依赖任务自动并行，提升效率
+- **变更追踪**: 实时记录偏离原计划的改动及原因
+- **阻塞处理**: 遇到阻塞暂停，等待用户介入
+- **验收闭环**: 生成验收报告，请求最终确认
+- **任务持久化**: TaskBook 可恢复，支持中断继续
+
+### TaskBook 存储
+
+\`\`\`
+.codebuddy/taskbooks/
+├── active/      # 进行中的任务书
+└── history/     # 已完成的任务书
+\`\`\`
+
+**详细使用说明**: 请读取 \`.codebuddy/commands/task.md\`
+`;
 }
 /**
  * 生成脚本目录的 README
@@ -1052,6 +1177,13 @@ updatedAt: ${updatedAt}
         log(`已分发 ${distributedScripts.length} 个脚本`);
         finalContent += generateScriptsPrompt(distributedScripts);
     }
+    // ============ 命令分发 ============
+    log('分发 Slash Commands...');
+    const distributedCommands = await distributeCommands(targetDir);
+    if (distributedCommands.length > 0) {
+        log(`已分发 ${distributedCommands.length} 个命令`);
+        finalContent += generateCommandsPrompt(distributedCommands);
+    }
     // ============ 输出文件 ============
     const outputDir = path.join(targetDir, (output === null || output === void 0 ? void 0 : output.dirName) || '.codebuddy/rules');
     if (!fs.existsSync(outputDir)) {
@@ -1069,6 +1201,7 @@ updatedAt: ${updatedAt}
     log(`   Layer 2 索引: ${layer2Index.length} 个`);
     log(`   Layer 3 索引: ${layer3Index.length} 个`);
     log(`   工具脚本: ${distributedScripts.length} 个`);
+    log(`   Slash Commands: ${distributedCommands.length} 个`);
     log('═══════════════════════════════════════════════════════════════════');
 }
 main().catch((err) => {
