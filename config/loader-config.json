@@ -17,7 +17,7 @@
         "base": {
             "id": "layer1_base",
             "title": "Layer 1: 基础规范",
-            "staticDeps": ["architecture", "typescript"],
+            "staticDeps": ["code-quality", "architecture", "typescript"],
             "loadMode": "eager",
             "_comment": "Vue 版本由脚本动态检测"
         },

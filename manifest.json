@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-01-30T06:17:26.562Z",
+  "generatedAt": "2026-01-30T07:08:12.029Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -9,6 +9,7 @@
         "id": "layer1_base",
         "title": "Layer 1: 基础规范",
         "staticDeps": [
+          "code-quality",
           "architecture",
           "typescript"
         ],
@@ -162,6 +163,12 @@
       "name": "feature-based-structure",
       "size": 2191,
       "mtime": "2025-12-30T05:30:19.408Z"
+    },
+    {
+      "path": "rules/layer1_base/code-quality/clean-code.md",
+      "name": "clean-code",
+      "size": 14251,
+      "mtime": "2026-01-30T07:05:42.348Z"
     },
     {
       "path": "rules/layer1_base/typescript/api-request.md",
@@ -567,8 +574,8 @@
     }
   ],
   "stats": {
-    "totalFiles": 68,
-    "ruleFiles": 16,
+    "totalFiles": 69,
+    "ruleFiles": 17,
     "skillFiles": 38,
     "agentFiles": 14
   }
