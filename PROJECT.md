@@ -191,9 +191,11 @@ my-fe-standards/
 | | 差异对比 | `report-manager.js diff` | 快照对比、变更检测 |
 | | 趋势分析 | `report-manager.js trend` | ASCII 图表、趋势预测 |
 | **MCP Server** | | | |
-| | get_rules | `mcp-server/src/index.ts` | 获取规则内容 |
-| | get_skills | `mcp-server/src/index.ts` | 获取技能定义 |
-| | get_manifest | `mcp-server/src/index.ts` | 获取资源清单 |
+| | ralph_* | `mcp-server/src/index.ts` | Ralph PRD/进度管理工具 |
+| | analyze_project_structure | `mcp-server/src/index.ts` | 结构分析（反模式检测 + 健康度评分） |
+| | codebuddy_set_workdir | `mcp-server/src/index.ts` | 设置默认项目工作目录 |
+| | taskbook_* | `mcp-server/src/index.ts` | TaskBook CRUD/协作（JSON 输出） |
+| | workflow_run | `mcp-server/src/index.ts` | Workflow 驱动执行 TaskBook（含 gates） |
 | **协作系统** | | | |
 | | AI 论坛 | `ai-forum/` | 多模型协作讨论 |
 | | 项目宪章 | `ai-forum/PROJECT_CHARTER.md` | 项目目标定义 |
@@ -203,7 +205,8 @@ my-fe-standards/
 
 | 能力名称 | 计划编号 | 状态 | 说明 |
 |----------|----------|------|------|
-| MCP analyze_project_structure | PLAN-001 | 🟡 待实现 | 结构分析 MCP 工具 |
+| MCP analyze_project_structure | PLAN-001 | 🟢 已实现 | 结构分析 MCP 工具 |
+| MCP taskbook_* / workflow_run | PLAN-003 | 🟢 已实现 | TaskBook/Workflow MCP 工具 |
 
 ### ❌ 暂缓能力
 

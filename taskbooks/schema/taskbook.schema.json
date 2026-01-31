@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/taskbook.schema.json",
+  "title": "TaskBook",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "title",
+    "description",
+    "taskType",
+    "createdAt",
+    "status",
+    "context",
+    "tasks",
+    "changelog"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "taskType": { "$ref": "#/$defs/taskBookType" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 0 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "confirmedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "status": { "$ref": "#/$defs/taskBookStatus" },
+    "context": { "$ref": "#/$defs/context" },
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/taskItem" }
+    },
+    "changelog": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/changeEntry" }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "taskBookStatus": {
+      "type": "string",
+      "enum": ["draft", "confirmed", "executing", "completed", "aborted"]
+    },
+    "taskBookType": {
+      "type": "string",
+      "enum": ["new-feature", "refactoring", "debugging", "testing", "code-review"]
+    },
+    "taskType": {
+      "type": "string",
+      "enum": ["analysis", "design", "test", "implement", "review"]
+    },
+    "taskStatus": {
+      "type": "string",
+      "enum": ["pending", "in_progress", "done", "blocked", "skipped"]
+    },
+    "taskPriority": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"]
+    },
+    "changeType": {
+      "type": "string",
+      "enum": ["added", "modified", "removed", "reordered"]
+    },
+    "projectHealth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "issues"],
+      "properties": {
+        "score": { "type": "number" },
+        "issues": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relatedFiles", "dependencies"],
+      "properties": {
+        "projectHealth": { "$ref": "#/$defs/projectHealth" },
+        "relatedFiles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "architectureNotes": { "type": "string" }
+      }
+    },
+    "taskItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "type",
+        "status",
+        "priority",
+        "dependencies",
+        "acceptanceCriteria"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "parentId": { "type": "string" },
+        "title": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "#/$defs/taskType" },
+        "status": { "$ref": "#/$defs/taskStatus" },
+        "priority": { "$ref": "#/$defs/taskPriority" },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "acceptanceCriteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "scope": { "$ref": "#/$defs/taskScope" },
+        "actualWork": { "type": "string" },
+        "blockedReason": { "type": "string" },
+        "executedBy": { "type": "string" },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "taskScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "modules": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "changeEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "taskId", "changeType", "reason"],
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "taskId": { "type": ["string", "null"] },
+        "changeType": { "$ref": "#/$defs/changeType" },
+        "reason": { "type": "string" },
+        "before": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "after": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

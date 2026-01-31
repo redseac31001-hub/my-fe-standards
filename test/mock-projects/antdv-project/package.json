@@ -2,6 +2,10 @@
   "name": "mock-antdv-project",
   "version": "1.0.0",
   "description": "模拟使用 Ant Design Vue 的业务项目",
+  "scripts": {
+    "test": "node -e \"process.exit(0)\"",
+    "build": "node -e \"process.exit(0)\""
+  },
   "dependencies": {
     "vue": "^3.3.0",
     "ant-design-vue": "^4.0.0"

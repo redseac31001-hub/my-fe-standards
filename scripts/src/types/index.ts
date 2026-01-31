@@ -43,6 +43,8 @@ export interface ManifestStats {
   ruleFiles: number;
   skillFiles: number;
   agentFiles?: number;
+  workflowFiles?: number;
+  taskbookFiles?: number;
 }
 
 // ============ 配置相关类型 ============
@@ -201,6 +203,53 @@ export interface PackageJson {
   devDependencies?: Record<string, string>;
 }
 
+// ============ Workflow Spec 类型 ============
+
+export interface WorkflowEdge {
+  from: string;
+  to: string;
+  when?: string;
+}
+
+export interface WorkflowGate {
+  id: string;
+  type: string;
+  title?: string;
+  required?: boolean;
+  params?: Record<string, unknown>;
+}
+
+export interface WorkflowArtifact {
+  id: string;
+  path: string;
+  mimeType?: string;
+  producerStepId?: string;
+}
+
+export interface WorkflowStep {
+  id: string;
+  type: string;
+  title: string;
+  description?: string;
+  owner?: string;
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  gates?: string[];
+  toolHints?: Record<string, unknown>;
+}
+
+export interface WorkflowSpec {
+  id: string;
+  version: string;
+  name?: string;
+  description?: string;
+  steps: WorkflowStep[];
+  edges?: WorkflowEdge[];
+  gates?: WorkflowGate[];
+  policies?: Record<string, unknown>;
+  artifacts?: WorkflowArtifact[];
+}
+
 // ============ TaskBook 系统类型 ============
 
 /**
@@ -234,6 +283,15 @@ export type ChangeType = 'added' | 'modified' | 'removed' | 'reordered';
 export type TaskBookType = 'new-feature' | 'refactoring' | 'debugging' | 'testing' | 'code-review';
 
 /**
+ * 任务作用域（用于并发冲突检测、批量策略、审计）
+ */
+export interface TaskScope {
+  files?: string[];
+  modules?: string[];
+  tags?: string[];
+}
+
+/**
  * 单个任务定义
  */
 export interface TaskItem {
@@ -245,6 +303,7 @@ export interface TaskItem {
   priority: TaskPriority;
   dependencies: string[];
   acceptanceCriteria: string[];
+  scope?: TaskScope;
   actualWork?: string;
   blockedReason?: string;
   executedBy?: string;
@@ -291,12 +350,15 @@ export interface TaskBook {
   description: string;
   taskType: TaskBookType;
   createdAt: string;
+  revision?: number;
+  updatedAt?: string;
   confirmedAt?: string;
   completedAt?: string;
   status: TaskBookStatus;
   context: TaskBookContext;
   tasks: TaskItem[];
   changelog: ChangeEntry[];
+  meta?: Record<string, unknown>;
 }
 
 /**
@@ -336,6 +398,15 @@ export interface AcceptanceReport {
     completionRate: number;
     changelogCount: number;
   };
+  gates?: Array<{
+    gateId: string;
+    stepId?: string;
+    passed: boolean;
+    approved?: boolean;
+    budgetMinutes?: number;
+    totalDurationMs?: number;
+    commandRuns?: Array<{ command: string; ok: boolean; code: number | null; durationMs: number }>;
+  }>;
   codeChanges?: {
     addedFiles: number;
     modifiedFiles: number;

@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-01-30T07:25:06.899Z",
+  "generatedAt": "2026-01-31T16:31:59.853Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -578,12 +578,44 @@
       "name": "taskbook",
       "size": 6537,
       "mtime": "2026-01-30T04:24:51.696Z"
+    },
+    {
+      "path": "workflows/README.md",
+      "name": "README",
+      "size": 1329,
+      "mtime": "2026-01-31T16:29:22.905Z"
+    },
+    {
+      "path": "workflows/schema/workflow.schema.json",
+      "name": "workflow.schema",
+      "size": 2802,
+      "mtime": "2026-01-30T18:11:15.349Z"
+    },
+    {
+      "path": "workflows/templates/default.workflow.json",
+      "name": "default.workflow",
+      "size": 4419,
+      "mtime": "2026-01-31T16:25:18.056Z"
+    },
+    {
+      "path": "taskbooks/README.md",
+      "name": "README",
+      "size": 986,
+      "mtime": "2026-01-30T19:05:24.634Z"
+    },
+    {
+      "path": "taskbooks/schema/taskbook.schema.json",
+      "name": "taskbook.schema",
+      "size": 4884,
+      "mtime": "2026-01-31T13:40:32.284Z"
     }
   ],
   "stats": {
-    "totalFiles": 69,
+    "totalFiles": 74,
     "ruleFiles": 17,
     "skillFiles": 38,
-    "agentFiles": 14
+    "agentFiles": 14,
+    "workflowFiles": 3,
+    "taskbookFiles": 2
   }
 }

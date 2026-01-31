@@ -1,0 +1,139 @@
+{
+  "id": "default",
+  "version": "1.2.0",
+  "name": "Default Workflow (Batched implement closed loop)",
+  "description": "Tool/model-agnostic default workflow: analyze -> plan -> implement (batched + smoke gates) -> review -> full tests/build -> acceptance/archive.",
+  "steps": [
+    {
+      "id": "analyze",
+      "type": "analyze_project",
+      "title": "Analyze project structure/modules",
+      "description": "Generate architecture/module reports to support planning and impact analysis.",
+      "toolHints": {
+        "recommended": ["script:structure-analyzer", "script:module-mapper"]
+      },
+      "outputs": {
+        "reports": [".codebuddy/reports/architecture/latest.json", ".codebuddy/reports/modules/latest.json"]
+      }
+    },
+    {
+      "id": "plan",
+      "type": "create_taskbook",
+      "title": "Create TaskBook (tasks + acceptance criteria)",
+      "description": "Break requirements into executable tasks with dependencies and acceptance criteria.",
+      "toolHints": {
+        "recommended": ["agent:planner", "script:taskbook-manager"]
+      },
+      "outputs": {
+        "taskbook": ".codebuddy/taskbooks/active/tb-*.json"
+      }
+    },
+    {
+      "id": "implement",
+      "type": "implement_tasks",
+      "title": "Implement tasks (batched)",
+      "description": "Execute implement-related tasks in batches controlled by policies.testing.batching; run smoke gates between batches.",
+      "gates": ["contracts_valid", "smoke_passed"],
+      "toolHints": {
+        "recommended": ["agent:task-orchestrator", "agent:ralph", "human"]
+      }
+    },
+    {
+      "id": "review",
+      "type": "code_review",
+      "title": "Code review gate",
+      "description": "Perform code review (and optionally security/performance review).",
+      "gates": ["review_passed"],
+      "toolHints": {
+        "recommended": ["agent:code-reviewer", "agent:security-reviewer", "agent:performance-profiler", "human"]
+      }
+    },
+    {
+      "id": "test_full",
+      "type": "run_tests",
+      "title": "Full Tests / Build Gate",
+      "gates": ["contracts_valid", "full_passed"],
+      "toolHints": {
+        "recommended": ["shell:npm test", "shell:npm run build"]
+      }
+    },
+    {
+      "id": "acceptance",
+      "type": "acceptance_and_archive",
+      "title": "Acceptance & Archive",
+      "description": "Generate acceptance report and archive TaskBook to history.",
+      "toolHints": {
+        "recommended": ["script:taskbook-manager", "human"]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "analyze", "to": "plan" },
+    { "from": "plan", "to": "implement" },
+    { "from": "implement", "to": "review" },
+    { "from": "review", "to": "test_full" },
+    { "from": "test_full", "to": "acceptance" }
+  ],
+  "gates": [
+    {
+      "id": "contracts_valid",
+      "type": "checks",
+      "title": "Contracts (TaskBook/Workflow) validated",
+      "required": true,
+      "params": {
+        "commands": ["node .codebuddy/scripts/contract-validator.js --workflows --taskbooks"]
+      }
+    },
+    {
+      "id": "smoke_passed",
+      "type": "checks",
+      "title": "Smoke tests passed",
+      "required": true,
+      "params": {
+        "budgetMinutes": 5,
+        "commands": ["npm test"]
+      }
+    },
+    {
+      "id": "full_passed",
+      "type": "checks",
+      "title": "Full tests/build passed",
+      "required": true,
+      "params": {
+        "budgetMinutes": 20,
+        "commands": ["npm test", "npm run build"]
+      }
+    },
+    {
+      "id": "review_passed",
+      "type": "review",
+      "title": "Review passed",
+      "required": true,
+      "params": {
+        "checklist": ["self-verification", "defensive-coding"]
+      }
+    }
+  ],
+  "policies": {
+    "concurrency": {
+      "maxParallelTasks": 1,
+      "conflictStrategy": "deny_same_file_set"
+    },
+    "blocking": {
+      "onGateFail": "blocked",
+      "requiresHumanToUnblock": true
+    },
+    "testing": {
+      "budgetsMinutes": { "smoke": 5, "full": 20 },
+      "batching": {
+        "strategy": "risk_tiered",
+        "riskTiers": {
+          "high": { "maxFiles": 3, "maxChangedLines": 200, "smokeEveryBatches": 1 },
+          "medium": { "maxFiles": 10, "maxChangedLines": 800, "smokeEveryBatches": 1 },
+          "low": { "maxFiles": 25, "maxChangedLines": 2000, "smokeEveryBatches": 2 }
+        },
+        "autoTune": { "stableBatches": 3, "increaseFactor": 1.5, "decreaseFactor": 0.5 }
+      }
+    }
+  }
+}

@@ -17,17 +17,26 @@ const PROJECT_ROOT: string = path.resolve(__dirname, '../..');
 const RULES_ROOT: string = path.join(PROJECT_ROOT, 'rules');
 const SKILLS_ROOT: string = path.join(PROJECT_ROOT, 'custom-skills');
 const AGENTS_ROOT: string = path.join(PROJECT_ROOT, 'agents');
+const WORKFLOWS_ROOT: string = path.join(PROJECT_ROOT, 'workflows');
+const TASKBOOKS_ROOT: string = path.join(PROJECT_ROOT, 'taskbooks');
 const CONFIG_PATH: string = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
 const OUTPUT_PATH: string = path.join(PROJECT_ROOT, 'manifest.json');
+const PACKAGE_JSON_PATH: string = path.join(PROJECT_ROOT, 'package.json');
 
 function log(message: string): void {
   console.log(`[Manifest] ${message}`);
 }
 
 /**
- * 递归扫描目录，收集所有 .md 文件
+ * 递归扫描目录，收集指定后缀的文件
+ *
+ * 说明：用于远程加载模式的文件清单（manifest.json）。
  */
-function scanDirectory(dir: string, basePath: string = ''): ManifestFile[] {
+function scanDirectory(
+  dir: string,
+  basePath: string = '',
+  extensions: string[] = ['.md']
+): ManifestFile[] {
   const files: ManifestFile[] = [];
 
   if (!fs.existsSync(dir)) {
@@ -45,11 +54,11 @@ function scanDirectory(dir: string, basePath: string = ''): ManifestFile[] {
     const stat = fs.statSync(fullPath);
 
     if (stat.isDirectory()) {
-      files.push(...scanDirectory(fullPath, relativePath));
-    } else if (item.endsWith('.md')) {
+      files.push(...scanDirectory(fullPath, relativePath, extensions));
+    } else if (extensions.some(ext => item.endsWith(ext))) {
       files.push({
         path: relativePath,
-        name: item.replace('.md', ''),
+        name: path.parse(item).name,
         size: stat.size,
         mtime: stat.mtime.toISOString(),
       });
@@ -64,6 +73,18 @@ function scanDirectory(dir: string, basePath: string = ''): ManifestFile[] {
  */
 function main(): void {
   log('开始生成 manifest.json...');
+
+  // 0. 读取版本号（单一事实源：package.json）
+  let manifestVersion = '0.0.0';
+  if (fs.existsSync(PACKAGE_JSON_PATH)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf-8')) as { version?: string };
+      if (pkg.version) manifestVersion = pkg.version;
+      log(`版本号来源: package.json -> ${manifestVersion}`);
+    } catch {
+      log('警告: package.json 解析失败，使用默认版本号 0.0.0');
+    }
+  }
 
   // 1. 加载配置
   let config: Partial<LoaderConfig> = {};
@@ -103,9 +124,25 @@ function main(): void {
   }));
   log(`  找到 ${agentFiles.length} 个 Agent 文件`);
 
-  // 5. 构建 manifest
+  // 5. 扫描 Workflows 文件（JSON Schema + workflow templates）
+  log('扫描 workflows/ 目录...');
+  const workflowFiles: ManifestFile[] = scanDirectory(WORKFLOWS_ROOT, '', ['.json', '.md']).map(f => ({
+    ...f,
+    path: `workflows/${f.path}`,
+  }));
+  log(`  找到 ${workflowFiles.length} 个 workflow 文件`);
+
+  // 6. 扫描 TaskBooks 文件（JSON Schema）
+  log('扫描 taskbooks/ 目录...');
+  const taskbookFiles: ManifestFile[] = scanDirectory(TASKBOOKS_ROOT, '', ['.json', '.md']).map(f => ({
+    ...f,
+    path: `taskbooks/${f.path}`,
+  }));
+  log(`  找到 ${taskbookFiles.length} 个 taskbook 文件`);
+
+  // 7. 构建 manifest
   const manifest: Manifest = {
-    version: '2.0.0',
+    version: manifestVersion,
     generatedAt: new Date().toISOString(),
     aiTool: 'CodeBuddy',
     model: 'GLM-4.7',
@@ -116,16 +153,18 @@ function main(): void {
       output: config.output || { dirName: '', fileName: '' },
       frontmatter: config.frontmatter || {},
     },
-    files: [...ruleFiles, ...skillFiles, ...agentFiles],
+    files: [...ruleFiles, ...skillFiles, ...agentFiles, ...workflowFiles, ...taskbookFiles],
     stats: {
-      totalFiles: ruleFiles.length + skillFiles.length + agentFiles.length,
+      totalFiles: ruleFiles.length + skillFiles.length + agentFiles.length + workflowFiles.length + taskbookFiles.length,
       ruleFiles: ruleFiles.length,
       skillFiles: skillFiles.length,
       agentFiles: agentFiles.length,
+      workflowFiles: workflowFiles.length,
+      taskbookFiles: taskbookFiles.length,
     },
   };
 
-  // 6. 写入文件
+  // 8. 写入文件
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify(manifest, null, 2), 'utf-8');
 
   log('');
@@ -134,6 +173,8 @@ function main(): void {
   log(`   规则文件: ${ruleFiles.length} 个`);
   log(`   技能文件: ${skillFiles.length} 个`);
   log(`   Agent文件: ${agentFiles.length} 个`);
+  log(`   Workflow文件: ${workflowFiles.length} 个`);
+  log(`   TaskBook文件: ${taskbookFiles.length} 个`);
   log(`   总计: ${manifest.stats.totalFiles} 个文件`);
   log('═══════════════════════════════════════════════════════════════════');
 }

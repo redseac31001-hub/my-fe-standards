@@ -2,6 +2,10 @@
   "name": "mock-vue2-project",
   "version": "1.0.0",
   "description": "模拟 Vue 2 业务项目，用于测试规则加载",
+  "scripts": {
+    "test": "node -e \"process.exit(0)\"",
+    "build": "node -e \"process.exit(0)\""
+  },
   "dependencies": {
     "vue": "^2.7.0"
   },

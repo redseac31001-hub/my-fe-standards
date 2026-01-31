@@ -10,7 +10,7 @@ import {
 import { z } from 'zod'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 
 // ============================================================
 // Schema 定义（运行时类型验证）
@@ -76,6 +76,98 @@ const AnalyzeProjectStructureArgsSchema = z.object({
   mode: z.enum(['problems_only', 'summary', 'full']).optional().default('problems_only'),
   maxDepth: z.number().int().positive().optional().default(5),
   limitTopFiles: z.number().int().positive().optional().default(20),
+})
+
+// ============================================================
+// CodeBuddy TaskBook / Workflow 工具 Schema
+// ============================================================
+
+const TaskBookTypeSchema = z.enum(['new-feature', 'refactoring', 'debugging', 'testing', 'code-review'])
+const TaskTypeSchema = z.enum(['analysis', 'design', 'test', 'implement', 'review'])
+const TaskStatusSchema = z.enum(['pending', 'in_progress', 'done', 'blocked', 'skipped'])
+const TaskPrioritySchema = z.enum(['critical', 'high', 'medium', 'low'])
+
+const CodebuddySetWorkdirArgsSchema = z.object({
+  path: z.string().min(1, '路径不能为空'),
+})
+
+const TaskBookCreateArgsSchema = z.object({
+  projectPath: z.string().optional(),
+  title: z.string().min(1, '标题不能为空'),
+  description: z.string(),
+  taskType: TaskBookTypeSchema,
+})
+
+const TaskBookListArgsSchema = z.object({
+  projectPath: z.string().optional(),
+})
+
+const TaskBookShowArgsSchema = z.object({
+  projectPath: z.string().optional(),
+  taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
+})
+
+const TaskBookStatusArgsSchema = z.object({
+  projectPath: z.string().optional(),
+  taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
+  ifRevision: z.number().int().nonnegative().optional(),
+})
+
+const TaskBookAddTaskArgsSchema = z.object({
+  projectPath: z.string().optional(),
+  taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
+  title: z.string().min(1, '标题不能为空'),
+  type: TaskTypeSchema,
+  priority: TaskPrioritySchema.optional(),
+  deps: z.array(z.string()).optional(),
+  acceptanceCriteria: z.array(z.string()).optional(),
+  scopeFiles: z.array(z.string()).optional(),
+  scopeModules: z.array(z.string()).optional(),
+  scopeTags: z.array(z.string()).optional(),
+  ifRevision: z.number().int().nonnegative().optional(),
+})
+
+const TaskBookUpdateTaskArgsSchema = z.object({
+  projectPath: z.string().optional(),
+  taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
+  taskId: z.string().min(1, 'Task ID 不能为空'),
+  title: z.string().optional(),
+  status: TaskStatusSchema.optional(),
+  priority: TaskPrioritySchema.optional(),
+  deps: z.array(z.string()).optional(),
+  acceptanceCriteria: z.array(z.string()).optional(),
+  scopeFiles: z.array(z.string()).optional(),
+  scopeModules: z.array(z.string()).optional(),
+  scopeTags: z.array(z.string()).optional(),
+  actualWork: z.string().optional(),
+  blockedReason: z.string().optional(),
+  executedBy: z.string().optional(),
+  ifRevision: z.number().int().nonnegative().optional(),
+})
+
+const TaskBookClaimArgsSchema = z.object({
+  projectPath: z.string().optional(),
+  taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
+  taskId: z.string().min(1, 'Task ID 不能为空'),
+  by: z.string().min(1, 'by 不能为空'),
+  ifRevision: z.number().int().nonnegative().optional(),
+})
+
+const TaskBookAppendWorkArgsSchema = z.object({
+  projectPath: z.string().optional(),
+  taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
+  taskId: z.string().min(1, 'Task ID 不能为空'),
+  text: z.string().min(1, 'text 不能为空'),
+  ifRevision: z.number().int().nonnegative().optional(),
+})
+
+const WorkflowRunArgsSchema = z.object({
+  projectPath: z.string().optional(),
+  taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
+  workflowPath: z.string().optional(),
+  approve: z.array(z.string()).optional(),
+  maxParallel: z.number().int().positive().optional(),
+  tasksOnly: z.boolean().optional().default(false),
 })
 
 // ============================================================
@@ -203,6 +295,62 @@ async function validateDirectory(dirPath: string): Promise<{ valid: true; resolv
   } catch {
     return { valid: false, error: `无法访问目录: ${dirPath}` }
   }
+}
+
+async function resolveProjectDir(projectPath: string | undefined, fallbackWorkDir: string): Promise<{ ok: true; dir: string } | { ok: false; error: string }> {
+  const target = projectPath ?? fallbackWorkDir
+  const validation = await validateDirectory(target)
+  if (!validation.valid) {
+    return { ok: false, error: validation.error }
+  }
+  return { ok: true, dir: validation.resolved }
+}
+
+async function resolveCodebuddyScript(workDir: string, scriptFile: string): Promise<{ ok: true; scriptPath: string } | { ok: false; error: string }> {
+  const scriptsDir = path.join(workDir, '.codebuddy', 'scripts')
+  try {
+    const stats = await fs.stat(scriptsDir)
+    if (!stats.isDirectory()) {
+      return { ok: false, error: `路径不是目录: ${scriptsDir}` }
+    }
+  } catch {
+    return { ok: false, error: `未找到 .codebuddy/scripts，请先运行 codebuddy-loader 初始化项目（生成 .codebuddy/scripts）: ${scriptsDir}` }
+  }
+
+  const scriptPath = path.join(scriptsDir, scriptFile)
+  try {
+    const stats = await fs.stat(scriptPath)
+    if (!stats.isFile()) {
+      return { ok: false, error: `脚本不是文件: ${scriptPath}` }
+    }
+    return { ok: true, scriptPath }
+  } catch {
+    return { ok: false, error: `未找到脚本: ${scriptPath}（请重新运行 loader 分发脚本）` }
+  }
+}
+
+function formatExecError(error: unknown): string {
+  const anyErr = error as { message?: string; stderr?: unknown; stdout?: unknown }
+  const stderr = typeof anyErr?.stderr === 'string' ? anyErr.stderr : ''
+  const stdout = typeof anyErr?.stdout === 'string' ? anyErr.stdout : ''
+
+  const parts = [
+    anyErr?.message ? `message: ${anyErr.message}` : null,
+    stderr ? `stderr:\n${stderr}` : null,
+    stdout ? `stdout:\n${stdout}` : null,
+  ].filter(Boolean) as string[]
+
+  return parts.length ? parts.join('\n') : String(error)
+}
+
+function execCodebuddyScript(projectDir: string, scriptPath: string, args: string[], opts?: { timeoutMs?: number }): string {
+  return execFileSync(process.execPath, [scriptPath, ...args], {
+    cwd: projectDir,
+    encoding: 'utf-8',
+    timeout: opts?.timeoutMs ?? 5 * 60 * 1000,
+    maxBuffer: 50 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim()
 }
 
 // ============================================================
@@ -354,6 +502,244 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ['projectPath'],
+      },
+    },
+    {
+      name: 'codebuddy_set_workdir',
+      description: '设置 CodeBuddy 工作目录（TaskBook/Workflow 默认在此目录执行）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '工作目录路径（项目根目录）' },
+        },
+        required: ['path'],
+      },
+    },
+    {
+      name: 'taskbook_create',
+      description: '创建 TaskBook（唯一事实源）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          title: { type: 'string', description: 'TaskBook 标题' },
+          description: { type: 'string', description: 'TaskBook 描述' },
+          taskType: {
+            type: 'string',
+            enum: ['new-feature', 'refactoring', 'debugging', 'testing', 'code-review'],
+            description: 'TaskBook 类型',
+          },
+        },
+        required: ['title', 'description', 'taskType'],
+      },
+    },
+    {
+      name: 'taskbook_list',
+      description: '列出 active TaskBooks（JSON）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+        },
+      },
+    },
+    {
+      name: 'taskbook_show',
+      description: '查看 TaskBook（JSON）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          taskBookId: { type: 'string', description: 'TaskBook ID（如 tb-20260130-xxx）' },
+        },
+        required: ['taskBookId'],
+      },
+    },
+    {
+      name: 'taskbook_confirm',
+      description: '确认 TaskBook（status: confirmed）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          taskBookId: { type: 'string', description: 'TaskBook ID' },
+          ifRevision: { type: 'integer', description: '可选：要求 TaskBook.revision 匹配（避免并发覆盖）' },
+        },
+        required: ['taskBookId'],
+      },
+    },
+    {
+      name: 'taskbook_complete',
+      description: '完成并归档 TaskBook（status: completed → history）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          taskBookId: { type: 'string', description: 'TaskBook ID' },
+          ifRevision: { type: 'integer', description: '可选：要求 TaskBook.revision 匹配（避免并发覆盖）' },
+        },
+        required: ['taskBookId'],
+      },
+    },
+    {
+      name: 'taskbook_abort',
+      description: '中止并归档 TaskBook（status: aborted → history）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          taskBookId: { type: 'string', description: 'TaskBook ID' },
+          ifRevision: { type: 'integer', description: '可选：要求 TaskBook.revision 匹配（避免并发覆盖）' },
+        },
+        required: ['taskBookId'],
+      },
+    },
+    {
+      name: 'taskbook_add_task',
+      description: '向 TaskBook 添加任务（JSON）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          taskBookId: { type: 'string', description: 'TaskBook ID' },
+          ifRevision: { type: 'integer', description: '可选：要求 TaskBook.revision 匹配（避免并发覆盖）' },
+          title: { type: 'string', description: '任务标题' },
+          type: {
+            type: 'string',
+            enum: ['analysis', 'design', 'test', 'implement', 'review'],
+            description: '任务类型',
+          },
+          priority: {
+            type: 'string',
+            enum: ['critical', 'high', 'medium', 'low'],
+            description: '优先级（可选）',
+          },
+          deps: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '依赖任务 ID 列表（可选）',
+          },
+          acceptanceCriteria: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '验收标准列表（可选）',
+          },
+          scopeFiles: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '（可选）任务涉及文件列表（用于并发冲突检测/批量策略）',
+          },
+          scopeModules: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '（可选）任务涉及模块列表（用于并发冲突检测/批量策略）',
+          },
+          scopeTags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '（可选）任务标签列表（用于批量/过滤/审计）',
+          },
+        },
+        required: ['taskBookId', 'title', 'type'],
+      },
+    },
+    {
+      name: 'taskbook_update_task',
+      description: '更新 TaskBook 里的任务字段（JSON）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          taskBookId: { type: 'string', description: 'TaskBook ID' },
+          taskId: { type: 'string', description: 'Task ID（如 task-1）' },
+          ifRevision: { type: 'integer', description: '可选：要求 TaskBook.revision 匹配（避免并发覆盖）' },
+          title: { type: 'string', description: '任务标题（可选）' },
+          status: {
+            type: 'string',
+            enum: ['pending', 'in_progress', 'done', 'blocked', 'skipped'],
+            description: '任务状态（可选）',
+          },
+          priority: {
+            type: 'string',
+            enum: ['critical', 'high', 'medium', 'low'],
+            description: '优先级（可选）',
+          },
+          deps: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '依赖任务 ID 列表（可选）',
+          },
+          acceptanceCriteria: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '验收标准列表（可选，会覆盖）',
+          },
+          scopeFiles: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '（可选）任务涉及文件列表（用于并发冲突检测/批量策略）',
+          },
+          scopeModules: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '（可选）任务涉及模块列表（用于并发冲突检测/批量策略）',
+          },
+          scopeTags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '（可选）任务标签列表（用于批量/过滤/审计）',
+          },
+          actualWork: { type: 'string', description: '实际工作记录（可选）' },
+          blockedReason: { type: 'string', description: '阻塞原因（可选）' },
+          executedBy: { type: 'string', description: '执行者标识（可选）' },
+        },
+        required: ['taskBookId', 'taskId'],
+      },
+    },
+    {
+      name: 'taskbook_claim',
+      description: '认领任务（设置 executedBy）（JSON）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          taskBookId: { type: 'string', description: 'TaskBook ID' },
+          taskId: { type: 'string', description: 'Task ID' },
+          by: { type: 'string', description: '执行者/认领者标识' },
+          ifRevision: { type: 'integer', description: '可选：要求 TaskBook.revision 匹配（避免并发覆盖）' },
+        },
+        required: ['taskBookId', 'taskId', 'by'],
+      },
+    },
+    {
+      name: 'taskbook_append_work',
+      description: '追加任务 actualWork 文本（JSON）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          taskBookId: { type: 'string', description: 'TaskBook ID' },
+          taskId: { type: 'string', description: 'Task ID' },
+          text: { type: 'string', description: '追加内容' },
+          ifRevision: { type: 'integer', description: '可选：要求 TaskBook.revision 匹配（避免并发覆盖）' },
+        },
+        required: ['taskBookId', 'taskId', 'text'],
+      },
+    },
+    {
+      name: 'workflow_run',
+      description: '按 Workflow Spec 执行 TaskBook（会执行 gates；需要时可 approve 跳过人工闸门）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+          taskBookId: { type: 'string', description: 'TaskBook ID' },
+          workflowPath: { type: 'string', description: 'workflow 文件路径（可选，默认 .codebuddy/workflows/default.workflow.json）' },
+          approve: { type: 'array', items: { type: 'string' }, description: '手动闸门通过列表（如 tests_passed/review_passed）' },
+          maxParallel: { type: 'number', description: '最大并发任务数（可选）' },
+          tasksOnly: { type: 'boolean', description: '仅执行 TaskBook 任务，不跑 gates（可选）' },
+        },
+        required: ['taskBookId'],
       },
     },
   ],
@@ -551,6 +937,390 @@ ${next.notes ? `\n备注: ${next.notes}` : ''}
       }
     }
 
+    case 'codebuddy_set_workdir': {
+      const parsed = CodebuddySetWorkdirArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const validation = await validateDirectory(parsed.data.path)
+      if (!validation.valid) {
+        return { content: [{ type: 'text', text: `❌ ${validation.error}` }] }
+      }
+
+      serverState.updateWorkDir(validation.resolved)
+      return {
+        content: [{ type: 'text', text: `✅ CodeBuddy 工作目录已设置为: ${validation.resolved}` }],
+      }
+    }
+
+    case 'taskbook_create': {
+      const parsed = TaskBookCreateArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      try {
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, [
+          'create',
+          '--title', parsed.data.title,
+          '--description', parsed.data.description,
+          '--type', parsed.data.taskType,
+          '--json',
+        ])
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_create 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'taskbook_list': {
+      const parsed = TaskBookListArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      try {
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, ['list', '--json'])
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_list 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'taskbook_show': {
+      const parsed = TaskBookShowArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      try {
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, ['show', parsed.data.taskBookId, '--json'])
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_show 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'taskbook_confirm': {
+      const parsed = TaskBookStatusArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      try {
+        const cliArgs: string[] = ['confirm', parsed.data.taskBookId]
+        if (typeof parsed.data.ifRevision === 'number') {
+          cliArgs.push('--if-rev', String(parsed.data.ifRevision))
+        }
+        cliArgs.push('--json')
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs)
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_confirm 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'taskbook_complete': {
+      const parsed = TaskBookStatusArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      try {
+        const cliArgs: string[] = ['complete', parsed.data.taskBookId]
+        if (typeof parsed.data.ifRevision === 'number') {
+          cliArgs.push('--if-rev', String(parsed.data.ifRevision))
+        }
+        cliArgs.push('--json')
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs)
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_complete 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'taskbook_abort': {
+      const parsed = TaskBookStatusArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      try {
+        const cliArgs: string[] = ['abort', parsed.data.taskBookId]
+        if (typeof parsed.data.ifRevision === 'number') {
+          cliArgs.push('--if-rev', String(parsed.data.ifRevision))
+        }
+        cliArgs.push('--json')
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs)
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_abort 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'taskbook_add_task': {
+      const parsed = TaskBookAddTaskArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      const cliArgs: string[] = [
+        'add-task',
+        parsed.data.taskBookId,
+        '--title', parsed.data.title,
+        '--type', parsed.data.type,
+      ]
+
+      if (parsed.data.priority) {
+        cliArgs.push('--priority', parsed.data.priority)
+      }
+      if (parsed.data.deps?.length) {
+        cliArgs.push('--deps', parsed.data.deps.join(','))
+      }
+      if (parsed.data.acceptanceCriteria?.length) {
+        for (const ac of parsed.data.acceptanceCriteria) {
+          cliArgs.push('--ac', ac)
+        }
+      }
+      if (parsed.data.scopeFiles?.length) {
+        cliArgs.push('--files', parsed.data.scopeFiles.join(','))
+      }
+      if (parsed.data.scopeModules?.length) {
+        cliArgs.push('--modules', parsed.data.scopeModules.join(','))
+      }
+      if (parsed.data.scopeTags?.length) {
+        cliArgs.push('--tags', parsed.data.scopeTags.join(','))
+      }
+      if (typeof parsed.data.ifRevision === 'number') {
+        cliArgs.push('--if-rev', String(parsed.data.ifRevision))
+      }
+      cliArgs.push('--json')
+
+      try {
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs)
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_add_task 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'taskbook_update_task': {
+      const parsed = TaskBookUpdateTaskArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      const cliArgs: string[] = ['update-task', parsed.data.taskBookId, parsed.data.taskId]
+      if (parsed.data.title) cliArgs.push('--title', parsed.data.title)
+      if (parsed.data.status) cliArgs.push('--status', parsed.data.status)
+      if (parsed.data.priority) cliArgs.push('--priority', parsed.data.priority)
+      if (parsed.data.deps?.length) cliArgs.push('--deps', parsed.data.deps.join(','))
+      if (parsed.data.acceptanceCriteria?.length) {
+        for (const ac of parsed.data.acceptanceCriteria) {
+          cliArgs.push('--ac', ac)
+        }
+      }
+      if (parsed.data.scopeFiles?.length) cliArgs.push('--files', parsed.data.scopeFiles.join(','))
+      if (parsed.data.scopeModules?.length) cliArgs.push('--modules', parsed.data.scopeModules.join(','))
+      if (parsed.data.scopeTags?.length) cliArgs.push('--tags', parsed.data.scopeTags.join(','))
+      if (parsed.data.actualWork) cliArgs.push('--actual-work', parsed.data.actualWork)
+      if (parsed.data.blockedReason) cliArgs.push('--blocked-reason', parsed.data.blockedReason)
+      if (parsed.data.executedBy) cliArgs.push('--executed-by', parsed.data.executedBy)
+      if (typeof parsed.data.ifRevision === 'number') cliArgs.push('--if-rev', String(parsed.data.ifRevision))
+      cliArgs.push('--json')
+
+      try {
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs)
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_update_task 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'taskbook_claim': {
+      const parsed = TaskBookClaimArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      try {
+        const cliArgs: string[] = ['claim', parsed.data.taskBookId, parsed.data.taskId, '--by', parsed.data.by]
+        if (typeof parsed.data.ifRevision === 'number') {
+          cliArgs.push('--if-rev', String(parsed.data.ifRevision))
+        }
+        cliArgs.push('--json')
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs)
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_claim 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'taskbook_append_work': {
+      const parsed = TaskBookAppendWorkArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      try {
+        const cliArgs: string[] = [
+          'append-work',
+          parsed.data.taskBookId,
+          parsed.data.taskId,
+          '--text', parsed.data.text,
+        ]
+        if (typeof parsed.data.ifRevision === 'number') {
+          cliArgs.push('--if-rev', String(parsed.data.ifRevision))
+        }
+        cliArgs.push('--json')
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs)
+        return { content: [{ type: 'text', text: output }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ taskbook_append_work 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
+    case 'workflow_run': {
+      const parsed = WorkflowRunArgsSchema.safeParse(args)
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] }
+      }
+
+      const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir)
+      if (!dirResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] }
+      }
+
+      const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'task-executor.js')
+      if (!scriptResult.ok) {
+        return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] }
+      }
+
+      const cliArgs: string[] = [parsed.data.taskBookId]
+      if (parsed.data.workflowPath) {
+        cliArgs.push('--workflow', parsed.data.workflowPath)
+      }
+      if (parsed.data.approve?.length) {
+        for (const gateId of parsed.data.approve) {
+          cliArgs.push('--approve', gateId)
+        }
+      }
+      if (parsed.data.maxParallel) {
+        cliArgs.push('--max-parallel', String(parsed.data.maxParallel))
+      }
+      if (parsed.data.tasksOnly) {
+        cliArgs.push('--tasks-only')
+      }
+
+      try {
+        const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs, { timeoutMs: 20 * 60 * 1000 })
+        return { content: [{ type: 'text', text: output || '✅ workflow_run completed' }] }
+      } catch (error) {
+        return { content: [{ type: 'text', text: `❌ workflow_run 执行失败\n${formatExecError(error)}` }] }
+      }
+    }
+
     default:
       // 处理 analyze_project_structure 工具
       if (name === 'analyze_project_structure') {
@@ -655,8 +1425,8 @@ ${result.violations.length > 30 ? `\n... 还有 ${result.violations.length - 30}
   }
 })
 
-server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-  resources: [
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  return { resources: [
     {
       uri: 'ralph://prd',
       name: 'prd.json',
@@ -669,12 +1439,163 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       description: 'Ralph 进度日志',
       mimeType: 'text/plain',
     },
-  ],
-}))
+    {
+      uri: 'codebuddy://workdir',
+      name: 'workDir',
+      description: 'CodeBuddy 当前工作目录（SSOT 所在目录）',
+      mimeType: 'text/plain',
+    },
+    {
+      uri: 'codebuddy://workflows/schema',
+      name: 'workflow.schema.json',
+      description: 'Workflow Spec JSON Schema',
+      mimeType: 'application/json',
+    },
+    {
+      uri: 'codebuddy://workflows/list',
+      name: 'workflows',
+      description: 'Workflow 列表（JSON）',
+      mimeType: 'application/json',
+    },
+    {
+      uri: 'codebuddy://taskbooks/schema',
+      name: 'taskbook.schema.json',
+      description: 'TaskBook JSON Schema',
+      mimeType: 'application/json',
+    },
+    {
+      uri: 'codebuddy://taskbooks/active',
+      name: 'taskbooks.active',
+      description: 'Active TaskBooks 列表（JSON）',
+      mimeType: 'application/json',
+    },
+    {
+      uri: 'codebuddy://taskbooks/history',
+      name: 'taskbooks.history',
+      description: 'History TaskBooks 列表（JSON）',
+      mimeType: 'application/json',
+    },
+  ] }
+})
 
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params
   const { workDir } = serverState.getState()
+
+  if (uri.startsWith('codebuddy://')) {
+    const url = new URL(uri)
+    const host = url.hostname
+    const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+
+    const readTextFile = async (absPath: string, mimeType: string) => {
+      const text = await fs.readFile(absPath, 'utf-8')
+      return { contents: [{ uri, mimeType, text }] }
+    }
+
+    const safeBasename = (name: string) => {
+      const base = path.basename(name)
+      if (base !== name) {
+        throw new Error(`Invalid resource name: ${name}`)
+      }
+      if (base.includes('..')) {
+        throw new Error(`Invalid resource name: ${name}`)
+      }
+      return base
+    }
+
+    if (host === 'workdir') {
+      return { contents: [{ uri, mimeType: 'text/plain', text: workDir }] }
+    }
+
+    if (host === 'workflows') {
+      const workflowsDir = path.join(workDir, '.codebuddy', 'workflows')
+
+      if (segments[0] === 'schema') {
+        return readTextFile(path.join(workflowsDir, 'workflow.schema.json'), 'application/json')
+      }
+
+      if (segments[0] === 'list') {
+        const entries = await fs.readdir(workflowsDir, { withFileTypes: true })
+        const files = entries
+          .filter((e) => e.isFile())
+          .map((e) => e.name)
+          .filter((name) => name.endsWith('.json'))
+          .filter((name) => name !== 'workflow.schema.json')
+
+        return {
+          contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ files }, null, 2) }],
+        }
+      }
+
+      if (segments[0] === 'file') {
+        const fileName = safeBasename(segments[1] ?? '')
+        return readTextFile(path.join(workflowsDir, fileName), 'application/json')
+      }
+
+      throw new Error(`Unknown CodeBuddy workflows resource: ${uri}`)
+    }
+
+    if (host === 'taskbooks') {
+      const taskbooksDir = path.join(workDir, '.codebuddy', 'taskbooks')
+
+      if (segments[0] === 'schema') {
+        return readTextFile(path.join(taskbooksDir, 'taskbook.schema.json'), 'application/json')
+      }
+
+      const listTaskbooks = async (dirName: 'active' | 'history') => {
+        const dir = path.join(taskbooksDir, dirName)
+        const entries = await fs.readdir(dir, { withFileTypes: true })
+        const files = entries
+          .filter((e) => e.isFile())
+          .map((e) => e.name)
+          .filter((name) => name.endsWith('.json'))
+          .slice(0, 200)
+
+        const items: Array<Record<string, unknown>> = []
+        for (const f of files) {
+          const abs = path.join(dir, f)
+          try {
+            const raw = await fs.readFile(abs, 'utf-8')
+            const data = JSON.parse(raw) as any
+            items.push({
+              id: data?.id ?? f.replace(/\\.json$/i, ''),
+              title: data?.title ?? '',
+              status: data?.status ?? '',
+              taskType: data?.taskType ?? '',
+              revision: typeof data?.revision === 'number' ? data.revision : 0,
+              updatedAt: data?.updatedAt ?? null,
+              createdAt: data?.createdAt ?? null,
+            })
+          } catch (error) {
+            items.push({
+              id: f.replace(/\\.json$/i, ''),
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
+
+        return {
+          contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ dir: dirName, items }, null, 2) }],
+        }
+      }
+
+      if (segments[0] === 'active') {
+        if (!segments[1]) return listTaskbooks('active')
+        const id = safeBasename(segments[1])
+        return readTextFile(path.join(taskbooksDir, 'active', `${id}.json`), 'application/json')
+      }
+
+      if (segments[0] === 'history') {
+        if (!segments[1]) return listTaskbooks('history')
+        const id = safeBasename(segments[1])
+        return readTextFile(path.join(taskbooksDir, 'history', `${id}.json`), 'application/json')
+      }
+
+      throw new Error(`Unknown CodeBuddy taskbooks resource: ${uri}`)
+    }
+
+    throw new Error(`Unknown CodeBuddy resource host: ${host}`)
+  }
 
   switch (uri) {
     case 'ralph://prd': {

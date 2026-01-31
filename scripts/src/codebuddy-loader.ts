@@ -504,6 +504,9 @@ const SCRIPTS_TO_DISTRIBUTE: Array<{ file: string; dependencies?: string[] }> = 
     file: 'task-executor.js',
     dependencies: ['types/index.js', 'taskbook-manager.js']
   },
+  {
+    file: 'contract-validator.js',
+  },
 ];
 
 /**
@@ -511,6 +514,27 @@ const SCRIPTS_TO_DISTRIBUTE: Array<{ file: string; dependencies?: string[] }> = 
  */
 const COMMANDS_TO_DISTRIBUTE: string[] = [
   'task.md',
+];
+
+/**
+ * 需要分发的 Workflow 文件
+ *
+ * 说明：Workflow 用于描述“步骤依赖 + 产物 + 质量闸门 + 策略”，可作为 Agent 引导，也可被未来的执行引擎强制执行。
+ *
+ * 分发目标目录：{project}/.codebuddy/workflows/
+ */
+const WORKFLOWS_TO_DISTRIBUTE: Array<{ sourcePath: string; destFile: string }> = [
+  { sourcePath: 'workflows/schema/workflow.schema.json', destFile: 'workflow.schema.json' },
+  { sourcePath: 'workflows/templates/default.workflow.json', destFile: 'default.workflow.json' },
+];
+
+/**
+ * 需要分发的 TaskBook 契约文件（JSON Schema）
+ *
+ * 分发目标目录：{project}/.codebuddy/taskbooks/
+ */
+const TASKBOOK_FILES_TO_DISTRIBUTE: Array<{ sourcePath: string; destFile: string }> = [
+  { sourcePath: 'taskbooks/schema/taskbook.schema.json', destFile: 'taskbook.schema.json' },
 ];
 
 /**
@@ -599,6 +623,132 @@ async function distributeScripts(targetDir: string): Promise<string[]> {
 }
 
 /**
+ * 分发 Workflows 到业务项目
+ */
+async function distributeWorkflows(targetDir: string): Promise<string[]> {
+  const distributed: string[] = [];
+  const localWorkflowsDir = path.join(targetDir, '.codebuddy/workflows');
+
+  if (!fs.existsSync(localWorkflowsDir)) {
+    fs.mkdirSync(localWorkflowsDir, { recursive: true });
+  }
+
+  for (const wf of WORKFLOWS_TO_DISTRIBUTE) {
+    const destPath = path.join(localWorkflowsDir, wf.destFile);
+
+    if (ctx.isRemote) {
+      const wfUrl = `${ctx.remoteBaseUrl}/${wf.sourcePath}`;
+      try {
+        const content = await fetchUrl(wfUrl);
+        fs.writeFileSync(destPath, content, 'utf-8');
+        distributed.push(wf.destFile);
+        logVerbose(`已下载 workflow: ${wf.destFile}`);
+      } catch (e) {
+        logWarn(`workflow 下载失败: ${wf.destFile} - ${(e as Error).message}`);
+      }
+    } else {
+      const srcPath = path.join(PROJECT_ROOT, wf.sourcePath);
+      if (!fs.existsSync(srcPath)) {
+        logWarn(`workflow 文件不存在: ${srcPath}`);
+        continue;
+      }
+      try {
+        fs.copyFileSync(srcPath, destPath);
+        distributed.push(wf.destFile);
+        logVerbose(`已复制 workflow: ${wf.destFile}`);
+      } catch (e) {
+        logWarn(`workflow 复制失败: ${wf.destFile} - ${(e as Error).message}`);
+      }
+    }
+  }
+
+  // 生成 README，降低使用门槛
+  if (distributed.length > 0) {
+    const readmePath = path.join(localWorkflowsDir, 'README.md');
+    const readme = [
+      '# Workflows',
+      '',
+      '本目录包含工作流规范（Workflow Spec）。',
+      '',
+      '- `default.workflow.json`：默认单任务闭环工作流（分析→计划→实现→测试→审查→验收）。',
+      '- `workflow.schema.json`：Workflow Spec 的 JSON Schema，用于校验/CI/MCP/多工具适配。',
+      '',
+      '说明：早期可将其作为 Agent 的执行约束与产物清单；后期可由 Task Executor 按步骤编排并强制执行 gates。',
+      '',
+    ].join('\n');
+    fs.writeFileSync(readmePath, readme, 'utf-8');
+  }
+
+  return distributed;
+}
+
+/**
+ * 分发 TaskBooks 契约（Schema）到业务项目
+ */
+async function distributeTaskBooks(targetDir: string): Promise<string[]> {
+  const distributed: string[] = [];
+  const localTaskbooksDir = path.join(targetDir, '.codebuddy/taskbooks');
+
+  if (!fs.existsSync(localTaskbooksDir)) {
+    fs.mkdirSync(localTaskbooksDir, { recursive: true });
+  }
+
+  // 预创建存储目录，降低首次使用门槛
+  const activeDir = path.join(localTaskbooksDir, 'active');
+  const historyDir = path.join(localTaskbooksDir, 'history');
+  if (!fs.existsSync(activeDir)) fs.mkdirSync(activeDir, { recursive: true });
+  if (!fs.existsSync(historyDir)) fs.mkdirSync(historyDir, { recursive: true });
+
+  for (const item of TASKBOOK_FILES_TO_DISTRIBUTE) {
+    const destPath = path.join(localTaskbooksDir, item.destFile);
+
+    if (ctx.isRemote) {
+      const url = `${ctx.remoteBaseUrl}/${item.sourcePath}`;
+      try {
+        const content = await fetchUrl(url);
+        fs.writeFileSync(destPath, content, 'utf-8');
+        distributed.push(item.destFile);
+        logVerbose(`已下载 taskbook contract: ${item.destFile}`);
+      } catch (e) {
+        logWarn(`taskbook contract 下载失败: ${item.destFile} - ${(e as Error).message}`);
+      }
+    } else {
+      const srcPath = path.join(PROJECT_ROOT, item.sourcePath);
+      if (!fs.existsSync(srcPath)) {
+        logWarn(`taskbook contract 文件不存在: ${srcPath}`);
+        continue;
+      }
+      try {
+        fs.copyFileSync(srcPath, destPath);
+        distributed.push(item.destFile);
+        logVerbose(`已复制 taskbook contract: ${item.destFile}`);
+      } catch (e) {
+        logWarn(`taskbook contract 复制失败: ${item.destFile} - ${(e as Error).message}`);
+      }
+    }
+  }
+
+  if (distributed.length > 0) {
+    const readmePath = path.join(localTaskbooksDir, 'README.md');
+    const readme = [
+      '# TaskBooks',
+      '',
+      '本目录是 **TaskBook（任务书）** 的存储与契约（SSOT）。',
+      '',
+      '- `active/`：进行中的 TaskBook（*.json）',
+      '- `history/`：已归档的 TaskBook（*.json）',
+      '- `taskbook.schema.json`：TaskBook JSON Schema（契约）',
+      '',
+      '建议：任何 Agent/工具写入 TaskBook 前先按 schema 校验结构，避免“行为不一致”。',
+      '',
+    ].join('\n');
+    fs.writeFileSync(readmePath, readme, 'utf-8');
+  }
+
+  return distributed;
+}
+
+/**
  * 分发 Slash Commands 到业务项目
  */
 async function distributeCommands(targetDir: string): Promise<string[]> {
@@ -641,6 +791,75 @@ async function distributeCommands(targetDir: string): Promise<string[]> {
   }
 
   return distributed;
+}
+
+/**
+ * 生成 Workflows 使用提示词
+ */
+function generateWorkflowsPrompt(workflows: string[]): string {
+  if (workflows.length === 0) return '';
+
+  const workflowFiles = workflows
+    .filter(f => f.endsWith('.workflow.json'))
+    .sort((a, b) => a.localeCompare(b));
+
+  const schemaFiles = workflows
+    .filter(f => f.endsWith('.schema.json'))
+    .sort((a, b) => a.localeCompare(b));
+
+  let table = '| 文件 | 路径 | 说明 |\n|------|------|------|\n';
+  for (const wf of workflowFiles) {
+    table += `| \`${wf}\` | \`.codebuddy/workflows/${wf}\` | Workflow Spec |\n`;
+  }
+  for (const s of schemaFiles) {
+    table += `| \`${s}\` | \`.codebuddy/workflows/${s}\` | JSON Schema |\n`;
+  }
+
+  return `
+# 🧭 Workflows（工作流规范）
+
+本项目包含 **Workflow Spec**（工作流规范），用于描述“步骤依赖（DAG）+ 产物（artifacts）+ 质量闸门（gates）+ 策略（policies）”。
+
+> 早期：可作为 Agent 的执行约束与引导；后期：可由执行引擎按规范编排并强制 gates。
+
+## 已安装文件
+
+${table}
+
+## 使用约定（强建议）
+
+1. 在创建/执行 TaskBook 前，先读取 \`.codebuddy/workflows/default.workflow.json\`。
+2. 每个 step 都需要产出可验证的 artifact（例如报告、测试结果、变更说明），并写回 TaskBook 的 \`actualWork\` / 报告目录。
+3. gates 失败必须进入 \`blocked\` 并记录原因，直到人工确认继续/跳过。
+`;
+}
+
+/**
+ * 生成 TaskBooks 契约提示词
+ */
+function generateTaskBooksPrompt(files: string[]): string {
+  if (files.length === 0) return '';
+
+  let table = '| 文件 | 路径 | 说明 |\n|------|------|------|\n';
+  for (const f of files.sort((a, b) => a.localeCompare(b))) {
+    table += `| \`${f}\` | \`.codebuddy/taskbooks/${f}\` | TaskBook Contract |\n`;
+  }
+
+  return `
+# 📒 TaskBook（任务书契约）
+
+TaskBook 是任务协作的 **唯一事实源（SSOT）**：规划、执行、产出、验收都应以 \`.codebuddy/taskbooks/active/*.json\` 为准。
+
+## 已安装文件
+
+${table}
+
+## 使用约定（强建议）
+
+1. 所有任务状态变更必须写回 TaskBook（避免“口头完成”）。
+2. 每个任务的可验证产出（报告/测试结果/变更说明）应记录到 \`actualWork\` 或报告目录，并在 TaskBook 中引用。
+3. gates 失败必须进入 \`blocked\` 并记录原因，直到人工确认继续/跳过。
+`;
 }
 
 /**
@@ -729,6 +948,8 @@ function generateScriptsReadme(scripts: string[]): string {
   for (const script of scripts) {
     if (script === 'structure-analyzer.js') {
       lines.push(`| \`${script}\` | 项目结构分析器 | \`node .codebuddy/scripts/${script} .\` |`);
+    } else if (script === 'contract-validator.js') {
+      lines.push(`| \`${script}\` | 契约校验器（TaskBook/Workflow）| \`node .codebuddy/scripts/${script} --workflows --taskbooks\` |`);
     } else {
       lines.push(`| \`${script}\` | - | \`node .codebuddy/scripts/${script}\` |`);
     }
@@ -768,6 +989,8 @@ function generateScriptsPrompt(scripts: string[]): string {
       table += `| \`${script}\` | 模块图谱分析器 | \`node .codebuddy/scripts/${script} .\` |\n`;
     } else if (script === 'report-manager.js') {
       table += `| \`${script}\` | 报告管理器 | \`node .codebuddy/scripts/${script} status\` |\n`;
+    } else if (script === 'contract-validator.js') {
+      table += `| \`${script}\` | 契约校验器（TaskBook/Workflow）| \`node .codebuddy/scripts/${script} --workflows --taskbooks\` |\n`;
     } else {
       table += `| \`${script}\` | - | \`node .codebuddy/scripts/${script}\` |\n`;
     }
@@ -1254,6 +1477,22 @@ updatedAt: ${updatedAt}
     finalContent += generateScriptsPrompt(distributedScripts);
   }
 
+  // ============ Workflows 分发 ============
+  log('分发 Workflows...');
+  const distributedWorkflows = await distributeWorkflows(targetDir);
+  if (distributedWorkflows.length > 0) {
+    log(`已分发 ${distributedWorkflows.length} 个工作流`);
+    finalContent += generateWorkflowsPrompt(distributedWorkflows);
+  }
+
+  // ============ TaskBooks 契约分发 ============
+  log('分发 TaskBook 契约...');
+  const distributedTaskBooks = await distributeTaskBooks(targetDir);
+  if (distributedTaskBooks.length > 0) {
+    log(`已分发 ${distributedTaskBooks.length} 个 TaskBook 契约文件`);
+    finalContent += generateTaskBooksPrompt(distributedTaskBooks);
+  }
+
   // ============ 命令分发 ============
   log('分发 Slash Commands...');
   const distributedCommands = await distributeCommands(targetDir);
@@ -1282,6 +1521,8 @@ updatedAt: ${updatedAt}
   log(`   Layer 2 索引: ${layer2Index.length} 个`);
   log(`   Layer 3 索引: ${layer3Index.length} 个`);
   log(`   工具脚本: ${distributedScripts.length} 个`);
+  log(`   Workflows: ${distributedWorkflows.length} 个`);
+  log(`   TaskBook 契约: ${distributedTaskBooks.length} 个`);
   log(`   Slash Commands: ${distributedCommands.length} 个`);
   log('═══════════════════════════════════════════════════════════════════');
 }

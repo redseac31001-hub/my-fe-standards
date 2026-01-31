@@ -16,6 +16,7 @@
 - **整洁代码原则**：命名、函数、SOLID、代码坏味道，所有任务自动遵循
 - **技能系统**：支持 CodeBuddy Skills，动态加载专业技能
 - **计划任务系统**：/task 命令，端到端的需求分解→执行→验收
+- **Workflow Spec**：工作流规范（步骤依赖 DAG + 质量闸门 gates + 策略 policies），支持多工具/多模型快速适配
 - **项目记忆系统**：架构快照、模块图谱、健康度时间线，差异对比和趋势分析
 - **智能检测**：自动识别 Vue 2/3 版本和 UI 库依赖
 - **远程加载**：支持 HTTP 远程模式和 Git 私有仓库模式
@@ -46,6 +47,8 @@ my-fe-standards/
 │   ├── layer1_base/            # 🧱 基础层 - 通用技术标准
 │   ├── layer2_business/        # 🏢 业务层 - UI 库规范
 │   └── layer3_action/          # ⚡ 动作层 - 任务检查清单
+├── workflows/                  # 🧭 Workflow Spec（模板 + Schema）
+├── taskbooks/                  # 📒 TaskBook（契约 + Schema）
 └── scripts/
     ├── dist/                   # 编译后的脚本
     └── src/                    # TypeScript 源码
@@ -176,10 +179,35 @@ node .codebuddy/scripts/report-manager.js export
 
 ```text
 .codebuddy/taskbooks/
+├── taskbook.schema.json         # TaskBook JSON Schema（契约）
 ├── active/                      # 进行中的任务书
 │   └── tb-20260130-user-auth.json
 └── history/                     # 已完成的任务书
     └── tb-20260129-refactor.json
+```
+
+### 执行 TaskBook（Workflow 驱动）
+
+```bash
+# 默认读取 .codebuddy/workflows/default.workflow.json
+node .codebuddy/scripts/task-executor.js <taskBookId>
+```
+
+### 管理 TaskBook（命令行）
+
+```bash
+# 创建 TaskBook
+node .codebuddy/scripts/taskbook-manager.js create --title "用户登录" --description "实现登录/登出" --type new-feature
+
+# 添加任务
+node .codebuddy/scripts/taskbook-manager.js add-task <taskBookId> --title "生成架构/模块报告" --type analysis
+
+# 确认并开始执行（先 confirm，再执行 executor）
+node .codebuddy/scripts/taskbook-manager.js confirm <taskBookId>
+node .codebuddy/scripts/task-executor.js <taskBookId>
+
+# 可选：手动校验契约（TaskBook/Workflow）
+node .codebuddy/scripts/contract-validator.js --workflows --taskbooks
 ```
 
 ### 报告目录结构
@@ -248,6 +276,7 @@ node codebuddy-loader.js [options]
 ├── rules_cache/            # 规则缓存 (按需读取)
 │   ├── layer2_business/
 │   └── layer3_action/
+├── workflows/              # Workflow Spec（工作流规范）
 └── skills/                 # 技能文件 (动态加载)
 ```
 
@@ -315,6 +344,7 @@ node scripts/codebuddy-loader.js --remote <URL> --verbose
 ## 🔗 相关文档
 
 - [远程接入指南](docs/remote-usage-guide.md)
+- [Workflow Spec 使用指南](docs/workflows-guide.md)
 - [技能系统说明](custom-skills/custom-skills-guide.md)
 - [技能增强文档](README-SKILLS-ENHANCEMENT.md)
 
