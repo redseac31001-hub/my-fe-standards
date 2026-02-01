@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #1C2833; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.content { padding: 25pt 40pt; flex: 1; }
+.section-title { color: #1C2833; font-size: 18pt; font-weight: bold; margin-bottom: 20pt; }
+.rules-grid { display: flex; gap: 15pt; }
+.rule-category { flex: 1; }
+.category-header { background: #3498DB; color: #FFFFFF; padding: 10pt 15pt; font-size: 13pt; font-weight: bold; border-radius: 6pt 6pt 0 0; }
+.category-list { background: #F8F9FA; padding: 15pt; border-radius: 0 0 6pt 6pt; min-height: 180pt; }
+.rule-item { color: #2C3E50; font-size: 10pt; padding: 6pt 0; border-bottom: 1pt solid #ECF0F1; }
+.rule-count { background: #1C2833; color: #FFFFFF; padding: 3pt 8pt; font-size: 9pt; border-radius: 10pt; float: right; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">规则系统概览</h1>
+</div>
+<div class="content">
+  <p class="section-title">17 个规则文件，覆盖前端开发全流程</p>
+  <div class="rules-grid">
+    <div class="rule-category">
+      <div class="category-header">代码质量 <p class="rule-count">1</p></div>
+      <div class="category-list">
+        <p class="rule-item">clean-code.md</p>
+        <p class="rule-item">整洁代码核心原则</p>
+        <p class="rule-item">命名规范、函数设计</p>
+        <p class="rule-item">SOLID 原则、代码坏味道</p>
+      </div>
+    </div>
+    <div class="rule-category">
+      <div class="category-header">架构规范 <p class="rule-count">1</p></div>
+      <div class="category-list">
+        <p class="rule-item">feature-based-structure.md</p>
+        <p class="rule-item">Feature-Based 目录结构</p>
+        <p class="rule-item">模块划分、依赖管理</p>
+        <p class="rule-item">反模式检测</p>
+      </div>
+    </div>
+    <div class="rule-category">
+      <div class="category-header">TypeScript <p class="rule-count">2</p></div>
+      <div class="category-list">
+        <p class="rule-item">strict-types.md</p>
+        <p class="rule-item">api-request.md</p>
+        <p class="rule-item">严格类型检查</p>
+        <p class="rule-item">API 请求规范</p>
+      </div>
+    </div>
+    <div class="rule-category">
+      <div class="category-header">Vue 框架 <p class="rule-count">5</p></div>
+      <div class="category-list">
+        <p class="rule-item">vue2-general.md</p>
+        <p class="rule-item">vue2-composition.md</p>
+        <p class="rule-item">vue3-script-setup.md</p>
+        <p class="rule-item">pinia.md / router.md</p>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

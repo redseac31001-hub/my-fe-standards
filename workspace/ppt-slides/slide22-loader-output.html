@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #16A085; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.content { padding: 20pt 40pt; flex: 1; display: flex; gap: 25pt; }
+.left-col { flex: 1; }
+.right-col { flex: 1.2; }
+.section-title { color: #1C2833; font-size: 14pt; font-weight: bold; margin-bottom: 12pt; }
+.dir-tree { background: #1C2833; padding: 12pt; border-radius: 6pt; font-family: Courier New, monospace; }
+.tree-line { color: #2ECC71; font-size: 8pt; line-height: 1.5; }
+.output-list { margin-top: 15pt; }
+.output-item { background: #F8F9FA; padding: 10pt; margin-bottom: 8pt; border-left: 3pt solid #16A085; }
+.output-title { color: #16A085; font-size: 11pt; font-weight: bold; }
+.output-desc { color: #2C3E50; font-size: 9pt; margin-top: 4pt; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">加载器输出</h1>
+</div>
+<div class="content">
+  <div class="left-col">
+    <p class="section-title">生成的目录结构</p>
+    <div class="dir-tree">
+      <p class="tree-line">.codebuddy/</p>
+      <p class="tree-line">├── rules/</p>
+      <p class="tree-line">│   └── project-rules.md</p>
+      <p class="tree-line">├── rules_cache/</p>
+      <p class="tree-line">│   ├── layer2_business/</p>
+      <p class="tree-line">│   └── layer3_action/</p>
+      <p class="tree-line">├── workflows/</p>
+      <p class="tree-line">├── skills/</p>
+      <p class="tree-line">├── scripts/</p>
+      <p class="tree-line">│   ├── structure-analyzer.js</p>
+      <p class="tree-line">│   ├── module-mapper.js</p>
+      <p class="tree-line">│   ├── report-manager.js</p>
+      <p class="tree-line">│   └── taskbook-manager.js</p>
+      <p class="tree-line">├── reports/</p>
+      <p class="tree-line">└── taskbooks/</p>
+    </div>
+  </div>
+  <div class="right-col">
+    <p class="section-title">输出文件说明</p>
+    <div class="output-list">
+      <div class="output-item">
+        <p class="output-title">project-rules.md</p>
+        <p class="output-desc">主规则文件，CodeBuddy 自动读取</p>
+      </div>
+      <div class="output-item">
+        <p class="output-title">rules_cache/</p>
+        <p class="output-desc">Layer 2/3 规则缓存，按需加载</p>
+      </div>
+      <div class="output-item">
+        <p class="output-title">scripts/</p>
+        <p class="output-desc">工具脚本，支持结构分析、模块映射等</p>
+      </div>
+      <div class="output-item">
+        <p class="output-title">reports/</p>
+        <p class="output-desc">项目分析报告，持久化存储</p>
+      </div>
+      <div class="output-item">
+        <p class="output-title">taskbooks/</p>
+        <p class="output-desc">任务书存储，支持中断恢复</p>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

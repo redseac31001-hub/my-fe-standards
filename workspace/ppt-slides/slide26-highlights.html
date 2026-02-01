@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #1C2833; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.content { padding: 25pt 40pt; flex: 1; display: flex; gap: 25pt; }
+.highlight-col { flex: 1; }
+.section-title { color: #1C2833; font-size: 16pt; font-weight: bold; margin-bottom: 15pt; }
+.highlight-item { background: #F8F9FA; padding: 15pt; margin-bottom: 12pt; border-radius: 6pt; border-left: 4pt solid #3498DB; }
+.highlight-title { color: #3498DB; font-size: 12pt; font-weight: bold; margin-bottom: 5pt; }
+.highlight-desc { color: #2C3E50; font-size: 10pt; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">技术亮点</h1>
+</div>
+<div class="content">
+  <div class="highlight-col">
+    <p class="section-title">架构创新</p>
+    <div class="highlight-item">
+      <p class="highlight-title">三层规则架构</p>
+      <p class="highlight-desc">渐进式加载，避免信息过载，提高 Token 效率</p>
+    </div>
+    <div class="highlight-item">
+      <p class="highlight-title">任务相关性评分</p>
+      <p class="highlight-desc">规则与任务类型的相关性评分 (0-1)，实现精准推荐</p>
+    </div>
+    <div class="highlight-item">
+      <p class="highlight-title">Workflow Spec</p>
+      <p class="highlight-desc">工具/模型无关的工作流规范，可验证、可渐进落地</p>
+    </div>
+  </div>
+  <div class="highlight-col">
+    <p class="section-title">工程实践</p>
+    <div class="highlight-item">
+      <p class="highlight-title">零依赖分发</p>
+      <p class="highlight-desc">编译后的 JS 仅使用 Node.js 内置模块，用户无需安装</p>
+    </div>
+    <div class="highlight-item">
+      <p class="highlight-title">MCP Server 集成</p>
+      <p class="highlight-desc">标准化工具接口，支持多种 AI 工具无缝接入</p>
+    </div>
+    <div class="highlight-item">
+      <p class="highlight-title">全中文支持</p>
+      <p class="highlight-desc">所有规则、提示词、日志使用简体中文，降低学习成本</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

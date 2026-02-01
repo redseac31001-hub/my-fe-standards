@@ -410,6 +410,8 @@ type ParsedArgs = {
   workflowPaths: string[];
   taskBookIds: string[];
   strict: boolean;
+  checkBatchingScope: boolean;
+  strictBatchingScope: boolean;
   json: boolean;
   quiet: boolean;
 };
@@ -421,6 +423,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     workflowPaths: [],
     taskBookIds: [],
     strict: false,
+    checkBatchingScope: false,
+    strictBatchingScope: false,
     json: false,
     quiet: false,
   };
@@ -432,6 +436,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     else if (a === '--workflow') parsed.workflowPaths.push(String(argv[++i] ?? ''));
     else if (a === '--taskbook') parsed.taskBookIds.push(String(argv[++i] ?? ''));
     else if (a === '--strict') parsed.strict = true;
+    else if (a === '--check-batching-scope') parsed.checkBatchingScope = true;
+    else if (a === '--strict-batching-scope') parsed.strictBatchingScope = true;
     else if (a === '--json') parsed.json = true;
     else if (a === '--quiet') parsed.quiet = true;
     else if (a === '--help' || a === '-h') {
@@ -450,6 +456,8 @@ function parseArgs(argv: string[]): ParsedArgs {
   parsed.workflowPaths = parsed.workflowPaths.filter(Boolean);
   parsed.taskBookIds = parsed.taskBookIds.filter(Boolean);
 
+  if (parsed.strictBatchingScope) parsed.checkBatchingScope = true;
+
   return parsed;
 }
 
@@ -466,9 +474,75 @@ Options:
   --taskbooks                 validate TaskBooks under .codebuddy/taskbooks/active
   --taskbook <id>             validate a specific TaskBook id (active/history)
   --strict                    treat unknown workflow step/gate types as errors
+  --check-batching-scope      warn when batching is enabled but tasks lack scope.files/modules
+  --strict-batching-scope     error when batching is enabled but tasks lack scope.files/modules
   --json                      output machine-readable JSON
   --quiet                     only output errors (text mode)
 `);
+}
+
+function workflowHasRiskTieredBatching(data: unknown): boolean {
+  if (!isPlainObject(data)) return false;
+  const policies = data.policies;
+  if (!isPlainObject(policies)) return false;
+  const testing = policies.testing;
+  if (!isPlainObject(testing)) return false;
+  const batching = testing.batching;
+  if (!isPlainObject(batching)) return false;
+  return batching.strategy === 'risk_tiered';
+}
+
+function batchingScopeIssues(
+  taskBookData: unknown,
+  file: string,
+  opts: { strict: boolean }
+): Issue[] {
+  const issues: Issue[] = [];
+  const level: IssueLevel = opts.strict ? 'error' : 'warning';
+
+  if (!isPlainObject(taskBookData)) return issues;
+  const tasks = taskBookData.tasks;
+  if (!Array.isArray(tasks)) return issues;
+
+  const missing: Array<{ id: string; title: string; type: string; status: string }> = [];
+
+  for (const t of tasks) {
+    if (!isPlainObject(t)) continue;
+    const type = typeof t.type === 'string' ? t.type : '';
+    const status = typeof t.status === 'string' ? t.status : '';
+    if (type !== 'analysis' && type !== 'design' && type !== 'implement') continue;
+    if (status !== 'pending') continue;
+
+    const id = typeof t.id === 'string' ? t.id : '<unknown>';
+    const title = typeof t.title === 'string' ? t.title : '';
+
+    const scope = t.scope;
+    if (!isPlainObject(scope)) {
+      missing.push({ id, title, type, status });
+      continue;
+    }
+
+    const files = Array.isArray(scope.files) ? scope.files.filter(v => typeof v === 'string' && v.trim().length > 0) : [];
+    const modules = Array.isArray(scope.modules) ? scope.modules.filter(v => typeof v === 'string' && v.trim().length > 0) : [];
+    if (files.length === 0 && modules.length === 0) {
+      missing.push({ id, title, type, status });
+    }
+  }
+
+  if (missing.length > 0) {
+    const examples = missing
+      .slice(0, 5)
+      .map(t => `${t.id}:${t.title || t.type}`)
+      .join(', ');
+    const more = missing.length > 5 ? ` (+${missing.length - 5} more)` : '';
+    issues.push({
+      level,
+      file,
+      message: `Batching scope check: ${missing.length} pending tasks (analysis/design/implement) lack scope.files/modules. Examples: ${examples}${more}. Consider adding tasks with --files/--modules.`,
+    });
+  }
+
+  return issues;
 }
 
 function main(): void {
@@ -490,12 +564,20 @@ function main(): void {
     workflowFiles.push(...listJsonFiles(dir, { exclude: new Set(['workflow.schema.json']) }));
   }
 
+  // If batching-scope checks are enabled, we need workflow policies even when --workflows wasn't requested.
+  if (args.checkBatchingScope && workflowFiles.length === 0) {
+    const dir = path.join(process.cwd(), '.codebuddy', 'workflows');
+    workflowFiles.push(...listJsonFiles(dir, { exclude: new Set(['workflow.schema.json']) }));
+  }
+
+  const workflowData: Array<{ file: string; data: unknown }> = [];
   for (const f of workflowFiles) {
     const r = readJsonFile(f);
     if (!r.ok) {
       issues.push({ level: 'error', file: f, message: `Failed to read/parse JSON: ${r.error}` });
       continue;
     }
+    workflowData.push({ file: f, data: r.data });
     issues.push(...validateWorkflowSpec(r.data, f, { strict: args.strict }));
   }
 
@@ -514,13 +596,29 @@ function main(): void {
     taskBookFiles.push(...listJsonFiles(dir));
   }
 
+  if (args.checkBatchingScope && taskBookFiles.length === 0 && args.taskBookIds.length === 0) {
+    const dir = path.join(process.cwd(), '.codebuddy', 'taskbooks', 'active');
+    taskBookFiles.push(...listJsonFiles(dir));
+  }
+
+  const taskBookData: Array<{ file: string; data: unknown }> = [];
   for (const f of taskBookFiles) {
     const r = readJsonFile(f);
     if (!r.ok) {
       issues.push({ level: 'error', file: f, message: `Failed to read/parse JSON: ${r.error}` });
       continue;
     }
+    taskBookData.push({ file: f, data: r.data });
     issues.push(...validateTaskBook(r.data, f));
+  }
+
+  if (args.checkBatchingScope) {
+    const batchingEnabled = workflowData.some(w => workflowHasRiskTieredBatching(w.data));
+    if (batchingEnabled) {
+      for (const tb of taskBookData) {
+        issues.push(...batchingScopeIssues(tb.data, tb.file, { strict: args.strictBatchingScope }));
+      }
+    }
   }
 
   const errors = issues.filter(i => i.level === 'error');

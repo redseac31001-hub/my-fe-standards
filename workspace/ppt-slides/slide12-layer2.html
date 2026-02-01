@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #2ECC71; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.header-sub { color: #FFFFFF; font-size: 14pt; opacity: 0.9; margin-top: 5pt; }
+.content { padding: 30pt 40pt; flex: 1; display: flex; gap: 30pt; }
+.ui-card { flex: 1; background: #F8F9FA; border-radius: 8pt; overflow: hidden; }
+.ui-header { padding: 20pt; text-align: center; }
+.vant-header { background: #07C160; }
+.antdv-header { background: #1890FF; }
+.ui-logo { color: #FFFFFF; font-size: 24pt; font-weight: bold; }
+.ui-version { color: #FFFFFF; font-size: 12pt; opacity: 0.9; margin-top: 5pt; }
+.ui-content { padding: 20pt; }
+.ui-feature { color: #2C3E50; font-size: 11pt; padding: 8pt 0; border-bottom: 1pt solid #ECF0F1; }
+.ui-file { color: #7F8C8D; font-size: 10pt; margin-top: 15pt; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">Layer 2: 业务规范</h1>
+  <p class="header-sub">Lazy 加载 - UI 库规范按需加载</p>
+</div>
+<div class="content">
+  <div class="ui-card">
+    <div class="ui-header vant-header">
+      <p class="ui-logo">Vant</p>
+      <p class="ui-version">移动端 UI 组件库</p>
+    </div>
+    <div class="ui-content">
+      <p class="ui-feature">组件使用规范</p>
+      <p class="ui-feature">主题定制方案</p>
+      <p class="ui-feature">按需引入配置</p>
+      <p class="ui-feature">移动端适配</p>
+      <p class="ui-feature">表单验证模式</p>
+      <p class="ui-file">vant.md</p>
+    </div>
+  </div>
+  <div class="ui-card">
+    <div class="ui-header antdv-header">
+      <p class="ui-logo">Ant Design Vue</p>
+      <p class="ui-version">企业级 UI 组件库</p>
+    </div>
+    <div class="ui-content">
+      <p class="ui-feature">组件使用规范</p>
+      <p class="ui-feature">主题配置方案</p>
+      <p class="ui-feature">表格/表单最佳实践</p>
+      <p class="ui-feature">国际化配置</p>
+      <p class="ui-feature">Pro 组件使用</p>
+      <p class="ui-file">antdv.md</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -202,13 +202,25 @@ node .codebuddy/scripts/taskbook-manager.js create --title "用户登录" --desc
 # 添加任务
 node .codebuddy/scripts/taskbook-manager.js add-task <taskBookId> --title "生成架构/模块报告" --type analysis
 
-# 确认并开始执行（先 confirm，再执行 executor）
-node .codebuddy/scripts/taskbook-manager.js confirm <taskBookId>
-node .codebuddy/scripts/task-executor.js <taskBookId>
+  # 确认并开始执行（先 confirm，再执行 executor）
+  node .codebuddy/scripts/taskbook-manager.js confirm <taskBookId>
+  node .codebuddy/scripts/task-executor.js <taskBookId>
 
-# 可选：手动校验契约（TaskBook/Workflow）
-node .codebuddy/scripts/contract-validator.js --workflows --taskbooks
-```
+  # 解除阻塞（blocked）任务：恢复为 pending，并记录解除原因
+  node .codebuddy/scripts/taskbook-manager.js unblock <taskBookId> <taskId> --resolution "已补充 scope 并拆分任务"
+
+  # 可选：随时生成验收/批量/闸门报告（可落盘到 .codebuddy/reports/taskbooks/）
+  node .codebuddy/scripts/taskbook-manager.js report <taskBookId> --write
+
+  # 可选：手动校验契约（TaskBook/Workflow）
+  node .codebuddy/scripts/contract-validator.js --workflows --taskbooks
+
+  # 可选：当启用 risk_tiered batching 时，提示（warning）缺少 scope.files/modules 的任务
+  node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --check-batching-scope
+
+  # 可选（严格模式）：将上述提示升级为 error（用于 CI/团队强约束）
+  node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --strict-batching-scope
+  ```
 
 ### 报告目录结构
 
@@ -343,7 +355,9 @@ node scripts/codebuddy-loader.js --remote <URL> --verbose
 
 ## 🔗 相关文档
 
+- [交接/接力说明（团队协作）](docs/HANDOFF.md)
 - [远程接入指南](docs/remote-usage-guide.md)
+- [业务项目 E2E 验证方案](docs/e2e-validation-playbook.md)
 - [Workflow Spec 使用指南](docs/workflows-guide.md)
 - [技能系统说明](custom-skills/custom-skills-guide.md)
 - [技能增强文档](README-SKILLS-ENHANCEMENT.md)

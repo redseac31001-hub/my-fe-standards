@@ -81,7 +81,7 @@
       "title": "Contracts (TaskBook/Workflow) validated",
       "required": true,
       "params": {
-        "commands": ["node .codebuddy/scripts/contract-validator.js --workflows --taskbooks"]
+        "commands": ["node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --check-batching-scope"]
       }
     },
     {

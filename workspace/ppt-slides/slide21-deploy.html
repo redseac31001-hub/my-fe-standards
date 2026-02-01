@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #16A085; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.content { padding: 25pt 40pt; flex: 1; }
+.section-title { color: #1C2833; font-size: 16pt; font-weight: bold; margin-bottom: 20pt; }
+.command-box { background: #1C2833; padding: 20pt; border-radius: 8pt; margin-bottom: 20pt; }
+.command-label { color: #7F8C8D; font-size: 10pt; margin-bottom: 8pt; }
+.command-text { color: #2ECC71; font-size: 11pt; font-family: Courier New, monospace; line-height: 1.6; }
+.features-row { display: flex; gap: 20pt; }
+.feature-item { flex: 1; background: #F8F9FA; padding: 15pt; border-radius: 6pt; text-align: center; }
+.feature-icon { color: #16A085; font-size: 24pt; font-weight: bold; margin-bottom: 8pt; }
+.feature-text { color: #2C3E50; font-size: 11pt; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">一键部署</h1>
+</div>
+<div class="content">
+  <p class="section-title">远程模式 - 无需下载，直接执行</p>
+  <div class="command-box">
+    <p class="command-label">远程一键执行命令</p>
+    <p class="command-text">curl -fsSL https://raw.githubusercontent.com/</p>
+    <p class="command-text">  redseac31001-hub/my-fe-standards/</p>
+    <p class="command-text">  feature/codebuddy-glm/scripts/dist/codebuddy-loader.js</p>
+    <p class="command-text">  | node - --remote [BASE_URL]</p>
+  </div>
+  <div class="features-row">
+    <div class="feature-item">
+      <p class="feature-icon">0</p>
+      <p class="feature-text">零安装依赖</p>
+    </div>
+    <div class="feature-item">
+      <p class="feature-icon">1</p>
+      <p class="feature-text">一条命令执行</p>
+    </div>
+    <div class="feature-item">
+      <p class="feature-icon">N</p>
+      <p class="feature-text">多项目复用</p>
+    </div>
+    <div class="feature-item">
+      <p class="feature-icon">+</p>
+      <p class="feature-text">自动更新</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

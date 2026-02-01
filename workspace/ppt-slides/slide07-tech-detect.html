@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #1C2833; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.content { padding: 25pt 40pt; flex: 1; }
+.section-title { color: #1C2833; font-size: 18pt; font-weight: bold; margin-bottom: 20pt; }
+.detect-grid { display: flex; gap: 20pt; }
+.detect-item { flex: 1; background: #F8F9FA; padding: 20pt; border-radius: 8pt; border-top: 4pt solid #3498DB; }
+.detect-title { color: #3498DB; font-size: 14pt; font-weight: bold; margin-bottom: 10pt; }
+.detect-list { color: #2C3E50; font-size: 11pt; line-height: 1.8; }
+.result-box { margin-top: 20pt; background: #1C2833; padding: 15pt 20pt; border-radius: 6pt; }
+.result-text { color: #2ECC71; font-size: 12pt; font-family: Courier New, monospace; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">智能技术栈检测</h1>
+</div>
+<div class="content">
+  <p class="section-title">加载器自动检测项目配置，动态加载对应规则</p>
+  <div class="detect-grid">
+    <div class="detect-item">
+      <p class="detect-title">Vue 版本</p>
+      <p class="detect-list">Vue 2.x → vue2-general.md<br/>Vue 2 + Composition → vue2-composition.md<br/>Vue 3.x → vue3-script-setup.md</p>
+    </div>
+    <div class="detect-item">
+      <p class="detect-title">UI 库</p>
+      <p class="detect-list">Vant → vant.md<br/>Ant Design Vue → antdv.md</p>
+    </div>
+    <div class="detect-item">
+      <p class="detect-title">状态管理</p>
+      <p class="detect-list">Vuex → 内置支持<br/>Pinia → pinia.md</p>
+    </div>
+    <div class="detect-item">
+      <p class="detect-title">TypeScript</p>
+      <p class="detect-list">tsconfig.json → strict-types.md<br/>api-request.md</p>
+    </div>
+  </div>
+  <div class="result-box">
+    <p class="result-text">检测结果: Vue 3.2 + Pinia + Vant 4 + TypeScript 5.0</p>
+  </div>
+</div>
+</body>
+</html>

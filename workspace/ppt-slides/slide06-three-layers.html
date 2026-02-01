@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #1C2833; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.content { padding: 25pt 40pt; flex: 1; }
+.layers-container { display: flex; gap: 20pt; }
+.layer-card { flex: 1; border: 2pt solid #ECF0F1; border-radius: 8pt; overflow: hidden; }
+.layer-header { padding: 15pt; color: #FFFFFF; }
+.layer1-header { background: #3498DB; }
+.layer2-header { background: #2ECC71; }
+.layer3-header { background: #F39C12; }
+.layer-name { font-size: 16pt; font-weight: bold; margin-bottom: 5pt; }
+.layer-mode { font-size: 11pt; opacity: 0.9; }
+.layer-content { padding: 15pt; background: #F8F9FA; }
+.layer-desc { color: #2C3E50; font-size: 11pt; margin-bottom: 10pt; }
+.layer-files { color: #7F8C8D; font-size: 10pt; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">三层规则架构</h1>
+</div>
+<div class="content">
+  <div class="layers-container">
+    <div class="layer-card">
+      <div class="layer-header layer1-header">
+        <p class="layer-name">Layer 1: 基础规范</p>
+        <p class="layer-mode">Eager 立即加载</p>
+      </div>
+      <div class="layer-content">
+        <p class="layer-desc">通用的 Vue/TS/架构规范，根据项目技术栈自动分流</p>
+        <p class="layer-files">9 个规则文件</p>
+      </div>
+    </div>
+    <div class="layer-card">
+      <div class="layer-header layer2-header">
+        <p class="layer-name">Layer 2: 业务规范</p>
+        <p class="layer-mode">Lazy 按需加载</p>
+      </div>
+      <div class="layer-content">
+        <p class="layer-desc">UI 库规范（Vant、Ant Design Vue）</p>
+        <p class="layer-files">2 个规则文件</p>
+      </div>
+    </div>
+    <div class="layer-card">
+      <div class="layer-header layer3-header">
+        <p class="layer-name">Layer 3: 动作规范</p>
+        <p class="layer-mode">Lazy 按需加载</p>
+      </div>
+      <div class="layer-content">
+        <p class="layer-desc">任务检查清单（测试、调试、重构等）</p>
+        <p class="layer-files">5 个规则文件</p>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

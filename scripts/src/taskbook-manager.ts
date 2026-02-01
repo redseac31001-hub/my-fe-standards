@@ -461,6 +461,39 @@ export class TaskBookManager {
   }
 
   /**
+   * 解除 blocked 任务，恢复为 pending，并记录 resolution
+   */
+  unblockTask(taskBookId: string, taskId: string, resolution: string, expectedRevision?: number): TaskBook | null {
+    return this.withTaskBookLock(taskBookId, () => {
+      const taskBook = this.load(taskBookId);
+    if (!taskBook) return null;
+
+    this.assertRevision(taskBook, expectedRevision);
+
+    const task = taskBook.tasks.find(t => t.id === taskId);
+    if (!task) return null;
+    if (task.status !== 'blocked') return taskBook;
+
+    const before = { status: task.status, blockedReason: task.blockedReason };
+    task.status = 'pending';
+    task.blockedReason = '';
+
+    this.addChangelogEntry(taskBook, {
+      timestamp: now(),
+      taskId,
+      changeType: 'modified',
+      reason: `解除阻塞: ${resolution}`,
+      before,
+      after: { status: task.status, blockedReason: task.blockedReason },
+    });
+
+    this.touch(taskBook);
+    this.save(taskBook);
+    return taskBook;
+    });
+  }
+
+  /**
    * 追加任务实际工作说明
    */
   appendTaskActualWork(taskBookId: string, taskId: string, text: string, expectedRevision?: number): TaskBook | null {
@@ -627,7 +660,7 @@ export class TaskBookManager {
 
     // 汇总 gates 执行信息（从 changelog 里提取 event=gate 的记录）
     const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-    const gateMap = new Map<string, NonNullable<AcceptanceReport['gates']>[number]>();
+    const gateEvents: NonNullable<AcceptanceReport['gates']> = [];
 
     for (const entry of taskBook.changelog) {
       const after = entry.after;
@@ -640,6 +673,9 @@ export class TaskBookManager {
       const passed = after.passed === true;
       const approved = after.approved === true;
       const stepId = typeof after.stepId === 'string' ? after.stepId : undefined;
+      const eventContext = typeof after.eventContext === 'string' ? after.eventContext : undefined;
+      const batchIndex = typeof after.batchIndex === 'number' && Number.isFinite(after.batchIndex) ? after.batchIndex : undefined;
+      const riskTier = typeof after.riskTier === 'string' ? after.riskTier : undefined;
       const budgetMinutes = typeof after.budgetMinutes === 'number' && Number.isFinite(after.budgetMinutes) ? after.budgetMinutes : undefined;
 
       let commandRuns: NonNullable<AcceptanceReport['gates']>[number]['commandRuns'] | undefined;
@@ -659,19 +695,23 @@ export class TaskBookManager {
 
       const totalDurationMs = commandRuns ? commandRuns.reduce((sum, r) => sum + (r.durationMs ?? 0), 0) : undefined;
 
-      gateMap.set(gateId, {
+      gateEvents.push({
         gateId,
         stepId,
+        timestamp: entry.timestamp,
         passed,
         approved,
+        eventContext,
+        batchIndex,
+        riskTier,
         budgetMinutes,
         totalDurationMs,
         commandRuns,
       });
     }
 
-    if (gateMap.size > 0) {
-      report.gates = Array.from(gateMap.values());
+    if (gateEvents.length > 0) {
+      report.gates = gateEvents;
 
       for (const g of report.gates) {
         if (typeof g.budgetMinutes === 'number' && typeof g.totalDurationMs === 'number') {
@@ -683,6 +723,88 @@ export class TaskBookManager {
           }
         }
       }
+    }
+
+    // 汇总 batches（从 changelog 里提取 event=batch 的记录）
+    const batchMap = new Map<string, NonNullable<AcceptanceReport['batches']>[number]>();
+
+    for (const entry of taskBook.changelog) {
+      const after = entry.after;
+      if (!isPlainObject(after)) continue;
+      if (after.event !== 'batch') continue;
+
+      const stepId = after.stepId;
+      const batchIndex = after.batchIndex;
+      if (typeof stepId !== 'string' || stepId.length === 0) continue;
+      if (typeof batchIndex !== 'number' || !Number.isFinite(batchIndex)) continue;
+
+      const key = `${stepId}#${batchIndex}`;
+      const existing = batchMap.get(key) ?? {
+        stepId,
+        batchIndex,
+        taskIds: [] as string[],
+      };
+
+      const rawTaskIds = after.taskIds;
+      if (Array.isArray(rawTaskIds)) {
+        const parsedTaskIds = rawTaskIds.filter((v: unknown): v is string => typeof v === 'string' && v.length > 0);
+        if (parsedTaskIds.length > 0) existing.taskIds = parsedTaskIds;
+      }
+
+      if (typeof after.riskTier === 'string') existing.riskTier = after.riskTier;
+      if (typeof after.maxFiles === 'number' && Number.isFinite(after.maxFiles)) existing.maxFiles = after.maxFiles;
+
+      if (typeof after.status === 'string' && after.status.length > 0) {
+        existing.status = after.status;
+        existing.endedAt = entry.timestamp;
+      } else {
+        existing.startedAt = entry.timestamp;
+      }
+
+      batchMap.set(key, existing);
+    }
+
+    if (batchMap.size > 0) {
+      const batches = Array.from(batchMap.values()).sort((a, b) => {
+        const s = a.stepId.localeCompare(b.stepId);
+        if (s !== 0) return s;
+        return a.batchIndex - b.batchIndex;
+      });
+
+      // attach smoke gate status if available (batched implement flow)
+      const gateList = report.gates ?? [];
+      for (const b of batches) {
+        const match = [...gateList].reverse().find(g =>
+          g.gateId === 'smoke_passed'
+          && g.stepId === b.stepId
+          && g.eventContext === 'batch_gate'
+          && typeof g.batchIndex === 'number'
+          && g.batchIndex === b.batchIndex
+        );
+        if (match) {
+          b.smokeGate = {
+            passed: match.passed,
+            budgetMinutes: match.budgetMinutes,
+            totalDurationMs: match.totalDurationMs,
+          };
+        }
+      }
+
+      report.batches = batches;
+    }
+
+    // Scope 纪律建议：缺少 scope 会导致 batching / 并发冲突检测退化
+    const missingScope = taskBook.tasks.filter(t => {
+      if (t.status !== 'pending') return false;
+      if (t.type !== 'analysis' && t.type !== 'design' && t.type !== 'implement') return false;
+      const files = t.scope?.files ?? [];
+      const modules = t.scope?.modules ?? [];
+      return files.length === 0 && modules.length === 0;
+    });
+    if (missingScope.length > 0) {
+      report.recommendations.suggested.push(
+        `发现 ${missingScope.length} 个 pending 的实现相关任务缺少 scope.files/modules；批量预算与并行冲突检测将退化为串行。建议在规划阶段为任务补齐 scope。`
+      );
     }
 
     // 添加建议
@@ -789,11 +911,13 @@ common options:
   create                      创建 TaskBook
   list                        列出 active TaskBooks
   show <taskBookId>            查看 TaskBook（默认格式化输出）
+  report <taskBookId>          生成验收/批量/闸门报告（可选落盘）
   confirm <taskBookId>         将 TaskBook 状态设为 confirmed
   complete <taskBookId>        将 TaskBook 状态设为 completed（会归档到 history）
   abort <taskBookId>           将 TaskBook 状态设为 aborted（会归档到 history）
   add-task <taskBookId>        添加任务
   update-task <taskBookId> <taskId>   更新任务（status/priority/deps/actualWork/blockedReason/...）
+  unblock <taskBookId> <taskId>       解除 blocked 任务并恢复为 pending
   claim <taskBookId> <taskId>  认领任务（设置 executedBy）
   append-work <taskBookId> <taskId>   追加 actualWork 文本
 
@@ -830,6 +954,15 @@ update-task options:
 
 claim options:
   --by <name>                  执行者/认领者标识（必填）
+  --json
+
+report options:
+  --write                      写入到 .codebuddy/reports/taskbooks/<id>.acceptance.json（或由 --out 指定）
+  --out <path>                 自定义输出路径（可选）
+  --json
+
+unblock options:
+  --resolution <text>          解除阻塞说明（必填）
   --json
 
 说明:
@@ -1012,6 +1145,35 @@ function main(): void {
       break;
     }
 
+    case 'report': {
+      const taskBookId = parsed.positionals[0];
+      const write = flagAsBool(parsed.flags, 'write');
+      const out = flagAsString(parsed.flags, 'out');
+      if (!taskBookId) {
+        console.error('错误: report 需要 <taskBookId>');
+        process.exit(1);
+      }
+
+      const report = manager.generateAcceptanceReport(taskBookId);
+      if (!report) {
+        console.error(`错误: TaskBook not found: ${taskBookId}`);
+        process.exit(1);
+      }
+
+      if (write) {
+        const outDir = path.join(process.cwd(), '.codebuddy', 'reports', 'taskbooks');
+        ensureDir(outDir);
+        const outPath = out ? path.resolve(process.cwd(), out) : path.join(outDir, `${taskBookId}.acceptance.json`);
+        fs.writeFileSync(outPath, JSON.stringify(report, null, 2), 'utf-8');
+        if (!json) console.log(`[TaskBook] 已生成验收报告: ${outPath}`);
+      }
+
+      if (json || !write) {
+        printJson(report);
+      }
+      break;
+    }
+
     case 'confirm': {
       const taskBookId = parsed.positionals[0];
       if (!taskBookId) {
@@ -1152,6 +1314,26 @@ function main(): void {
 
       if (json) printJson(tb);
       else console.log(`[TaskBook] 已更新任务: ${taskId}`);
+      break;
+    }
+
+    case 'unblock': {
+      const taskBookId = parsed.positionals[0];
+      const taskId = parsed.positionals[1];
+      const resolution = flagAsString(parsed.flags, 'resolution');
+      if (!taskBookId || !taskId || !resolution) {
+        console.error('错误: unblock 需要 <taskBookId> <taskId> --resolution <text>');
+        process.exit(1);
+      }
+
+      const tb = manager.unblockTask(taskBookId, taskId, resolution, expectedRevision);
+      if (!tb) {
+        console.error(`错误: TaskBook/task not found: ${taskBookId} ${taskId}`);
+        process.exit(1);
+      }
+
+      if (json) printJson(tb);
+      else console.log(`[TaskBook] 已解除阻塞: ${taskId}`);
       break;
     }
 

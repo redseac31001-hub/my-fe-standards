@@ -401,11 +401,26 @@ export interface AcceptanceReport {
   gates?: Array<{
     gateId: string;
     stepId?: string;
+    timestamp?: string;
     passed: boolean;
     approved?: boolean;
+    eventContext?: string;
+    batchIndex?: number;
+    riskTier?: string;
     budgetMinutes?: number;
     totalDurationMs?: number;
     commandRuns?: Array<{ command: string; ok: boolean; code: number | null; durationMs: number }>;
+  }>;
+  batches?: Array<{
+    stepId: string;
+    batchIndex: number;
+    taskIds: string[];
+    riskTier?: string;
+    maxFiles?: number;
+    status?: string;
+    startedAt?: string;
+    endedAt?: string;
+    smokeGate?: { passed: boolean; budgetMinutes?: number; totalDurationMs?: number };
   }>;
   codeChanges?: {
     addedFiles: number;

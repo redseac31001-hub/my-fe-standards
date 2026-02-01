@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #E74C3C; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.header-sub { color: #FFFFFF; font-size: 14pt; opacity: 0.9; margin-top: 5pt; }
+.content { padding: 20pt 40pt; flex: 1; }
+.workflow-container { display: flex; flex-wrap: wrap; gap: 10pt; justify-content: center; }
+.workflow-step { width: 140pt; background: #F8F9FA; padding: 15pt; border-radius: 8pt; text-align: center; position: relative; }
+.step-number { background: #E74C3C; color: #FFFFFF; width: 24pt; height: 24pt; border-radius: 50%; font-size: 12pt; font-weight: bold; line-height: 24pt; margin: 0 auto 10pt; }
+.step-title { color: #1C2833; font-size: 12pt; font-weight: bold; margin-bottom: 5pt; }
+.step-desc { color: #2C3E50; font-size: 9pt; line-height: 1.4; }
+.arrow { color: #E74C3C; font-size: 18pt; font-weight: bold; align-self: center; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">Task Orchestrator 工作流</h1>
+  <p class="header-sub">端到端的需求分解 → 执行 → 验收闭环</p>
+</div>
+<div class="content">
+  <div class="workflow-container">
+    <div class="workflow-step">
+      <p class="step-number">1</p>
+      <p class="step-title">意图识别</p>
+      <p class="step-desc">解析用户输入，确定任务类型</p>
+    </div>
+    <p class="arrow">→</p>
+    <div class="workflow-step">
+      <p class="step-number">2</p>
+      <p class="step-title">上下文收集</p>
+      <p class="step-desc">读取项目元数据、健康度报告</p>
+    </div>
+    <p class="arrow">→</p>
+    <div class="workflow-step">
+      <p class="step-number">3</p>
+      <p class="step-title">需求分解</p>
+      <p class="step-desc">按 INVEST 原则拆分原子任务</p>
+    </div>
+    <p class="arrow">→</p>
+    <div class="workflow-step">
+      <p class="step-number">4</p>
+      <p class="step-title">用户确认</p>
+      <p class="step-desc">展示 TaskBook 草稿等待批准</p>
+    </div>
+    <p class="arrow">→</p>
+    <div class="workflow-step">
+      <p class="step-number">5</p>
+      <p class="step-title">自动执行</p>
+      <p class="step-desc">编排多 Agent 协作执行</p>
+    </div>
+    <p class="arrow">→</p>
+    <div class="workflow-step">
+      <p class="step-number">6</p>
+      <p class="step-title">变更追踪</p>
+      <p class="step-desc">记录偏离原计划的改动</p>
+    </div>
+    <p class="arrow">→</p>
+    <div class="workflow-step">
+      <p class="step-number">7</p>
+      <p class="step-title">验收闭环</p>
+      <p class="step-desc">生成报告，请求最终确认</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

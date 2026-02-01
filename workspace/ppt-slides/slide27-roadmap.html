@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #1C2833; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.content { padding: 25pt 40pt; flex: 1; }
+.section-title { color: #1C2833; font-size: 16pt; font-weight: bold; margin-bottom: 20pt; }
+.roadmap { display: flex; gap: 20pt; }
+.phase { flex: 1; background: #F8F9FA; border-radius: 8pt; overflow: hidden; }
+.phase-header { padding: 15pt; text-align: center; }
+.phase1 { background: #3498DB; }
+.phase2 { background: #2ECC71; }
+.phase3 { background: #F39C12; }
+.phase-title { color: #FFFFFF; font-size: 14pt; font-weight: bold; }
+.phase-content { padding: 15pt; }
+.phase-item { color: #2C3E50; font-size: 10pt; padding: 6pt 0; border-bottom: 1pt solid #ECF0F1; }
+.phase-item:last-child { border-bottom: none; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">未来规划</h1>
+</div>
+<div class="content">
+  <p class="section-title">持续演进路线图</p>
+  <div class="roadmap">
+    <div class="phase">
+      <div class="phase-header phase1">
+        <p class="phase-title">近期目标</p>
+      </div>
+      <div class="phase-content">
+        <p class="phase-item">更多 UI 库规范 (Element Plus)</p>
+        <p class="phase-item">React 技术栈支持</p>
+        <p class="phase-item">更多 Agent 类型</p>
+        <p class="phase-item">性能优化建议自动化</p>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-header phase2">
+        <p class="phase-title">中期目标</p>
+      </div>
+      <div class="phase-content">
+        <p class="phase-item">可视化健康度仪表盘</p>
+        <p class="phase-item">团队协作功能</p>
+        <p class="phase-item">CI/CD 集成</p>
+        <p class="phase-item">自定义规则编辑器</p>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-header phase3">
+        <p class="phase-title">长期愿景</p>
+      </div>
+      <div class="phase-content">
+        <p class="phase-item">多语言支持 (Java, Go)</p>
+        <p class="phase-item">企业级部署方案</p>
+        <p class="phase-item">AI 模型微调</p>
+        <p class="phase-item">开源社区生态</p>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -26,7 +26,14 @@ Workflow Spec（工作流规范）用于描述“步骤依赖（DAG）+ 产物�
 你也可以手动执行：
 
 ```bash
+# 基础：校验 workflows + active taskbooks
 node .codebuddy/scripts/contract-validator.js --workflows --taskbooks
+
+# 可选：当启用 risk_tiered batching 时，提示（warning）缺少 scope.files/modules 的任务
+node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --check-batching-scope
+
+# 可选（严格模式）：将上述提示升级为 error（用于 CI/团队强约束）
+node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --strict-batching-scope
 ```
 
 ## Smoke/Full Tests Gates
@@ -100,6 +107,8 @@ codebuddy://taskbooks/history/<id>
 
 当前版本已提供一个“workflow 驱动”的执行入口：
 
+如果你要在业务项目里做端到端验收，可直接按 [业务项目 E2E 验证方案](e2e-validation-playbook.md) 跑一遍。
+
 ```bash
 # 在目标项目根目录执行（默认读取 .codebuddy/workflows/default.workflow.json）
 node .codebuddy/scripts/task-executor.js <taskBookId>
@@ -128,8 +137,14 @@ node .codebuddy/scripts/task-executor.js <taskBookId> --tasks-only
 # 查看任务状态
 node .codebuddy/scripts/taskbook-manager.js show <taskBookId>
 
+# 解除阻塞（blocked）任务：恢复为 pending，并记录解除原因
+node .codebuddy/scripts/taskbook-manager.js unblock <taskBookId> <taskId> --resolution "已补充 scope 并拆分任务"
+
 # 人工完成后，将任务标记 done 并补充 actualWork
 node .codebuddy/scripts/taskbook-manager.js update-task <taskBookId> <taskId> --status done --actual-work "完成实现/已合并"
+
+# 可选：随时生成验收/批量/闸门报告（可落盘到 .codebuddy/reports/taskbooks/）
+node .codebuddy/scripts/taskbook-manager.js report <taskBookId> --write
 
 # 继续执行 workflow
 node .codebuddy/scripts/task-executor.js <taskBookId>

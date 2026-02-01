@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #FFFFFF; font-family: Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+.header { background: #1C2833; padding: 20pt 40pt; }
+.header-title { color: #FFFFFF; font-size: 28pt; font-weight: bold; margin: 0; }
+.content { padding: 30pt 40pt; flex: 1; }
+.section-title { color: #1C2833; font-size: 22pt; font-weight: bold; margin-bottom: 20pt; }
+.pain-grid { display: flex; gap: 20pt; }
+.pain-item { flex: 1; background: #F8F9FA; padding: 20pt; border-left: 4pt solid #E74C3C; }
+.pain-title { color: #E74C3C; font-size: 16pt; font-weight: bold; margin-bottom: 10pt; }
+.pain-desc { color: #2C3E50; font-size: 12pt; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1 class="header-title">前端团队面临的挑战</h1>
+</div>
+<div class="content">
+  <p class="section-title">AI 编程助手落地的三大痛点</p>
+  <div class="pain-grid">
+    <div class="pain-item">
+      <p class="pain-title">规范不统一</p>
+      <p class="pain-desc">团队成员各自为战，代码风格混乱，AI 生成的代码难以融入项目</p>
+    </div>
+    <div class="pain-item">
+      <p class="pain-title">重复造轮子</p>
+      <p class="pain-desc">每个项目都要重新配置规则，知识无法复用，效率低下</p>
+    </div>
+    <div class="pain-item">
+      <p class="pain-title">上下文丢失</p>
+      <p class="pain-desc">AI 不了解项目架构和历史，每次对话都要重新解释背景</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>
