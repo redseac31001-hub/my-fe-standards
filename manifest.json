@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-01-31T17:21:38.523Z",
+  "generatedAt": "2026-02-02T06:51:59.566Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -594,8 +594,8 @@
     {
       "path": "workflows/templates/default.workflow.json",
       "name": "default.workflow",
-      "size": 4442,
-      "mtime": "2026-01-31T17:14:01.375Z"
+      "size": 5422,
+      "mtime": "2026-02-02T06:43:11.272Z"
     },
     {
       "path": "taskbooks/README.md",

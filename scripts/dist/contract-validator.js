@@ -373,8 +373,11 @@ function validateWorkflowSpec(data, file, opts) {
                     }
                     else {
                         const commands = params.commands;
-                        if (!Array.isArray(commands) || !commands.every(c => typeof c === 'string' && c.trim().length > 0)) {
-                            error(`gates[${index}].params.commands must be a non-empty string[] for checks gate`);
+                        const npmScripts = params.npmScripts;
+                        const commandsOk = Array.isArray(commands) && commands.every(c => typeof c === 'string' && c.trim().length > 0);
+                        const npmScriptsOk = Array.isArray(npmScripts) && npmScripts.every(s => typeof s === 'string' && s.trim().length > 0);
+                        if (!commandsOk && !npmScriptsOk) {
+                            error(`gates[${index}].params must define non-empty commands[] or npmScripts[] for checks gate`);
                         }
                     }
                 }

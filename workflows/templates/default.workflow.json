@@ -1,6 +1,6 @@
 {
   "id": "default",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "name": "Default Workflow (Batched implement closed loop)",
   "description": "Tool/model-agnostic default workflow: analyze -> plan -> implement (batched + smoke gates) -> review -> full tests/build -> acceptance/archive.",
   "steps": [
@@ -52,7 +52,7 @@
       "id": "test_full",
       "type": "run_tests",
       "title": "Full Tests / Build Gate",
-      "gates": ["contracts_valid", "full_passed"],
+      "gates": ["contracts_valid", "lint_passed", "typecheck_passed", "security_passed", "perf_passed", "full_passed"],
       "toolHints": {
         "recommended": ["shell:npm test", "shell:npm run build"]
       }
@@ -92,6 +92,46 @@
       "params": {
         "budgetMinutes": 5,
         "commands": ["npm test"]
+      }
+    },
+    {
+      "id": "lint_passed",
+      "type": "checks",
+      "title": "Lint passed (optional)",
+      "required": false,
+      "params": {
+        "budgetMinutes": 5,
+        "npmScripts": ["lint"]
+      }
+    },
+    {
+      "id": "typecheck_passed",
+      "type": "checks",
+      "title": "Typecheck passed (optional)",
+      "required": false,
+      "params": {
+        "budgetMinutes": 10,
+        "npmScripts": ["typecheck"]
+      }
+    },
+    {
+      "id": "security_passed",
+      "type": "checks",
+      "title": "Security checks passed (optional)",
+      "required": false,
+      "params": {
+        "budgetMinutes": 10,
+        "npmScripts": ["security"]
+      }
+    },
+    {
+      "id": "perf_passed",
+      "type": "checks",
+      "title": "Performance checks passed (optional)",
+      "required": false,
+      "params": {
+        "budgetMinutes": 15,
+        "npmScripts": ["perf"]
       }
     },
     {

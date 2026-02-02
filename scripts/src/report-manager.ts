@@ -287,12 +287,25 @@ export function saveModuleMapSnapshot(
   targetDir: string,
   snapshot: ModuleMapSnapshot
 ): ReportMeta {
-  return writeReport(
+  const meta = writeReport(
     targetDir,
     'modules/latest.json',
     snapshot,
     'module-mapper'
   );
+
+  // 保存历史快照（用于趋势/变更查询）
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const historyPath = `modules/${timestamp}.json`;
+  const historyFullPath = path.join(getReportsPath(targetDir), historyPath);
+  const historyDir = path.dirname(historyFullPath);
+  ensureDir(historyDir);
+  fs.writeFileSync(historyFullPath, JSON.stringify(snapshot, null, 2), 'utf-8');
+
+  // 清理旧快照
+  cleanupOldSnapshots(targetDir, 'modules');
+
+  return meta;
 }
 
 // ============ 健康度时间线 ============
@@ -854,6 +867,7 @@ function showTrend(targetDir: string, days: number = 30): void {
  */
 function showHistory(targetDir: string): void {
   const archSnapshots = getHistorySnapshots(targetDir, 'architecture');
+  const moduleSnapshots = getHistorySnapshots(targetDir, 'modules');
 
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════════════╗');
@@ -871,6 +885,525 @@ function showHistory(targetDir: string): void {
       console.log(`║   ... and ${archSnapshots.length - 10} more`.padEnd(67) + '║');
     }
   }
+
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+
+  if (moduleSnapshots.length === 0) {
+    console.log('║ No module snapshots found.'.padEnd(67) + '║');
+  } else {
+    console.log('║ Module Snapshots:'.padEnd(67) + '║');
+    for (const snap of moduleSnapshots.slice(0, 10)) {
+      console.log(`║   ${snap.date}  ${snap.name}`.padEnd(67) + '║');
+    }
+    if (moduleSnapshots.length > 10) {
+      console.log(`║   ... and ${moduleSnapshots.length - 10} more`.padEnd(67) + '║');
+    }
+  }
+
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
+  console.log('');
+}
+
+// ============ Phase 6: 报告查询入口 ============
+
+type ModuleSummaryItem = ModuleMapSnapshot['modules'][number];
+
+type GraphIndex = {
+  out: Map<string, Set<string>>;
+  in: Map<string, Set<string>>;
+};
+
+function normalizeFsPath(p: string): string {
+  const normalized = path.normalize(p);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function toAbsolutePath(targetDir: string, p: string): string {
+  return path.isAbsolute(p) ? p : path.resolve(targetDir, p);
+}
+
+function isSameOrSubPath(childPath: string, parentPath: string): boolean {
+  const child = normalizeFsPath(childPath);
+  let parent = normalizeFsPath(parentPath);
+
+  if (child === parent) return true;
+  if (!parent.endsWith(path.sep)) parent += path.sep;
+  return child.startsWith(parent);
+}
+
+function buildGraphIndex(snapshot: ModuleMapSnapshot): GraphIndex {
+  const out = new Map<string, Set<string>>();
+  const inn = new Map<string, Set<string>>();
+
+  for (const node of snapshot.graph.nodes) {
+    out.set(node, new Set());
+    inn.set(node, new Set());
+  }
+
+  for (const edge of snapshot.graph.edges) {
+    if (!out.has(edge.from)) out.set(edge.from, new Set());
+    if (!inn.has(edge.to)) inn.set(edge.to, new Set());
+    out.get(edge.from)!.add(edge.to);
+    inn.get(edge.to)!.add(edge.from);
+  }
+
+  return { out, in: inn };
+}
+
+function bfsTraverse(start: string, adjacency: Map<string, Set<string>>, depth: number): Array<{ name: string; depth: number }> {
+  const result: Array<{ name: string; depth: number }> = [];
+  if (depth <= 0) return result;
+
+  const visited = new Set<string>([start]);
+  let frontier = new Set<string>([start]);
+
+  for (let d = 1; d <= depth; d++) {
+    const next = new Set<string>();
+
+    for (const node of frontier) {
+      const neighbors = adjacency.get(node);
+      if (!neighbors) continue;
+      for (const n of neighbors) {
+        if (visited.has(n)) continue;
+        visited.add(n);
+        next.add(n);
+        result.push({ name: n, depth: d });
+      }
+    }
+
+    if (next.size === 0) break;
+    frontier = next;
+  }
+
+  return result;
+}
+
+function findModuleByQuery(snapshot: ModuleMapSnapshot, query: string): { match: ModuleSummaryItem | null; candidates: ModuleSummaryItem[] } {
+  const q = query.trim();
+  if (!q) return { match: null, candidates: [] };
+
+  const qLower = q.toLowerCase();
+  const modules = snapshot.modules;
+
+  const exact = modules.find((m) => m.name === q || m.chineseName === q || m.routePath === q || m.path === q);
+  if (exact) return { match: exact, candidates: [exact] };
+
+  const candidates = modules.filter((m) => {
+    const fields = [m.name, m.chineseName, m.routePath ?? '', m.path];
+    return fields.some((f) => f.toLowerCase().includes(qLower));
+  });
+
+  if (candidates.length === 1) return { match: candidates[0], candidates };
+  return { match: null, candidates };
+}
+
+function findBestModuleForFile(targetDir: string, snapshot: ModuleMapSnapshot, filePathInput: string): { fileAbs: string; module: ModuleSummaryItem | null; candidates: ModuleSummaryItem[] } {
+  const fileAbs = toAbsolutePath(targetDir, filePathInput);
+  const candidates = snapshot.modules.filter((m) => isSameOrSubPath(fileAbs, m.path));
+  if (candidates.length === 0) return { fileAbs, module: null, candidates: [] };
+
+  // 选最具体（路径最长）的模块
+  const sorted = [...candidates].sort((a, b) => normalizeFsPath(b.path).length - normalizeFsPath(a.path).length);
+  return { fileAbs, module: sorted[0], candidates: sorted };
+}
+
+function summarizeViolationsForPath(
+  targetDir: string,
+  snapshot: ArchitectureSnapshot | null,
+  pathPrefixAbs: string,
+  limit: number
+): {
+  counts: { error: number; warning: number; info: number };
+  total: number;
+  top: Array<{ rule: string; severity: string; path: string; message: string }>;
+} {
+  const counts = { error: 0, warning: 0, info: 0 };
+  if (!snapshot) return { counts, total: 0, top: [] };
+
+  const prefix = toAbsolutePath(targetDir, pathPrefixAbs);
+
+  const matched = snapshot.violations.filter((v) => {
+    const vPath = toAbsolutePath(targetDir, v.path);
+    return isSameOrSubPath(vPath, prefix);
+  });
+
+  for (const v of matched) {
+    if (v.severity === 'error') counts.error += 1;
+    else if (v.severity === 'warning') counts.warning += 1;
+    else counts.info += 1;
+  }
+
+  const top = matched
+    .slice(0, limit)
+    .map((v) => ({ rule: v.rule, severity: v.severity, path: v.path, message: v.message }));
+
+  return { counts, total: matched.length, top };
+}
+
+function buildViolationsTrend(
+  targetDir: string,
+  pathPrefixAbs: string,
+  points: number
+): Array<{ date: string; total: number; error: number; warning: number; info: number }> {
+  const history = getHistorySnapshots(targetDir, 'architecture').slice(0, Math.max(1, points)).reverse();
+  const result: Array<{ date: string; total: number; error: number; warning: number; info: number }> = [];
+
+  for (const h of history) {
+    try {
+      const snap = JSON.parse(fs.readFileSync(h.path, 'utf-8')) as ArchitectureSnapshot;
+      const summary = summarizeViolationsForPath(targetDir, snap, pathPrefixAbs, 0);
+      result.push({
+        date: snap.meta.analyzedAt,
+        total: summary.total,
+        error: summary.counts.error,
+        warning: summary.counts.warning,
+        info: summary.counts.info,
+      });
+    } catch {
+      // ignore bad snapshot
+    }
+  }
+
+  return result;
+}
+
+function buildModuleHealthTrend(
+  targetDir: string,
+  moduleName: string,
+  points: number
+): Array<{ date: string; healthScore: number; files: number; lines: number }> {
+  const history = getHistorySnapshots(targetDir, 'modules').slice(0, Math.max(1, points)).reverse();
+  const result: Array<{ date: string; healthScore: number; files: number; lines: number }> = [];
+
+  for (const h of history) {
+    try {
+      const snap = JSON.parse(fs.readFileSync(h.path, 'utf-8')) as ModuleMapSnapshot;
+      const mod = snap.modules.find((m) => m.name === moduleName);
+      if (!mod) continue;
+      result.push({
+        date: snap.meta.analyzedAt,
+        healthScore: mod.healthScore,
+        files: mod.stats.files,
+        lines: mod.stats.lines,
+      });
+    } catch {
+      // ignore bad snapshot
+    }
+  }
+
+  // 兼容旧项目：没有历史时，至少返回 latest
+  if (result.length === 0) {
+    const latest = readReport<ModuleMapSnapshot>(targetDir, 'modules/latest.json');
+    const mod = latest?.modules.find((m) => m.name === moduleName);
+    if (latest && mod) {
+      result.push({
+        date: latest.meta.analyzedAt,
+        healthScore: mod.healthScore,
+        files: mod.stats.files,
+        lines: mod.stats.lines,
+      });
+    }
+  }
+
+  return result;
+}
+
+function inspectReport(
+  targetDir: string,
+  opts: { module?: string; file?: string; depth: number; trendPoints: number; json: boolean }
+): void {
+  const modulesLatest = readReport<ModuleMapSnapshot>(targetDir, 'modules/latest.json');
+  const archLatest = readReport<ArchitectureSnapshot>(targetDir, 'architecture/latest.json');
+
+  if (!modulesLatest) {
+    const message = 'No module report found. Run module-mapper / analysis first.';
+    if (opts.json) {
+      console.log(JSON.stringify({ error: { code: 'NO_MODULE_REPORT', message }, source: { targetDir } }, null, 2));
+      return;
+    }
+    console.log(message);
+    return;
+  }
+
+  if (modulesLatest.modules.length === 0) {
+    const message = 'Module report exists, but no modules were detected.';
+    if (opts.json) {
+      console.log(JSON.stringify({ error: { code: 'NO_MODULES', message }, source: { targetDir } }, null, 2));
+      return;
+    }
+    console.log(message);
+    return;
+  }
+
+  let module: ModuleSummaryItem | null = null;
+  let fileAbs: string | null = null;
+  let candidates: ModuleSummaryItem[] = [];
+
+  if (opts.file) {
+    const match = findBestModuleForFile(targetDir, modulesLatest, opts.file);
+    fileAbs = match.fileAbs;
+    module = match.module;
+    candidates = match.candidates;
+  } else if (opts.module) {
+    const match = findModuleByQuery(modulesLatest, opts.module);
+    module = match.match;
+    candidates = match.candidates;
+  } else {
+    const message = 'inspect 需要 --module <name> 或 --file <path>';
+    if (opts.json) {
+      console.log(JSON.stringify({ error: { code: 'MISSING_ARGUMENT', message }, source: { targetDir } }, null, 2));
+      return;
+    }
+    console.error(message);
+    return;
+  }
+
+  if (!module) {
+    if (candidates.length > 1) {
+      if (opts.json) {
+        console.log(JSON.stringify({
+          error: { code: 'MULTIPLE_MATCHES', message: 'Found multiple modules, please be more specific.' },
+          source: { targetDir },
+          input: { module: opts.module ?? null, file: opts.file ?? null, resolvedFile: fileAbs },
+          candidates: candidates.slice(0, 50).map((c) => ({
+            name: c.name,
+            chineseName: c.chineseName,
+            routePath: c.routePath ?? null,
+            path: c.path,
+          })),
+        }, null, 2));
+        return;
+      }
+
+      console.log('Found multiple modules, please be more specific:');
+      for (const c of candidates.slice(0, 20)) {
+        console.log(`- ${c.name} (${c.chineseName})  ${c.routePath ?? ''}`.trim());
+      }
+      if (candidates.length > 20) console.log(`... and ${candidates.length - 20} more`);
+      return;
+    }
+
+    const message = 'No matching module found.';
+    if (opts.json) {
+      console.log(JSON.stringify({
+        error: { code: 'NO_MATCH', message },
+        source: { targetDir },
+        input: { module: opts.module ?? null, file: opts.file ?? null, resolvedFile: fileAbs },
+      }, null, 2));
+      return;
+    }
+
+    console.log(message);
+    if (fileAbs) console.log(`file: ${fileAbs}`);
+    return;
+  }
+
+  const graph = buildGraphIndex(modulesLatest);
+  const upstream = bfsTraverse(module.name, graph.out, opts.depth);
+  const downstream = bfsTraverse(module.name, graph.in, opts.depth);
+
+  const violations = summarizeViolationsForPath(targetDir, archLatest, module.path, 8);
+  const violationsTrend = buildViolationsTrend(targetDir, module.path, opts.trendPoints);
+  const moduleHealthTrend = buildModuleHealthTrend(targetDir, module.name, opts.trendPoints);
+
+  const moduleRelPath = isSameOrSubPath(module.path, targetDir) ? path.relative(targetDir, module.path) : module.path;
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    source: {
+      targetDir,
+      reports: {
+        modules: 'modules/latest.json',
+        architecture: archLatest ? 'architecture/latest.json' : null,
+      },
+    },
+    input: {
+      module: opts.module ?? null,
+      file: opts.file ?? null,
+      resolvedFile: fileAbs,
+      depth: opts.depth,
+      trendPoints: opts.trendPoints,
+    },
+    module: {
+      name: module.name,
+      chineseName: module.chineseName,
+      category: module.category,
+      type: module.type,
+      routePath: module.routePath ?? null,
+      path: module.path,
+      pathRelative: moduleRelPath,
+      stats: module.stats,
+      healthScore: module.healthScore,
+    },
+    graph: {
+      upstream,
+      downstream,
+      inDegree: graph.in.get(module.name)?.size ?? 0,
+      outDegree: graph.out.get(module.name)?.size ?? 0,
+    },
+    violations: {
+      total: violations.total,
+      counts: violations.counts,
+      top: violations.top,
+    },
+    trends: {
+      moduleHealth: moduleHealthTrend,
+      violations: violationsTrend,
+    },
+  };
+
+  if (opts.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║                         Report Inspect                            ║');
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+  if (fileAbs) {
+    console.log(`║ File: ${fileAbs}`.padEnd(67) + '║');
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+  }
+  console.log(`║ Module: ${module.chineseName} (${module.name})`.padEnd(67) + '║');
+  console.log(`║ Path: ${moduleRelPath}`.padEnd(67) + '║');
+  console.log(`║ Type: ${module.type}  Category: ${module.category}`.padEnd(67) + '║');
+  console.log(`║ Health: ${module.healthScore}/100  Files: ${module.stats.files}  Lines: ${module.stats.lines.toLocaleString()}`.padEnd(67) + '║');
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+
+  const inDegree = graph.in.get(module.name)?.size ?? 0;
+  const outDegree = graph.out.get(module.name)?.size ?? 0;
+  console.log(`║ Graph: dependents(in)=${inDegree}  dependencies(out)=${outDegree}`.padEnd(67) + '║');
+
+  const upList = upstream.filter((x) => x.depth === 1).map((x) => x.name);
+  const downList = downstream.filter((x) => x.depth === 1).map((x) => x.name);
+  console.log(`║ Upstream (depth=1): ${upList.slice(0, 8).join(', ') || '-'}`.padEnd(67) + '║');
+  console.log(`║ Downstream (depth=1): ${downList.slice(0, 8).join(', ') || '-'}`.padEnd(67) + '║');
+
+  if (opts.depth > 1) {
+    const upAll = upstream.map((x) => x.name);
+    const downAll = downstream.map((x) => x.name);
+    console.log(`║ Upstream (depth=${opts.depth}): ${upAll.slice(0, 12).join(', ') || '-'}`.padEnd(67) + '║');
+    console.log(`║ Downstream (depth=${opts.depth}): ${downAll.slice(0, 12).join(', ') || '-'}`.padEnd(67) + '║');
+  }
+
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+  console.log(`║ Violations (latest): total=${violations.total}  e=${violations.counts.error}  w=${violations.counts.warning}  i=${violations.counts.info}`.padEnd(67) + '║');
+  for (const v of violations.top) {
+    const line = `[${v.rule}] ${v.message}`;
+    console.log(`║   ${line.slice(0, 62).padEnd(62)}   ║`);
+  }
+
+  if (moduleHealthTrend.length >= 2) {
+    const first = moduleHealthTrend[0];
+    const last = moduleHealthTrend[moduleHealthTrend.length - 1];
+    const delta = last.healthScore - first.healthScore;
+    const sign = delta > 0 ? '+' : '';
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log(`║ Trend (health): ${first.healthScore} -> ${last.healthScore} (${sign}${delta})`.padEnd(67) + '║');
+  }
+
+  if (violationsTrend.length >= 2) {
+    const first = violationsTrend[0];
+    const last = violationsTrend[violationsTrend.length - 1];
+    const delta = last.total - first.total;
+    const sign = delta > 0 ? '+' : '';
+    console.log(`║ Trend (violations): ${first.total} -> ${last.total} (${sign}${delta})`.padEnd(67) + '║');
+  }
+
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
+  console.log('');
+}
+
+function hotspotsReport(targetDir: string, opts: { top: number; json: boolean }): void {
+  const modulesLatest = readReport<ModuleMapSnapshot>(targetDir, 'modules/latest.json');
+  const archLatest = readReport<ArchitectureSnapshot>(targetDir, 'architecture/latest.json');
+
+  if (!modulesLatest) {
+    const message = 'No module report found. Run module-mapper / analysis first.';
+    if (opts.json) {
+      console.log(JSON.stringify({ error: { code: 'NO_MODULE_REPORT', message }, source: { targetDir } }, null, 2));
+      return;
+    }
+    console.log(message);
+    return;
+  }
+
+  if (modulesLatest.modules.length === 0) {
+    const message = 'Module report exists, but no modules were detected.';
+    if (opts.json) {
+      console.log(JSON.stringify({ error: { code: 'NO_MODULES', message }, source: { targetDir } }, null, 2));
+      return;
+    }
+    console.log(message);
+    return;
+  }
+
+  const graph = buildGraphIndex(modulesLatest);
+
+  const rows = modulesLatest.modules.map((m) => {
+    const inDegree = graph.in.get(m.name)?.size ?? 0;
+    const outDegree = graph.out.get(m.name)?.size ?? 0;
+    const vSummary = summarizeViolationsForPath(targetDir, archLatest, m.path, 0);
+    return {
+      name: m.name,
+      chineseName: m.chineseName,
+      routePath: m.routePath ?? null,
+      type: m.type,
+      category: m.category,
+      healthScore: m.healthScore,
+      files: m.stats.files,
+      lines: m.stats.lines,
+      inDegree,
+      outDegree,
+      violations: vSummary.total,
+      violationsError: vSummary.counts.error,
+      violationsWarning: vSummary.counts.warning,
+    };
+  });
+
+  const top = Math.max(1, Math.min(50, opts.top));
+
+  const mostDependedOn = [...rows].sort((a, b) => b.inDegree - a.inDegree).slice(0, top);
+  const largestByLines = [...rows].sort((a, b) => b.lines - a.lines).slice(0, top);
+  const lowestHealth = [...rows].sort((a, b) => a.healthScore - b.healthScore).slice(0, top);
+  const mostViolations = [...rows].sort((a, b) => b.violations - a.violations).slice(0, top);
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    source: { targetDir },
+    top,
+    lists: {
+      mostDependedOn,
+      largestByLines,
+      lowestHealth,
+      mostViolations,
+    },
+  };
+
+  if (opts.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║                         Report Hotspots                           ║');
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+
+  const printList = (title: string, items: Array<{ name: string; chineseName: string; inDegree: number; lines: number; healthScore: number; violations: number }>) => {
+    console.log(`║ ${title}`.padEnd(67) + '║');
+    for (const it of items) {
+      const line = `${it.name}  in=${it.inDegree}  lines=${it.lines}  health=${it.healthScore}  vio=${it.violations}`;
+      console.log(`║   ${line.slice(0, 62).padEnd(62)}   ║`);
+    }
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+  };
+
+  printList(`Top ${top}: Most Depended-On (downstream impact)`, mostDependedOn);
+  printList(`Top ${top}: Largest By Lines`, largestByLines);
+  printList(`Top ${top}: Lowest Health`, lowestHealth);
+  printList(`Top ${top}: Most Violations (architecture latest)`, mostViolations);
 
   console.log('╚══════════════════════════════════════════════════════════════════╝');
   console.log('');
@@ -894,6 +1427,15 @@ Report Manager - 报告管理器
   trend               显示健康度趋势
     --days <n>        显示天数 (默认: 30)
   history             列出历史快照
+  inspect             查询模块/文件的上下游、热点与趋势
+    --module <q>      按模块（name/chineseName/routePath/path）查询
+    --file <path>     按文件路径查询（会自动定位所属模块）
+    --depth <n>       依赖图遍历深度 (默认: 1)
+    --trend <n>       趋势点数 (默认: 7)
+    --json            输出 JSON
+  hotspots            列出热点模块（依赖影响/规模/健康度/违规）
+    --top <n>         列表长度 (默认: 10)
+    --json            输出 JSON
 
 示例:
   node report-manager.js status
@@ -903,6 +1445,9 @@ Report Manager - 报告管理器
   node report-manager.js diff --from 2025-01-15
   node report-manager.js trend --days 14
   node report-manager.js history
+  node report-manager.js inspect --module "src/features/user"
+  node report-manager.js inspect --file "src/features/user/index.ts"
+  node report-manager.js hotspots --top 15
 `);
 }
 
@@ -954,6 +1499,36 @@ function main(): void {
     case 'history':
       showHistory(targetDir);
       break;
+
+    case 'inspect': {
+      const moduleIndex = args.indexOf('--module');
+      const fileIndex = args.indexOf('--file');
+      const depthIndex = args.indexOf('--depth');
+      const trendIndex = args.indexOf('--trend');
+      const json = args.includes('--json');
+
+      const module = moduleIndex !== -1 ? args[moduleIndex + 1] : undefined;
+      const file = fileIndex !== -1 ? args[fileIndex + 1] : undefined;
+      const depth = depthIndex !== -1 ? parseInt(args[depthIndex + 1], 10) : 1;
+      const trendPoints = trendIndex !== -1 ? parseInt(args[trendIndex + 1], 10) : 7;
+
+      inspectReport(targetDir, {
+        module,
+        file,
+        depth: Number.isFinite(depth) && depth > 0 ? depth : 1,
+        trendPoints: Number.isFinite(trendPoints) && trendPoints > 0 ? trendPoints : 7,
+        json,
+      });
+      break;
+    }
+
+    case 'hotspots': {
+      const topIndex = args.indexOf('--top');
+      const json = args.includes('--json');
+      const top = topIndex !== -1 ? parseInt(args[topIndex + 1], 10) : 10;
+      hotspotsReport(targetDir, { top: Number.isFinite(top) && top > 0 ? top : 10, json });
+      break;
+    }
 
     default:
       console.error(`Unknown command: ${command}`);

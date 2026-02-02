@@ -1,6 +1,6 @@
 ---
 title: 交接/接力说明（my-fe-standards）
-date: 2026-02-01
+date: 2026-02-02
 ---
 
 # 交接/接力说明（my-fe-standards）
@@ -10,6 +10,11 @@ date: 2026-02-01
 ## 1) 当前状态（以 `git status` 为准）
 
 - 默认协作分支建议：`feature/codebuddy-glm`（或你当下用于开发的 `wip/*` 分支）
+- 2026-02-02 已验证通过：`npm run build` + `node test/run-tests.js`
+- 2026-02-02 MCP Server 已对齐 CLI：新增 `taskbook_report` / `taskbook_unblock`
+- 2026-02-02 TaskBook 并发协作 SOP 已落地：`docs/taskbook-collaboration-sop.md`（含可选强制模式 `CODEBUDDY_TASKBOOK_REQUIRE_IF_REV=1` / `--require-if-rev`）
+- 2026-02-02 Reports 查询入口已落地：`report-manager.js inspect/hotspots` + MCP `reports_inspect/reports_hotspots`
+- 2026-02-02 质量门禁 gates 已扩大：lint/typecheck/security/perf（`default.workflow.json@1.3.0`，默认 optional；证据落盘到 `.codebuddy/reports/gates/<taskBookId>/...`，并在验收报告 `gates[].evidencePath` 汇总）
 - 接手前先看：
   - `PROJECT.md`：能力清单/架构图谱（权威概览）
   - `README.md`：快速入口与命令
@@ -70,16 +75,15 @@ git checkout wip/2026-02-01-handoff
 ## 5) 下一步建议（Backlog，按优先级）
 
 P0（团队接力/协作体验）
-- MCP Server 补齐 `taskbook_report` / `taskbook_unblock`（与 CLI 对齐），让“接力/恢复/出报告”能被任意 MCP Client 驱动
-- 为“多人并发改同一 TaskBook”梳理团队约定：强制 `--if-rev` / claim 规则 / 冲突处理 SOP
+- ✅（2026-02-02）MCP Server 已补齐 `taskbook_report` / `taskbook_unblock`（与 CLI 对齐）
+- ✅（2026-02-02）已梳理“多人并发改同一 TaskBook”协作约定：强制 `--if-rev` / claim 规则 / 冲突处理 SOP（见 `docs/taskbook-collaboration-sop.md`）
 
 P1（老项目接手效率）
-- 在 reports 基础上补“查询入口”（按模块/文件查上下游、热点、变更趋势），让重构定位更快
+- ✅（2026-02-02）在 reports 基础上补“查询入口”（按模块/文件查上下游、热点、变更趋势），让重构定位更快
 
 P2（质量门禁扩大）
-- 将 lint/typecheck/security/perf 等标准化为 gates（落盘证据 → acceptance report 汇总）
+- ✅（2026-02-02）将 lint/typecheck/security/perf 等标准化为 gates（默认 optional：缺脚本 skipped；证据落盘 → acceptance report 汇总）
 
 ---
 
 如需“更强的实时接力”（少 pull、多人同时改同一份事实源），建议把 TaskBook/Workflow 的事实源放到共享工作目录或集中式服务（例如团队内网部署 MCP Server），但先保持 Git 方案最稳。
-

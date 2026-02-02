@@ -997,6 +997,13 @@ ${table}
 # 查看报告状态
 node .codebuddy/scripts/report-manager.js status
 
+# 查询模块/文件（上下游/热点/趋势）
+node .codebuddy/scripts/report-manager.js inspect --module "src/features/user"
+node .codebuddy/scripts/report-manager.js inspect --file "src/features/user/index.ts"
+
+# 热点模块列表
+node .codebuddy/scripts/report-manager.js hotspots --top 10
+
 # 导出 Markdown 报告
 node .codebuddy/scripts/report-manager.js export
 

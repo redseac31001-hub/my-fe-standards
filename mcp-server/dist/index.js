@@ -131,6 +131,33 @@ const TaskBookAppendWorkArgsSchema = z.object({
     text: z.string().min(1, 'text 不能为空'),
     ifRevision: z.number().int().nonnegative().optional(),
 });
+const TaskBookReportArgsSchema = z.object({
+    projectPath: z.string().optional(),
+    taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
+    write: z.boolean().optional(),
+    out: z.string().optional(),
+});
+const TaskBookUnblockArgsSchema = z.object({
+    projectPath: z.string().optional(),
+    taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
+    taskId: z.string().min(1, 'Task ID 不能为空'),
+    resolution: z.string().min(1, 'resolution 不能为空'),
+    ifRevision: z.number().int().nonnegative().optional(),
+});
+// CodeBuddy Reports（report-manager.js）
+const ReportsInspectArgsSchema = z.object({
+    projectPath: z.string().optional(),
+    module: z.string().optional(),
+    file: z.string().optional(),
+    depth: z.number().int().positive().optional(),
+    trendPoints: z.number().int().positive().optional(),
+}).refine((d) => Boolean(d.module || d.file), {
+    message: 'module 或 file 必须至少提供一个',
+});
+const ReportsHotspotsArgsSchema = z.object({
+    projectPath: z.string().optional(),
+    top: z.number().int().positive().optional(),
+});
 const WorkflowRunArgsSchema = z.object({
     projectPath: z.string().optional(),
     taskBookId: z.string().min(1, 'TaskBook ID 不能为空'),
@@ -651,6 +678,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             },
         },
         {
+            name: 'taskbook_report',
+            description: '生成 TaskBook 验收/批量/gates 报告（JSON，可选落盘）',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+                    taskBookId: { type: 'string', description: 'TaskBook ID' },
+                    write: { type: 'boolean', description: '可选：写入报告文件（默认 false）' },
+                    out: { type: 'string', description: '可选：输出路径（等价于 CLI --out）' },
+                },
+                required: ['taskBookId'],
+            },
+        },
+        {
+            name: 'taskbook_unblock',
+            description: '解除 blocked 任务并恢复为 pending（JSON）',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+                    taskBookId: { type: 'string', description: 'TaskBook ID' },
+                    taskId: { type: 'string', description: 'Task ID' },
+                    resolution: { type: 'string', description: '解除阻塞的说明（将写入任务 actualWork）' },
+                    ifRevision: { type: 'integer', description: '可选：要求 TaskBook.revision 匹配（避免并发覆盖）' },
+                },
+                required: ['taskBookId', 'taskId', 'resolution'],
+            },
+        },
+        {
             name: 'workflow_run',
             description: '按 Workflow Spec 执行 TaskBook（会执行 gates；需要时可 approve 跳过人工闸门）',
             inputSchema: {
@@ -664,6 +720,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     tasksOnly: { type: 'boolean', description: '仅执行 TaskBook 任务，不跑 gates（可选）' },
                 },
                 required: ['taskBookId'],
+            },
+        },
+        {
+            name: 'reports_inspect',
+            description: '查询模块/文件的上下游、热点与趋势（report-manager.js / reports）',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+                    module: { type: 'string', description: '按模块查询（name/chineseName/routePath/path）' },
+                    file: { type: 'string', description: '按文件路径查询（会自动定位所属模块）' },
+                    depth: { type: 'integer', description: '依赖图遍历深度（可选，默认 1）' },
+                    trendPoints: { type: 'integer', description: '趋势点数（可选，默认 7）' },
+                },
+            },
+        },
+        {
+            name: 'reports_hotspots',
+            description: '列出热点模块（依赖影响/规模/健康度/违规）（report-manager.js / reports）',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    projectPath: { type: 'string', description: '项目根目录（可选，默认当前 workDir）' },
+                    top: { type: 'integer', description: '列表长度（可选，默认 10）' },
+                },
             },
         },
     ],
@@ -1150,6 +1231,118 @@ ${next.notes ? `\n备注: ${next.notes}` : ''}
             }
             catch (error) {
                 return { content: [{ type: 'text', text: `❌ taskbook_append_work 执行失败\n${formatExecError(error)}` }] };
+            }
+        }
+        case 'taskbook_report': {
+            const parsed = TaskBookReportArgsSchema.safeParse(args);
+            if (!parsed.success) {
+                return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] };
+            }
+            const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir);
+            if (!dirResult.ok) {
+                return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] };
+            }
+            const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js');
+            if (!scriptResult.ok) {
+                return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] };
+            }
+            try {
+                const cliArgs = ['report', parsed.data.taskBookId];
+                if (parsed.data.write)
+                    cliArgs.push('--write');
+                if (parsed.data.out)
+                    cliArgs.push('--out', parsed.data.out);
+                cliArgs.push('--json');
+                const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs);
+                return { content: [{ type: 'text', text: output }] };
+            }
+            catch (error) {
+                return { content: [{ type: 'text', text: `❌ taskbook_report 执行失败\n${formatExecError(error)}` }] };
+            }
+        }
+        case 'taskbook_unblock': {
+            const parsed = TaskBookUnblockArgsSchema.safeParse(args);
+            if (!parsed.success) {
+                return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] };
+            }
+            const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir);
+            if (!dirResult.ok) {
+                return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] };
+            }
+            const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'taskbook-manager.js');
+            if (!scriptResult.ok) {
+                return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] };
+            }
+            try {
+                const cliArgs = [
+                    'unblock',
+                    parsed.data.taskBookId,
+                    parsed.data.taskId,
+                    '--resolution', parsed.data.resolution,
+                ];
+                if (typeof parsed.data.ifRevision === 'number') {
+                    cliArgs.push('--if-rev', String(parsed.data.ifRevision));
+                }
+                cliArgs.push('--json');
+                const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs);
+                return { content: [{ type: 'text', text: output }] };
+            }
+            catch (error) {
+                return { content: [{ type: 'text', text: `❌ taskbook_unblock 执行失败\n${formatExecError(error)}` }] };
+            }
+        }
+        case 'reports_inspect': {
+            const parsed = ReportsInspectArgsSchema.safeParse(args);
+            if (!parsed.success) {
+                return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] };
+            }
+            const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir);
+            if (!dirResult.ok) {
+                return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] };
+            }
+            const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'report-manager.js');
+            if (!scriptResult.ok) {
+                return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] };
+            }
+            try {
+                const cliArgs = ['inspect'];
+                if (parsed.data.module)
+                    cliArgs.push('--module', parsed.data.module);
+                if (parsed.data.file)
+                    cliArgs.push('--file', parsed.data.file);
+                if (typeof parsed.data.depth === 'number')
+                    cliArgs.push('--depth', String(parsed.data.depth));
+                if (typeof parsed.data.trendPoints === 'number')
+                    cliArgs.push('--trend', String(parsed.data.trendPoints));
+                cliArgs.push('--json');
+                const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs);
+                return { content: [{ type: 'text', text: output }] };
+            }
+            catch (error) {
+                return { content: [{ type: 'text', text: `❌ reports_inspect 执行失败\n${formatExecError(error)}` }] };
+            }
+        }
+        case 'reports_hotspots': {
+            const parsed = ReportsHotspotsArgsSchema.safeParse(args);
+            if (!parsed.success) {
+                return { content: [{ type: 'text', text: `❌ 参数错误: ${parsed.error.message}` }] };
+            }
+            const dirResult = await resolveProjectDir(parsed.data.projectPath, workDir);
+            if (!dirResult.ok) {
+                return { content: [{ type: 'text', text: `❌ ${dirResult.error}` }] };
+            }
+            const scriptResult = await resolveCodebuddyScript(dirResult.dir, 'report-manager.js');
+            if (!scriptResult.ok) {
+                return { content: [{ type: 'text', text: `❌ ${scriptResult.error}` }] };
+            }
+            try {
+                const top = typeof parsed.data.top === 'number' ? parsed.data.top : 10;
+                const cliArgs = ['hotspots', '--top', String(top), '--json'];
+                const output = execCodebuddyScript(dirResult.dir, scriptResult.scriptPath, cliArgs);
+                return { content: [{ type: 'text', text: output }] };
+            }
+            catch (error) {
+                return { content: [{ type: 'text', text: `❌ reports_hotspots 执行失败\n${formatExecError(error)}` }] };
             }
         }
         case 'workflow_run': {

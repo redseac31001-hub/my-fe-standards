@@ -231,7 +231,13 @@ node .codebuddy/scripts/taskbook-manager.js add-task <taskBookId> --title "生�
 │   ├── latest.json              # 最新架构快照
 │   └── 2026-01-29T10-30-00.json # 历史快照
 ├── modules/
-│   └── latest.json              # 模块图谱
+│   ├── latest.json              # 模块图谱
+│   └── 2026-01-29T10-30-00.json # 历史快照
+├── gates/
+│   └── <taskBookId>/
+│       └── <timestamp>.<stepId>.<gateId>.json # 质量闸门执行证据
+├── taskbooks/
+│   └── <taskBookId>.acceptance.json # 验收报告
 └── health/
     └── timeline.json            # 健康度时间线
 ```
@@ -359,6 +365,7 @@ node scripts/codebuddy-loader.js --remote <URL> --verbose
 - [远程接入指南](docs/remote-usage-guide.md)
 - [业务项目 E2E 验证方案](docs/e2e-validation-playbook.md)
 - [Workflow Spec 使用指南](docs/workflows-guide.md)
+- [TaskBook 并发协作 SOP](docs/taskbook-collaboration-sop.md)
 - [技能系统说明](custom-skills/custom-skills-guide.md)
 - [技能增强文档](README-SKILLS-ENHANCEMENT.md)
 

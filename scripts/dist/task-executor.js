@@ -645,13 +645,75 @@ function getStepGates(spec, step) {
     }
     return gates;
 }
+const GATE_EVIDENCE_OUTPUT_LIMIT = 20000;
+function safeTimestampForFilename() {
+    return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+}
+function sanitizeForFilename(value) {
+    return value.replace(/[^a-zA-Z0-9._-]+/g, '_');
+}
+function toPosixPath(value) {
+    return value.replace(/\\/g, '/');
+}
+function readPackageJsonScripts() {
+    const pkgPath = path.join(process.cwd(), 'package.json');
+    if (!fs.existsSync(pkgPath))
+        return null;
+    try {
+        const raw = fs.readFileSync(pkgPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        const scripts = parsed === null || parsed === void 0 ? void 0 : parsed.scripts;
+        if (typeof scripts !== 'object' || scripts === null || Array.isArray(scripts))
+            return {};
+        const out = {};
+        for (const [k, v] of Object.entries(scripts)) {
+            if (typeof v === 'string')
+                out[k] = v;
+        }
+        return out;
+    }
+    catch (_a) {
+        return null;
+    }
+}
+function writeGateEvidence(taskBookId, stepId, gateId, payload) {
+    try {
+        const safeTaskBookId = sanitizeForFilename(taskBookId);
+        const outDir = path.join(process.cwd(), '.codebuddy', 'reports', 'gates', safeTaskBookId);
+        ensureDir(outDir);
+        const fileName = `${safeTimestampForFilename()}.${sanitizeForFilename(stepId)}.${sanitizeForFilename(gateId)}.json`;
+        const absPath = path.join(outDir, fileName);
+        fs.writeFileSync(absPath, JSON.stringify(payload, null, 2), 'utf-8');
+        return toPosixPath(path.relative(process.cwd(), absPath));
+    }
+    catch (_a) {
+        return undefined;
+    }
+}
 async function runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, context) {
     var _a, _b, _c;
     const results = [];
     const gates = getStepGates(spec, step);
     for (const gate of gates) {
+        const required = gate.required !== false;
+        const startedAt = new Date().toISOString();
         if (approved.has(gate.id)) {
-            const r = { gateId: gate.id, passed: true, message: 'approved by user' };
+            const evidencePath = writeGateEvidence(taskBookId, step.id, gate.id, {
+                schemaVersion: 1,
+                event: 'gate',
+                gateId: gate.id,
+                gateType: gate.type,
+                stepId: step.id,
+                required,
+                approved: true,
+                passed: true,
+                skipped: false,
+                startedAt,
+                endedAt: new Date().toISOString(),
+                commandRuns: [],
+                ...(context !== null && context !== void 0 ? context : {}),
+            });
+            const r = { gateId: gate.id, passed: true, message: 'approved by user', evidencePath };
             results.push(r);
             gateResults.set(gate.id, r);
             manager.logChange(taskBookId, null, 'modified', `gate approved: ${gate.id}`, undefined, {
@@ -660,65 +722,272 @@ async function runCheckGatesForStep(spec, step, taskBookId, manager, approved, g
                 stepId: step.id,
                 passed: true,
                 approved: true,
+                evidencePath,
                 ...(context !== null && context !== void 0 ? context : {}),
             });
             continue;
         }
         if (gate.type !== 'checks') {
-            if (gate.required !== false) {
-                const r = { gateId: gate.id, passed: false, message: `unsupported gate.type: ${gate.type}` };
+            if (required) {
+                const evidencePath = writeGateEvidence(taskBookId, step.id, gate.id, {
+                    schemaVersion: 1,
+                    event: 'gate',
+                    gateId: gate.id,
+                    gateType: gate.type,
+                    stepId: step.id,
+                    required,
+                    approved: false,
+                    passed: false,
+                    skipped: false,
+                    startedAt,
+                    endedAt: new Date().toISOString(),
+                    failureReason: `unsupported gate.type: ${gate.type}`,
+                    ...(context !== null && context !== void 0 ? context : {}),
+                });
+                const r = { gateId: gate.id, passed: false, message: `unsupported gate.type: ${gate.type}`, evidencePath };
                 results.push(r);
                 gateResults.set(gate.id, r);
+                manager.logChange(taskBookId, null, 'modified', `gate failed: ${gate.id}`, undefined, {
+                    event: 'gate',
+                    gateId: gate.id,
+                    stepId: step.id,
+                    passed: false,
+                    evidencePath,
+                    ...(context !== null && context !== void 0 ? context : {}),
+                });
                 return { ok: false, gateResults: results };
             }
+            const skipReason = `unsupported gate.type: ${gate.type}`;
+            const evidencePath = writeGateEvidence(taskBookId, step.id, gate.id, {
+                schemaVersion: 1,
+                event: 'gate',
+                gateId: gate.id,
+                gateType: gate.type,
+                stepId: step.id,
+                required,
+                approved: false,
+                passed: true,
+                skipped: true,
+                skipReason,
+                startedAt,
+                endedAt: new Date().toISOString(),
+                ...(context !== null && context !== void 0 ? context : {}),
+            });
+            const r = { gateId: gate.id, passed: true, skipped: true, message: `skipped: ${skipReason}`, evidencePath };
+            results.push(r);
+            gateResults.set(gate.id, r);
+            manager.logChange(taskBookId, null, 'modified', `gate skipped: ${gate.id}`, undefined, {
+                event: 'gate',
+                gateId: gate.id,
+                stepId: step.id,
+                passed: true,
+                skipped: true,
+                skipReason,
+                evidencePath,
+                ...(context !== null && context !== void 0 ? context : {}),
+            });
             continue;
         }
-        const commands = (_b = (_a = gate.params) === null || _a === void 0 ? void 0 : _a.commands) !== null && _b !== void 0 ? _b : [];
-        if (commands.length === 0) {
-            if (gate.required !== false) {
-                throw new Error(`gate ${gate.id} 缂哄皯 commands`);
-            }
-            continue;
-        }
-        const budgetMinutes = typeof ((_c = gate.params) === null || _c === void 0 ? void 0 : _c.budgetMinutes) === 'number'
-            ? Number(gate.params.budgetMinutes)
+        const params = (_a = gate.params) !== null && _a !== void 0 ? _a : {};
+        const rawCommands = Array.isArray(params.commands)
+            ? params.commands.filter((c) => typeof c === 'string' && c.trim().length > 0)
+            : [];
+        const npmScripts = Array.isArray(params.npmScripts)
+            ? params.npmScripts.filter((s) => typeof s === 'string' && s.trim().length > 0)
+            : [];
+        const failIfMissing = typeof params.failIfMissing === 'boolean' ? Boolean(params.failIfMissing) : required;
+        const writeEvidence = typeof params.writeEvidence === 'boolean' ? Boolean(params.writeEvidence) : true;
+        const budgetMinutes = typeof (params === null || params === void 0 ? void 0 : params.budgetMinutes) === 'number'
+            ? Number(params.budgetMinutes)
             : undefined;
+        const scripts = npmScripts.length > 0 ? readPackageJsonScripts() : null;
+        const missingScripts = [];
+        const scriptCommands = [];
+        if (npmScripts.length > 0) {
+            if (scripts === null) {
+                missingScripts.push(...npmScripts);
+            }
+            else {
+                for (const script of npmScripts) {
+                    if (scripts[script])
+                        scriptCommands.push(`npm run ${script}`);
+                    else
+                        missingScripts.push(script);
+                }
+            }
+        }
+        const commands = [...rawCommands, ...scriptCommands];
         const commandRuns = [];
-        for (const cmd of commands) {
-            console.log(`[Gate] ▶ ${gate.id}: ${cmd}`);
-            const r = runShellCommand(cmd);
-            commandRuns.push({ command: cmd, ok: r.ok, code: r.code, durationMs: r.durationMs });
-            if (!r.ok) {
-                const gr = { gateId: gate.id, passed: false, message: `command failed: ${cmd}` };
-                results.push(gr);
-                gateResults.set(gate.id, gr);
+        if (missingScripts.length > 0 && failIfMissing) {
+            const message = `missing npm scripts: ${missingScripts.join(', ')}`;
+            const evidencePath = writeEvidence ? writeGateEvidence(taskBookId, step.id, gate.id, {
+                schemaVersion: 1,
+                event: 'gate',
+                gateId: gate.id,
+                gateType: gate.type,
+                stepId: step.id,
+                required,
+                approved: false,
+                passed: false,
+                skipped: false,
+                startedAt,
+                endedAt: new Date().toISOString(),
+                budgetMinutes,
+                commands,
+                missingScripts,
+                commandRuns: [],
+                failureReason: message,
+                ...(context !== null && context !== void 0 ? context : {}),
+            }) : undefined;
+            const r = { gateId: gate.id, passed: false, message, evidencePath };
+            results.push(r);
+            gateResults.set(gate.id, r);
+            manager.logChange(taskBookId, null, 'modified', `gate failed: ${gate.id}`, undefined, {
+                event: 'gate',
+                gateId: gate.id,
+                stepId: step.id,
+                passed: false,
+                budgetMinutes,
+                missingScripts,
+                evidencePath,
+                ...(context !== null && context !== void 0 ? context : {}),
+            });
+            console.log(`[Gate] ${required ? '❌' : '⚠️'} ${gate.id} 失败: ${message}`);
+            if (required)
+                return { ok: false, gateResults: results };
+            continue;
+        }
+        if (commands.length === 0) {
+            if (required) {
+                const message = `gate ${gate.id} 缺少 commands / npmScripts`;
+                const evidencePath = writeEvidence ? writeGateEvidence(taskBookId, step.id, gate.id, {
+                    schemaVersion: 1,
+                    event: 'gate',
+                    gateId: gate.id,
+                    gateType: gate.type,
+                    stepId: step.id,
+                    required,
+                    approved: false,
+                    passed: false,
+                    skipped: false,
+                    startedAt,
+                    endedAt: new Date().toISOString(),
+                    budgetMinutes,
+                    commands,
+                    missingScripts,
+                    commandRuns: [],
+                    failureReason: message,
+                    ...(context !== null && context !== void 0 ? context : {}),
+                }) : undefined;
+                const r = { gateId: gate.id, passed: false, message, evidencePath };
+                results.push(r);
+                gateResults.set(gate.id, r);
                 manager.logChange(taskBookId, null, 'modified', `gate failed: ${gate.id}`, undefined, {
                     event: 'gate',
                     gateId: gate.id,
                     stepId: step.id,
                     passed: false,
                     budgetMinutes,
-                    commandRuns,
-                    stderr: r.stderr.slice(0, 2000),
+                    missingScripts,
+                    evidencePath,
                     ...(context !== null && context !== void 0 ? context : {}),
                 });
-                console.log(`[Gate] ❌ ${gate.id} 失败`);
+                console.log(`[Gate] ❌ ${gate.id} 失败: ${message}`);
                 return { ok: false, gateResults: results };
             }
+            const skipReason = missingScripts.length > 0
+                ? `npm scripts not found: ${missingScripts.join(', ')}`
+                : 'empty commands';
+            const evidencePath = writeEvidence ? writeGateEvidence(taskBookId, step.id, gate.id, {
+                schemaVersion: 1,
+                event: 'gate',
+                gateId: gate.id,
+                gateType: gate.type,
+                stepId: step.id,
+                required,
+                approved: false,
+                passed: true,
+                skipped: true,
+                skipReason,
+                startedAt,
+                endedAt: new Date().toISOString(),
+                budgetMinutes,
+                missingScripts,
+                commandRuns: [],
+                ...(context !== null && context !== void 0 ? context : {}),
+            }) : undefined;
+            const r = { gateId: gate.id, passed: true, skipped: true, message: `skipped: ${skipReason}`, evidencePath };
+            results.push(r);
+            gateResults.set(gate.id, r);
+            manager.logChange(taskBookId, null, 'modified', `gate skipped: ${gate.id}`, undefined, {
+                event: 'gate',
+                gateId: gate.id,
+                stepId: step.id,
+                passed: true,
+                skipped: true,
+                skipReason,
+                budgetMinutes,
+                missingScripts,
+                evidencePath,
+                ...(context !== null && context !== void 0 ? context : {}),
+            });
+            console.log(`[Gate] ⏭ ${gate.id} skipped: ${skipReason}`);
+            continue;
         }
-        const ok = { gateId: gate.id, passed: true };
-        results.push(ok);
-        gateResults.set(gate.id, ok);
-        manager.logChange(taskBookId, null, 'modified', `gate passed: ${gate.id}`, undefined, {
+        let failedCommand = null;
+        for (const cmd of commands) {
+            console.log(`[Gate] ▶ ${gate.id}: ${cmd}`);
+            const r = runShellCommand(cmd);
+            commandRuns.push({ command: cmd, ok: r.ok, code: r.code, durationMs: r.durationMs });
+            if (!r.ok) {
+                failedCommand = {
+                    command: cmd,
+                    stdout: r.stdout.slice(0, GATE_EVIDENCE_OUTPUT_LIMIT),
+                    stderr: r.stderr.slice(0, GATE_EVIDENCE_OUTPUT_LIMIT),
+                };
+                break;
+            }
+        }
+        const passed = failedCommand === null;
+        const evidencePath = writeEvidence ? writeGateEvidence(taskBookId, step.id, gate.id, {
+            schemaVersion: 1,
+            event: 'gate',
+            gateId: gate.id,
+            gateType: gate.type,
+            stepId: step.id,
+            required,
+            approved: false,
+            passed,
+            skipped: false,
+            startedAt,
+            endedAt: new Date().toISOString(),
+            budgetMinutes,
+            commands,
+            missingScripts,
+            commandRuns,
+            failedCommand,
+            ...(context !== null && context !== void 0 ? context : {}),
+        }) : undefined;
+        const r = passed
+            ? { gateId: gate.id, passed: true, evidencePath }
+            : { gateId: gate.id, passed: false, message: `command failed: ${(_b = failedCommand === null || failedCommand === void 0 ? void 0 : failedCommand.command) !== null && _b !== void 0 ? _b : ''}`, evidencePath };
+        results.push(r);
+        gateResults.set(gate.id, r);
+        manager.logChange(taskBookId, null, 'modified', `gate ${passed ? 'passed' : 'failed'}: ${gate.id}`, undefined, {
             event: 'gate',
             gateId: gate.id,
             stepId: step.id,
-            passed: true,
+            passed,
             budgetMinutes,
             commandRuns,
+            missingScripts,
+            evidencePath,
+            stderr: passed ? undefined : (_c = failedCommand === null || failedCommand === void 0 ? void 0 : failedCommand.stderr) === null || _c === void 0 ? void 0 : _c.slice(0, 2000),
             ...(context !== null && context !== void 0 ? context : {}),
         });
-        console.log(`[Gate] ✅ ${gate.id} 通过`);
+        console.log(`[Gate] ${passed ? '✅' : required ? '❌' : '⚠️'} ${gate.id} ${passed ? '通过' : '失败'}${!required && !passed ? '（optional）' : ''}`);
+        if (!passed && required)
+            return { ok: false, gateResults: results };
     }
     return { ok: true, gateResults: results };
 }
@@ -760,7 +1029,7 @@ function runShellCommand(command) {
     };
 }
 async function runWorkflow(taskBookId, options) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
     const manager = new taskbook_manager_1.TaskBookManager(process.cwd());
     const taskBook = manager.load(taskBookId);
     if (!taskBook) {
@@ -918,73 +1187,17 @@ async function runWorkflow(taskBookId, options) {
                 console.log(`[Workflow] test 任务未完成: ${tasksResult.status} ${(_l = tasksResult.message) !== null && _l !== void 0 ? _l : ''}`);
                 return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
             }
-            // 执行 gates
-            const gates = getStepGates(spec, step);
-            for (const gate of gates) {
-                if (approved.has(gate.id)) {
-                    gateResults.set(gate.id, { gateId: gate.id, passed: true, message: 'approved by user' });
-                    manager.logChange(taskBookId, null, 'modified', `gate approved: ${gate.id}`, undefined, {
-                        event: 'gate',
-                        gateId: gate.id,
-                        stepId: step.id,
-                        passed: true,
-                        approved: true,
-                    });
-                    continue;
-                }
-                if (gate.type !== 'checks') {
-                    if (gate.required !== false) {
-                        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
-                    }
-                    continue;
-                }
-                const commands = (_o = (_m = gate.params) === null || _m === void 0 ? void 0 : _m.commands) !== null && _o !== void 0 ? _o : [];
-                if (commands.length === 0) {
-                    if (gate.required !== false) {
-                        throw new Error(`gate ${gate.id} 缺少 commands`);
-                    }
-                    continue;
-                }
-                const budgetMinutes = typeof ((_p = gate.params) === null || _p === void 0 ? void 0 : _p.budgetMinutes) === 'number'
-                    ? Number(gate.params.budgetMinutes)
-                    : undefined;
-                const commandRuns = [];
-                for (const cmd of commands) {
-                    console.log(`[Gate] ▶ ${gate.id}: ${cmd}`);
-                    const r = runShellCommand(cmd);
-                    commandRuns.push({ command: cmd, ok: r.ok, code: r.code, durationMs: r.durationMs });
-                    if (!r.ok) {
-                        gateResults.set(gate.id, { gateId: gate.id, passed: false, message: `command failed: ${cmd}` });
-                        manager.logChange(taskBookId, null, 'modified', `gate failed: ${gate.id}`, undefined, {
-                            event: 'gate',
-                            gateId: gate.id,
-                            stepId: step.id,
-                            passed: false,
-                            budgetMinutes,
-                            commandRuns,
-                            stderr: r.stderr.slice(0, 2000),
-                        });
-                        console.log(`[Gate] ❌ ${gate.id} 失败`);
-                        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
-                    }
-                }
-                gateResults.set(gate.id, { gateId: gate.id, passed: true });
-                manager.logChange(taskBookId, null, 'modified', `gate passed: ${gate.id}`, undefined, {
-                    event: 'gate',
-                    gateId: gate.id,
-                    stepId: step.id,
-                    passed: true,
-                    budgetMinutes,
-                    commandRuns,
-                });
-                console.log(`[Gate] ✅ ${gate.id} 通过`);
-            }
+            const { ok } = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
+                eventContext: 'run_tests_gate',
+            });
+            if (!ok)
+                return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
             continue;
         }
         if (step.type === 'code_review') {
             const tasksResult = await executor.executeTasks(taskBookId, { allowedTaskTypes: ['review'], maxParallel, conflictStrategy });
             if (tasksResult.status !== 'completed') {
-                console.log(`[Workflow] review 任务未完成: ${tasksResult.status} ${(_q = tasksResult.message) !== null && _q !== void 0 ? _q : ''}`);
+                console.log(`[Workflow] review 任务未完成: ${tasksResult.status} ${(_m = tasksResult.message) !== null && _m !== void 0 ? _m : ''}`);
                 return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
             }
             const gates = getStepGates(spec, step);
@@ -1013,7 +1226,7 @@ async function runWorkflow(taskBookId, options) {
                 return { taskBook: current, gateResults: Array.from(gateResults.values()) };
             }
             // required gates must be passed
-            const requiredGates = ((_r = spec.gates) !== null && _r !== void 0 ? _r : []).filter(g => g.required !== false);
+            const requiredGates = ((_o = spec.gates) !== null && _o !== void 0 ? _o : []).filter(g => g.required !== false);
             const failedRequired = requiredGates.filter(g => { var _a; return !((_a = gateResults.get(g.id)) === null || _a === void 0 ? void 0 : _a.passed) && !approved.has(g.id); });
             if (failedRequired.length > 0) {
                 console.log(`[Workflow] 仍有未通过的质量闸门: ${failedRequired.map(g => g.id).join(', ')}`);

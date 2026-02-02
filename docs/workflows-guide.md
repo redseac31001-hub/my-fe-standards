@@ -1,6 +1,6 @@
 ---
 title: Workflow Spec 使用指南
-date: 2026-01-30
+date: 2026-02-02
 ---
 
 # Workflow Spec 使用指南
@@ -43,6 +43,27 @@ node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --strict-b
 - `full_passed`：里程碑/合并前验证（默认 `npm test` + `npm run build`）
 
 你可以在 `.codebuddy/workflows/default.workflow.json` 里调整 commands / budgetMinutes，并在 `policies.testing` 里记录团队的批量策略（供主 Agent/协作调度使用）。
+
+## Lint/Typecheck/Security/Perf Gates（可选）
+
+从 `default.workflow.json@1.3.0` 开始，默认 workflow 在 `test_full` step 增加了 4 个可选 checks gate：
+
+- `lint_passed`：默认运行 `npm run lint`
+- `typecheck_passed`：默认运行 `npm run typecheck`
+- `security_passed`：默认运行 `npm run security`
+- `perf_passed`：默认运行 `npm run perf`
+
+默认这些 gate 都是 `required: false`：
+
+- **脚本不存在**：自动标记为 `skipped`（不会阻塞），并记录 `skipReason`
+- **脚本执行失败**：记录为 `failed`（不会阻塞），但会在验收报告里体现
+- **想要强约束**：把 gate 改为 `required: true`（或为可选 gate 设置 `params.failIfMissing: true`）
+
+执行证据会落盘到：
+
+- `.codebuddy/reports/gates/<taskBookId>/<timestamp>.<stepId>.<gateId>.json`
+
+同时，`taskbook-manager report` / workflow 的验收报告会在 `gates[].evidencePath` 里给出证据路径。
 
 ## Batched Implement（批量推进）
 
@@ -146,9 +167,25 @@ node .codebuddy/scripts/taskbook-manager.js update-task <taskBookId> <taskId> --
 # 可选：随时生成验收/批量/闸门报告（可落盘到 .codebuddy/reports/taskbooks/）
 node .codebuddy/scripts/taskbook-manager.js report <taskBookId> --write
 
+# 可选：报告查询入口（按模块/文件查上下游、热点、趋势）
+node .codebuddy/scripts/report-manager.js inspect --module "src/features/user"
+node .codebuddy/scripts/report-manager.js inspect --file "src/features/user/index.ts"
+node .codebuddy/scripts/report-manager.js hotspots --top 10
+
 # 继续执行 workflow
 node .codebuddy/scripts/task-executor.js <taskBookId>
 ```
+
+## 多人并发协作（TaskBook SSOT）
+
+当多人/多 Agent 同时修改同一个 TaskBook 时，请按并发协作 SOP 执行（避免 silent overwrite）：
+
+- `docs/taskbook-collaboration-sop.md`
+
+要点：
+- 先 `show` 获取 `revision`，所有写操作都带 `--if-rev` / `ifRevision`
+- 先 `claim` 再改（用 `executedBy` 做任务认领约定）
+- 遇到 `revision conflict` 先重新 `show` 再处理/重试
 
 ## 通过 MCP 调用（可选）
 

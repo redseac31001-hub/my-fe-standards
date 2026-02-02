@@ -403,13 +403,17 @@ export interface AcceptanceReport {
     stepId?: string;
     timestamp?: string;
     passed: boolean;
+    skipped?: boolean;
+    skipReason?: string;
     approved?: boolean;
+    evidencePath?: string;
     eventContext?: string;
     batchIndex?: number;
     riskTier?: string;
     budgetMinutes?: number;
     totalDurationMs?: number;
     commandRuns?: Array<{ command: string; ok: boolean; code: number | null; durationMs: number }>;
+    missingScripts?: string[];
   }>;
   batches?: Array<{
     stepId: string;

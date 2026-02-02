@@ -671,7 +671,10 @@ export class TaskBookManager {
       if (typeof gateId !== 'string' || gateId.length === 0) continue;
 
       const passed = after.passed === true;
+      const skipped = after.skipped === true;
+      const skipReason = typeof after.skipReason === 'string' ? after.skipReason : undefined;
       const approved = after.approved === true;
+      const evidencePath = typeof after.evidencePath === 'string' ? after.evidencePath : undefined;
       const stepId = typeof after.stepId === 'string' ? after.stepId : undefined;
       const eventContext = typeof after.eventContext === 'string' ? after.eventContext : undefined;
       const batchIndex = typeof after.batchIndex === 'number' && Number.isFinite(after.batchIndex) ? after.batchIndex : undefined;
@@ -695,18 +698,29 @@ export class TaskBookManager {
 
       const totalDurationMs = commandRuns ? commandRuns.reduce((sum, r) => sum + (r.durationMs ?? 0), 0) : undefined;
 
+      let missingScripts: NonNullable<AcceptanceReport['gates']>[number]['missingScripts'] | undefined;
+      const rawMissing = after.missingScripts;
+      if (Array.isArray(rawMissing)) {
+        const parsedMissing = rawMissing.filter((v: unknown): v is string => typeof v === 'string' && v.length > 0);
+        if (parsedMissing.length > 0) missingScripts = parsedMissing;
+      }
+
       gateEvents.push({
         gateId,
         stepId,
         timestamp: entry.timestamp,
         passed,
+        skipped,
+        skipReason,
         approved,
+        evidencePath,
         eventContext,
         batchIndex,
         riskTier,
         budgetMinutes,
         totalDurationMs,
         commandRuns,
+        missingScripts,
       });
     }
 
@@ -896,6 +910,33 @@ type ParsedCli = {
   flags: Record<string, string | boolean | string[]>;
 };
 
+const REQUIRE_IF_REV_ENV = 'CODEBUDDY_TASKBOOK_REQUIRE_IF_REV';
+const MUTATING_COMMANDS_REQUIRING_IF_REV = new Set([
+  'confirm',
+  'complete',
+  'abort',
+  'add-task',
+  'update-task',
+  'unblock',
+  'claim',
+  'append-work',
+]);
+
+function isTruthyEnv(name: string): boolean {
+  const raw = process.env[name];
+  if (!raw) return false;
+  switch (raw.trim().toLowerCase()) {
+    case '1':
+    case 'true':
+    case 'yes':
+    case 'y':
+    case 'on':
+      return true;
+    default:
+      return false;
+  }
+}
+
 function showHelp(): void {
   console.log(`
 TaskBook Manager - TaskBook 任务事实源管理工具
@@ -906,6 +947,7 @@ TaskBook Manager - TaskBook 任务事实源管理工具
 common options:
   --json                       输出 JSON
   --if-rev <number>            可选：写入前检查 TaskBook.revision（避免多 Agent 覆盖）
+  --require-if-rev             可选：强制写操作必须提供 --if-rev（或设置 env ${REQUIRE_IF_REV_ENV}=1）
 
 命令:
   create                      创建 TaskBook
@@ -1068,12 +1110,19 @@ function main(): void {
 
   const manager = new TaskBookManager(process.cwd());
   const json = flagAsBool(parsed.flags, 'json');
+  const requireIfRev = flagAsBool(parsed.flags, 'require-if-rev') || isTruthyEnv(REQUIRE_IF_REV_ENV);
 
   let expectedRevision: number | undefined;
   try {
     expectedRevision = expectedRevisionFromFlags(parsed.flags);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+
+  if (requireIfRev && MUTATING_COMMANDS_REQUIRING_IF_REV.has(parsed.command) && typeof expectedRevision !== 'number') {
+    console.error(`错误: ${parsed.command} 需要 --if-rev <number>（已开启并发保护）`);
+    console.error('提示: 先执行 show <taskBookId> 读取 revision，再重试写操作。');
     process.exit(1);
   }
 
