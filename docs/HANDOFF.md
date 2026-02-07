@@ -1,6 +1,6 @@
 ---
 title: 交接/接力说明（my-fe-standards）
-date: 2026-02-02
+date: 2026-02-04
 ---
 
 # 交接/接力说明（my-fe-standards）
@@ -11,6 +11,7 @@ date: 2026-02-02
 
 - 默认协作分支建议：`feature/codebuddy-glm`（或你当下用于开发的 `wip/*` 分支）
 - 2026-02-02 已验证通过：`npm run build` + `node test/run-tests.js`
+- 2026-02-04 已验证通过：`npm run build` + `node test/run-tests.js`（含 `task-orchestrator --watch` + `agent-call-manager serve /orchestrate` E2E + validators）
 - 2026-02-02 MCP Server 已对齐 CLI：新增 `taskbook_report` / `taskbook_unblock`
 - 2026-02-02 TaskBook 并发协作 SOP 已落地：`docs/taskbook-collaboration-sop.md`（含可选强制模式 `CODEBUDDY_TASKBOOK_REQUIRE_IF_REV=1` / `--require-if-rev`）
 - 2026-02-02 Reports 查询入口已落地：`report-manager.js inspect/hotspots` + MCP `reports_inspect/reports_hotspots`
@@ -77,12 +78,38 @@ git checkout wip/2026-02-01-handoff
 P0（团队接力/协作体验）
 - ✅（2026-02-02）MCP Server 已补齐 `taskbook_report` / `taskbook_unblock`（与 CLI 对齐）
 - ✅（2026-02-02）已梳理“多人并发改同一 TaskBook”协作约定：强制 `--if-rev` / claim 规则 / 冲突处理 SOP（见 `docs/taskbook-collaboration-sop.md`）
+- ✅（2026-02-03）MVP：planner 生成 TaskBook 任务（`taskbook-manager plan/apply-plan`，文件协议 `.codebuddy/agent-calls/`）
+- ✅（2026-02-03）MVP：MANUAL_REQUIRED 自动生成 agent-call（`task-executor` 生成 prompt，写回 result.json 后自动 apply 回写 `actualWork` 并继续）
+- ✅（2026-02-03）Task 执行按优先级调度：`critical > high > medium > low`（依赖满足前提下）
+- ✅（2026-02-04）P0：一键闭环入口 `task-orchestrator`（创建/规划/执行/阻塞恢复/验收）
+- ✅（2026-02-04）P0+：`task-orchestrator --watch` 自动等待 result.json 并继续（无需手动重跑）
 
 P1（老项目接手效率）
 - ✅（2026-02-02）在 reports 基础上补“查询入口”（按模块/文件查上下游、热点、变更趋势），让重构定位更快
+- ✅（2026-02-04）contract-validator 支持 `--agent-calls/--agent-call`：校验 `.codebuddy/agent-calls/*.result.json` 的可消费结构（planner/manual-task）
+- ✅（2026-02-04）agent-call-manager validate 支持基于 prompt header 推断类型并输出 issues（便于排查/恢复闭环）
+- ✅（2026-02-04）loader 分发 `.codebuddy/agent-calls/agent-call.schema.json`（agent-call result.json 契约，推荐 result 写回 kind 字段提升可诊断性）
 
 P2（质量门禁扩大）
 - ✅（2026-02-02）将 lint/typecheck/security/perf 等标准化为 gates（默认 optional：缺脚本 skipped；证据落盘 → acceptance report 汇总）
+- ✅（2026-02-04）acceptance report 汇总 agent-call 关键事件（created/applied + kind/artifacts），便于审计与闭环恢复
+
+P3（可选远程接力/跨机器写回）
+- ✅（2026-02-04）agent-call-manager serve：HTTP 写回 result.json + 查询 TaskBooks + 远程触发/继续一键闭环（`/orchestrate`）
+- ✅（2026-02-04）文档：补充“远程写回/远程 orchestrate”的使用说明与安全边界（`docs/agent-call-remote.md`）
+
+P4（下一阶段：Agent Runtime 工程化）
+- ✅（2026-02-04）Agent Registry：扫描 `AGENT.md` 元数据，输出可消费 JSON（list/show）
+- ✅（2026-02-04）Registry 接入 agent-call：prompt header 对齐（agentVersion/taskBookRevision）+ 缺失降级提示
+- ✅（2026-02-04）E2E：覆盖 registry 行为与错误路径（`test/run-tests.js`）
+- ✅（2026-02-04）文档：沉淀“CLI 核心 + Prompt 扩展 + 文件协议桥接”的最佳实践与远程边界（见 `README.md` / `docs/fancy-floating-dolphin.md`）
+
+P5（规则/技能/调度：可控性与工程化）
+- ✅（2026-02-04）新增 `rule-validator` / `skill-validator`（可在业务项目直接运行，默认非阻塞；JSON 输出可消费）
+- ✅（2026-02-04）`codebuddy-loader --rule-level summary|quick|full`：裁剪 Layer1 Eager 内容（rules_cache 保持 full 以便按需读取）
+- ✅（2026-02-04）manual-task 的 agentId 选择更灵活：按任务类型/关键词做轻量路由；可用 `CODEBUDDY_MANUAL_AGENT_ID` 强制覆盖
+- ⬜（可选）进一步统一 rules frontmatter（最小字段：name/description/tags/priority/alwaysApply），并在 CI 中启用 `--strict`
+- ⬜（可选）为 Skills 增加“引用完整性”更强校验（支持链接标题/相对路径白名单），并补一份简洁的 Skill 模板/发布流程
 
 ---
 

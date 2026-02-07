@@ -51,6 +51,7 @@ const TASK_TYPES = new Set(['analysis', 'design', 'test', 'implement', 'review']
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'done', 'blocked', 'skipped']);
 const TASK_PRIORITIES = new Set(['critical', 'high', 'medium', 'low']);
 const CHANGE_TYPES = new Set(['added', 'modified', 'removed', 'reordered']);
+const AGENT_CALL_STATUSES = new Set(['success', 'failed', 'blocked']);
 const KNOWN_WORKFLOW_STEP_TYPES = new Set([
     'analyze_project',
     'create_taskbook',
@@ -98,6 +99,218 @@ function listJsonFiles(dirPath, opts) {
     catch (_a) {
         return [];
     }
+}
+function readTextFile(filePath) {
+    try {
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        return { ok: true, data: raw };
+    }
+    catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+}
+function parseFirstJsonCodeBlock(markdown) {
+    const m = markdown.match(/```json\s*([\s\S]*?)\s*```/);
+    if (!m)
+        return { ok: false, error: 'Missing ```json ... ``` block in prompt.md' };
+    return { ok: true, jsonText: m[1] };
+}
+function parseAgentCallPromptHeader(markdown) {
+    const block = parseFirstJsonCodeBlock(markdown);
+    if (!block.ok)
+        return block;
+    try {
+        const parsed = JSON.parse(block.jsonText);
+        if (!isPlainObject(parsed))
+            return { ok: false, error: 'prompt header JSON must be an object' };
+        if (!isNonEmptyString(parsed.requestId))
+            return { ok: false, error: 'prompt header JSON missing requestId' };
+        return { ok: true, header: parsed };
+    }
+    catch (error) {
+        return { ok: false, error: `Invalid prompt header JSON: ${error instanceof Error ? error.message : String(error)}` };
+    }
+}
+function inferAgentCallKind(markdown, header) {
+    var _a, _b;
+    const firstLine = (_b = (_a = markdown.split(/\r?\n/, 1)[0]) === null || _a === void 0 ? void 0 : _a.trim()) !== null && _b !== void 0 ? _b : '';
+    if (firstLine === '# Agent Call: planner' || (header === null || header === void 0 ? void 0 : header.agentId) === 'planner')
+        return 'planner';
+    if (firstLine === '# Agent Call: manual-task' || isNonEmptyString(header === null || header === void 0 ? void 0 : header.taskId))
+        return 'manual-task';
+    return 'unknown';
+}
+function parseAgentCallResultKind(data) {
+    if (!isPlainObject(data))
+        return null;
+    const kind = data.kind;
+    if (kind === 'planner' || kind === 'manual-task')
+        return kind;
+    return null;
+}
+function validatePlannerAgentCallOutput(output, file) {
+    const issues = [];
+    const error = (message) => issues.push({ level: 'error', file, message });
+    if (!isPlainObject(output)) {
+        error('agent-call output must be an object for planner');
+        return issues;
+    }
+    const tasks = output.tasks;
+    if (!Array.isArray(tasks)) {
+        error('planner output.tasks must be an array');
+        return issues;
+    }
+    if (tasks.length === 0) {
+        issues.push({ level: 'warning', file, message: 'planner output.tasks is empty' });
+        return issues;
+    }
+    const allowedTypes = new Set(['analysis', 'design', 'test', 'implement', 'review']);
+    const allowedPriorities = TASK_PRIORITIES;
+    const seenPlanIds = new Set();
+    for (const [index, raw] of tasks.entries()) {
+        if (!isPlainObject(raw)) {
+            error(`planner output.tasks[${index}] must be an object`);
+            continue;
+        }
+        const planId = raw.planId;
+        const title = raw.title;
+        const type = raw.type;
+        const priority = raw.priority;
+        if (!isNonEmptyString(planId)) {
+            error(`planner output.tasks[${index}].planId must be a non-empty string`);
+        }
+        else {
+            if (seenPlanIds.has(planId))
+                error(`Duplicate planner planId: ${planId}`);
+            seenPlanIds.add(planId);
+        }
+        if (!isNonEmptyString(title))
+            error(`planner output.tasks[${index}].title must be a non-empty string`);
+        if (!isNonEmptyString(type) || !allowedTypes.has(type)) {
+            error(`planner output.tasks[${index}].type must be one of: ${Array.from(allowedTypes).join(', ')}`);
+        }
+        if (typeof priority !== 'undefined') {
+            if (!isNonEmptyString(priority) || !allowedPriorities.has(priority)) {
+                error(`planner output.tasks[${index}].priority must be one of: ${Array.from(allowedPriorities).join(', ')}`);
+            }
+        }
+        if (typeof raw.acceptanceCriteria !== 'undefined' && !isStringArray(raw.acceptanceCriteria)) {
+            error(`planner output.tasks[${index}].acceptanceCriteria must be an array of strings (when provided)`);
+        }
+        if (typeof raw.dependencies !== 'undefined') {
+            const deps = raw.dependencies;
+            if (!isStringArray(deps)) {
+                error(`planner output.tasks[${index}].dependencies must be an array of strings (when provided)`);
+            }
+            else {
+                for (const dep of deps) {
+                    if (!seenPlanIds.has(dep)) {
+                        error(`planner output.tasks[${index}].dependencies references unknown/forward planId: ${dep}`);
+                    }
+                }
+            }
+        }
+        if (typeof raw.scope !== 'undefined') {
+            const scope = raw.scope;
+            if (!isPlainObject(scope)) {
+                error(`planner output.tasks[${index}].scope must be an object (when provided)`);
+            }
+            else {
+                if (typeof scope.files !== 'undefined' && !isStringArray(scope.files)) {
+                    error(`planner output.tasks[${index}].scope.files must be an array of strings (when provided)`);
+                }
+                if (typeof scope.modules !== 'undefined' && !isStringArray(scope.modules)) {
+                    error(`planner output.tasks[${index}].scope.modules must be an array of strings (when provided)`);
+                }
+                if (typeof scope.tags !== 'undefined' && !isStringArray(scope.tags)) {
+                    error(`planner output.tasks[${index}].scope.tags must be an array of strings (when provided)`);
+                }
+            }
+        }
+    }
+    return issues;
+}
+function validateManualTaskAgentCallOutput(output, file) {
+    const issues = [];
+    const error = (message) => issues.push({ level: 'error', file, message });
+    if (!isPlainObject(output)) {
+        error('agent-call output must be an object for manual-task');
+        return issues;
+    }
+    if (!isNonEmptyString(output.actualWork)) {
+        error('manual-task output.actualWork must be a non-empty string');
+    }
+    return issues;
+}
+function validateAgentCallResult(data, file, opts) {
+    var _a, _b, _c, _d;
+    const issues = [];
+    const error = (message) => issues.push({ level: 'error', file, message });
+    const warn = (message) => issues.push({ level: 'warning', file, message });
+    if (!isPlainObject(data)) {
+        error('agent-call result must be a JSON object');
+        return issues;
+    }
+    const requestId = data.requestId;
+    const status = data.status;
+    if (!isNonEmptyString(requestId))
+        error('agent-call requestId must be a non-empty string');
+    if (isNonEmptyString(opts === null || opts === void 0 ? void 0 : opts.requestIdFromFile) && requestId !== (opts === null || opts === void 0 ? void 0 : opts.requestIdFromFile)) {
+        error(`agent-call requestId mismatch: file=${opts === null || opts === void 0 ? void 0 : opts.requestIdFromFile} json=${String(requestId)}`);
+    }
+    if (isNonEmptyString((_a = opts === null || opts === void 0 ? void 0 : opts.promptHeader) === null || _a === void 0 ? void 0 : _a.requestId) && requestId !== ((_b = opts === null || opts === void 0 ? void 0 : opts.promptHeader) === null || _b === void 0 ? void 0 : _b.requestId)) {
+        error(`agent-call requestId mismatch: prompt=${(_c = opts === null || opts === void 0 ? void 0 : opts.promptHeader) === null || _c === void 0 ? void 0 : _c.requestId} json=${String(requestId)}`);
+    }
+    if (!isNonEmptyString(status) || !AGENT_CALL_STATUSES.has(status)) {
+        error(`agent-call status must be one of: ${Array.from(AGENT_CALL_STATUSES).join(', ')}`);
+    }
+    const completedAt = data.completedAt;
+    if (typeof completedAt !== 'undefined' && !isValidDateTime(completedAt)) {
+        error('agent-call completedAt must be an ISO date-time string (when provided)');
+    }
+    const output = data.output;
+    const err = data.error;
+    const artifacts = data.artifacts;
+    if (typeof artifacts !== 'undefined') {
+        if (!Array.isArray(artifacts)) {
+            warn('agent-call artifacts must be an array (when provided)');
+        }
+        else {
+            for (const [index, a] of artifacts.entries()) {
+                if (!isPlainObject(a)) {
+                    warn(`agent-call artifacts[${index}] must be an object`);
+                    continue;
+                }
+                if (!isNonEmptyString(a.type))
+                    warn(`agent-call artifacts[${index}].type must be a non-empty string`);
+                if (!isNonEmptyString(a.path))
+                    warn(`agent-call artifacts[${index}].path must be a non-empty string`);
+            }
+        }
+    }
+    if (typeof err !== 'undefined') {
+        if (!isPlainObject(err)) {
+            warn('agent-call error must be an object (when provided)');
+        }
+        else {
+            if (typeof err.message !== 'undefined' && typeof err.message !== 'string') {
+                warn('agent-call error.message must be a string (when provided)');
+            }
+        }
+    }
+    else if (status !== 'success') {
+        warn('agent-call error is recommended when status != success');
+    }
+    if (status === 'success') {
+        if (typeof completedAt === 'undefined')
+            warn('agent-call completedAt is recommended when status=success');
+        const kind = (_d = opts === null || opts === void 0 ? void 0 : opts.kind) !== null && _d !== void 0 ? _d : 'unknown';
+        if (kind === 'planner')
+            issues.push(...validatePlannerAgentCallOutput(output, file));
+        else if (kind === 'manual-task')
+            issues.push(...validateManualTaskAgentCallOutput(output, file));
+    }
+    return issues;
 }
 function validateTaskBook(data, file) {
     const issues = [];
@@ -424,12 +637,14 @@ function validateWorkflowSpec(data, file, opts) {
     return issues;
 }
 function parseArgs(argv) {
-    var _a, _b;
+    var _a, _b, _c;
     const parsed = {
         validateWorkflows: false,
         validateTaskbooks: false,
+        validateAgentCalls: false,
         workflowPaths: [],
         taskBookIds: [],
+        agentCallRequestIds: [],
         strict: false,
         checkBatchingScope: false,
         strictBatchingScope: false,
@@ -442,10 +657,14 @@ function parseArgs(argv) {
             parsed.validateWorkflows = true;
         else if (a === '--taskbooks')
             parsed.validateTaskbooks = true;
+        else if (a === '--agent-calls')
+            parsed.validateAgentCalls = true;
         else if (a === '--workflow')
             parsed.workflowPaths.push(String((_a = argv[++i]) !== null && _a !== void 0 ? _a : ''));
         else if (a === '--taskbook')
             parsed.taskBookIds.push(String((_b = argv[++i]) !== null && _b !== void 0 ? _b : ''));
+        else if (a === '--agent-call')
+            parsed.agentCallRequestIds.push(String((_c = argv[++i]) !== null && _c !== void 0 ? _c : ''));
         else if (a === '--strict')
             parsed.strict = true;
         else if (a === '--check-batching-scope')
@@ -464,12 +683,18 @@ function parseArgs(argv) {
         }
     }
     // default: validate both
-    if (!parsed.validateWorkflows && !parsed.validateTaskbooks && parsed.workflowPaths.length === 0 && parsed.taskBookIds.length === 0) {
+    if (!parsed.validateWorkflows &&
+        !parsed.validateTaskbooks &&
+        !parsed.validateAgentCalls &&
+        parsed.workflowPaths.length === 0 &&
+        parsed.taskBookIds.length === 0 &&
+        parsed.agentCallRequestIds.length === 0) {
         parsed.validateWorkflows = true;
         parsed.validateTaskbooks = true;
     }
     parsed.workflowPaths = parsed.workflowPaths.filter(Boolean);
     parsed.taskBookIds = parsed.taskBookIds.filter(Boolean);
+    parsed.agentCallRequestIds = parsed.agentCallRequestIds.filter(Boolean);
     if (parsed.strictBatchingScope)
         parsed.checkBatchingScope = true;
     return parsed;
@@ -486,6 +711,8 @@ Options:
   --workflow <path>           validate a specific workflow JSON file
   --taskbooks                 validate TaskBooks under .codebuddy/taskbooks/active
   --taskbook <id>             validate a specific TaskBook id (active/history)
+  --agent-calls               validate agent-call results under .codebuddy/agent-calls
+  --agent-call <requestId>    validate a specific agent-call requestId
   --strict                    treat unknown workflow step/gate types as errors
   --check-batching-scope      warn when batching is enabled but tasks lack scope.files/modules
   --strict-batching-scope     error when batching is enabled but tasks lack scope.files/modules
@@ -553,6 +780,7 @@ function batchingScopeIssues(taskBookData, file, opts) {
     return issues;
 }
 function main() {
+    var _a, _b, _c;
     const argv = process.argv.slice(2);
     if (argv.includes('--help') || argv.includes('-h')) {
         showHelp();
@@ -625,6 +853,103 @@ function main() {
             }
         }
     }
+    // agent-calls
+    const agentCallsDir = path.join(process.cwd(), '.codebuddy', 'agent-calls');
+    const agentCallItems = [];
+    if (args.agentCallRequestIds.length > 0) {
+        for (const id of args.agentCallRequestIds) {
+            const promptFile = path.join(agentCallsDir, `${id}.prompt.md`);
+            const resultFile = path.join(agentCallsDir, `${id}.result.json`);
+            if (!fs.existsSync(resultFile)) {
+                issues.push({ level: 'error', file: id, message: 'agent-call result.json not found under .codebuddy/agent-calls' });
+                continue;
+            }
+            agentCallItems.push({
+                requestId: id,
+                promptFile: fs.existsSync(promptFile) ? promptFile : null,
+                resultFile,
+            });
+        }
+    }
+    else if (args.validateAgentCalls) {
+        if (fs.existsSync(agentCallsDir)) {
+            const entries = fs.readdirSync(agentCallsDir, { withFileTypes: true });
+            const requestIds = new Map();
+            for (const e of entries) {
+                if (!e.isFile())
+                    continue;
+                const m = e.name.match(/^(.*)\.(prompt\.md|result\.json)$/);
+                if (!m)
+                    continue;
+                const requestId = m[1];
+                const kind = m[2];
+                const existing = (_a = requestIds.get(requestId)) !== null && _a !== void 0 ? _a : { promptFile: null, resultFile: null };
+                const absPath = path.join(agentCallsDir, e.name);
+                if (kind === 'prompt.md')
+                    existing.promptFile = absPath;
+                if (kind === 'result.json')
+                    existing.resultFile = absPath;
+                requestIds.set(requestId, existing);
+            }
+            for (const [requestId, files] of Array.from(requestIds.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+                agentCallItems.push({ requestId, promptFile: files.promptFile, resultFile: files.resultFile });
+            }
+        }
+    }
+    for (const it of agentCallItems) {
+        if (it.promptFile && !it.resultFile) {
+            issues.push({
+                level: 'warning',
+                file: it.promptFile,
+                message: `agent-call result.json missing (requestId=${it.requestId})`,
+            });
+            continue;
+        }
+        if (it.resultFile && !it.promptFile) {
+            issues.push({
+                level: 'warning',
+                file: it.resultFile,
+                message: `agent-call prompt.md missing (requestId=${it.requestId})`,
+            });
+        }
+        if (!it.resultFile)
+            continue;
+        const prompt = it.promptFile ? readTextFile(it.promptFile) : null;
+        const promptHeader = prompt && prompt.ok ? parseAgentCallPromptHeader(prompt.data) : null;
+        if (prompt && !prompt.ok) {
+            issues.push({ level: 'warning', file: (_b = it.promptFile) !== null && _b !== void 0 ? _b : it.resultFile, message: `Failed to read prompt.md: ${prompt.error}` });
+        }
+        if (prompt && prompt.ok && promptHeader && !promptHeader.ok) {
+            issues.push({ level: 'warning', file: (_c = it.promptFile) !== null && _c !== void 0 ? _c : it.resultFile, message: `Invalid prompt.md header: ${promptHeader.error}` });
+        }
+        const r = readJsonFile(it.resultFile);
+        if (!r.ok) {
+            issues.push({ level: 'error', file: it.resultFile, message: `Failed to read/parse JSON: ${r.error}` });
+            continue;
+        }
+        const kindFromPrompt = prompt && prompt.ok ? inferAgentCallKind(prompt.data, promptHeader && promptHeader.ok ? promptHeader.header : null) : 'unknown';
+        const kindFromResult = parseAgentCallResultKind(r.data);
+        if (kindFromPrompt !== 'unknown' && kindFromResult && kindFromPrompt !== kindFromResult) {
+            issues.push({
+                level: 'error',
+                file: it.resultFile,
+                message: `agent-call kind mismatch: prompt=${kindFromPrompt} result=${kindFromResult}`,
+            });
+        }
+        if (isPlainObject(r.data) && typeof r.data.kind !== 'undefined' && !kindFromResult) {
+            issues.push({
+                level: 'warning',
+                file: it.resultFile,
+                message: `agent-call kind is present but not recognized: ${String(r.data.kind)}`,
+            });
+        }
+        const kind = kindFromPrompt !== 'unknown' ? kindFromPrompt : (kindFromResult !== null && kindFromResult !== void 0 ? kindFromResult : 'unknown');
+        issues.push(...validateAgentCallResult(r.data, it.resultFile, {
+            requestIdFromFile: it.requestId,
+            promptHeader: promptHeader && promptHeader.ok ? promptHeader.header : null,
+            kind,
+        }));
+    }
     const errors = issues.filter(i => i.level === 'error');
     const warnings = issues.filter(i => i.level === 'warning');
     const ok = errors.length === 0;
@@ -632,14 +957,19 @@ function main() {
         // do not include huge content, only summary
         console.log(JSON.stringify({
             ok,
-            totals: { files: { workflows: workflowFiles.length, taskbooks: taskBookFiles.length }, errors: errors.length, warnings: warnings.length },
+            totals: {
+                files: { workflows: workflowFiles.length, taskbooks: taskBookFiles.length, agentCalls: agentCallItems.length },
+                errors: errors.length,
+                warnings: warnings.length,
+            },
             issues,
         }, null, 2));
     }
     else {
         if (ok) {
             if (!args.quiet) {
-                console.log(`[OK] contracts valid | workflows=${workflowFiles.length} taskbooks=${taskBookFiles.length} warnings=${warnings.length}`);
+                const agentCallsPart = args.validateAgentCalls || args.agentCallRequestIds.length > 0 ? ` agentcalls=${agentCallItems.length}` : '';
+                console.log(`[OK] contracts valid | workflows=${workflowFiles.length} taskbooks=${taskBookFiles.length}${agentCallsPart} warnings=${warnings.length}`);
             }
         }
         else {

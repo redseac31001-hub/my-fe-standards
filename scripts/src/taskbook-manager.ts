@@ -23,6 +23,7 @@ const ACTIVE_DIR = 'active';
 const HISTORY_DIR = 'history';
 const CONTEXT_SNAPSHOTS_DIR = '.codebuddy/context-snapshots';
 const LOCKS_DIR = '.codebuddy/taskbooks/.locks';
+const AGENT_CALLS_DIR = '.codebuddy/agent-calls';
 const LOCK_STALE_MS = 2 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 10 * 1000;
 const LOCK_RETRY_MS = 80;
@@ -380,6 +381,143 @@ export class TaskBookManager {
     this.touch(taskBook);
     this.save(taskBook);
     return taskBook;
+    });
+  }
+
+  /**
+   * 批量添加任务（单次 touch/save，适合 planner apply-plan 等批处理场景）
+   */
+  addTasksBatch(
+    taskBookId: string,
+    tasks: Array<Pick<TaskItem, 'title' | 'type'> & Partial<Omit<TaskItem, 'id' | 'title' | 'type'>>>,
+    opts?: { expectedRevision?: number; reasonPrefix?: string }
+  ): { taskBook: TaskBook; taskIds: string[] } | null {
+    return this.withTaskBookLock(taskBookId, () => {
+      const taskBook = this.load(taskBookId);
+      if (!taskBook) return null;
+
+      this.assertRevision(taskBook, opts?.expectedRevision);
+
+      const taskIds: string[] = [];
+      const reasonPrefix = opts?.reasonPrefix;
+
+      for (const task of tasks) {
+        const taskId = `task-${taskBook.tasks.length + 1}`;
+        const newTask: TaskItem = {
+          id: taskId,
+          parentId: task.parentId,
+          title: task.title,
+          type: task.type,
+          status: task.status ?? 'pending',
+          priority: task.priority ?? 'medium',
+          dependencies: task.dependencies ?? [],
+          acceptanceCriteria: task.acceptanceCriteria ?? [],
+          scope: task.scope,
+          actualWork: task.actualWork,
+          blockedReason: task.blockedReason,
+          executedBy: task.executedBy,
+          startedAt: task.startedAt,
+          completedAt: task.completedAt,
+        };
+
+        taskBook.tasks.push(newTask);
+        taskIds.push(taskId);
+
+        this.addChangelogEntry(taskBook, {
+          timestamp: now(),
+          taskId,
+          changeType: 'added',
+          reason: `${reasonPrefix ? `${reasonPrefix}: ` : ''}添加任务: ${task.title}`,
+          after: newTask as unknown as Record<string, unknown>,
+        });
+      }
+
+      this.touch(taskBook);
+      this.save(taskBook);
+      return { taskBook, taskIds };
+    });
+  }
+
+  /**
+   * 应用 planner 输出（planId/dependencies 基于 planId），并一次性写入 TaskBook
+   */
+  applyPlannerPlan(
+    taskBookId: string,
+    requestId: string,
+    planTasks: PlannerPlanTask[],
+    expectedRevision?: number
+  ): { taskBook: TaskBook; taskIds: string[]; planIdToTaskId: Record<string, string> } | null {
+    return this.withTaskBookLock(taskBookId, () => {
+      const taskBook = this.load(taskBookId);
+      if (!taskBook) return null;
+
+      this.assertRevision(taskBook, expectedRevision);
+
+      if (!Array.isArray(planTasks) || planTasks.length === 0) {
+        throw new Error('错误: planner planTasks 不能为空');
+      }
+
+      const planIdToIndex = new Map<string, number>();
+      const planIdToTaskId: Record<string, string> = {};
+
+      const base = taskBook.tasks.length + 1;
+      for (let i = 0; i < planTasks.length; i++) {
+        const planId = planTasks[i]?.planId;
+        if (typeof planId !== 'string' || !planId) {
+          throw new Error(`错误: planTasks[${i}].planId 必须是非空字符串`);
+        }
+        if (planIdToIndex.has(planId)) {
+          throw new Error(`错误: planId 重复: ${planId}`);
+        }
+        planIdToIndex.set(planId, i);
+        planIdToTaskId[planId] = `task-${base + i}`;
+      }
+
+      const taskIds: string[] = [];
+
+      for (let i = 0; i < planTasks.length; i++) {
+        const t = planTasks[i];
+        const taskId = planIdToTaskId[t.planId];
+        const deps = t.dependencies ?? [];
+
+        const mappedDeps: string[] = [];
+        for (const dep of deps) {
+          const depIndex = planIdToIndex.get(dep);
+          if (typeof depIndex !== 'number') {
+            throw new Error(`错误: 依赖 planId 不存在: ${dep} (from ${t.planId})`);
+          }
+          if (depIndex >= i) {
+            throw new Error(`错误: dependencies 必须指向更早的 planId（${t.planId} 依赖 ${dep}）`);
+          }
+          mappedDeps.push(planIdToTaskId[dep]);
+        }
+
+        const newTask: TaskItem = {
+          id: taskId,
+          title: t.title,
+          type: t.type,
+          status: 'pending',
+          priority: t.priority ?? 'medium',
+          dependencies: mappedDeps,
+          acceptanceCriteria: t.acceptanceCriteria ?? [],
+          scope: t.scope,
+        };
+
+        taskBook.tasks.push(newTask);
+        taskIds.push(taskId);
+
+        this.addChangelogEntry(taskBook, {
+          timestamp: now(),
+          taskId,
+          changeType: 'added',
+          reason: `planner:${requestId}: 添加任务: ${t.title}`,
+          after: newTask as unknown as Record<string, unknown>,
+        });
+      }
+
+      this.touch(taskBook);
+      this.save(taskBook);
+      return { taskBook, taskIds, planIdToTaskId };
     });
   }
 
@@ -807,6 +945,78 @@ export class TaskBookManager {
       report.batches = batches;
     }
 
+    // 汇总 agent-calls（从 changelog 里提取 event=agent-call 的记录）
+    const agentCallEvents: NonNullable<AcceptanceReport['agentCalls']> = [];
+    const lastActionByRequestId = new Map<string, 'created' | 'applied'>();
+
+    for (const entry of taskBook.changelog) {
+      const after = entry.after;
+      if (!isPlainObject(after)) continue;
+      if (after.event !== 'agent-call') continue;
+
+      const requestId = after.requestId;
+      if (typeof requestId !== 'string' || requestId.length === 0) continue;
+
+      const action = after.action === 'created' || after.action === 'applied' ? (after.action as 'created' | 'applied') : undefined;
+      if (action) lastActionByRequestId.set(requestId, action);
+
+      const agentId = typeof after.agentId === 'string' ? after.agentId : undefined;
+
+      const kindRaw = after.kind;
+      const kind = kindRaw === 'planner' || kindRaw === 'manual-task' ? (kindRaw as 'planner' | 'manual-task') : undefined;
+
+      const statusRaw = after.status;
+      const status = statusRaw === 'success' || statusRaw === 'failed' || statusRaw === 'blocked'
+        ? (statusRaw as 'success' | 'failed' | 'blocked')
+        : undefined;
+
+      const createdAt = typeof after.createdAt === 'string' ? after.createdAt : undefined;
+      const completedAt = typeof after.completedAt === 'string' ? after.completedAt : undefined;
+      const promptPath = typeof after.promptPath === 'string' ? after.promptPath : undefined;
+      const resultPath = typeof after.resultPath === 'string' ? after.resultPath : undefined;
+
+      let artifacts: NonNullable<AcceptanceReport['agentCalls']>[number]['artifacts'] | undefined;
+      const rawArtifacts = after.artifacts;
+      if (Array.isArray(rawArtifacts)) {
+        const parsed: NonNullable<AcceptanceReport['agentCalls']>[number]['artifacts'] = [];
+        for (const a of rawArtifacts) {
+          if (!isPlainObject(a)) continue;
+          const type = typeof a.type === 'string' ? a.type : '';
+          const p = typeof a.path === 'string' ? a.path : '';
+          if (!type || !p) continue;
+          const description = typeof a.description === 'string' ? a.description : undefined;
+          parsed.push({ type, path: p, description });
+        }
+        if (parsed.length > 0) artifacts = parsed;
+      }
+
+      agentCallEvents.push({
+        requestId,
+        action,
+        timestamp: entry.timestamp,
+        taskId: entry.taskId,
+        agentId,
+        kind,
+        status,
+        createdAt,
+        completedAt,
+        promptPath,
+        resultPath,
+        artifacts,
+      });
+    }
+
+    if (agentCallEvents.length > 0) {
+      report.agentCalls = agentCallEvents;
+
+      const pending = Array.from(lastActionByRequestId.values()).filter(a => a === 'created').length;
+      if (pending > 0) {
+        report.recommendations.mustDo.push(
+          `补齐 ${pending} 个 agent-call 的 result.json 回填（.codebuddy/agent-calls/*.result.json），以恢复闭环执行`
+        );
+      }
+    }
+
     // Scope 纪律建议：缺少 scope 会导致 batching / 并发冲突检测退化
     const missingScope = taskBook.tasks.filter(t => {
       if (t.status !== 'pending') return false;
@@ -910,6 +1120,26 @@ type ParsedCli = {
   flags: Record<string, string | boolean | string[]>;
 };
 
+type PlannerPlanTask = {
+  planId: string;
+  title: string;
+  type: TaskItem['type'];
+  priority?: TaskItem['priority'];
+  dependencies?: string[];
+  acceptanceCriteria?: string[];
+  scope?: TaskScope;
+};
+
+type AgentCallStatus = 'success' | 'failed' | 'blocked';
+type AgentCallResult = {
+  requestId: string;
+  kind?: 'planner' | 'manual-task';
+  status: AgentCallStatus;
+  output?: unknown;
+  error?: { code?: string; message?: string };
+  completedAt?: string;
+};
+
 const REQUIRE_IF_REV_ENV = 'CODEBUDDY_TASKBOOK_REQUIRE_IF_REV';
 const MUTATING_COMMANDS_REQUIRING_IF_REV = new Set([
   'confirm',
@@ -920,6 +1150,7 @@ const MUTATING_COMMANDS_REQUIRING_IF_REV = new Set([
   'unblock',
   'claim',
   'append-work',
+  'apply-plan',
 ]);
 
 function isTruthyEnv(name: string): boolean {
@@ -954,6 +1185,8 @@ common options:
   list                        列出 active TaskBooks
   show <taskBookId>            查看 TaskBook（默认格式化输出）
   report <taskBookId>          生成验收/批量/闸门报告（可选落盘）
+  plan <taskBookId>            生成 planner Agent prompt（写入 .codebuddy/agent-calls/）
+  apply-plan <taskBookId> <requestId>  从 result.json 追加任务到 TaskBook
   confirm <taskBookId>         将 TaskBook 状态设为 confirmed
   complete <taskBookId>        将 TaskBook 状态设为 completed（会归档到 history）
   abort <taskBookId>           将 TaskBook 状态设为 aborted（会归档到 history）
@@ -1001,6 +1234,14 @@ claim options:
 report options:
   --write                      写入到 .codebuddy/reports/taskbooks/<id>.acceptance.json（或由 --out 指定）
   --out <path>                 自定义输出路径（可选）
+  --json
+
+plan options:
+  --request-id <id>            （可选）自定义 requestId（默认自动生成）
+  --json
+
+apply-plan options:
+  --dry-run                    只预览，不写入 TaskBook
   --json
 
 unblock options:
@@ -1097,6 +1338,314 @@ function expectedRevisionFromFlags(flags: ParsedCli['flags']): number | undefine
 
 function printJson(obj: unknown): void {
   console.log(JSON.stringify(obj, null, 2));
+}
+
+function generateRequestId(): string {
+  const ts = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  const rnd = Math.random().toString(36).slice(2, 8);
+  return `req-${ts}-${rnd}`;
+}
+
+function readTextFileIfExists(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) return null;
+  return fs.readFileSync(filePath, 'utf-8');
+}
+
+function loadPlannerAgentDefinition(projectRoot: string): { path: string; content: string } | null {
+  const candidates = [
+    path.join(projectRoot, '.codebuddy', 'agents', 'planner', 'AGENT.md'),
+    path.join(projectRoot, 'agents', 'planner', 'AGENT.md'),
+  ];
+  for (const p of candidates) {
+    const content = readTextFileIfExists(p);
+    if (content) return { path: p, content };
+  }
+  return null;
+}
+
+function extractAgentVersion(agentMarkdown: string): string | undefined {
+  const fm = agentMarkdown.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  const frontmatter = fm ? fm[1] : null;
+  if (frontmatter) {
+    const m = frontmatter.match(/^version:\s*(.+)$/m);
+    const v = m ? m[1].trim() : '';
+    return v ? v : undefined;
+  }
+
+  const yaml = agentMarkdown.match(/```ya?ml\s*([\s\S]*?)\s*```/);
+  if (yaml) {
+    const m = yaml[1].match(/^version:\s*(.+)$/m);
+    const v = m ? m[1].trim() : '';
+    return v ? v : undefined;
+  }
+
+  return undefined;
+}
+
+function buildPlannerPrompt(args: {
+  requestId: string;
+  taskBook: TaskBook;
+  projectRoot: string;
+  agentDefinitionPath: string | null;
+  agentDefinition: string | null;
+  promptPath: string;
+  resultPath: string;
+}): string {
+  const agentVersion = args.agentDefinition ? extractAgentVersion(args.agentDefinition) : undefined;
+  const header = {
+    requestId: args.requestId,
+    agentId: 'planner',
+    agentVersion,
+    taskBookId: args.taskBook.id,
+    timestamp: now(),
+    taskBookRevision: typeof args.taskBook.revision === 'number' ? args.taskBook.revision : 0,
+    promptPath: args.promptPath,
+    resultPath: args.resultPath,
+  };
+
+  const references: string[] = [
+    '.codebuddy/rules/project-rules.md',
+    '.codebuddy/reports/architecture/latest.json',
+    '.codebuddy/reports/modules/latest.json',
+  ];
+
+  const agentDefinition = args.agentDefinition ?? '(missing AGENT.md)';
+  const agentDefinitionHint = args.agentDefinitionPath ? `source: ${args.agentDefinitionPath}` : 'source: (not found)';
+
+  const schemaExample: AgentCallResult = {
+    requestId: args.requestId,
+    kind: 'planner',
+    status: 'success',
+    output: {
+      tasks: [
+        {
+          planId: 'T1',
+          title: '理解需求 & 梳理影响范围',
+          type: 'analysis',
+          priority: 'high',
+          acceptanceCriteria: ['输出影响范围清单', '明确非目标/约束'],
+        },
+        {
+          planId: 'T2',
+          title: '制定实现方案（含接口/数据结构）',
+          type: 'design',
+          dependencies: ['T1'],
+          acceptanceCriteria: ['给出方案与取舍', '明确任务拆分与关键路径'],
+        },
+      ],
+      notes: 'tasks 必须按依赖顺序排序（dependencies 只能指向更早的 planId）。',
+    },
+    completedAt: now(),
+  };
+
+  return [
+    '# Agent Call: planner',
+    '',
+    '## Header (JSON)',
+    '```json',
+    JSON.stringify(header, null, 2),
+    '```',
+    '',
+    `## Agent Definition (${agentDefinitionHint})`,
+    '```md',
+    agentDefinition.trimEnd(),
+    '```',
+    '',
+    '## Context: TaskBook JSON',
+    '```json',
+    JSON.stringify(args.taskBook, null, 2),
+    '```',
+    '',
+    '## Context: Optional References (paths)',
+    ...references.map(p => `- ${p}`),
+    '',
+    '## Instructions',
+    '你是 planner Agent。请基于上面的 TaskBook（以及可选的 rules/reports）生成可直接写入 TaskBook 的任务列表。',
+    '',
+    '要求：',
+    '- 输出必须可被脚本自动消费：不要输出 Markdown，不要输出解释性文本。',
+    '- 只生成 task 级别的原子任务（INVEST），确保每个任务 1-3 天内可完成。',
+    '- 任务类型必须是以下之一：analysis | design | test | implement | review。',
+    '- dependencies 只能引用本次计划中更早的 planId（确保 tasks 已按依赖拓扑顺序排序）。',
+    '- acceptanceCriteria 建议给 2-5 条可验证要点。',
+    '- scope 可选：files/modules/tags（数组）。',
+    '',
+    `写入目标：请把结果写入 ${args.resultPath}`,
+    '',
+    '输出 JSON Schema（简化版）：',
+    '- requestId: string（必须与 header.requestId 一致）',
+    "- kind?: 'planner' | 'manual-task'（推荐，用于更强校验/诊断）",
+    "- status: 'success' | 'failed' | 'blocked'",
+    '- output.tasks: PlannerPlanTask[]',
+    '',
+    'PlannerPlanTask:',
+    '- planId: string（如 T1/T2...，本次计划内唯一）',
+    '- title: string',
+    "- type: 'analysis' | 'design' | 'test' | 'implement' | 'review'",
+    "- priority?: 'critical' | 'high' | 'medium' | 'low'",
+    '- dependencies?: string[]（planId 列表）',
+    '- acceptanceCriteria?: string[]',
+    '- scope?: { files?: string[]; modules?: string[]; tags?: string[] }',
+    '',
+    '示例（必须是 JSON，不要包裹 Markdown）：',
+    '```json',
+    JSON.stringify(schemaExample, null, 2),
+    '```',
+    '',
+  ].join('\n');
+}
+
+function parseAgentCallResult(jsonText: string): AgentCallResult {
+  const parsed = JSON.parse(jsonText) as unknown;
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('错误: result.json 必须是 JSON object');
+  }
+  const obj = parsed as Record<string, unknown>;
+  const requestId = obj.requestId;
+  const status = obj.status;
+
+  if (typeof requestId !== 'string' || !requestId) {
+    throw new Error('错误: result.json 缺少 requestId');
+  }
+  if (status !== 'success' && status !== 'failed' && status !== 'blocked') {
+    throw new Error("错误: result.json.status 必须是 'success' | 'failed' | 'blocked'");
+  }
+
+  const output = obj.output;
+  const error = obj.error;
+  const completedAt = obj.completedAt;
+
+  return {
+    requestId,
+    status,
+    output,
+    error: (typeof error === 'object' && error ? (error as AgentCallResult['error']) : undefined),
+    completedAt: typeof completedAt === 'string' ? completedAt : undefined,
+  };
+}
+
+function parsePlannerTasksFromAgentResult(result: AgentCallResult): PlannerPlanTask[] {
+  const output = result.output;
+  if (!output || typeof output !== 'object') {
+    throw new Error('错误: result.output 必须是 object，且包含 output.tasks[]');
+  }
+  const outObj = output as Record<string, unknown>;
+  const tasks = outObj.tasks;
+  if (!Array.isArray(tasks)) {
+    throw new Error('错误: result.output.tasks 必须是数组');
+  }
+
+  const allowedTypes = new Set(['analysis', 'design', 'test', 'implement', 'review']);
+  const allowedPriorities = new Set(['critical', 'high', 'medium', 'low']);
+
+  const seenPlanIds = new Set<string>();
+  const parsedTasks: PlannerPlanTask[] = [];
+
+  for (const [index, raw] of tasks.entries()) {
+    if (!raw || typeof raw !== 'object') {
+      throw new Error(`错误: tasks[${index}] 必须是 object`);
+    }
+    const t = raw as Record<string, unknown>;
+
+    const planId = t.planId;
+    const title = t.title;
+    const type = t.type;
+    const priority = t.priority;
+
+    if (typeof planId !== 'string' || !planId) {
+      throw new Error(`错误: tasks[${index}].planId 必须是非空字符串`);
+    }
+    if (seenPlanIds.has(planId)) {
+      throw new Error(`错误: planId 重复: ${planId}`);
+    }
+    seenPlanIds.add(planId);
+
+    if (typeof title !== 'string' || !title.trim()) {
+      throw new Error(`错误: tasks[${index}].title 必须是非空字符串`);
+    }
+    if (typeof type !== 'string' || !allowedTypes.has(type)) {
+      throw new Error(`错误: tasks[${index}].type 无效: ${String(type)}`);
+    }
+
+    let parsedPriority: TaskItem['priority'] | undefined;
+    if (typeof priority !== 'undefined') {
+      if (typeof priority !== 'string' || !allowedPriorities.has(priority)) {
+        throw new Error(`错误: tasks[${index}].priority 无效: ${String(priority)}`);
+      }
+      parsedPriority = priority as TaskItem['priority'];
+    }
+
+    const dependencies: string[] = [];
+    if (typeof t.dependencies !== 'undefined') {
+      if (!Array.isArray(t.dependencies)) {
+        throw new Error(`错误: tasks[${index}].dependencies 必须是字符串数组`);
+      }
+      for (const dep of t.dependencies) {
+        if (typeof dep !== 'string' || !dep) {
+          throw new Error(`错误: tasks[${index}].dependencies 包含无效 planId`);
+        }
+        dependencies.push(dep);
+      }
+    }
+
+    const acceptanceCriteria: string[] = [];
+    if (typeof t.acceptanceCriteria !== 'undefined') {
+      if (!Array.isArray(t.acceptanceCriteria)) {
+        throw new Error(`错误: tasks[${index}].acceptanceCriteria 必须是字符串数组`);
+      }
+      for (const ac of t.acceptanceCriteria) {
+        if (typeof ac !== 'string' || !ac.trim()) {
+          throw new Error(`错误: tasks[${index}].acceptanceCriteria 包含无效条目`);
+        }
+        acceptanceCriteria.push(ac);
+      }
+    }
+
+    let scope: TaskScope | undefined;
+    if (typeof t.scope !== 'undefined') {
+      if (!t.scope || typeof t.scope !== 'object') {
+        throw new Error(`错误: tasks[${index}].scope 必须是 object`);
+      }
+      const s = t.scope as Record<string, unknown>;
+      const files = Array.isArray(s.files) ? s.files : undefined;
+      const modules = Array.isArray(s.modules) ? s.modules : undefined;
+      const tags = Array.isArray(s.tags) ? s.tags : undefined;
+
+      const normalizeStringArray = (arr: unknown[] | undefined, key: string): string[] | undefined => {
+        if (!arr) return undefined;
+        const out: string[] = [];
+        for (const v of arr) {
+          if (typeof v !== 'string' || !v.trim()) {
+            throw new Error(`错误: tasks[${index}].scope.${key} 必须是字符串数组`);
+          }
+          out.push(v);
+        }
+        return out.length > 0 ? out : undefined;
+      };
+
+      scope = {
+        files: files ? normalizeStringArray(files as unknown[], 'files') : undefined,
+        modules: modules ? normalizeStringArray(modules as unknown[], 'modules') : undefined,
+        tags: tags ? normalizeStringArray(tags as unknown[], 'tags') : undefined,
+      };
+
+      if (!scope.files && !scope.modules && !scope.tags) {
+        scope = undefined;
+      }
+    }
+
+    parsedTasks.push({
+      planId,
+      title: title.trim(),
+      type: type as TaskItem['type'],
+      priority: parsedPriority,
+      dependencies: dependencies.length > 0 ? dependencies : undefined,
+      acceptanceCriteria: acceptanceCriteria.length > 0 ? acceptanceCriteria : undefined,
+      scope,
+    });
+  }
+
+  return parsedTasks;
 }
 
 function main(): void {
@@ -1219,6 +1768,168 @@ function main(): void {
 
       if (json || !write) {
         printJson(report);
+      }
+      break;
+    }
+
+    case 'plan': {
+      const taskBookId = parsed.positionals[0];
+      if (!taskBookId) {
+        console.error('错误: plan 需要 <taskBookId>');
+        process.exit(1);
+      }
+
+      const tb = manager.load(taskBookId);
+      if (!tb) {
+        console.error(`错误: TaskBook not found: ${taskBookId}`);
+        process.exit(1);
+      }
+
+      const requestId = flagAsString(parsed.flags, 'request-id') ?? generateRequestId();
+      const agentCallsDir = path.join(process.cwd(), AGENT_CALLS_DIR);
+      ensureDir(agentCallsDir);
+
+      const promptPath = path.join(agentCallsDir, `${requestId}.prompt.md`);
+      const resultPath = path.join(agentCallsDir, `${requestId}.result.json`);
+
+      const agentDef = loadPlannerAgentDefinition(process.cwd());
+      if (!agentDef) {
+        console.error('错误: planner AGENT.md 未找到（需要 .codebuddy/agents/planner/AGENT.md 或 agents/planner/AGENT.md）');
+        console.error('提示: 先在目标项目执行 codebuddy-loader 生成 .codebuddy/agents/，再重试。');
+        process.exit(1);
+      }
+      const prompt = buildPlannerPrompt({
+        requestId,
+        taskBook: tb,
+        projectRoot: process.cwd(),
+        agentDefinitionPath: agentDef.path,
+        agentDefinition: agentDef.content,
+        promptPath,
+        resultPath,
+      });
+
+      fs.writeFileSync(promptPath, prompt, 'utf-8');
+
+      const payload = {
+        requestId,
+        agentId: 'planner',
+        taskBookId,
+        taskBookRevision: tb.revision ?? 0,
+        promptPath,
+        resultPath,
+      };
+
+      if (json) {
+        printJson(payload);
+      } else {
+        console.log(`[planner] 已生成 prompt: ${promptPath}`);
+        console.log(`[planner] 请执行 prompt 并写回: ${resultPath}`);
+        console.log('[planner] 写回后执行:');
+        console.log(`  node .codebuddy/scripts/taskbook-manager.js apply-plan ${taskBookId} ${requestId}`);
+        console.log(`  # 若启用并发保护：加上 --if-rev ${tb.revision ?? 0}`);
+      }
+      break;
+    }
+
+    case 'apply-plan': {
+      const taskBookId = parsed.positionals[0];
+      const requestId = parsed.positionals[1];
+      const dryRun = flagAsBool(parsed.flags, 'dry-run');
+
+      if (!taskBookId || !requestId) {
+        console.error('错误: apply-plan 需要 <taskBookId> <requestId>');
+        process.exit(1);
+      }
+
+      const agentCallsDir = path.join(process.cwd(), AGENT_CALLS_DIR);
+      const resultPath = path.join(agentCallsDir, `${requestId}.result.json`);
+
+      if (!fs.existsSync(resultPath)) {
+        console.error(`错误: result.json 不存在: ${resultPath}`);
+        process.exit(1);
+      }
+
+      let result: AgentCallResult;
+      try {
+        result = parseAgentCallResult(fs.readFileSync(resultPath, 'utf-8'));
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+      }
+
+      if (result.requestId !== requestId) {
+        console.error(`错误: requestId 不匹配（args=${requestId}, file=${result.requestId}）`);
+        process.exit(1);
+      }
+
+      if (result.status !== 'success') {
+        const msg = (result.error && result.error.message) ? result.error.message : `status=${result.status}`;
+        console.error(`错误: planner result 不是 success: ${msg}`);
+        process.exit(1);
+      }
+
+      const planTasks = parsePlannerTasksFromAgentResult(result);
+
+      if (dryRun) {
+        const preview = {
+          dryRun: true,
+          requestId,
+          taskBookId,
+          tasks: planTasks,
+        };
+        if (json) printJson(preview);
+        else {
+          console.log(`[planner] dry-run: ${taskBookId} <- ${requestId}`);
+          for (const t of planTasks) {
+            const deps = t.dependencies && t.dependencies.length > 0 ? ` deps=${t.dependencies.join(',')}` : '';
+            console.log(`- ${t.planId} [${t.type}] ${t.title}${deps}`);
+          }
+        }
+        break;
+      }
+
+      const planIdToIndex = new Map<string, number>();
+      for (let i = 0; i < planTasks.length; i++) {
+        planIdToIndex.set(planTasks[i].planId, i);
+      }
+
+      for (let i = 0; i < planTasks.length; i++) {
+        const deps = planTasks[i].dependencies ?? [];
+        for (const dep of deps) {
+          const depIndex = planIdToIndex.get(dep);
+          if (typeof depIndex !== 'number') {
+            console.error(`错误: 依赖 planId 不存在: ${dep} (from ${planTasks[i].planId})`);
+            process.exit(1);
+          }
+          if (depIndex >= i) {
+            console.error(`错误: dependencies 必须指向更早的 planId（${planTasks[i].planId} 依赖 ${dep}）`);
+            process.exit(1);
+          }
+        }
+      }
+
+      const applied = manager.applyPlannerPlan(taskBookId, requestId, planTasks, expectedRevision);
+
+      if (!applied) {
+        console.error(`错误: TaskBook not found: ${taskBookId}`);
+        process.exit(1);
+      }
+
+      const payload = {
+        requestId,
+        taskBookId,
+        addedTaskIds: applied.taskIds,
+        planIdToTaskId: applied.planIdToTaskId,
+        taskBook: applied.taskBook,
+      };
+
+      if (json) printJson(payload);
+      else {
+        console.log(`[planner] 已追加 ${applied.taskIds.length} 个任务到 ${taskBookId}`);
+        console.log(`requestId: ${requestId}`);
+        for (const id of applied.taskIds) {
+          console.log(`- ${id}`);
+        }
       }
       break;
     }

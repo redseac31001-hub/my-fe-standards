@@ -1,8 +1,26 @@
+---
+name: rule-name
+description: 一句话描述这条规则的用途与适用场景（用于索引与检索）。
+---
+
 # [Rule Name] 规则名称
 
 > Tags: #Topic #Framework #KeyConcept
 > Priority: High | Medium | Low
 
+<!-- @level:summary -->
+## Summary (摘要)
+用 3-7 行给出“结论 + 关键约束 + 何时使用”。
+
+---
+
+<!-- @level:quick -->
+## Quick Reference (快速参考)
+用列表/表格给出速查要点（避免大段解释）。
+
+---
+
+<!-- @level:full -->
 ## 1. Context (背景与适用范围)
 简要描述该规则适用的场景。例如：在编写 Vue 组件时，或者在定义数据接口时。
 说明为什么这个场景需要规范。

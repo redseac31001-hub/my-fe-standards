@@ -43,6 +43,7 @@ exports.createTaskExecutor = createTaskExecutor;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const child_process_1 = require("child_process");
+const crypto_1 = require("crypto");
 const taskbook_manager_1 = require("./taskbook-manager");
 /**
  * 默认配置
@@ -50,6 +51,62 @@ const taskbook_manager_1 = require("./taskbook-manager");
 const DEFAULT_CONFIG = {
     maxParallel: 3,
 };
+const AGENT_CALLS_DIR = '.codebuddy/agent-calls';
+const AGENT_CALL_MARKER = '[agent-call]';
+const DEFAULT_MANUAL_AGENT_ID = 'task-orchestrator';
+const MANUAL_AGENT_ID_ENV = 'CODEBUDDY_MANUAL_AGENT_ID';
+function selectManualAgentId(task) {
+    const env = (process.env[MANUAL_AGENT_ID_ENV] || '').trim();
+    if (env)
+        return env;
+    // Lightweight heuristics (low-intrusion): choose a more specialized Agent when it is clearly relevant.
+    if (/(性能|performance|lighthouse|web vitals|profil(e|ing))/i.test(task.title)) {
+        return 'performance-profiler';
+    }
+    if (/(安全|security|xss|csrf|owasp)/i.test(task.title)) {
+        return 'security-reviewer';
+    }
+    switch (task.type) {
+        case 'analysis':
+            return 'structure-analyzer';
+        case 'review':
+            return 'security-reviewer';
+        default:
+            return DEFAULT_MANUAL_AGENT_ID;
+    }
+}
+function tryExtractAgentIdFromPrompt(promptMd) {
+    const m = promptMd.match(/```json\s*([\s\S]*?)\s*```/);
+    if (!m)
+        return null;
+    try {
+        const parsed = JSON.parse(m[1]);
+        if (!parsed || typeof parsed !== 'object')
+            return null;
+        const agentId = parsed.agentId;
+        if (typeof agentId !== 'string')
+            return null;
+        const trimmed = agentId.trim();
+        return trimmed ? trimmed : null;
+    }
+    catch (_a) {
+        return null;
+    }
+}
+function priorityScore(priority) {
+    switch (priority) {
+        case 'critical':
+            return 4;
+        case 'high':
+            return 3;
+        case 'medium':
+            return 2;
+        case 'low':
+            return 1;
+        default:
+            return 2;
+    }
+}
 function getConflictKeys(task) {
     var _a, _b, _c, _d;
     const files = (_b = (_a = task.scope) === null || _a === void 0 ? void 0 : _a.files) !== null && _b !== void 0 ? _b : [];
@@ -150,6 +207,11 @@ class TaskExecutor {
             if (!current) {
                 return { status: 'not_found', taskBook: null, message: `TaskBook not found: ${taskBookId}` };
             }
+            // Auto-apply AgentCall results for blocked tasks (so rerun can resume automatically).
+            const applied = this.tryAutoApplyAgentCallResults(taskBookId, current, allowedTypes, allowedTaskIds);
+            if (applied > 0) {
+                continue;
+            }
             const pendingAllowed = current.tasks.filter(t => t.status === 'pending'
                 && allowedTypes.has(t.type)
                 && (!allowedTaskIds || allowedTaskIds.has(t.id)));
@@ -182,7 +244,18 @@ class TaskExecutor {
                     message: `没有可执行的任务（等待依赖完成/可能存在循环依赖）。未满足依赖: ${JSON.stringify(waits.slice(0, 5))}`,
                 };
             }
-            const tasksToExecute = selectRunnableTasks(runnable, maxParallel, conflictStrategy);
+            const indexById = new Map();
+            for (let i = 0; i < current.tasks.length; i++) {
+                indexById.set(current.tasks[i].id, i);
+            }
+            const runnableSorted = [...runnable].sort((a, b) => {
+                var _a, _b;
+                const delta = priorityScore(b.priority) - priorityScore(a.priority);
+                if (delta !== 0)
+                    return delta;
+                return ((_a = indexById.get(a.id)) !== null && _a !== void 0 ? _a : 0) - ((_b = indexById.get(b.id)) !== null && _b !== void 0 ? _b : 0);
+            });
+            const tasksToExecute = selectRunnableTasks(runnableSorted, maxParallel, conflictStrategy);
             if (conflictStrategy !== 'allow' && tasksToExecute.length < Math.min(maxParallel, runnable.length)) {
                 console.log(`[TaskExecutor] conflictStrategy=${conflictStrategy}: runnable=${runnable.length} selected=${tasksToExecute.length}`);
             }
@@ -225,13 +298,23 @@ class TaskExecutor {
             const errorMessage = error instanceof Error ? error.message : String(error);
             // 判断是否为可恢复的错误
             if (this.isRecoverableError(error)) {
+                let blockedReason = errorMessage;
+                if (/MANUAL_REQUIRED/i.test(errorMessage)) {
+                    try {
+                        blockedReason = this.ensureManualTaskAgentCall(taskBookId, task, errorMessage);
+                    }
+                    catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        blockedReason = `${errorMessage}\n(agent-call init failed: ${msg})`;
+                    }
+                }
                 // 标记为阻塞，等待用户介入
-                this.manager.updateTaskStatus(taskBookId, task.id, 'blocked', undefined, errorMessage);
-                (_f = (_e = this.config).onTaskBlocked) === null || _f === void 0 ? void 0 : _f.call(_e, task, errorMessage);
+                this.manager.updateTaskStatus(taskBookId, task.id, 'blocked', undefined, blockedReason);
+                (_f = (_e = this.config).onTaskBlocked) === null || _f === void 0 ? void 0 : _f.call(_e, task, blockedReason);
                 return {
                     taskId: task.id,
                     success: false,
-                    error: errorMessage,
+                    error: blockedReason,
                     duration: Date.now() - startTime,
                 };
             }
@@ -244,6 +327,137 @@ class TaskExecutor {
                 duration: Date.now() - startTime,
             };
         }
+    }
+    ensureManualTaskAgentCall(taskBookId, task, manualReason) {
+        var _a, _b;
+        const requestId = computeAgentCallRequestId(taskBookId, task.id);
+        const promptPath = toPosixPath(`${AGENT_CALLS_DIR}/${requestId}.prompt.md`);
+        const resultPath = toPosixPath(`${AGENT_CALLS_DIR}/${requestId}.result.json`);
+        const promptAbsPath = path.join(process.cwd(), promptPath);
+        const resultAbsPath = path.join(process.cwd(), resultPath);
+        ensureDir(path.dirname(promptAbsPath));
+        let agentId = selectManualAgentId(task);
+        if (fs.existsSync(promptAbsPath)) {
+            try {
+                const existing = fs.readFileSync(promptAbsPath, 'utf-8');
+                const parsedAgentId = tryExtractAgentIdFromPrompt(existing);
+                if (parsedAgentId)
+                    agentId = parsedAgentId;
+            }
+            catch (_c) {
+                // ignore, fallback to selected agentId
+            }
+        }
+        const meta = {
+            requestId,
+            agentId,
+            kind: 'manual-task',
+            taskBookId,
+            taskId: task.id,
+            promptPath,
+            resultPath,
+            createdAt: new Date().toISOString(),
+        };
+        const agentDef = loadAgentDefinition(process.cwd(), agentId);
+        const agentDefMissingNote = !agentDef
+            ? `\n\n[agent-call] agent definition missing: expected .codebuddy/agents/${agentId}/AGENT.md (or agents/${agentId}/AGENT.md).`
+            : '';
+        if (!fs.existsSync(promptAbsPath)) {
+            const tb = this.manager.load(taskBookId);
+            if (!tb)
+                throw new Error(`TaskBook not found: ${taskBookId}`);
+            const enrichedManualReason = `${manualReason}${agentDefMissingNote}`;
+            const prompt = buildManualTaskPrompt({
+                meta,
+                taskBook: tb,
+                task,
+                manualReason: enrichedManualReason,
+                agentDefinitionPath: (_a = agentDef === null || agentDef === void 0 ? void 0 : agentDef.path) !== null && _a !== void 0 ? _a : null,
+                agentDefinition: (_b = agentDef === null || agentDef === void 0 ? void 0 : agentDef.content) !== null && _b !== void 0 ? _b : null,
+                promptPath: meta.promptPath,
+                resultPath: meta.resultPath,
+            });
+            fs.writeFileSync(promptAbsPath, prompt, 'utf-8');
+            // Record creation in TaskBook changelog for auditability.
+            this.manager.logChange(taskBookId, task.id, 'modified', `agent-call created: ${requestId}`, undefined, {
+                event: 'agent-call',
+                action: 'created',
+                requestId,
+                agentId,
+                kind: meta.kind,
+                createdAt: meta.createdAt,
+                promptPath: meta.promptPath,
+                resultPath: meta.resultPath,
+            });
+        }
+        if (!fs.existsSync(resultAbsPath)) {
+            // Pre-create empty placeholder? No: keep absent until external tool writes it.
+        }
+        return buildAgentCallBlockedReason(`${manualReason}${agentDefMissingNote}`, meta);
+    }
+    tryAutoApplyAgentCallResults(taskBookId, taskBook, allowedTypes, allowedTaskIds) {
+        var _a, _b, _c;
+        let applied = 0;
+        for (const task of taskBook.tasks) {
+            if (task.status !== 'blocked')
+                continue;
+            if (!allowedTypes.has(task.type))
+                continue;
+            if (allowedTaskIds && !allowedTaskIds.has(task.id))
+                continue;
+            const meta = extractAgentCallMeta(task.blockedReason);
+            if (!meta)
+                continue;
+            const resultAbsPath = path.join(process.cwd(), meta.resultPath);
+            if (!fs.existsSync(resultAbsPath))
+                continue;
+            let result;
+            try {
+                result = parseAgentCallResult(fs.readFileSync(resultAbsPath, 'utf-8'));
+            }
+            catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                console.log(`[AgentCall] 解析失败: ${meta.requestId} ${msg}`);
+                continue;
+            }
+            if (result.requestId !== meta.requestId) {
+                console.log(`[AgentCall] requestId 不匹配: expected ${meta.requestId}, got ${result.requestId}`);
+                continue;
+            }
+            if (result.status !== 'success') {
+                const reason = (_b = (_a = result.error) === null || _a === void 0 ? void 0 : _a.message) !== null && _b !== void 0 ? _b : `status=${result.status}`;
+                console.log(`[AgentCall] 未就绪: ${meta.requestId} ${reason}`);
+                continue;
+            }
+            let output;
+            try {
+                output = parseAgentTaskOutput(result.output);
+            }
+            catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                console.log(`[AgentCall] output 无效: ${meta.requestId} ${msg}`);
+                continue;
+            }
+            this.manager.updateTask(taskBookId, task.id, {
+                status: 'done',
+                actualWork: output.actualWork,
+                blockedReason: '',
+            });
+            this.manager.logChange(taskBookId, task.id, 'modified', `agent-call applied: ${meta.requestId}`, undefined, {
+                event: 'agent-call',
+                action: 'applied',
+                requestId: meta.requestId,
+                agentId: meta.agentId,
+                kind: (_c = result.kind) !== null && _c !== void 0 ? _c : meta.kind,
+                status: 'success',
+                completedAt: result.completedAt,
+                promptPath: meta.promptPath,
+                resultPath: meta.resultPath,
+                artifacts: result.artifacts,
+            });
+            applied += 1;
+        }
+        return applied;
     }
     /**
      * 分发任务到对应的 Agent
@@ -418,7 +632,7 @@ Task Executor - Workflow 驱动的任务执行器
 
 说明:
   - workflow 早期主要用于约束/引导（产物、顺序、质量闸门），后期可扩展为强制编排引擎。
-  - 若执行遇到 MANUAL_REQUIRED，将把对应任务标记为 blocked，等待人工/Agent 介入。
+  - 若执行遇到 MANUAL_REQUIRED：将生成 .codebuddy/agent-calls/<requestId>.prompt.md，并把任务置为 blocked；当写回对应 result.json 后，重试执行会自动 apply 并继续。
 `);
 }
 function loadWorkflowSpec(workflowPath) {
@@ -654,6 +868,228 @@ function sanitizeForFilename(value) {
 }
 function toPosixPath(value) {
     return value.replace(/\\/g, '/');
+}
+function computeAgentCallRequestId(taskBookId, taskId) {
+    const hash = (0, crypto_1.createHash)('sha1').update(`${taskBookId}:${taskId}`).digest('hex').slice(0, 10);
+    return `req-${sanitizeForFilename(taskId)}-${hash}`;
+}
+function buildAgentCallBlockedReason(message, meta) {
+    const payload = {
+        requestId: meta.requestId,
+        agentId: meta.agentId,
+        kind: meta.kind,
+        taskBookId: meta.taskBookId,
+        taskId: meta.taskId,
+        promptPath: meta.promptPath,
+        resultPath: meta.resultPath,
+        createdAt: meta.createdAt,
+    };
+    return `${message}\n${AGENT_CALL_MARKER} ${JSON.stringify(payload)}`;
+}
+function extractAgentCallMeta(blockedReason) {
+    if (!blockedReason)
+        return null;
+    const lines = blockedReason.split(/\r?\n/);
+    let metaLine = null;
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (!line)
+            continue;
+        if (line.startsWith(AGENT_CALL_MARKER)) {
+            metaLine = line;
+            break;
+        }
+    }
+    if (!metaLine)
+        return null;
+    const jsonText = metaLine.slice(AGENT_CALL_MARKER.length).trim();
+    if (!jsonText)
+        return null;
+    let raw;
+    try {
+        raw = JSON.parse(jsonText);
+    }
+    catch (_a) {
+        return null;
+    }
+    if (!raw || typeof raw !== 'object')
+        return null;
+    const obj = raw;
+    const requestId = obj.requestId;
+    const agentId = obj.agentId;
+    const kind = obj.kind;
+    const taskBookId = obj.taskBookId;
+    const taskId = obj.taskId;
+    const promptPath = obj.promptPath;
+    const resultPath = obj.resultPath;
+    const createdAt = obj.createdAt;
+    if (typeof requestId !== 'string' || !requestId)
+        return null;
+    if (typeof agentId !== 'string' || !agentId)
+        return null;
+    if (typeof taskBookId !== 'string')
+        return null;
+    if (typeof taskId !== 'string')
+        return null;
+    if (typeof promptPath !== 'string' || !promptPath)
+        return null;
+    if (typeof resultPath !== 'string' || !resultPath)
+        return null;
+    return {
+        requestId,
+        agentId,
+        kind: kind === 'planner' || kind === 'manual-task' ? kind : undefined,
+        taskBookId,
+        taskId,
+        promptPath: toPosixPath(promptPath),
+        resultPath: toPosixPath(resultPath),
+        createdAt: typeof createdAt === 'string' ? createdAt : '',
+    };
+}
+function parseAgentCallResult(jsonText) {
+    const parsed = JSON.parse(jsonText);
+    if (!parsed || typeof parsed !== 'object') {
+        throw new Error('result.json 必须是 JSON object');
+    }
+    const obj = parsed;
+    const requestId = obj.requestId;
+    const kind = obj.kind;
+    const status = obj.status;
+    if (typeof requestId !== 'string' || !requestId) {
+        throw new Error('result.json 缺少 requestId');
+    }
+    if (status !== 'success' && status !== 'failed' && status !== 'blocked') {
+        throw new Error("result.json.status 必须是 'success' | 'failed' | 'blocked'");
+    }
+    const output = obj.output;
+    const artifacts = obj.artifacts;
+    const error = obj.error;
+    const completedAt = obj.completedAt;
+    return {
+        requestId,
+        kind: kind === 'planner' || kind === 'manual-task' ? kind : undefined,
+        status,
+        output,
+        artifacts: Array.isArray(artifacts) ? artifacts : undefined,
+        error: (typeof error === 'object' && error ? error : undefined),
+        completedAt: typeof completedAt === 'string' ? completedAt : undefined,
+    };
+}
+function parseAgentTaskOutput(output) {
+    if (!output || typeof output !== 'object') {
+        throw new Error('output 必须是 object，并包含 actualWork');
+    }
+    const obj = output;
+    const actualWork = obj.actualWork;
+    if (typeof actualWork !== 'string' || !actualWork.trim()) {
+        throw new Error('output.actualWork 必须是非空字符串');
+    }
+    return { actualWork: actualWork.trim() };
+}
+function readTextFileIfExists(filePath) {
+    if (!fs.existsSync(filePath))
+        return null;
+    return fs.readFileSync(filePath, 'utf-8');
+}
+function extractAgentVersion(agentMarkdown) {
+    const fm = agentMarkdown.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+    const frontmatter = fm ? fm[1] : null;
+    if (frontmatter) {
+        const m = frontmatter.match(/^version:\s*(.+)$/m);
+        const v = m ? m[1].trim() : '';
+        return v ? v : undefined;
+    }
+    const yaml = agentMarkdown.match(/```ya?ml\s*([\s\S]*?)\s*```/);
+    if (yaml) {
+        const m = yaml[1].match(/^version:\s*(.+)$/m);
+        const v = m ? m[1].trim() : '';
+        return v ? v : undefined;
+    }
+    return undefined;
+}
+function loadAgentDefinition(projectRoot, agentId) {
+    const candidates = [
+        path.join(projectRoot, '.codebuddy', 'agents', agentId, 'AGENT.md'),
+        path.join(projectRoot, 'agents', agentId, 'AGENT.md'),
+    ];
+    for (const p of candidates) {
+        const content = readTextFileIfExists(p);
+        if (content)
+            return { path: p, content };
+    }
+    return null;
+}
+function buildManualTaskPrompt(args) {
+    var _a;
+    const agentVersion = args.agentDefinition ? extractAgentVersion(args.agentDefinition) : undefined;
+    const header = {
+        requestId: args.meta.requestId,
+        agentId: args.meta.agentId,
+        agentVersion,
+        taskBookId: args.taskBook.id,
+        taskBookRevision: typeof args.taskBook.revision === 'number' ? args.taskBook.revision : 0,
+        taskId: args.task.id,
+        taskType: args.task.type,
+        timestamp: new Date().toISOString(),
+        promptPath: args.promptPath,
+        resultPath: args.resultPath,
+    };
+    const agentDefinition = (_a = args.agentDefinition) !== null && _a !== void 0 ? _a : '(missing AGENT.md)';
+    const agentDefinitionHint = args.agentDefinitionPath ? `source: ${args.agentDefinitionPath}` : 'source: (not found)';
+    const schemaExample = {
+        requestId: args.meta.requestId,
+        kind: 'manual-task',
+        status: 'success',
+        output: {
+            actualWork: '简要记录你完成了什么、改了哪些关键点、如何验证（命令/结果）。',
+        },
+        completedAt: new Date().toISOString(),
+    };
+    return [
+        '# Agent Call: manual-task',
+        '',
+        '## Header (JSON)',
+        '```json',
+        JSON.stringify(header, null, 2),
+        '```',
+        '',
+        `## Agent Definition (${agentDefinitionHint})`,
+        '```md',
+        agentDefinition.trimEnd(),
+        '```',
+        '',
+        '## Context: TaskBook JSON',
+        '```json',
+        JSON.stringify(args.taskBook, null, 2),
+        '```',
+        '',
+        '## Context: Task JSON',
+        '```json',
+        JSON.stringify(args.task, null, 2),
+        '```',
+        '',
+        '## Reason (why this was blocked)',
+        '```text',
+        args.manualReason.trimEnd(),
+        '```',
+        '',
+        '## Instructions',
+        '请完成上述 Task，并把执行结果写回 result.json。',
+        '',
+        '约束：',
+        '- 允许修改代码/运行命令/补充测试/进行审查等（按 Task.type 决定）。',
+        '- 输出必须是纯 JSON（不要 Markdown/解释性文本）。',
+        '- status=success 时必须提供 output.actualWork（非空字符串）。',
+        "- kind 字段推荐：'manual-task'（用于更强校验/诊断）。",
+        '',
+        `写入目标：${args.resultPath}`,
+        '',
+        '示例（必须是 JSON，不要包裹 Markdown）：',
+        '```json',
+        JSON.stringify(schemaExample, null, 2),
+        '```',
+        '',
+    ].join('\n');
 }
 function readPackageJsonScripts() {
     const pkgPath = path.join(process.cwd(), 'package.json');

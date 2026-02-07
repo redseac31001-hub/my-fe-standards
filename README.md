@@ -170,6 +170,7 @@ node .codebuddy/scripts/report-manager.js export
 | 特性 | 说明 |
 |------|------|
 | **并行执行** | 无依赖任务自动并行，提升效率 |
+| **优先级调度** | 默认按 `critical > high > medium > low` 选择可执行任务 |
 | **变更追踪** | 实时记录偏离原计划的改动及原因 |
 | **阻塞处理** | 遇到阻塞暂停，等待用户介入 |
 | **验收闭环** | 生成验收报告，请求最终确认 |
@@ -191,16 +192,68 @@ node .codebuddy/scripts/report-manager.js export
 ```bash
 # 默认读取 .codebuddy/workflows/default.workflow.json
 node .codebuddy/scripts/task-executor.js <taskBookId>
+
+# 若遇到 MANUAL_REQUIRED：会自动生成 .codebuddy/agent-calls/<requestId>.prompt.md，并将任务置为 blocked。
+# 外部 Agent 按 prompt 执行并写回 .codebuddy/agent-calls/<requestId>.result.json 后，重跑 task-executor 会自动 apply 并继续。
+```
+
+### Agent Call 管理（可选）
+
+```bash
+# 列出所有 agent-calls（prompt/result 状态）
+node .codebuddy/scripts/agent-call-manager.js list
+
+# 查看某个 request
+node .codebuddy/scripts/agent-call-manager.js show <requestId>
+
+# 校验 result.json（若 prompt 存在，会推断 planner/manual-task 并对 output 做更严格校验）
+node .codebuddy/scripts/agent-call-manager.js validate <requestId>
+
+# 可选：启动 HTTP 服务（跨进程/跨机器写回 result.json；也支持 /taskbooks 与 /orchestrate 远程触发闭环）
+node .codebuddy/scripts/agent-call-manager.js serve --host 127.0.0.1 --port 4317 --token <token>
+```
+
+### Agent Registry（可选）
+
+```bash
+# 列出已安装的 Agents（用于发现/校验）
+node .codebuddy/scripts/agent-registry.js list --json
+
+# 查看单个 Agent 元数据
+node .codebuddy/scripts/agent-registry.js show <agentId> --json
+```
+
+### Rule / Skill Validator（可选）
+
+```bash
+# 校验已加载的 rules（默认探测 .codebuddy/rules_cache 或 repo 下的 rules/）
+node .codebuddy/scripts/rule-validator.js check --json
+
+# 校验已加载的 skills（默认探测 .codebuddy/skills 或 repo 下的 custom-skills/）
+node .codebuddy/scripts/skill-validator.js check --json
 ```
 
 ### 管理 TaskBook（命令行）
 
 ```bash
+# 一键闭环（推荐）：创建 → 规划（planner prompt/result）→ confirm → 执行（含 agent-call 阻塞/恢复）→ 验收归档
+node .codebuddy/scripts/task-orchestrator.js "实现用户登录/登出" --type new-feature
+  # 若 workflow 卡在 review gate，可加：--approve review_passed
+  # 若中断/阻塞后继续：--taskbook <taskBookId>
+  # 可选：自动等待 result.json 并继续到完成：加 --watch（可配 --watch-timeout-ms）
+
 # 创建 TaskBook
 node .codebuddy/scripts/taskbook-manager.js create --title "用户登录" --description "实现登录/登出" --type new-feature
 
 # 添加任务
 node .codebuddy/scripts/taskbook-manager.js add-task <taskBookId> --title "生成架构/模块报告" --type analysis
+
+  # 生成 planner prompt（让外部 Agent 产出任务分解，并写回 result.json）
+  node .codebuddy/scripts/taskbook-manager.js plan <taskBookId>
+
+  # 应用 planner 结果：把 result.json 追加为 TaskBook 任务（可选：--dry-run 预览）
+  node .codebuddy/scripts/taskbook-manager.js apply-plan <taskBookId> <requestId>
+  # 若启用并发保护：加上 --if-rev <revision>
 
   # 确认并开始执行（先 confirm，再执行 executor）
   node .codebuddy/scripts/taskbook-manager.js confirm <taskBookId>
@@ -211,9 +264,14 @@ node .codebuddy/scripts/taskbook-manager.js add-task <taskBookId> --title "生�
 
   # 可选：随时生成验收/批量/闸门报告（可落盘到 .codebuddy/reports/taskbooks/）
   node .codebuddy/scripts/taskbook-manager.js report <taskBookId> --write
+  # 报告会汇总：gates / batches / agent-calls 等关键事件，便于审计与恢复
 
   # 可选：手动校验契约（TaskBook/Workflow）
   node .codebuddy/scripts/contract-validator.js --workflows --taskbooks
+
+  # 可选：校验 agent-call result.json（.codebuddy/agent-calls）
+  node .codebuddy/scripts/contract-validator.js --agent-calls
+  node .codebuddy/scripts/contract-validator.js --agent-call <requestId>
 
   # 可选：当启用 risk_tiered batching 时，提示（warning）缺少 scope.files/modules 的任务
   node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --check-batching-scope
@@ -272,6 +330,7 @@ node codebuddy-loader.js [options]
 | `--remote <URL>` | 从远程 URL 获取规则 |
 | `--task <type>` | 按任务类型筛选规则 |
 | `--threshold <n>` | 设置相关性阈值 (0-1) |
+| `--rule-level <lvl>` | 规则裁剪等级：`summary` / `quick` / `full`（默认 `full`；仅影响 Layer1 Eager 内容） |
 | `--verbose, -v` | 启用详细日志 |
 | `--timeout <ms>` | 设置网络请求超时 |
 
@@ -294,7 +353,11 @@ node codebuddy-loader.js [options]
 ├── rules_cache/            # 规则缓存 (按需读取)
 │   ├── layer2_business/
 │   └── layer3_action/
-├── workflows/              # Workflow Spec（工作流规范）
+├── scripts/                # 可执行脚本（TaskBook/Executor/Validator 等）
+├── workflows/              # Workflow Spec（工作流规范 + schema）
+├── taskbooks/              # TaskBook SSOT（active/history + schema）
+├── agent-calls/            # Agent Call 文件协议（prompt/result + schema）
+├── commands/               # Slash Commands（/task、/agent-call）
 └── skills/                 # 技能文件 (动态加载)
 ```
 
@@ -365,6 +428,7 @@ node scripts/codebuddy-loader.js --remote <URL> --verbose
 - [远程接入指南](docs/remote-usage-guide.md)
 - [业务项目 E2E 验证方案](docs/e2e-validation-playbook.md)
 - [Workflow Spec 使用指南](docs/workflows-guide.md)
+- [Agent Call 远程写回指南（可选）](docs/agent-call-remote.md)
 - [TaskBook 并发协作 SOP](docs/taskbook-collaboration-sop.md)
 - [技能系统说明](custom-skills/custom-skills-guide.md)
 - [技能增强文档](README-SKILLS-ENHANCEMENT.md)

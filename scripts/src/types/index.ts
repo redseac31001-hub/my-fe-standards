@@ -118,6 +118,7 @@ export interface Context {
   requestTimeout: number;
   taskType: string | null;
   relevanceThreshold: number;
+  ruleLevel: 'summary' | 'quick' | 'full';
 }
 
 /**
@@ -398,6 +399,20 @@ export interface AcceptanceReport {
     completionRate: number;
     changelogCount: number;
   };
+  agentCalls?: Array<{
+    requestId: string;
+    action?: 'created' | 'applied';
+    timestamp?: string;
+    taskId?: string | null;
+    agentId?: string;
+    kind?: 'planner' | 'manual-task';
+    status?: 'success' | 'failed' | 'blocked';
+    createdAt?: string;
+    completedAt?: string;
+    promptPath?: string;
+    resultPath?: string;
+    artifacts?: Array<{ type: string; path: string; description?: string }>;
+  }>;
   gates?: Array<{
     gateId: string;
     stepId?: string;

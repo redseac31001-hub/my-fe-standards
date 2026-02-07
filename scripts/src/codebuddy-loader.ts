@@ -49,6 +49,7 @@ const AGENTS_ROOT: string = path.join(PROJECT_ROOT, 'agents');
 
 const DEFAULT_TIMEOUT: number = 10000;
 const DEFAULT_THRESHOLD: number = 0.5;
+const DEFAULT_RULE_LEVEL: Context['ruleLevel'] = 'full';
 
 // ============ 全局上下文 ============
 
@@ -60,6 +61,7 @@ const ctx: Context = {
   requestTimeout: DEFAULT_TIMEOUT,
   taskType: null,
   relevanceThreshold: DEFAULT_THRESHOLD,
+  ruleLevel: DEFAULT_RULE_LEVEL,
 };
 
 // ============ 日志工具 ============
@@ -99,6 +101,7 @@ function showHelp(): void {
   --task <type>        按任务类型筛选规则（渐进式披露）
                        类型: refactoring, debugging, testing, new-feature, code-review
   --threshold <n>      设置相关性阈值 (0-1, 默认: 0.5)
+  --rule-level <lvl>   规则内容裁剪等级（基于 @level:summary/quick/full 分段标记，默认: full）
   --verbose, -v        启用详细日志
   --timeout <ms>       设置网络请求超时（默认: 10000ms）
 
@@ -273,17 +276,17 @@ async function loadLayerRules(layerId: string, folders: string[]): Promise<RuleC
   for (const folder of folders) {
     if (ctx.isRemote) {
       // 远程模式：从 manifest 查找文件
-      const matchingFiles = ctx.remoteManifest!.files.filter(
-        f => f.path.startsWith(`rules/${layerId}/${folder}`) && f.path.endsWith('.md')
-      );
-      for (const file of matchingFiles) {
-        const relativePath = file.path.replace(`rules/${layerId}/`, '');
-        const content = await loadRuleFile(layerId, relativePath);
-        if (content) {
-          contents.push({ path: relativePath, content });
+        const matchingFiles = ctx.remoteManifest!.files.filter(
+          f => f.path.startsWith(`rules/${layerId}/${folder}`) && f.path.endsWith('.md')
+        );
+        for (const file of matchingFiles) {
+          const relativePath = file.path.replace(`rules/${layerId}/`, '');
+          const content = await loadRuleFile(layerId, relativePath);
+          if (content) {
+            contents.push({ path: relativePath, content: filterRuleByLevel(content, ctx.ruleLevel) });
+          }
         }
-      }
-    } else {
+      } else {
       // 本地模式
       const folderPath = path.join(RULES_ROOT, layerId, folder);
       if (fs.existsSync(folderPath)) {
@@ -292,23 +295,56 @@ async function loadLayerRules(layerId: string, folders: string[]): Promise<RuleC
           const files = fs.readdirSync(folderPath).filter(f => f.endsWith('.md'));
           for (const file of files) {
             const content = fs.readFileSync(path.join(folderPath, file), 'utf-8');
-            contents.push({ path: `${folder}/${file}`, content });
+            contents.push({ path: `${folder}/${file}`, content: filterRuleByLevel(content, ctx.ruleLevel) });
           }
         } else if (folderPath.endsWith('.md')) {
           const content = fs.readFileSync(folderPath, 'utf-8');
-          contents.push({ path: folder, content });
+          contents.push({ path: folder, content: filterRuleByLevel(content, ctx.ruleLevel) });
         }
       }
       // 尝试 .md 后缀
       const mdPath = path.join(RULES_ROOT, layerId, folder + '.md');
       if (fs.existsSync(mdPath)) {
         const content = fs.readFileSync(mdPath, 'utf-8');
-        contents.push({ path: folder + '.md', content });
+        contents.push({ path: folder + '.md', content: filterRuleByLevel(content, ctx.ruleLevel) });
       }
     }
   }
 
   return contents;
+}
+
+function filterRuleByLevel(content: string, level: Context['ruleLevel']): string {
+  if (level === 'full') return content;
+
+  const hasAny = /<!--\s*@level:/i.test(content);
+  if (!hasAny) return content;
+
+  const rank: Record<Context['ruleLevel'], number> = { summary: 0, quick: 1, full: 2 };
+  const target = rank[level];
+
+  const re = /<!--\s*@level:(summary|quick|full)\s*-->/gi;
+  const matches: Array<{ level: Context['ruleLevel']; index: number; len: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content))) {
+    matches.push({ level: m[1] as Context['ruleLevel'], index: m.index, len: m[0].length });
+  }
+  if (matches.length === 0) return content;
+
+  matches.sort((a, b) => a.index - b.index);
+  const prefix = content.slice(0, matches[0].index);
+
+  const picked: string[] = [prefix];
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].index;
+    const end = i + 1 < matches.length ? matches[i + 1].index : content.length;
+    const segLevel = matches[i].level;
+    if (rank[segLevel] <= target) {
+      picked.push(content.slice(start, end));
+    }
+  }
+
+  return picked.join('').trimEnd() + '\n';
 }
 
 // ============ 技能系统 ============
@@ -497,6 +533,15 @@ const SCRIPTS_TO_DISTRIBUTE: Array<{ file: string; dependencies?: string[] }> = 
     dependencies: ['types/reports.js']
   },
   {
+    file: 'agent-registry.js',
+  },
+  {
+    file: 'agent-call-manager.js',
+  },
+  {
+    file: 'task-orchestrator.js',
+  },
+  {
     file: 'taskbook-manager.js',
     dependencies: ['types/index.js']
   },
@@ -507,6 +552,12 @@ const SCRIPTS_TO_DISTRIBUTE: Array<{ file: string; dependencies?: string[] }> = 
   {
     file: 'contract-validator.js',
   },
+  {
+    file: 'rule-validator.js',
+  },
+  {
+    file: 'skill-validator.js',
+  },
 ];
 
 /**
@@ -514,6 +565,7 @@ const SCRIPTS_TO_DISTRIBUTE: Array<{ file: string; dependencies?: string[] }> = 
  */
 const COMMANDS_TO_DISTRIBUTE: string[] = [
   'task.md',
+  'agent-call.md',
 ];
 
 /**
@@ -535,6 +587,15 @@ const WORKFLOWS_TO_DISTRIBUTE: Array<{ sourcePath: string; destFile: string }> =
  */
 const TASKBOOK_FILES_TO_DISTRIBUTE: Array<{ sourcePath: string; destFile: string }> = [
   { sourcePath: 'taskbooks/schema/taskbook.schema.json', destFile: 'taskbook.schema.json' },
+];
+
+/**
+ * 需要分发的 Agent Call 契约（JSON Schema）
+ *
+ * 分发目标目录：{project}/.codebuddy/agent-calls/
+ */
+const AGENT_CALL_FILES_TO_DISTRIBUTE: Array<{ sourcePath: string; destFile: string }> = [
+  { sourcePath: 'agent-calls/schema/agent-call.schema.json', destFile: 'agent-call.schema.json' },
 ];
 
 /**
@@ -751,6 +812,69 @@ async function distributeTaskBooks(targetDir: string): Promise<string[]> {
 /**
  * 分发 Slash Commands 到业务项目
  */
+/**
+ * 分发 Agent Calls 契约（Schema）到业务项目
+ */
+async function distributeAgentCalls(targetDir: string): Promise<string[]> {
+  const distributed: string[] = [];
+  const localAgentCallsDir = path.join(targetDir, '.codebuddy/agent-calls');
+
+  if (!fs.existsSync(localAgentCallsDir)) {
+    fs.mkdirSync(localAgentCallsDir, { recursive: true });
+  }
+
+  for (const item of AGENT_CALL_FILES_TO_DISTRIBUTE) {
+    const destPath = path.join(localAgentCallsDir, item.destFile);
+
+    if (ctx.isRemote) {
+      const url = `${ctx.remoteBaseUrl}/${item.sourcePath}`;
+      try {
+        const content = await fetchUrl(url);
+        fs.writeFileSync(destPath, content, 'utf-8');
+        distributed.push(item.destFile);
+        logVerbose(`已下载 agent-call contract: ${item.destFile}`);
+      } catch (e) {
+        logWarn(`agent-call contract 下载失败: ${item.destFile} - ${(e as Error).message}`);
+      }
+    } else {
+      const srcPath = path.join(PROJECT_ROOT, item.sourcePath);
+      if (!fs.existsSync(srcPath)) {
+        logWarn(`agent-call contract 文件不存在: ${srcPath}`);
+        continue;
+      }
+      try {
+        fs.copyFileSync(srcPath, destPath);
+        distributed.push(item.destFile);
+        logVerbose(`已复制 agent-call contract: ${item.destFile}`);
+      } catch (e) {
+        logWarn(`agent-call contract 复制失败: ${item.destFile} - ${(e as Error).message}`);
+      }
+    }
+  }
+
+  if (distributed.length > 0) {
+    const readmePath = path.join(localAgentCallsDir, 'README.md');
+    const readme = [
+      '# Agent Calls',
+      '',
+      '本目录用于 **Agent Call 文件协议**：prompt.md ⇄ result.json（可审计、可恢复）。',
+      '',
+      '- `agent-call.schema.json`：result.json 的 JSON Schema（契约）',
+      '',
+      '强校验/诊断：',
+      '- `node .codebuddy/scripts/contract-validator.js --agent-calls`',
+      '- `node .codebuddy/scripts/agent-call-manager.js validate <requestId>`',
+      '',
+      '可选：远程写回 result.json（跨进程/跨机器）：',
+      '- `node .codebuddy/scripts/agent-call-manager.js serve --host 127.0.0.1 --port 4317 --token <t>`',
+      '',
+    ].join('\n');
+    fs.writeFileSync(readmePath, readme, 'utf-8');
+  }
+
+  return distributed;
+}
+
 async function distributeCommands(targetDir: string): Promise<string[]> {
   const distributed: string[] = [];
   const localCommandsDir = path.join(targetDir, '.codebuddy/commands');
@@ -865,6 +989,29 @@ ${table}
 /**
  * 生成命令使用提示词
  */
+/**
+ * 生成 Agent Calls 使用提示语 */
+function generateAgentCallsPrompt(files: string[]): string {
+  if (files.length === 0) return '';
+
+  const schemaFiles = files
+    .filter(f => f.endsWith('.schema.json'))
+    .sort((a, b) => a.localeCompare(b));
+
+  let table = '| 文件 | 路径 | 说明 |\n|------|------|------|\n';
+  for (const f of schemaFiles) {
+    table += `| \`${f}\` | \`.codebuddy/agent-calls/${f}\` | JSON Schema |\n`;
+  }
+
+  return `
+# 🧩 Agent Calls（文件协议）
+本规则库支持 **Agent Call 文件协议**：\`.codebuddy/agent-calls/<requestId>.prompt.md\` ⇄ \`.result.json\`。
+> 用于把「外部模型/工具执行」与「本地 CLI 状态机」解耦，实现可审计、可恢复的闭环。
+## 已安装文件
+${table}
+`;
+}
+
 function generateCommandsPrompt(commands: string[]): string {
   if (commands.length === 0) return '';
 
@@ -948,6 +1095,10 @@ function generateScriptsReadme(scripts: string[]): string {
   for (const script of scripts) {
     if (script === 'structure-analyzer.js') {
       lines.push(`| \`${script}\` | 项目结构分析器 | \`node .codebuddy/scripts/${script} .\` |`);
+    } else if (script === 'agent-call-manager.js') {
+      lines.push(`| \`${script}\` | Agent Call 管理器（list/show/validate） | \`node .codebuddy/scripts/${script} list\` |`);
+    } else if (script === 'task-orchestrator.js') {
+      lines.push(`| \`${script}\` | 一键闭环执行器（创建/规划/执行/验收） | \`node .codebuddy/scripts/${script} \"实现用户登录\" --type new-feature\` |`);
     } else if (script === 'contract-validator.js') {
       lines.push(`| \`${script}\` | 契约校验器（TaskBook/Workflow）| \`node .codebuddy/scripts/${script} --workflows --taskbooks\` |`);
     } else {
@@ -989,6 +1140,10 @@ function generateScriptsPrompt(scripts: string[]): string {
       table += `| \`${script}\` | 模块图谱分析器 | \`node .codebuddy/scripts/${script} .\` |\n`;
     } else if (script === 'report-manager.js') {
       table += `| \`${script}\` | 报告管理器 | \`node .codebuddy/scripts/${script} status\` |\n`;
+    } else if (script === 'agent-call-manager.js') {
+      table += `| \`${script}\` | Agent Call 管理器（list/show/validate） | \`node .codebuddy/scripts/${script} list\` |\n`;
+    } else if (script === 'task-orchestrator.js') {
+      table += `| \`${script}\` | 一键闭环执行器（创建/规划/执行/验收） | \`node .codebuddy/scripts/${script} \"实现用户登录\" --type new-feature\` |\n`;
     } else if (script === 'contract-validator.js') {
       table += `| \`${script}\` | 契约校验器（TaskBook/Workflow）| \`node .codebuddy/scripts/${script} --workflows --taskbooks\` |\n`;
     } else {
@@ -1307,6 +1462,17 @@ function parseArgs(): void {
     }
   }
 
+  const ruleLevelIndex = args.indexOf('--rule-level');
+  if (ruleLevelIndex !== -1) {
+    const value = (args[ruleLevelIndex + 1] || '').trim().toLowerCase();
+    if (value === 'summary' || value === 'quick' || value === 'full') {
+      ctx.ruleLevel = value as Context['ruleLevel'];
+    } else if (value) {
+      logError(`--rule-level 仅支持 summary|quick|full，当前: ${value}`);
+      process.exit(1);
+    }
+  }
+
   const timeoutIndex = args.indexOf('--timeout');
   if (timeoutIndex !== -1) {
     const value = parseInt(args[timeoutIndex + 1], 10);
@@ -1323,6 +1489,7 @@ async function main(): Promise<void> {
 
   log('CodeBuddy 规则加载器 v2.0 (三层架构 + 技能系统)');
   log(ctx.isRemote ? `模式: 远程 (${ctx.remoteBaseUrl})` : '模式: 本地');
+  if (ctx.ruleLevel !== 'full') log(`规则裁剪: ${ctx.ruleLevel}（仅影响 Layer1 Eager 内容；rules_cache 仍保留 full）`);
 
   if (ctx.taskType) {
     log(`任务筛选: ${ctx.taskType} (阈值: ${ctx.relevanceThreshold})`);
@@ -1500,6 +1667,14 @@ updatedAt: ${updatedAt}
     finalContent += generateTaskBooksPrompt(distributedTaskBooks);
   }
 
+  // ============ Agent Calls 契约分发 ============
+  log('分发 Agent Call 契约...');
+  const distributedAgentCalls = await distributeAgentCalls(targetDir);
+  if (distributedAgentCalls.length > 0) {
+    log(`已分发 ${distributedAgentCalls.length} 个 Agent Call 契约文件`);
+    finalContent += generateAgentCallsPrompt(distributedAgentCalls);
+  }
+
   // ============ 命令分发 ============
   log('分发 Slash Commands...');
   const distributedCommands = await distributeCommands(targetDir);
@@ -1530,6 +1705,7 @@ updatedAt: ${updatedAt}
   log(`   工具脚本: ${distributedScripts.length} 个`);
   log(`   Workflows: ${distributedWorkflows.length} 个`);
   log(`   TaskBook 契约: ${distributedTaskBooks.length} 个`);
+  log(`   Agent Call 契约: ${distributedAgentCalls.length} 个`);
   log(`   Slash Commands: ${distributedCommands.length} 个`);
   log('═══════════════════════════════════════════════════════════════════');
 }
