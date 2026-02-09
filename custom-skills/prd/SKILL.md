@@ -137,6 +137,37 @@ The PRD reader may be a junior developer or AI agent. Therefore:
 - **Location:** `tasks/`
 - **Filename:** `prd-[feature-name].md` (kebab-case)
 
+### 结构化输出（TaskBook 衔接）
+
+PRD 生成完成后，额外输出一个 JSON 摘要块，供 task-orchestrator 自动消费：
+
+```json
+{
+  "prdId": "prd-[feature-name]",
+  "title": "功能标题",
+  "goals": ["目标1", "目标2"],
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "故事标题",
+      "description": "As a [user], I want [feature] so that [benefit]",
+      "acceptanceCriteria": ["标准1", "标准2"],
+      "suggestedTaskType": "implement"
+    }
+  ],
+  "functionalRequirements": ["FR-1: ...", "FR-2: ..."],
+  "nonGoals": ["不做的事1"],
+  "technicalConsiderations": ["约束1"],
+  "openQuestions": ["待确认问题1"]
+}
+```
+
+**衔接流程**：
+1. PRD Skill 生成 Markdown 文档 + JSON 摘要
+2. task-orchestrator 读取 JSON 摘要，自动创建 TaskBook
+3. 每个 User Story 映射为一个或多个 TaskBook 任务
+4. `suggestedTaskType` 用于 task-executor 的 Agent 路由（test/implement/refactor/review 等）
+
 ---
 
 ## Example PRD

@@ -21,6 +21,9 @@
 | `security-reviewer` | 安全审查 | XSS/CSRF/OWASP 检测 | "安全审查"、"security"、"xss" |
 | `performance-profiler` | 性能分析 | Lighthouse/Web Vitals 诊断 | "性能分析"、"performance"、"lighthouse" |
 | `planner` | 任务规划 | 复杂任务分解与风险评估 | "规划"、"plan"、"任务分解" |
+| `tdd-driver` | TDD 驱动 | RED→GREEN→REFACTOR 循环驱动实现 | "TDD"、"测试驱动"、"test first" |
+| `build-fix` | 构建修复 | 自动诊断修复构建/类型/Lint 错误 | "构建失败"、"build failed"、"类型错误" |
+| `code-reviewer` | 代码审查 | 按 clean-code 规则结构化审查 | "代码审查"、"code review"、"CR" |
 
 ## Agent 调用流程
 
@@ -43,10 +46,10 @@
 ```
 agents/
 ├── AGENTS.md                    # 本文件 - Agent 系统说明
-├── task-orchestrator/           # 任务编排 Agent (新增)
+├── task-orchestrator/           # 任务编排 Agent
 │   ├── AGENT.md                 # Agent 定义文件
 │   └── templates/               # TaskBook 和验收报告模板
-├── structure-analyzer/          # 结构分析 Agent (新增)
+├── structure-analyzer/          # 结构分析 Agent
 │   ├── AGENT.md                 # Agent 定义文件
 │   ├── checklists/              # 检测清单
 │   └── templates/               # 报告模板
@@ -58,10 +61,24 @@ agents/
 │   ├── AGENT.md
 │   ├── metrics/                 # 性能指标说明
 │   └── templates/
-└── planner/                     # 任务规划 Agent
+├── planner/                     # 任务规划 Agent
+│   ├── AGENT.md
+│   ├── frameworks/              # 规划框架
+│   └── templates/
+├── tdd-driver/                  # TDD 驱动 Agent
+│   ├── AGENT.md
+│   └── prompts/                 # 弱模型引导模板
+│       ├── red.md               # RED 阶段 prompt
+│       ├── green.md             # GREEN 阶段 prompt
+│       └── refactor.md          # REFACTOR 阶段 prompt
+├── build-fix/                   # 构建修复 Agent
+│   ├── AGENT.md
+│   └── prompts/
+│       └── diagnose-fix.md      # 诊断修复 prompt
+└── code-reviewer/               # 代码审查 Agent
     ├── AGENT.md
-    ├── frameworks/              # 规划框架
-    └── templates/
+    └── prompts/
+        └── review.md            # 审查 prompt
 ```
 
 ## AGENT.md 规范
@@ -103,13 +120,16 @@ permissions:
 
 Agent 可以关联 Layer3 Action 规则：
 
-- `task-orchestrator` → 协调 `planner`, `tdd-guide`, `code-reviewer` 执行完整任务
+- `task-orchestrator` → 协调 `planner`, `tdd-driver`, `code-reviewer` 执行完整任务
 - `structure-analyzer` → `layer1_base/architecture/feature-based-structure.md`
 - `security-reviewer` → `layer3_action/defensive-coding.md`
 - `performance-profiler` → `layer3_action/self-verification.md`
 - `planner` → `layer3_action/refactoring.md`, `layer3_action/testing.md`
+- `tdd-driver` → `layer3_action/testing.md`, `layer1_base/code-quality/clean-code.md`
+- `build-fix` → `layer1_base/typescript/strict-types.md`
+- `code-reviewer` → `layer1_base/code-quality/clean-code.md`, `layer3_action/defensive-coding.md`
 
 ---
 
-**版本**: 1.2.0
-**更新日期**: 2026-01-30
+**版本**: 2.0.0
+**更新日期**: 2026-02-07

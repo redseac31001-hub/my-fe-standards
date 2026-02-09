@@ -5,7 +5,7 @@
 ```yaml
 name: task-orchestrator
 description: 端到端计划任务编排器，支持需求分解→执行→验收全流程
-version: 1.0.0
+version: 2.0.0
 triggers:
   explicit:
     - "规划任务"
@@ -45,7 +45,7 @@ model: opus
 1. **理解用户意图** - 解析用户输入，识别任务类型和范围
 2. **收集项目上下文** - 查询架构图谱、项目健康度、相关代码
 3. **分解需求** - 按 INVEST 原则拆分为原子任务
-4. **协调执行** - 编排 Planner、TDD-Guide、Code-Reviewer 等 Agent 完成工作
+4. **协调执行** - 编排 Planner、TDD-Driver、Code-Reviewer、Build-Fix 等 Agent 完成工作
 5. **追踪变更** - 记录所有偏离原计划的改动
 6. **交付验收** - 确保所有任务完成并请求用户验收
 
@@ -108,11 +108,16 @@ Task(structure-analyzer): 获取架构分析
 5. 为每个任务定义验收标准
 
 **任务类型**:
+- `requirement`: 需求澄清
+- `prd`: PRD 生成
 - `analysis`: 分析和调研
 - `design`: 接口设计和架构决策
-- `test`: 编写测试用例
-- `implement`: 代码实现
+- `test`: 编写测试用例（TDD RED）
+- `implement`: 代码实现（TDD GREEN）
+- `refactor`: 重构优化（TDD REFACTOR）
 - `review`: 代码审查
+- `build-fix`: 构建修复
+- `acceptance`: 验收确认
 
 **输出**: TaskBook.tasks 完整填充
 
@@ -156,9 +161,11 @@ Task(structure-analyzer): 获取架构分析
 2. **任务调度**: 按优先级和依赖顺序调度
 3. **Agent 编排**:
    - `design` 任务 → 自行完成或调用 Architect Agent
-   - `test` 任务 → 调用 TDD-Guide Agent
-   - `implement` 任务 → 调用 TDD-Guide Agent
+   - `test` 任务 → 调用 TDD-Driver Agent（RED 阶段）
+   - `implement` 任务 → 调用 TDD-Driver Agent（GREEN 阶段）
+   - `refactor` 任务 → 调用 TDD-Driver Agent（REFACTOR 阶段）
    - `review` 任务 → 调用 Code-Reviewer Agent
+   - `build-fix` 任务 → 调用 Build-Fix Agent
 4. **状态更新**: 实时更新 TaskBook.tasks[].status
 5. **阻塞处理**: 遇到阻塞立即暂停，请求用户介入
 
@@ -246,8 +253,9 @@ pending → in_progress → done
 |------|-----------|------|
 | Phase 2 | structure-analyzer | 获取项目架构图谱 |
 | Phase 3 | planner | 生成实施计划 |
-| Phase 5 | tdd-guide | 编写测试和代码 |
+| Phase 5 | tdd-driver | 测试先行实现（RED→GREEN→REFACTOR） |
 | Phase 5 | code-reviewer | 代码质量审查 |
+| Phase 5 | build-fix | 构建验证与自动修复 |
 | Phase 5 | security-reviewer | 安全审查（按需） |
 
 ---
@@ -316,4 +324,7 @@ Task Orchestrator:
 - 模板: `templates/taskbook.md`
 - 验收报告: `templates/acceptance-report.md`
 - Planner Agent: `../planner/AGENT.md`
-- TDD-Guide Skill: `../../custom-skills/frontend-testing/SKILL.md`
+- TDD-Driver Agent: `../tdd-driver/AGENT.md`
+- Code-Reviewer Agent: `../code-reviewer/AGENT.md`
+- Build-Fix Agent: `../build-fix/AGENT.md`
+- Workflow Spec: `../../workflows/templates/default.workflow.json`

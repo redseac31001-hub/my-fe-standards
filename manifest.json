@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-02-07T11:47:28.576Z",
+  "generatedAt": "2026-02-07T18:03:10.475Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -438,8 +438,8 @@
     {
       "path": "custom-skills/prd/SKILL.md",
       "name": "SKILL",
-      "size": 7410,
-      "mtime": "2026-01-26T05:49:39.876Z"
+      "size": 8413,
+      "mtime": "2026-02-07T14:59:11.872Z"
     },
     {
       "path": "custom-skills/ralph-converter/SKILL.md",
@@ -498,8 +498,32 @@
     {
       "path": "agents/AGENTS.md",
       "name": "AGENTS",
-      "size": 3962,
-      "mtime": "2026-01-30T05:02:53.337Z"
+      "size": 5246,
+      "mtime": "2026-02-07T14:41:59.241Z"
+    },
+    {
+      "path": "agents/build-fix/AGENT.md",
+      "name": "AGENT",
+      "size": 5685,
+      "mtime": "2026-02-07T14:31:58.002Z"
+    },
+    {
+      "path": "agents/build-fix/prompts/diagnose-fix.md",
+      "name": "diagnose-fix",
+      "size": 2693,
+      "mtime": "2026-02-07T14:33:41.404Z"
+    },
+    {
+      "path": "agents/code-reviewer/AGENT.md",
+      "name": "AGENT",
+      "size": 6268,
+      "mtime": "2026-02-07T14:32:00.511Z"
+    },
+    {
+      "path": "agents/code-reviewer/prompts/review.md",
+      "name": "review",
+      "size": 2981,
+      "mtime": "2026-02-07T14:33:44.531Z"
     },
     {
       "path": "agents/performance-profiler/AGENT.md",
@@ -564,8 +588,8 @@
     {
       "path": "agents/task-orchestrator/AGENT.md",
       "name": "AGENT",
-      "size": 9450,
-      "mtime": "2026-01-30T04:24:43.891Z"
+      "size": 10032,
+      "mtime": "2026-02-07T14:55:29.329Z"
     },
     {
       "path": "agents/task-orchestrator/templates/acceptance-report.md",
@@ -578,6 +602,30 @@
       "name": "taskbook",
       "size": 6537,
       "mtime": "2026-01-30T04:24:51.696Z"
+    },
+    {
+      "path": "agents/tdd-driver/AGENT.md",
+      "name": "AGENT",
+      "size": 6337,
+      "mtime": "2026-02-07T14:31:54.906Z"
+    },
+    {
+      "path": "agents/tdd-driver/prompts/green.md",
+      "name": "green",
+      "size": 1587,
+      "mtime": "2026-02-07T14:33:35.871Z"
+    },
+    {
+      "path": "agents/tdd-driver/prompts/red.md",
+      "name": "red",
+      "size": 2098,
+      "mtime": "2026-02-07T14:33:33.329Z"
+    },
+    {
+      "path": "agents/tdd-driver/prompts/refactor.md",
+      "name": "refactor",
+      "size": 1962,
+      "mtime": "2026-02-07T14:33:38.570Z"
     },
     {
       "path": "workflows/README.md",
@@ -594,8 +642,8 @@
     {
       "path": "workflows/templates/default.workflow.json",
       "name": "default.workflow",
-      "size": 5422,
-      "mtime": "2026-02-02T06:43:11.272Z"
+      "size": 6343,
+      "mtime": "2026-02-07T17:37:20.328Z"
     },
     {
       "path": "taskbooks/README.md",
@@ -611,10 +659,10 @@
     }
   ],
   "stats": {
-    "totalFiles": 74,
+    "totalFiles": 82,
     "ruleFiles": 17,
     "skillFiles": 38,
-    "agentFiles": 14,
+    "agentFiles": 22,
     "workflowFiles": 3,
     "taskbookFiles": 2
   }

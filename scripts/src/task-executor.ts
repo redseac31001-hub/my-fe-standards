@@ -17,6 +17,7 @@ import {
   WorkflowGate,
 } from './types';
 import { TaskBookManager } from './taskbook-manager';
+import { collectContext, formatContextAsMarkdown } from './context-collector';
 
 interface ExecuteTasksOptions {
   allowedTaskTypes?: Array<TaskItem['type']>;
@@ -85,8 +86,20 @@ function selectManualAgentId(task: TaskItem): string {
   switch (task.type) {
     case 'analysis':
       return 'structure-analyzer';
+    case 'test':
+    case 'implement':
+    case 'refactor':
+      return 'tdd-driver';
     case 'review':
-      return 'security-reviewer';
+      return 'code-reviewer';
+    case 'build-fix':
+      return 'build-fix';
+    case 'prd':
+    case 'requirement':
+      return 'planner';
+    case 'design':
+      return 'planner';
+    case 'acceptance':
     default:
       return DEFAULT_MANUAL_AGENT_ID;
   }
@@ -563,8 +576,6 @@ export class TaskExecutor {
    * 分发任务到对应的 Agent
    */
   private async dispatchTask(task: TaskItem): Promise<string> {
-    // 根据任务类型分发到不同的处理逻辑
-    // 实际实现中，这里会调用对应的 Agent
     switch (task.type) {
       case 'analysis':
         return this.executeAnalysisTask(task);
@@ -574,8 +585,17 @@ export class TaskExecutor {
         return this.executeTestTask(task);
       case 'implement':
         return this.executeImplementTask(task);
+      case 'refactor':
+        return this.executeImplementTask(task);
       case 'review':
         return this.executeReviewTask(task);
+      case 'build-fix':
+        return this.executeBuildFixTask(task);
+      case 'requirement':
+      case 'prd':
+        return this.executePlanningTask(task);
+      case 'acceptance':
+        return this.executeAcceptanceTask(task);
       default:
         throw new Error(`未知的任务类型: ${task.type}`);
     }
@@ -620,7 +640,7 @@ export class TaskExecutor {
    */
   private async executeDesignTask(task: TaskItem): Promise<string> {
     console.log(`[TaskExecutor] 执行设计任务: ${task.title}`);
-    throw new Error(`MANUAL_REQUIRED: 需要人工/Agent 完成设计任务：${task.title}`);
+    throw new Error(`MANUAL_REQUIRED: 需要 planner Agent 完成设计任务：${task.title}`);
   }
 
   /**
@@ -628,7 +648,7 @@ export class TaskExecutor {
    */
   private async executeTestTask(task: TaskItem): Promise<string> {
     console.log(`[TaskExecutor] 执行测试任务: ${task.title}`);
-    throw new Error(`MANUAL_REQUIRED: 需要补充/修改测试用例：${task.title}`);
+    throw new Error(`MANUAL_REQUIRED: 需要 tdd-driver Agent 编写测试用例：${task.title}`);
   }
 
   /**
@@ -636,7 +656,7 @@ export class TaskExecutor {
    */
   private async executeImplementTask(task: TaskItem): Promise<string> {
     console.log(`[TaskExecutor] 执行实现任务: ${task.title}`);
-    throw new Error(`MANUAL_REQUIRED: 需要人工/Agent 完成实现任务：${task.title}`);
+    throw new Error(`MANUAL_REQUIRED: 需要 tdd-driver Agent 完成实现任务：${task.title}`);
   }
 
   /**
@@ -644,7 +664,31 @@ export class TaskExecutor {
    */
   private async executeReviewTask(task: TaskItem): Promise<string> {
     console.log(`[TaskExecutor] 执行审查任务: ${task.title}`);
-    throw new Error(`MANUAL_REQUIRED: 需要人工/Agent 完成审查任务：${task.title}`);
+    throw new Error(`MANUAL_REQUIRED: 需要 code-reviewer Agent 完成审查任务：${task.title}`);
+  }
+
+  /**
+   * 执行构建修复任务
+   */
+  private async executeBuildFixTask(task: TaskItem): Promise<string> {
+    console.log(`[TaskExecutor] 执行构建修复任务: ${task.title}`);
+    throw new Error(`MANUAL_REQUIRED: 需要 build-fix Agent 诊断并修复构建错误：${task.title}`);
+  }
+
+  /**
+   * 执行需求/PRD 任务
+   */
+  private async executePlanningTask(task: TaskItem): Promise<string> {
+    console.log(`[TaskExecutor] 执行需求/PRD 任务: ${task.title}`);
+    throw new Error(`MANUAL_REQUIRED: 需要 planner Agent 完成需求澄清或 PRD 生成：${task.title}`);
+  }
+
+  /**
+   * 执行验收任务
+   */
+  private async executeAcceptanceTask(task: TaskItem): Promise<string> {
+    console.log(`[TaskExecutor] 执行验收任务: ${task.title}`);
+    throw new Error(`MANUAL_REQUIRED: 需要人工验收确认：${task.title}`);
   }
 
   /**
@@ -853,6 +897,30 @@ function topologicalSteps(spec: WorkflowSpec): WorkflowStep[] {
   return ordered;
 }
 
+/**
+ * 评估 WorkflowStep.skipWhen 条件。
+ *
+ * 支持格式：
+ * - `no_tasks_of_type:<type1>,<type2>` — TaskBook 中无指定类型的 pending/in_progress 任务时返回 true
+ *
+ * 未识别的条件一律返回 false（不跳过）。
+ */
+function evaluateSkipWhen(skipWhen: string | undefined, taskBook: TaskBook): boolean {
+  if (!skipWhen) return false;
+
+  const noTasksMatch = /^no_tasks_of_type:(.+)$/.exec(skipWhen.trim());
+  if (noTasksMatch) {
+    const types = new Set(noTasksMatch[1].split(',').map(t => t.trim()));
+    const hasRelevantTasks = taskBook.tasks.some(
+      t => types.has(t.type) && (t.status === 'pending' || t.status === 'in_progress')
+    );
+    return !hasRelevantTasks;
+  }
+
+  // 未识别的条件不跳过
+  return false;
+}
+
 function getPolicyMaxParallel(spec: WorkflowSpec): number | undefined {
   const raw = spec.policies as Record<string, unknown> | undefined;
   const concurrency = raw?.concurrency as Record<string, unknown> | undefined;
@@ -873,6 +941,31 @@ function getPolicyConflictStrategy(spec: WorkflowSpec): ConflictStrategy | undef
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+type BuildFixPolicy = {
+  maxRounds: number;
+  retryFromStep: string;
+  escalateToHuman: boolean;
+};
+
+function getPolicyBuildFix(spec: WorkflowSpec): BuildFixPolicy {
+  const raw = spec.policies as Record<string, unknown> | undefined;
+  const bf = raw?.buildFix;
+  const defaults: BuildFixPolicy = { maxRounds: 3, retryFromStep: 'tdd_implement', escalateToHuman: true };
+  if (!isPlainObject(bf)) return defaults;
+
+  const maxRounds = typeof bf.maxRounds === 'number' && Number.isFinite(bf.maxRounds) && bf.maxRounds > 0
+    ? Math.floor(bf.maxRounds)
+    : defaults.maxRounds;
+  const retryFromStep = typeof bf.retryFromStep === 'string' && bf.retryFromStep.length > 0
+    ? bf.retryFromStep
+    : defaults.retryFromStep;
+  const escalateToHuman = typeof bf.escalateToHuman === 'boolean'
+    ? bf.escalateToHuman
+    : defaults.escalateToHuman;
+
+  return { maxRounds, retryFromStep, escalateToHuman };
 }
 
 type RiskTier = 'high' | 'medium' | 'low';
@@ -1204,6 +1297,50 @@ function loadAgentDefinition(projectRoot: string, agentId: string): { path: stri
   return null;
 }
 
+/**
+ * 加载 Agent 的 prompt 模板（用于弱模型引导）
+ *
+ * 根据任务类型选择对应的 prompt 模板文件：
+ * - test → tdd-driver/prompts/red.md
+ * - implement → tdd-driver/prompts/green.md
+ * - refactor → tdd-driver/prompts/refactor.md
+ * - review → code-reviewer/prompts/review.md
+ * - build-fix → build-fix/prompts/diagnose-fix.md
+ */
+function loadAgentPromptTemplate(projectRoot: string, agentId: string, taskType: string): string | null {
+  const promptFileMap: Record<string, Record<string, string>> = {
+    'tdd-driver': {
+      'test': 'red.md',
+      'implement': 'green.md',
+      'refactor': 'refactor.md',
+    },
+    'code-reviewer': {
+      'review': 'review.md',
+    },
+    'build-fix': {
+      'build-fix': 'diagnose-fix.md',
+    },
+  };
+
+  const agentPrompts = promptFileMap[agentId];
+  if (!agentPrompts) return null;
+
+  const fileName = agentPrompts[taskType];
+  if (!fileName) return null;
+
+  const candidates = [
+    path.join(projectRoot, '.codebuddy', 'agents', agentId, 'prompts', fileName),
+    path.join(projectRoot, 'agents', agentId, 'prompts', fileName),
+  ];
+
+  for (const p of candidates) {
+    const content = readTextFileIfExists(p);
+    if (content) return content;
+  }
+
+  return null;
+}
+
 function buildManualTaskPrompt(args: {
   meta: AgentCallMeta;
   taskBook: TaskBook;
@@ -1254,6 +1391,17 @@ function buildManualTaskPrompt(args: {
     agentDefinition.trimEnd(),
     '```',
     '',
+    ...(() => {
+      const promptTemplate = loadAgentPromptTemplate(process.cwd(), args.meta.agentId, args.task.type);
+      if (!promptTemplate) return [];
+      return [
+        '## Prompt Template (弱模型引导)',
+        '```md',
+        promptTemplate.trimEnd(),
+        '```',
+        '',
+      ];
+    })(),
     '## Context: TaskBook JSON',
     '```json',
     JSON.stringify(args.taskBook, null, 2),
@@ -1264,6 +1412,17 @@ function buildManualTaskPrompt(args: {
     JSON.stringify(args.task, null, 2),
     '```',
     '',
+    // 自动收集的上下文（文件内容、引用追踪、关联测试、Git 历史）
+    ...(() => {
+      try {
+        const ctx = collectContext(args.task, process.cwd());
+        const md = formatContextAsMarkdown(ctx);
+        if (md) return [md];
+      } catch {
+        // 上下文收集失败不阻塞 prompt 生成
+      }
+      return [];
+    })(),
     '## Reason (why this was blocked)',
     '```text',
     args.manualReason.trimEnd(),
@@ -1721,8 +1880,22 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
 
   const executor = new TaskExecutor(manager, { maxParallel });
 
-  for (const step of orderedSteps) {
+  const buildFixPolicy = getPolicyBuildFix(spec);
+  let buildFixRetryCount = 0;
+
+  let stepIdx = 0;
+  while (stepIdx < orderedSteps.length) {
+    const step = orderedSteps[stepIdx];
     console.log(`\n[Workflow] ▶ ${step.id}: ${step.title} (${step.type})`);
+
+    // 条件跳过：评估 skipWhen
+    const currentForSkip = manager.load(taskBookId);
+    if (currentForSkip && evaluateSkipWhen(step.skipWhen, currentForSkip)) {
+      console.log(`[Workflow] ⏭ ${step.id}: 条件跳过 (${step.skipWhen})`);
+      manager.logChange(taskBookId, null, 'modified', `workflow step skipped: ${step.id} (${step.skipWhen})`);
+      stepIdx++;
+      continue;
+    }
 
     if (step.type === 'analyze_project') {
       // 使用 analyzer 生成 reports
@@ -1742,17 +1915,38 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
       manager.logChange(taskBookId, null, 'modified', '已生成项目结构/模块图谱 reports', undefined, {
         reports: ['.codebuddy/reports/architecture/latest.json', '.codebuddy/reports/modules/latest.json'],
       });
+      stepIdx++;
       continue;
     }
 
     if (step.type === 'create_taskbook') {
       // workflow 允许作为规范存在；此处不自动生成/修改 TaskBook
       manager.logChange(taskBookId, null, 'modified', 'workflow step: create_taskbook (no-op, TaskBook 已存在)');
+      stepIdx++;
       continue;
     }
 
-    if (step.type === 'implement_tasks') {
-      const allowedTaskTypes = new Set<TaskItem['type']>(['analysis', 'design', 'implement']);
+    if (step.type === 'requirement_and_prd') {
+      // 需求澄清与 PRD 生成：记录步骤，实际由 prd Skill 或人工完成
+      manager.logChange(taskBookId, null, 'modified', 'workflow step: requirement_and_prd (需求澄清与 PRD 生成)');
+      const prdTasks = (manager.load(taskBookId)?.tasks ?? []).filter(t => t.status === 'pending' && (t.type === 'requirement' || t.type === 'prd'));
+      if (prdTasks.length > 0) {
+        const result = await executor.executeTasks(taskBookId, {
+          allowedTaskTypes: ['requirement', 'prd'],
+          maxParallel,
+          conflictStrategy,
+        });
+        if (result.status !== 'completed') {
+          console.log(`[Workflow] requirement_and_prd 未完成: ${result.status} ${result.message ?? ''}`);
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        }
+      }
+      stepIdx++;
+      continue;
+    }
+
+    if (step.type === 'tdd_implement') {
+      const allowedTaskTypes = new Set<TaskItem['type']>(['test', 'implement', 'refactor', 'analysis', 'design']);
       const batching = getPolicyBatching(spec);
       const hasStepGates = Array.isArray(step.gates) && step.gates.length > 0;
 
@@ -1774,6 +1968,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
           }
         }
 
+        stepIdx++;
         continue;
       }
 
@@ -1868,6 +2063,55 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
         }
       }
 
+      stepIdx++;
+      continue;
+    }
+
+    if (step.type === 'build_and_fix') {
+      // 构建验证与修复：先执行 build-fix 类型任务，再运行 gates
+      const buildFixTasks = (manager.load(taskBookId)?.tasks ?? []).filter(t => t.status === 'pending' && t.type === 'build-fix');
+      if (buildFixTasks.length > 0) {
+        const result = await executor.executeTasks(taskBookId, {
+          allowedTaskTypes: ['build-fix'],
+          maxParallel,
+          conflictStrategy,
+        });
+        if (result.status !== 'completed') {
+          console.log(`[Workflow] build_and_fix 任务未完成: ${result.status} ${result.message ?? ''}`);
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        }
+      }
+
+      const { ok } = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
+        eventContext: 'build_and_fix_gate',
+      });
+
+      if (!ok) {
+        buildFixRetryCount++;
+        const retryTargetId = buildFixPolicy.retryFromStep;
+        const retryTargetIdx = orderedSteps.findIndex(s => s.id === retryTargetId);
+
+        if (retryTargetIdx >= 0 && buildFixRetryCount < buildFixPolicy.maxRounds) {
+          console.log(`[Workflow] ⟲ 构建失败，回滚到 ${retryTargetId}（第 ${buildFixRetryCount}/${buildFixPolicy.maxRounds} 次重试）`);
+          manager.logChange(taskBookId, null, 'modified',
+            `build_and_fix gate 失败，回滚到 ${retryTargetId}（重试 ${buildFixRetryCount}/${buildFixPolicy.maxRounds}）`,
+            undefined, { event: 'build_fix_retry', retryCount: buildFixRetryCount, retryFromStep: retryTargetId });
+          stepIdx = retryTargetIdx;
+          continue;
+        }
+
+        if (buildFixPolicy.escalateToHuman) {
+          console.log(`[Workflow] ⛔ 构建修复已达最大重试次数（${buildFixPolicy.maxRounds}），需要人工介入`);
+          manager.logChange(taskBookId, null, 'modified',
+            `build_and_fix 达到最大重试次数 ${buildFixPolicy.maxRounds}，升级为人工处理`,
+            undefined, { event: 'build_fix_escalate', retryCount: buildFixRetryCount });
+        }
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+      }
+
+      // gate 通过，重置重试计数
+      buildFixRetryCount = 0;
+      stepIdx++;
       continue;
     }
 
@@ -1883,6 +2127,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
       });
       if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
 
+      stepIdx++;
       continue;
     }
 
@@ -1910,6 +2155,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
         return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
       }
 
+      stepIdx++;
       continue;
     }
 
@@ -1947,6 +2193,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
     }
 
     console.log(`[Workflow] ⚠ 未识别的 step.type: ${step.type}（跳过）`);
+    stepIdx++;
   }
 
   return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };

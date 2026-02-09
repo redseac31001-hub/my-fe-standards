@@ -522,7 +522,7 @@ const SCRIPTS_TO_DISTRIBUTE = [
     },
     {
         file: 'task-executor.js',
-        dependencies: ['types/index.js', 'taskbook-manager.js']
+        dependencies: ['types/index.js', 'taskbook-manager.js', 'context-collector.js', 'reference-finder.js']
     },
     {
         file: 'contract-validator.js',
@@ -532,6 +532,14 @@ const SCRIPTS_TO_DISTRIBUTE = [
     },
     {
         file: 'skill-validator.js',
+    },
+    {
+        file: 'reference-finder.js',
+        dependencies: ['types/index.js']
+    },
+    {
+        file: 'context-collector.js',
+        dependencies: ['types/index.js', 'reference-finder.js']
     },
 ];
 /**
@@ -1244,32 +1252,63 @@ function generateAgentsPrompt(agents) {
         }
         agentDetails += '\n';
     }
+    // 动态生成决策树节点（从 Agent 元数据）
+    let decisionNodes = '';
+    for (const agent of agents) {
+        if (agent.triggers.length === 0)
+            continue;
+        const triggerList = agent.triggers.join('/');
+        decisionNodes += `├─ 包含"${triggerList}"？\n`;
+        decisionNodes += `│  └─ YES → ${agent.id}（${agent.description}）\n│\n`;
+    }
+    decisionNodes += `└─ 以上均不匹配？\n`;
+    decisionNodes += `   └─ 回退到【第三步：Skill 决策树】`;
     return `
-# 🤖 Agent 系统索引 (Agents Index)
+# 🤖 Agent 与 Skill 统一调度指南
 
-本规则库支持 **Agent 执行模式**，Agent 文件已下载至 \`.codebuddy/agents/\`。
+本规则库支持 **Agent 执行模式** 和 **Skill 知识模式**。收到用户请求后，按以下决策树从上到下判断。
 
-## 已安装 Agents
+## 第一步：判断任务规模
+
+\`\`\`
+用户请求
+│
+├─ 是否涉及多文件、多步骤、需要规划+实现+审查？
+│  │  判断依据：
+│  │  - 提到"整个模块/系统/功能"（非单个文件/组件）
+│  │  - 包含"规划/计划/帮我实现/帮我规划/开发"
+│  │  - 需要先设计再编码再测试
+│  │
+│  ├─ YES → 进入【第二步：Agent 决策树】
+│  └─ NO（单文件/单组件/单次操作）→ 进入【第三步：Skill 决策树】
+\`\`\`
+
+## 第二步：Agent 决策树（多步骤流程）
+
+命中即停，不再继续匹配：
+
+\`\`\`
+${decisionNodes}
+\`\`\`
+
+**Agent 调用步骤**:
+1. 调用 \`read_file\` 读取 \`.codebuddy/agents/<agent-id>/AGENT.md\`
+2. 严格按 AGENT.md 中定义的步骤顺序执行，不可跳过
+3. 合并结果输出完整报告
+
+## 已安装 Agents 详情
 
 ${agentDetails}
 
-## 🚀 Agent 调用指南 (CodeBuddy)
-
-当用户请求匹配上述触发场景时，请：
-
-1. **识别意图**: 分析用户请求是否匹配上述触发词
-2. **检查工作流程**: 如果 Agent 有 "必须按顺序执行" 的工作流程，**严格按步骤执行**
-3. **执行脚本**: 运行工作流程中列出的脚本命令
-4. **生成报告**: 合并结果输出完整报告
-
-**重要**: 如果 Agent 定义了工作流程摘要，必须按顺序执行所有步骤，不可跳过！
-
 ## Agent 与 Skill 的区别
 
-| 维度 | Agent | Skill |
-|------|-------|-------|
-| **定位** | 独立决策执行者 | 知识包/工具集 |
-| **执行模式** | 完整工作流 | 提供知识上下文 |
+| 维度 | Agent（执行者） | Skill（知识源） |
+|------|----------------|----------------|
+| **定位** | 独立决策执行者，驱动完整流程 | 知识包/参考文档，提供上下文 |
+| **触发方式** | 多步骤流程（规划→实现→审查→修复） | 单次具体操作（审查一段代码、重构一个组件） |
+| **执行模式** | 按 AGENT.md 工作流自主执行 | 读取 SKILL.md 后由 AI 执行 |
+| **典型场景** | "帮我规划并实现登录功能" | "帮我重构这个组件" |
+| **输出** | 完整交付物（代码+测试+报告） | 知识引导下的单次操作 |
 `;
 }
 // ============ 提示词生成 ============
@@ -1281,26 +1320,57 @@ function generateSkillsPrompt(skills) {
         table += `| **${skill.name}** | \`${skill.id}\` | ${skill.description} |\n`;
     }
     return `
-# 🧩 动态技能索引 (Skills Index)
+## 第三步：Skill 决策树（单次操作）
 
-本规则库采用 **动态加载模式**，技能文件已下载至 \`.codebuddy/skills/\`。
+技能文件已下载至 \`.codebuddy/skills/\`。
 
-## 已安装技能
+> **Skill 是知识源，不是执行者。** 如果任务需要多步骤自主流程，请回到第二步使用 Agent。
+
+命中即停，不再继续匹配：
+
+\`\`\`
+├─ 包含"重构/拆分组件/提取 Hook/组件优化"？
+│  └─ YES → component-refactoring（组件重构技能）
+│
+├─ 包含"审查代码/代码质量/code review"（单文件级别）？
+│  └─ YES → frontend-code-review（代码审查技能）
+│
+├─ 包含"写测试/测试用例/Mock/断言"（单文件级别）？
+│  └─ YES → frontend-testing（前端测试技能）
+│
+├─ 包含"状态管理/Vuex/Pinia/Store"？
+│  └─ YES → state-management（状态管理技能）
+│
+├─ 包含"性能优化/懒加载/虚拟滚动/首屏"（单文件级别）？
+│  └─ YES → performance-optimization（性能优化技能）
+│
+├─ 包含"构建优化/Webpack/Vite/打包/分包"？
+│  └─ YES → build-optimization（构建优化技能）
+│
+├─ 包含"国际化/i18n/无障碍/a11y/ARIA"？
+│  └─ YES → i18n-a11y（国际化/无障碍技能）
+│
+├─ 包含"PRD/需求文档/产品文档"？
+│  └─ YES → prd（PRD 生成技能）
+│
+├─ 包含"Ralph/转换/迁移"？
+│  └─ YES → ralph-converter（Ralph 转换技能）
+│
+├─ 包含"创建技能/新技能/skill"？
+│  └─ YES → skill-creator（技能创建器）
+│
+└─ 以上均不匹配？
+   └─ 不加载技能，直接基于规则回答
+\`\`\`
+
+**Skill 调用步骤**:
+1. 调用 \`read_file\` 读取 \`.codebuddy/skills/<技能ID>/SKILL.md\`
+2. 根据 SKILL.md 中的路由逻辑，读取 \`references/\` 下的相关文档
+3. 基于完整上下文执行用户任务
+
+## 已安装技能一览
 
 ${table}
-
-## 🚀 技能调用指南 (CodeBuddy)
-
-当用户请求匹配上述触发场景时，请：
-
-1. **识别意图**: 分析用户请求是否匹配表格中的触发场景
-2. **读取技能**: 调用 \`read_file\` 工具读取 \`.codebuddy/skills/<技能ID>/SKILL.md\`
-3. **遵循指引**: 根据 SKILL.md 中的路由逻辑，读取 \`references/\` 下的相关文档
-4. **执行任务**: 基于完整上下文执行用户任务
-
-**示例**:
-> 用户: "帮我重构这个组件"
-> 行动: read_file(".codebuddy/skills/component-refactoring/SKILL.md")
 
 ## ⚠️ 何时不需要加载技能
 

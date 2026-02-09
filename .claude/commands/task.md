@@ -209,6 +209,7 @@ task-8 (集成测试) ───────────────────�
 |-------|------|
 | structure-analyzer | 分析项目架构 |
 | planner | 生成实施计划 |
-| tdd-guide | 编写测试和代码 |
+| tdd-driver | 测试先行实现（RED→GREEN→REFACTOR） |
 | code-reviewer | 代码质量审查 |
-| security-reviewer | 安全审查 |
+| build-fix | 构建失败自动诊断修复 |
+| security-reviewer | 安全审查（按需） |

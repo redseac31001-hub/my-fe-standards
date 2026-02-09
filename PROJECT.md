@@ -1,6 +1,6 @@
 # MY-FE-STANDARDS 项目架构图谱
 
-> 版本: 2.3.0 | 更新日期: 2026-01-30
+> 版本: 3.0.0 | 更新日期: 2026-02-07
 > 本文档记录项目的完整架构和已具备的功能能力，每完成新能力需同步更新。
 
 ---
@@ -39,7 +39,7 @@
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐        │
 │  │   Rules 规则层   │    │  Skills 技能层  │    │  Agents 代理层  │        │
 │  │                 │    │                 │    │                 │        │
-│  │  Layer1: 基础   │    │  10 个技能      │    │  4 个 Agent     │        │
+│  │  Layer1: 基础   │    │  10 个技能      │    │  8 个 Agent     │        │
 │  │  Layer2: 业务   │    │  (详见下方)     │    │  (详见下方)     │        │
 │  │  Layer3: 行为   │    │                 │    │                 │        │
 │  └─────────────────┘    └─────────────────┘    └─────────────────┘        │
@@ -75,8 +75,11 @@ my-fe-standards/
 │
 ├── agents/                     # Agent 代理系统
 │   ├── AGENTS.md              # Agent 注册表
-│   ├── task-orchestrator/     # 任务编排 Agent (v2.2.0)
+│   ├── task-orchestrator/     # 任务编排 Agent (v2.0.0)
 │   ├── planner/               # 规划 Agent
+│   ├── tdd-driver/            # TDD 驱动 Agent (v1.0.0)
+│   ├── code-reviewer/         # 代码审查 Agent (v1.0.0)
+│   ├── build-fix/             # 构建修复 Agent (v1.0.0)
 │   ├── security-reviewer/     # 安全审查 Agent
 │   ├── performance-profiler/  # 性能分析 Agent
 │   └── structure-analyzer/    # 结构分析 Agent (v2.1.0)
@@ -175,6 +178,9 @@ my-fe-standards/
 | **Agents 代理** | | | |
 | | 任务编排 Agent | `agents/task-orchestrator/` | 端到端计划任务执行与验收，/task 命令 |
 | | 规划 Agent | `agents/planner/` | 实施计划制定 |
+| | TDD 驱动 Agent | `agents/tdd-driver/` | RED→GREEN→REFACTOR 循环驱动实现 |
+| | 代码审查 Agent | `agents/code-reviewer/` | 按 clean-code 规则结构化审查 + 分级输出 |
+| | 构建修复 Agent | `agents/build-fix/` | 构建失败自动诊断修复（最多 3 轮） |
 | | 安全审查 Agent | `agents/security-reviewer/` | XSS 等安全检查 |
 | | 性能分析 Agent | `agents/performance-profiler/` | 性能问题分析 |
 | | 结构分析 Agent | `agents/structure-analyzer/` | 综合架构审查，模块识别，健康度评分 |
@@ -267,6 +273,7 @@ await mcp.call("get_skills", { name: "frontend-code-review" });
 
 | 日期 | 版本 | 更新内容 |
 |------|------|----------|
+| 2026-02-07 | 3.0.0 | Workflow v2.0.0 七步闭环；新增 tdd-driver/code-reviewer/build-fix Agent + Prompt 模板体系；TaskType 扩展为 10 种；task-executor Agent 路由 + prompt 注入 |
 | 2026-01-30 | 2.3.0 | 新增整洁代码核心原则 (Clean Code)；code-quality 加入 Layer1 基础规则；更新评分系统 |
 | 2026-01-30 | 2.2.0 | 新增 Task Orchestrator Agent；新增 /task 命令；新增 taskbook-manager、task-executor 脚本；支持端到端计划任务执行与验收 |
 | 2026-01-29 | 2.1.0 | 新增 Reports 项目记忆系统；新增 structure-analyzer、module-mapper、report-manager 脚本；新增差异对比和趋势分析功能 |

@@ -966,18 +966,28 @@ class TaskBookManager {
      */
     formatForDisplay(taskBook) {
         const typeEmoji = {
+            requirement: '📋',
+            prd: '📄',
             analysis: '🔍',
             design: '📐',
             test: '🧪',
             implement: '💻',
+            refactor: '♻️',
             review: '👀',
+            'build-fix': '🔧',
+            acceptance: '✅',
         };
         const typeLabel = {
+            requirement: '需求',
+            prd: 'PRD',
             analysis: '分析',
             design: '设计',
             test: '测试',
             implement: '实现',
+            refactor: '重构',
             review: '审查',
+            'build-fix': '构建修复',
+            acceptance: '验收',
         };
         const lines = [
             '╔══════════════════════════════════════════════════════════════╗',

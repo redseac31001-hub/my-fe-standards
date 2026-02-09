@@ -620,8 +620,8 @@ function runTestCase(testCase) {
         const tb = JSON.parse(fs.readFileSync(historyTbFile, 'utf-8'));
         const changelog = Array.isArray(tb.changelog) ? tb.changelog : [];
 
-        const smokeGateEvents = changelog.filter(e => e && e.after && e.after.event === 'gate' && e.after.gateId === 'smoke_passed' && e.after.stepId === 'implement');
-        const batchEvents = changelog.filter(e => e && e.after && e.after.event === 'batch' && e.after.stepId === 'implement');
+        const smokeGateEvents = changelog.filter(e => e && e.after && e.after.event === 'gate' && e.after.gateId === 'smoke_passed' && (e.after.stepId === 'implement' || e.after.stepId === 'tdd_implement'));
+        const batchEvents = changelog.filter(e => e && e.after && e.after.event === 'batch' && (e.after.stepId === 'implement' || e.after.stepId === 'tdd_implement'));
 
         if (smokeGateEvents.length < 2) {
           logError(`Batching: smoke_passed gate events too few (expected >=2, got ${smokeGateEvents.length})`);

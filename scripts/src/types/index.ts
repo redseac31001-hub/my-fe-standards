@@ -237,6 +237,11 @@ export interface WorkflowStep {
   outputs?: Record<string, unknown>;
   gates?: string[];
   toolHints?: Record<string, unknown>;
+  /**
+   * 步骤跳过条件。满足时自动跳过该步骤。
+   * 格式：`no_tasks_of_type:<type1>,<type2>` — TaskBook 中无指定类型的 pending 任务时跳过
+   */
+  skipWhen?: string;
 }
 
 export interface WorkflowSpec {
@@ -260,8 +265,29 @@ export type TaskBookStatus = 'draft' | 'confirmed' | 'executing' | 'completed' |
 
 /**
  * 任务类型
+ *
+ * - requirement: 需求澄清
+ * - prd: PRD 生成
+ * - analysis: 项目分析
+ * - design: 技术设计（融入任务分解）
+ * - test: 测试编写（TDD RED 阶段）
+ * - implement: 代码实现（TDD GREEN 阶段）
+ * - refactor: 重构（TDD REFACTOR 阶段）
+ * - review: 代码审查
+ * - build-fix: 构建修复
+ * - acceptance: 验收
  */
-export type TaskType = 'analysis' | 'design' | 'test' | 'implement' | 'review';
+export type TaskType =
+  | 'requirement'
+  | 'prd'
+  | 'analysis'
+  | 'design'
+  | 'test'
+  | 'implement'
+  | 'refactor'
+  | 'review'
+  | 'build-fix'
+  | 'acceptance';
 
 /**
  * 任务状态
@@ -460,4 +486,63 @@ export interface AcceptanceReport {
     suggested: string[];
     technicalDebt: string[];
   };
+}
+
+// ============ 上下文收集类型 ============
+
+/**
+ * 引用追踪结果（单条）
+ */
+export interface ReferenceEntry {
+  filePath: string;
+  line: number;
+  column: number;
+  matchText: string;
+  kind: 'import' | 'require' | 'from' | 'usage';
+}
+
+/**
+ * 引用追踪汇总
+ */
+export interface ReferenceFindResult {
+  target: string;
+  references: ReferenceEntry[];
+  searchedFiles: number;
+  durationMs: number;
+}
+
+/**
+ * 关联测试文件
+ */
+export interface RelatedTestFile {
+  testPath: string;
+  sourcePath: string;
+  confidence: 'exact' | 'pattern' | 'directory';
+}
+
+/**
+ * Git 最近变更条目
+ */
+export interface GitChangeEntry {
+  hash: string;
+  author: string;
+  date: string;
+  message: string;
+  files: string[];
+}
+
+/**
+ * 上下文收集结果（完整）
+ */
+export interface CollectedContext {
+  targetFiles: Array<{
+    path: string;
+    content: string;
+    lines: number;
+  }>;
+  references: ReferenceFindResult[];
+  relatedTests: RelatedTestFile[];
+  gitHistory: GitChangeEntry[];
+  collectedAt: string;
+  durationMs: number;
 }

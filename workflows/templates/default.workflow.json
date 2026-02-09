@@ -1,14 +1,28 @@
 {
   "id": "default",
-  "version": "1.3.0",
-  "name": "Default Workflow (Batched implement closed loop)",
-  "description": "Tool/model-agnostic default workflow: analyze -> plan -> implement (batched + smoke gates) -> review -> full tests/build -> acceptance/archive.",
+  "version": "2.0.0",
+  "name": "Default Workflow (7-step closed loop)",
+  "description": "Tool/model-agnostic 7-step workflow: requirement+PRD -> analyze -> plan -> TDD implement (batched + smoke gates) -> review -> build+fix -> acceptance/archive.",
   "steps": [
+    {
+      "id": "requirement_prd",
+      "type": "requirement_and_prd",
+      "title": "Requirement clarification & PRD generation",
+      "description": "Clarify requirements through structured Q&A and generate PRD with user stories and acceptance criteria.",
+      "skipWhen": "no_tasks_of_type:requirement,prd",
+      "toolHints": {
+        "recommended": ["skill:prd", "human"]
+      },
+      "outputs": {
+        "prd": ".codebuddy/docs/prd-*.md"
+      }
+    },
     {
       "id": "analyze",
       "type": "analyze_project",
       "title": "Analyze project structure/modules",
       "description": "Generate architecture/module reports to support planning and impact analysis.",
+      "skipWhen": "no_tasks_of_type:analysis",
       "toolHints": {
         "recommended": ["script:structure-analyzer", "script:module-mapper"]
       },
@@ -20,7 +34,7 @@
       "id": "plan",
       "type": "create_taskbook",
       "title": "Create TaskBook (tasks + acceptance criteria)",
-      "description": "Break requirements into executable tasks with dependencies and acceptance criteria.",
+      "description": "Break requirements into executable tasks with dependencies and acceptance criteria. Technical design is embedded in task decomposition.",
       "toolHints": {
         "recommended": ["agent:planner", "script:taskbook-manager"]
       },
@@ -29,13 +43,13 @@
       }
     },
     {
-      "id": "implement",
-      "type": "implement_tasks",
-      "title": "Implement tasks (batched)",
-      "description": "Execute implement-related tasks in batches controlled by policies.testing.batching; run smoke gates between batches.",
+      "id": "tdd_implement",
+      "type": "tdd_implement",
+      "title": "Test-first implementation (TDD batched)",
+      "description": "Execute tasks using TDD cycle (RED->GREEN->REFACTOR) in batches controlled by policies.testing.batching; run smoke gates between batches.",
       "gates": ["contracts_valid", "smoke_passed"],
       "toolHints": {
-        "recommended": ["agent:task-orchestrator", "agent:ralph", "human"]
+        "recommended": ["agent:tdd-driver", "agent:task-orchestrator", "human"]
       }
     },
     {
@@ -49,12 +63,13 @@
       }
     },
     {
-      "id": "test_full",
-      "type": "run_tests",
-      "title": "Full Tests / Build Gate",
-      "gates": ["contracts_valid", "lint_passed", "typecheck_passed", "security_passed", "perf_passed", "full_passed"],
+      "id": "build_fix",
+      "type": "build_and_fix",
+      "title": "Build verification & auto-fix",
+      "description": "Run full build/typecheck/lint pipeline. On failure, auto-diagnose and fix errors up to 3 rounds.",
+      "gates": ["contracts_valid", "lint_passed", "typecheck_passed", "full_passed"],
       "toolHints": {
-        "recommended": ["shell:npm test", "shell:npm run build"]
+        "recommended": ["agent:build-fix", "shell:npm run build", "shell:npm test"]
       }
     },
     {
@@ -68,11 +83,12 @@
     }
   ],
   "edges": [
+    { "from": "requirement_prd", "to": "analyze" },
     { "from": "analyze", "to": "plan" },
-    { "from": "plan", "to": "implement" },
-    { "from": "implement", "to": "review" },
-    { "from": "review", "to": "test_full" },
-    { "from": "test_full", "to": "acceptance" }
+    { "from": "plan", "to": "tdd_implement" },
+    { "from": "tdd_implement", "to": "review" },
+    { "from": "review", "to": "build_fix" },
+    { "from": "build_fix", "to": "acceptance" }
   ],
   "gates": [
     {
@@ -150,7 +166,7 @@
       "title": "Review passed",
       "required": true,
       "params": {
-        "checklist": ["self-verification", "defensive-coding"]
+        "checklist": ["self-verification", "defensive-coding", "clean-code"]
       }
     }
   ],
@@ -174,6 +190,11 @@
         },
         "autoTune": { "stableBatches": 3, "increaseFactor": 1.5, "decreaseFactor": 0.5 }
       }
+    },
+    "buildFix": {
+      "maxRounds": 3,
+      "retryFromStep": "tdd_implement",
+      "escalateToHuman": true
     }
   }
 }

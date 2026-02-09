@@ -1,6 +1,6 @@
 ---
 title: 交接/接力说明（my-fe-standards）
-date: 2026-02-04
+date: 2026-02-07
 ---
 
 # 交接/接力说明（my-fe-standards）
@@ -12,6 +12,7 @@ date: 2026-02-04
 - 默认协作分支建议：`feature/codebuddy-glm`（或你当下用于开发的 `wip/*` 分支）
 - 2026-02-02 已验证通过：`npm run build` + `node test/run-tests.js`
 - 2026-02-04 已验证通过：`npm run build` + `node test/run-tests.js`（含 `task-orchestrator --watch` + `agent-call-manager serve /orchestrate` E2E + validators）
+- 2026-02-07 已验证通过：`npm run build` + `node test/run-tests.js`（Workflow v2.0.0 七步闭环 + 3 个新 Agent + Prompt 模板体系）
 - 2026-02-02 MCP Server 已对齐 CLI：新增 `taskbook_report` / `taskbook_unblock`
 - 2026-02-02 TaskBook 并发协作 SOP 已落地：`docs/taskbook-collaboration-sop.md`（含可选强制模式 `CODEBUDDY_TASKBOOK_REQUIRE_IF_REV=1` / `--require-if-rev`）
 - 2026-02-02 Reports 查询入口已落地：`report-manager.js inspect/hotspots` + MCP `reports_inspect/reports_hotspots`
@@ -109,7 +110,17 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-02-04）`codebuddy-loader --rule-level summary|quick|full`：裁剪 Layer1 Eager 内容（rules_cache 保持 full 以便按需读取）
 - ✅（2026-02-04）manual-task 的 agentId 选择更灵活：按任务类型/关键词做轻量路由；可用 `CODEBUDDY_MANUAL_AGENT_ID` 强制覆盖
 - ⬜（可选）进一步统一 rules frontmatter（最小字段：name/description/tags/priority/alwaysApply），并在 CI 中启用 `--strict`
-- ⬜（可选）为 Skills 增加“引用完整性”更强校验（支持链接标题/相对路径白名单），并补一份简洁的 Skill 模板/发布流程
+- ⬜（可选）为 Skills 增加"引用完整性"更强校验（支持链接标题/相对路径白名单），并补一份简洁的 Skill 模板/发布流程
+
+P6（开发闭环流程优化：11 步→7 步）
+- ✅（2026-02-07）Workflow v2.0.0：7 步闭环（需求澄清+PRD → 项目分析 → 任务分解 → TDD 实现 → 代码审查 → 构建修复 → 验收提交）
+- ✅（2026-02-07）TaskType 扩展为 10 种：requirement/prd/analysis/design/test/implement/refactor/review/build-fix/acceptance
+- ✅（2026-02-07）新增 tdd-driver Agent：驱动 RED→GREEN→REFACTOR 循环，含 3 个 prompt 模板（red.md/green.md/refactor.md）
+- ✅（2026-02-07）新增 build-fix Agent：构建失败自动诊断修复（最多 3 轮），含 diagnose-fix.md prompt 模板
+- ✅（2026-02-07）新增 code-reviewer Agent：按 clean-code 规则结构化审查 + 分级输出 + 自动修复，含 review.md prompt 模板
+- ✅（2026-02-07）task-executor 新增任务类型→Agent 路由 + prompt 模板自动注入（`loadAgentPromptTemplate()`）
+- ✅（2026-02-07）task-orchestrator AGENT.md 更新为 v2.0.0：引用新 Agent 协作矩阵
+- ✅（2026-02-07）PRD Skill 增加结构化 JSON 输出 + TaskBook 衔接说明
 
 ---
 
