@@ -297,42 +297,42 @@ export class TaskBookManager {
   updateStatus(id: string, status: TaskBookStatus, expectedRevision?: number): TaskBook | null {
     return this.withTaskBookLock(id, () => {
       const taskBook = this.load(id);
-    if (!taskBook) return null;
+      if (!taskBook) return null;
 
-    this.assertRevision(taskBook, expectedRevision);
+      this.assertRevision(taskBook, expectedRevision);
 
-    const oldStatus = taskBook.status;
-    taskBook.status = status;
+      const oldStatus = taskBook.status;
+      taskBook.status = status;
 
-    // 记录状态变更
-    if (status === 'confirmed') {
-      taskBook.confirmedAt = now();
-    } else if (status === 'completed' || status === 'aborted') {
-      taskBook.completedAt = now();
-    }
-
-    // 添加变更日志
-    this.addChangelogEntry(taskBook, {
-      timestamp: now(),
-      taskId: null,
-      changeType: 'modified',
-      reason: `状态变更: ${oldStatus} → ${status}`,
-      before: { status: oldStatus },
-      after: { status },
-    });
-
-    // 如果完成或中止，需要移动到历史目录
-    if (status === 'completed' || status === 'aborted') {
-      // 删除活跃目录中的文件
-      const activeFilePath = path.join(this.getActiveDir(), `${id}.json`);
-      if (fs.existsSync(activeFilePath)) {
-        fs.unlinkSync(activeFilePath);
+      // 记录状态变更
+      if (status === 'confirmed') {
+        taskBook.confirmedAt = now();
+      } else if (status === 'completed' || status === 'aborted') {
+        taskBook.completedAt = now();
       }
-    }
 
-    this.touch(taskBook);
-    this.save(taskBook);
-    return taskBook;
+      // 添加变更日志
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId: null,
+        changeType: 'modified',
+        reason: `状态变更: ${oldStatus} → ${status}`,
+        before: { status: oldStatus },
+        after: { status },
+      });
+
+      // 如果完成或中止，需要移动到历史目录
+      if (status === 'completed' || status === 'aborted') {
+        // 删除活跃目录中的文件
+        const activeFilePath = path.join(this.getActiveDir(), `${id}.json`);
+        if (fs.existsSync(activeFilePath)) {
+          fs.unlinkSync(activeFilePath);
+        }
+      }
+
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
     });
   }
 
@@ -346,41 +346,41 @@ export class TaskBookManager {
   ): TaskBook | null {
     return this.withTaskBookLock(id, () => {
       const taskBook = this.load(id);
-    if (!taskBook) return null;
+      if (!taskBook) return null;
 
-    this.assertRevision(taskBook, expectedRevision);
+      this.assertRevision(taskBook, expectedRevision);
 
-    const taskId = `task-${taskBook.tasks.length + 1}`;
-    const newTask: TaskItem = {
-      id: taskId,
-      parentId: task.parentId,
-      title: task.title,
-      type: task.type,
-      status: task.status ?? 'pending',
-      priority: task.priority ?? 'medium',
-      dependencies: task.dependencies ?? [],
-      acceptanceCriteria: task.acceptanceCriteria ?? [],
-      scope: task.scope,
-      actualWork: task.actualWork,
-      blockedReason: task.blockedReason,
-      executedBy: task.executedBy,
-      startedAt: task.startedAt,
-      completedAt: task.completedAt,
-    };
+      const taskId = `task-${taskBook.tasks.length + 1}`;
+      const newTask: TaskItem = {
+        id: taskId,
+        parentId: task.parentId,
+        title: task.title,
+        type: task.type,
+        status: task.status ?? 'pending',
+        priority: task.priority ?? 'medium',
+        dependencies: task.dependencies ?? [],
+        acceptanceCriteria: task.acceptanceCriteria ?? [],
+        scope: task.scope,
+        actualWork: task.actualWork,
+        blockedReason: task.blockedReason,
+        executedBy: task.executedBy,
+        startedAt: task.startedAt,
+        completedAt: task.completedAt,
+      };
 
-    taskBook.tasks.push(newTask);
+      taskBook.tasks.push(newTask);
 
-    this.addChangelogEntry(taskBook, {
-      timestamp: now(),
-      taskId,
-      changeType: 'added',
-      reason: `添加任务: ${task.title}`,
-      after: newTask as unknown as Record<string, unknown>,
-    });
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId,
+        changeType: 'added',
+        reason: `添加任务: ${task.title}`,
+        after: newTask as unknown as Record<string, unknown>,
+      });
 
-    this.touch(taskBook);
-    this.save(taskBook);
-    return taskBook;
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
     });
   }
 
@@ -532,69 +532,69 @@ export class TaskBookManager {
   ): TaskBook | null {
     return this.withTaskBookLock(taskBookId, () => {
       const taskBook = this.load(taskBookId);
-    if (!taskBook) return null;
+      if (!taskBook) return null;
 
-    this.assertRevision(taskBook, expectedRevision);
+      this.assertRevision(taskBook, expectedRevision);
 
-    const task = taskBook.tasks.find(t => t.id === taskId);
-    if (!task) return null;
+      const task = taskBook.tasks.find(t => t.id === taskId);
+      if (!task) return null;
 
-    const before = { ...task };
+      const before = { ...task };
 
-    // status 统一处理 startedAt/completedAt/blockedReason/actualWork
-    if (patch.status && patch.status !== task.status) {
-      task.status = patch.status;
+      // status 统一处理 startedAt/completedAt/blockedReason/actualWork
+      if (patch.status && patch.status !== task.status) {
+        task.status = patch.status;
 
-      if (patch.status === 'in_progress') {
-        task.startedAt = now();
-      } else if (patch.status === 'done') {
-        task.completedAt = now();
-        if (patch.actualWork) {
-          task.actualWork = patch.actualWork;
-        }
-      } else if (patch.status === 'blocked') {
-        if (patch.blockedReason) {
-          task.blockedReason = patch.blockedReason;
+        if (patch.status === 'in_progress') {
+          task.startedAt = now();
+        } else if (patch.status === 'done') {
+          task.completedAt = now();
+          if (patch.actualWork) {
+            task.actualWork = patch.actualWork;
+          }
+        } else if (patch.status === 'blocked') {
+          if (patch.blockedReason) {
+            task.blockedReason = patch.blockedReason;
+          }
         }
       }
-    }
 
-    // 其余字段直接更新（避免覆盖 undefined）
-    const updatable: Array<keyof Omit<TaskItem, 'id'>> = [
-      'parentId',
-      'title',
-      'type',
-      'priority',
-      'dependencies',
-      'acceptanceCriteria',
-      'scope',
-      'actualWork',
-      'blockedReason',
-      'executedBy',
-      'startedAt',
-      'completedAt',
-    ];
+      // 其余字段直接更新（避免覆盖 undefined）
+      const updatable: Array<keyof Omit<TaskItem, 'id'>> = [
+        'parentId',
+        'title',
+        'type',
+        'priority',
+        'dependencies',
+        'acceptanceCriteria',
+        'scope',
+        'actualWork',
+        'blockedReason',
+        'executedBy',
+        'startedAt',
+        'completedAt',
+      ];
 
-    for (const key of updatable) {
-      const value = patch[key];
-      if (typeof value !== 'undefined') {
-        // @ts-expect-error - dynamic update
-        task[key] = value;
+      for (const key of updatable) {
+        const value = patch[key];
+        if (typeof value !== 'undefined') {
+          // @ts-expect-error - dynamic update
+          task[key] = value;
+        }
       }
-    }
 
-    this.addChangelogEntry(taskBook, {
-      timestamp: now(),
-      taskId,
-      changeType: 'modified',
-      reason: '更新任务字段',
-      before: before as unknown as Record<string, unknown>,
-      after: task as unknown as Record<string, unknown>,
-    });
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId,
+        changeType: 'modified',
+        reason: '更新任务字段',
+        before: before as unknown as Record<string, unknown>,
+        after: task as unknown as Record<string, unknown>,
+      });
 
-    this.touch(taskBook);
-    this.save(taskBook);
-    return taskBook;
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
     });
   }
 
@@ -604,30 +604,30 @@ export class TaskBookManager {
   unblockTask(taskBookId: string, taskId: string, resolution: string, expectedRevision?: number): TaskBook | null {
     return this.withTaskBookLock(taskBookId, () => {
       const taskBook = this.load(taskBookId);
-    if (!taskBook) return null;
+      if (!taskBook) return null;
 
-    this.assertRevision(taskBook, expectedRevision);
+      this.assertRevision(taskBook, expectedRevision);
 
-    const task = taskBook.tasks.find(t => t.id === taskId);
-    if (!task) return null;
-    if (task.status !== 'blocked') return taskBook;
+      const task = taskBook.tasks.find(t => t.id === taskId);
+      if (!task) return null;
+      if (task.status !== 'blocked') return taskBook;
 
-    const before = { status: task.status, blockedReason: task.blockedReason };
-    task.status = 'pending';
-    task.blockedReason = '';
+      const before = { status: task.status, blockedReason: task.blockedReason };
+      task.status = 'pending';
+      task.blockedReason = '';
 
-    this.addChangelogEntry(taskBook, {
-      timestamp: now(),
-      taskId,
-      changeType: 'modified',
-      reason: `解除阻塞: ${resolution}`,
-      before,
-      after: { status: task.status, blockedReason: task.blockedReason },
-    });
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId,
+        changeType: 'modified',
+        reason: `解除阻塞: ${resolution}`,
+        before,
+        after: { status: task.status, blockedReason: task.blockedReason },
+      });
 
-    this.touch(taskBook);
-    this.save(taskBook);
-    return taskBook;
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
     });
   }
 
@@ -637,29 +637,29 @@ export class TaskBookManager {
   appendTaskActualWork(taskBookId: string, taskId: string, text: string, expectedRevision?: number): TaskBook | null {
     return this.withTaskBookLock(taskBookId, () => {
       const taskBook = this.load(taskBookId);
-    if (!taskBook) return null;
+      if (!taskBook) return null;
 
-    this.assertRevision(taskBook, expectedRevision);
+      this.assertRevision(taskBook, expectedRevision);
 
-    const task = taskBook.tasks.find(t => t.id === taskId);
-    if (!task) return null;
+      const task = taskBook.tasks.find(t => t.id === taskId);
+      if (!task) return null;
 
-    const before = task.actualWork ?? '';
-    const next = before ? `${before}\n${text}` : text;
-    task.actualWork = next;
+      const before = task.actualWork ?? '';
+      const next = before ? `${before}\n${text}` : text;
+      task.actualWork = next;
 
-    this.addChangelogEntry(taskBook, {
-      timestamp: now(),
-      taskId,
-      changeType: 'modified',
-      reason: '追加 actualWork',
-      before: { actualWork: before },
-      after: { actualWork: next },
-    });
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId,
+        changeType: 'modified',
+        reason: '追加 actualWork',
+        before: { actualWork: before },
+        after: { actualWork: next },
+      });
 
-    this.touch(taskBook);
-    this.save(taskBook);
-    return taskBook;
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
     });
   }
 
@@ -676,41 +676,41 @@ export class TaskBookManager {
   ): TaskBook | null {
     return this.withTaskBookLock(taskBookId, () => {
       const taskBook = this.load(taskBookId);
-    if (!taskBook) return null;
+      if (!taskBook) return null;
 
-    this.assertRevision(taskBook, expectedRevision);
+      this.assertRevision(taskBook, expectedRevision);
 
-    const task = taskBook.tasks.find(t => t.id === taskId);
-    if (!task) return null;
+      const task = taskBook.tasks.find(t => t.id === taskId);
+      if (!task) return null;
 
-    const oldStatus = task.status;
-    task.status = status;
+      const oldStatus = task.status;
+      task.status = status;
 
-    if (status === 'in_progress') {
-      task.startedAt = now();
-    } else if (status === 'done') {
-      task.completedAt = now();
-      if (actualWork) {
-        task.actualWork = actualWork;
+      if (status === 'in_progress') {
+        task.startedAt = now();
+      } else if (status === 'done') {
+        task.completedAt = now();
+        if (actualWork) {
+          task.actualWork = actualWork;
+        }
+      } else if (status === 'blocked' && blockedReason) {
+        task.blockedReason = blockedReason;
       }
-    } else if (status === 'blocked' && blockedReason) {
-      task.blockedReason = blockedReason;
-    }
 
-    if (oldStatus !== status) {
-      this.addChangelogEntry(taskBook, {
-        timestamp: now(),
-        taskId,
-        changeType: 'modified',
-        reason: `任务状态变更: ${oldStatus} → ${status}`,
-        before: { status: oldStatus },
-        after: { status, actualWork, blockedReason },
-      });
-    }
+      if (oldStatus !== status) {
+        this.addChangelogEntry(taskBook, {
+          timestamp: now(),
+          taskId,
+          changeType: 'modified',
+          reason: `任务状态变更: ${oldStatus} → ${status}`,
+          before: { status: oldStatus },
+          after: { status, actualWork, blockedReason },
+        });
+      }
 
-    this.touch(taskBook);
-    this.save(taskBook);
-    return taskBook;
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
     });
   }
 
@@ -735,22 +735,22 @@ export class TaskBookManager {
   ): TaskBook | null {
     return this.withTaskBookLock(taskBookId, () => {
       const taskBook = this.load(taskBookId);
-    if (!taskBook) return null;
+      if (!taskBook) return null;
 
-    this.assertRevision(taskBook, expectedRevision);
+      this.assertRevision(taskBook, expectedRevision);
 
-    this.addChangelogEntry(taskBook, {
-      timestamp: now(),
-      taskId,
-      changeType,
-      reason,
-      before,
-      after,
-    });
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId,
+        changeType,
+        reason,
+        before,
+        after,
+      });
 
-    this.touch(taskBook);
-    this.save(taskBook);
-    return taskBook;
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
     });
   }
 
@@ -1029,6 +1029,35 @@ export class TaskBookManager {
       report.recommendations.suggested.push(
         `发现 ${missingScope.length} 个 pending 的实现相关任务缺少 scope.files/modules；批量预算与并行冲突检测将退化为串行。建议在规划阶段为任务补齐 scope。`
       );
+    }
+
+    // T3.4: 汇总执行者分布（从任务的 executedBy 字段）
+    const executorCounts: Record<string, number> = {};
+    for (const task of taskBook.tasks) {
+      if (task.status === 'done' && task.executedBy) {
+        executorCounts[task.executedBy] = (executorCounts[task.executedBy] || 0) + 1;
+      }
+    }
+    if (Object.keys(executorCounts).length > 0) {
+      (report.summary as Record<string, unknown>)['executorDistribution'] = executorCounts;
+    }
+
+    // T3.4: 汇总批次完成信息（从 changelog 中提取 batch_complete 事件）
+    const batchCompleteEvents: Array<{ succeeded: number; failed: number; duration: number; executors: string[] }> = [];
+    for (const entry of taskBook.changelog) {
+      const after = entry.after;
+      if (!isPlainObject(after)) continue;
+      if (after.event !== 'batch_complete') continue;
+      batchCompleteEvents.push({
+        succeeded: typeof after.succeeded === 'number' ? after.succeeded : 0,
+        failed: typeof after.failed === 'number' ? after.failed : 0,
+        duration: typeof after.duration === 'number' ? after.duration : 0,
+        executors: Array.isArray(after.executors) ? after.executors.filter((v: unknown): v is string => typeof v === 'string') : [],
+      });
+    }
+    if (batchCompleteEvents.length > 0) {
+      (report.summary as Record<string, unknown>)['batchCompleteCount'] = batchCompleteEvents.length;
+      (report.summary as Record<string, unknown>)['totalBatchDuration'] = batchCompleteEvents.reduce((s, b) => s + b.duration, 0);
     }
 
     // 添加建议
@@ -1687,471 +1716,471 @@ function main(): void {
 
   try {
     switch (parsed.command) {
-    case 'create': {
-      const title = flagAsString(parsed.flags, 'title');
-      const description = flagAsString(parsed.flags, 'description');
-      const type = flagAsString(parsed.flags, 'type') as TaskBookType | undefined;
+      case 'create': {
+        const title = flagAsString(parsed.flags, 'title');
+        const description = flagAsString(parsed.flags, 'description');
+        const type = flagAsString(parsed.flags, 'type') as TaskBookType | undefined;
 
-      if (!title || !description || !type) {
-        console.error('错误: create 需要 --title --description --type');
-        showHelp();
-        process.exit(1);
-      }
-
-      const taskBook = manager.create({ title, description, taskType: type });
-      if (json) {
-        printJson(taskBook);
-      } else {
-        console.log(`[TaskBook] 已创建: ${taskBook.id}`);
-        console.log(manager.formatForDisplay(taskBook));
-      }
-      break;
-    }
-
-    case 'list': {
-      const list = manager.listActive();
-      if (json) {
-        printJson(list);
-      } else {
-        if (list.length === 0) {
-          console.log('[TaskBook] 没有 active TaskBook');
-          break;
+        if (!title || !description || !type) {
+          console.error('错误: create 需要 --title --description --type');
+          showHelp();
+          process.exit(1);
         }
-        console.log('[TaskBook] Active TaskBooks:');
-        for (const tb of list) {
-          console.log(`- ${tb.id} | ${tb.taskType} | ${tb.status} | ${tb.title}`);
+
+        const taskBook = manager.create({ title, description, taskType: type });
+        if (json) {
+          printJson(taskBook);
+        } else {
+          console.log(`[TaskBook] 已创建: ${taskBook.id}`);
+          console.log(manager.formatForDisplay(taskBook));
         }
-      }
-      break;
-    }
-
-    case 'show': {
-      const taskBookId = parsed.positionals[0];
-      if (!taskBookId) {
-        console.error('错误: show 需要 <taskBookId>');
-        process.exit(1);
+        break;
       }
 
-      const tb = manager.load(taskBookId);
-      if (!tb) {
-        console.error(`错误: TaskBook not found: ${taskBookId}`);
-        process.exit(1);
-      }
-
-      if (json) {
-        printJson(tb);
-      } else {
-        console.log(manager.formatForDisplay(tb));
-        console.log(`\n状态: ${tb.status}`);
-        console.log(`创建时间: ${tb.createdAt}`);
-        console.log(`revision: ${tb.revision ?? 0}`);
-        if (tb.updatedAt) console.log(`updatedAt: ${tb.updatedAt}`);
-        if (tb.confirmedAt) console.log(`确认时间: ${tb.confirmedAt}`);
-        if (tb.completedAt) console.log(`完成时间: ${tb.completedAt}`);
-        console.log(`任务数: ${tb.tasks.length}`);
-      }
-      break;
-    }
-
-    case 'report': {
-      const taskBookId = parsed.positionals[0];
-      const write = flagAsBool(parsed.flags, 'write');
-      const out = flagAsString(parsed.flags, 'out');
-      if (!taskBookId) {
-        console.error('错误: report 需要 <taskBookId>');
-        process.exit(1);
-      }
-
-      const report = manager.generateAcceptanceReport(taskBookId);
-      if (!report) {
-        console.error(`错误: TaskBook not found: ${taskBookId}`);
-        process.exit(1);
-      }
-
-      if (write) {
-        const outDir = path.join(process.cwd(), '.codebuddy', 'reports', 'taskbooks');
-        ensureDir(outDir);
-        const outPath = out ? path.resolve(process.cwd(), out) : path.join(outDir, `${taskBookId}.acceptance.json`);
-        fs.writeFileSync(outPath, JSON.stringify(report, null, 2), 'utf-8');
-        if (!json) console.log(`[TaskBook] 已生成验收报告: ${outPath}`);
-      }
-
-      if (json || !write) {
-        printJson(report);
-      }
-      break;
-    }
-
-    case 'plan': {
-      const taskBookId = parsed.positionals[0];
-      if (!taskBookId) {
-        console.error('错误: plan 需要 <taskBookId>');
-        process.exit(1);
-      }
-
-      const tb = manager.load(taskBookId);
-      if (!tb) {
-        console.error(`错误: TaskBook not found: ${taskBookId}`);
-        process.exit(1);
-      }
-
-      const requestId = flagAsString(parsed.flags, 'request-id') ?? generateRequestId();
-      const agentCallsDir = path.join(process.cwd(), AGENT_CALLS_DIR);
-      ensureDir(agentCallsDir);
-
-      const promptPath = path.join(agentCallsDir, `${requestId}.prompt.md`);
-      const resultPath = path.join(agentCallsDir, `${requestId}.result.json`);
-
-      const agentDef = loadPlannerAgentDefinition(process.cwd());
-      if (!agentDef) {
-        console.error('错误: planner AGENT.md 未找到（需要 .codebuddy/agents/planner/AGENT.md 或 agents/planner/AGENT.md）');
-        console.error('提示: 先在目标项目执行 codebuddy-loader 生成 .codebuddy/agents/，再重试。');
-        process.exit(1);
-      }
-      const prompt = buildPlannerPrompt({
-        requestId,
-        taskBook: tb,
-        projectRoot: process.cwd(),
-        agentDefinitionPath: agentDef.path,
-        agentDefinition: agentDef.content,
-        promptPath,
-        resultPath,
-      });
-
-      fs.writeFileSync(promptPath, prompt, 'utf-8');
-
-      const payload = {
-        requestId,
-        agentId: 'planner',
-        taskBookId,
-        taskBookRevision: tb.revision ?? 0,
-        promptPath,
-        resultPath,
-      };
-
-      if (json) {
-        printJson(payload);
-      } else {
-        console.log(`[planner] 已生成 prompt: ${promptPath}`);
-        console.log(`[planner] 请执行 prompt 并写回: ${resultPath}`);
-        console.log('[planner] 写回后执行:');
-        console.log(`  node .codebuddy/scripts/taskbook-manager.js apply-plan ${taskBookId} ${requestId}`);
-        console.log(`  # 若启用并发保护：加上 --if-rev ${tb.revision ?? 0}`);
-      }
-      break;
-    }
-
-    case 'apply-plan': {
-      const taskBookId = parsed.positionals[0];
-      const requestId = parsed.positionals[1];
-      const dryRun = flagAsBool(parsed.flags, 'dry-run');
-
-      if (!taskBookId || !requestId) {
-        console.error('错误: apply-plan 需要 <taskBookId> <requestId>');
-        process.exit(1);
-      }
-
-      const agentCallsDir = path.join(process.cwd(), AGENT_CALLS_DIR);
-      const resultPath = path.join(agentCallsDir, `${requestId}.result.json`);
-
-      if (!fs.existsSync(resultPath)) {
-        console.error(`错误: result.json 不存在: ${resultPath}`);
-        process.exit(1);
-      }
-
-      let result: AgentCallResult;
-      try {
-        result = parseAgentCallResult(fs.readFileSync(resultPath, 'utf-8'));
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
-        process.exit(1);
-      }
-
-      if (result.requestId !== requestId) {
-        console.error(`错误: requestId 不匹配（args=${requestId}, file=${result.requestId}）`);
-        process.exit(1);
-      }
-
-      if (result.status !== 'success') {
-        const msg = (result.error && result.error.message) ? result.error.message : `status=${result.status}`;
-        console.error(`错误: planner result 不是 success: ${msg}`);
-        process.exit(1);
-      }
-
-      const planTasks = parsePlannerTasksFromAgentResult(result);
-
-      if (dryRun) {
-        const preview = {
-          dryRun: true,
-          requestId,
-          taskBookId,
-          tasks: planTasks,
-        };
-        if (json) printJson(preview);
-        else {
-          console.log(`[planner] dry-run: ${taskBookId} <- ${requestId}`);
-          for (const t of planTasks) {
-            const deps = t.dependencies && t.dependencies.length > 0 ? ` deps=${t.dependencies.join(',')}` : '';
-            console.log(`- ${t.planId} [${t.type}] ${t.title}${deps}`);
+      case 'list': {
+        const list = manager.listActive();
+        if (json) {
+          printJson(list);
+        } else {
+          if (list.length === 0) {
+            console.log('[TaskBook] 没有 active TaskBook');
+            break;
+          }
+          console.log('[TaskBook] Active TaskBooks:');
+          for (const tb of list) {
+            console.log(`- ${tb.id} | ${tb.taskType} | ${tb.status} | ${tb.title}`);
           }
         }
         break;
       }
 
-      const planIdToIndex = new Map<string, number>();
-      for (let i = 0; i < planTasks.length; i++) {
-        planIdToIndex.set(planTasks[i].planId, i);
+      case 'show': {
+        const taskBookId = parsed.positionals[0];
+        if (!taskBookId) {
+          console.error('错误: show 需要 <taskBookId>');
+          process.exit(1);
+        }
+
+        const tb = manager.load(taskBookId);
+        if (!tb) {
+          console.error(`错误: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
+        }
+
+        if (json) {
+          printJson(tb);
+        } else {
+          console.log(manager.formatForDisplay(tb));
+          console.log(`\n状态: ${tb.status}`);
+          console.log(`创建时间: ${tb.createdAt}`);
+          console.log(`revision: ${tb.revision ?? 0}`);
+          if (tb.updatedAt) console.log(`updatedAt: ${tb.updatedAt}`);
+          if (tb.confirmedAt) console.log(`确认时间: ${tb.confirmedAt}`);
+          if (tb.completedAt) console.log(`完成时间: ${tb.completedAt}`);
+          console.log(`任务数: ${tb.tasks.length}`);
+        }
+        break;
       }
 
-      for (let i = 0; i < planTasks.length; i++) {
-        const deps = planTasks[i].dependencies ?? [];
-        for (const dep of deps) {
-          const depIndex = planIdToIndex.get(dep);
-          if (typeof depIndex !== 'number') {
-            console.error(`错误: 依赖 planId 不存在: ${dep} (from ${planTasks[i].planId})`);
-            process.exit(1);
+      case 'report': {
+        const taskBookId = parsed.positionals[0];
+        const write = flagAsBool(parsed.flags, 'write');
+        const out = flagAsString(parsed.flags, 'out');
+        if (!taskBookId) {
+          console.error('错误: report 需要 <taskBookId>');
+          process.exit(1);
+        }
+
+        const report = manager.generateAcceptanceReport(taskBookId);
+        if (!report) {
+          console.error(`错误: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
+        }
+
+        if (write) {
+          const outDir = path.join(process.cwd(), '.codebuddy', 'reports', 'taskbooks');
+          ensureDir(outDir);
+          const outPath = out ? path.resolve(process.cwd(), out) : path.join(outDir, `${taskBookId}.acceptance.json`);
+          fs.writeFileSync(outPath, JSON.stringify(report, null, 2), 'utf-8');
+          if (!json) console.log(`[TaskBook] 已生成验收报告: ${outPath}`);
+        }
+
+        if (json || !write) {
+          printJson(report);
+        }
+        break;
+      }
+
+      case 'plan': {
+        const taskBookId = parsed.positionals[0];
+        if (!taskBookId) {
+          console.error('错误: plan 需要 <taskBookId>');
+          process.exit(1);
+        }
+
+        const tb = manager.load(taskBookId);
+        if (!tb) {
+          console.error(`错误: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
+        }
+
+        const requestId = flagAsString(parsed.flags, 'request-id') ?? generateRequestId();
+        const agentCallsDir = path.join(process.cwd(), AGENT_CALLS_DIR);
+        ensureDir(agentCallsDir);
+
+        const promptPath = path.join(agentCallsDir, `${requestId}.prompt.md`);
+        const resultPath = path.join(agentCallsDir, `${requestId}.result.json`);
+
+        const agentDef = loadPlannerAgentDefinition(process.cwd());
+        if (!agentDef) {
+          console.error('错误: planner AGENT.md 未找到（需要 .codebuddy/agents/planner/AGENT.md 或 agents/planner/AGENT.md）');
+          console.error('提示: 先在目标项目执行 codebuddy-loader 生成 .codebuddy/agents/，再重试。');
+          process.exit(1);
+        }
+        const prompt = buildPlannerPrompt({
+          requestId,
+          taskBook: tb,
+          projectRoot: process.cwd(),
+          agentDefinitionPath: agentDef.path,
+          agentDefinition: agentDef.content,
+          promptPath,
+          resultPath,
+        });
+
+        fs.writeFileSync(promptPath, prompt, 'utf-8');
+
+        const payload = {
+          requestId,
+          agentId: 'planner',
+          taskBookId,
+          taskBookRevision: tb.revision ?? 0,
+          promptPath,
+          resultPath,
+        };
+
+        if (json) {
+          printJson(payload);
+        } else {
+          console.log(`[planner] 已生成 prompt: ${promptPath}`);
+          console.log(`[planner] 请执行 prompt 并写回: ${resultPath}`);
+          console.log('[planner] 写回后执行:');
+          console.log(`  node .codebuddy/scripts/taskbook-manager.js apply-plan ${taskBookId} ${requestId}`);
+          console.log(`  # 若启用并发保护：加上 --if-rev ${tb.revision ?? 0}`);
+        }
+        break;
+      }
+
+      case 'apply-plan': {
+        const taskBookId = parsed.positionals[0];
+        const requestId = parsed.positionals[1];
+        const dryRun = flagAsBool(parsed.flags, 'dry-run');
+
+        if (!taskBookId || !requestId) {
+          console.error('错误: apply-plan 需要 <taskBookId> <requestId>');
+          process.exit(1);
+        }
+
+        const agentCallsDir = path.join(process.cwd(), AGENT_CALLS_DIR);
+        const resultPath = path.join(agentCallsDir, `${requestId}.result.json`);
+
+        if (!fs.existsSync(resultPath)) {
+          console.error(`错误: result.json 不存在: ${resultPath}`);
+          process.exit(1);
+        }
+
+        let result: AgentCallResult;
+        try {
+          result = parseAgentCallResult(fs.readFileSync(resultPath, 'utf-8'));
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : String(error));
+          process.exit(1);
+        }
+
+        if (result.requestId !== requestId) {
+          console.error(`错误: requestId 不匹配（args=${requestId}, file=${result.requestId}）`);
+          process.exit(1);
+        }
+
+        if (result.status !== 'success') {
+          const msg = (result.error && result.error.message) ? result.error.message : `status=${result.status}`;
+          console.error(`错误: planner result 不是 success: ${msg}`);
+          process.exit(1);
+        }
+
+        const planTasks = parsePlannerTasksFromAgentResult(result);
+
+        if (dryRun) {
+          const preview = {
+            dryRun: true,
+            requestId,
+            taskBookId,
+            tasks: planTasks,
+          };
+          if (json) printJson(preview);
+          else {
+            console.log(`[planner] dry-run: ${taskBookId} <- ${requestId}`);
+            for (const t of planTasks) {
+              const deps = t.dependencies && t.dependencies.length > 0 ? ` deps=${t.dependencies.join(',')}` : '';
+              console.log(`- ${t.planId} [${t.type}] ${t.title}${deps}`);
+            }
           }
-          if (depIndex >= i) {
-            console.error(`错误: dependencies 必须指向更早的 planId（${planTasks[i].planId} 依赖 ${dep}）`);
-            process.exit(1);
+          break;
+        }
+
+        const planIdToIndex = new Map<string, number>();
+        for (let i = 0; i < planTasks.length; i++) {
+          planIdToIndex.set(planTasks[i].planId, i);
+        }
+
+        for (let i = 0; i < planTasks.length; i++) {
+          const deps = planTasks[i].dependencies ?? [];
+          for (const dep of deps) {
+            const depIndex = planIdToIndex.get(dep);
+            if (typeof depIndex !== 'number') {
+              console.error(`错误: 依赖 planId 不存在: ${dep} (from ${planTasks[i].planId})`);
+              process.exit(1);
+            }
+            if (depIndex >= i) {
+              console.error(`错误: dependencies 必须指向更早的 planId（${planTasks[i].planId} 依赖 ${dep}）`);
+              process.exit(1);
+            }
           }
         }
-      }
 
-      const applied = manager.applyPlannerPlan(taskBookId, requestId, planTasks, expectedRevision);
+        const applied = manager.applyPlannerPlan(taskBookId, requestId, planTasks, expectedRevision);
 
-      if (!applied) {
-        console.error(`错误: TaskBook not found: ${taskBookId}`);
-        process.exit(1);
-      }
-
-      const payload = {
-        requestId,
-        taskBookId,
-        addedTaskIds: applied.taskIds,
-        planIdToTaskId: applied.planIdToTaskId,
-        taskBook: applied.taskBook,
-      };
-
-      if (json) printJson(payload);
-      else {
-        console.log(`[planner] 已追加 ${applied.taskIds.length} 个任务到 ${taskBookId}`);
-        console.log(`requestId: ${requestId}`);
-        for (const id of applied.taskIds) {
-          console.log(`- ${id}`);
+        if (!applied) {
+          console.error(`错误: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
         }
-      }
-      break;
-    }
 
-    case 'confirm': {
-      const taskBookId = parsed.positionals[0];
-      if (!taskBookId) {
-        console.error('错误: confirm 需要 <taskBookId>');
-        process.exit(1);
-      }
+        const payload = {
+          requestId,
+          taskBookId,
+          addedTaskIds: applied.taskIds,
+          planIdToTaskId: applied.planIdToTaskId,
+          taskBook: applied.taskBook,
+        };
 
-      const tb = manager.updateStatus(taskBookId, 'confirmed', expectedRevision);
-      if (!tb) {
-        console.error(`错误: TaskBook not found: ${taskBookId}`);
-        process.exit(1);
-      }
-      if (json) printJson(tb);
-      else console.log(`[TaskBook] 已确认: ${taskBookId}`);
-      break;
-    }
-
-    case 'complete': {
-      const taskBookId = parsed.positionals[0];
-      if (!taskBookId) {
-        console.error('错误: complete 需要 <taskBookId>');
-        process.exit(1);
+        if (json) printJson(payload);
+        else {
+          console.log(`[planner] 已追加 ${applied.taskIds.length} 个任务到 ${taskBookId}`);
+          console.log(`requestId: ${requestId}`);
+          for (const id of applied.taskIds) {
+            console.log(`- ${id}`);
+          }
+        }
+        break;
       }
 
-      const tb = manager.updateStatus(taskBookId, 'completed', expectedRevision);
-      if (!tb) {
-        console.error(`错误: TaskBook not found: ${taskBookId}`);
-        process.exit(1);
-      }
-      if (json) printJson(tb);
-      else console.log(`[TaskBook] 已完成并归档: ${taskBookId}`);
-      break;
-    }
+      case 'confirm': {
+        const taskBookId = parsed.positionals[0];
+        if (!taskBookId) {
+          console.error('错误: confirm 需要 <taskBookId>');
+          process.exit(1);
+        }
 
-    case 'abort': {
-      const taskBookId = parsed.positionals[0];
-      if (!taskBookId) {
-        console.error('错误: abort 需要 <taskBookId>');
-        process.exit(1);
-      }
-
-      const tb = manager.updateStatus(taskBookId, 'aborted', expectedRevision);
-      if (!tb) {
-        console.error(`错误: TaskBook not found: ${taskBookId}`);
-        process.exit(1);
-      }
-      if (json) printJson(tb);
-      else console.log(`[TaskBook] 已中止并归档: ${taskBookId}`);
-      break;
-    }
-
-    case 'add-task': {
-      const taskBookId = parsed.positionals[0];
-      if (!taskBookId) {
-        console.error('错误: add-task 需要 <taskBookId>');
-        process.exit(1);
+        const tb = manager.updateStatus(taskBookId, 'confirmed', expectedRevision);
+        if (!tb) {
+          console.error(`错误: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
+        }
+        if (json) printJson(tb);
+        else console.log(`[TaskBook] 已确认: ${taskBookId}`);
+        break;
       }
 
-      const title = flagAsString(parsed.flags, 'title');
-      const type = flagAsString(parsed.flags, 'type') as TaskItem['type'] | undefined;
-      const priority = flagAsString(parsed.flags, 'priority') as TaskItem['priority'] | undefined;
-      const deps = parseCsv(flagAsString(parsed.flags, 'deps'));
-      const ac = flagAsStringArray(parsed.flags, 'ac');
-      const files = parseCsv(flagAsString(parsed.flags, 'files'));
-      const modules = parseCsv(flagAsString(parsed.flags, 'modules'));
-      const tags = parseCsv(flagAsString(parsed.flags, 'tags'));
+      case 'complete': {
+        const taskBookId = parsed.positionals[0];
+        if (!taskBookId) {
+          console.error('错误: complete 需要 <taskBookId>');
+          process.exit(1);
+        }
 
-      if (!title || !type) {
-        console.error('错误: add-task 需要 --title --type');
+        const tb = manager.updateStatus(taskBookId, 'completed', expectedRevision);
+        if (!tb) {
+          console.error(`错误: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
+        }
+        if (json) printJson(tb);
+        else console.log(`[TaskBook] 已完成并归档: ${taskBookId}`);
+        break;
+      }
+
+      case 'abort': {
+        const taskBookId = parsed.positionals[0];
+        if (!taskBookId) {
+          console.error('错误: abort 需要 <taskBookId>');
+          process.exit(1);
+        }
+
+        const tb = manager.updateStatus(taskBookId, 'aborted', expectedRevision);
+        if (!tb) {
+          console.error(`错误: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
+        }
+        if (json) printJson(tb);
+        else console.log(`[TaskBook] 已中止并归档: ${taskBookId}`);
+        break;
+      }
+
+      case 'add-task': {
+        const taskBookId = parsed.positionals[0];
+        if (!taskBookId) {
+          console.error('错误: add-task 需要 <taskBookId>');
+          process.exit(1);
+        }
+
+        const title = flagAsString(parsed.flags, 'title');
+        const type = flagAsString(parsed.flags, 'type') as TaskItem['type'] | undefined;
+        const priority = flagAsString(parsed.flags, 'priority') as TaskItem['priority'] | undefined;
+        const deps = parseCsv(flagAsString(parsed.flags, 'deps'));
+        const ac = flagAsStringArray(parsed.flags, 'ac');
+        const files = parseCsv(flagAsString(parsed.flags, 'files'));
+        const modules = parseCsv(flagAsString(parsed.flags, 'modules'));
+        const tags = parseCsv(flagAsString(parsed.flags, 'tags'));
+
+        if (!title || !type) {
+          console.error('错误: add-task 需要 --title --type');
+          showHelp();
+          process.exit(1);
+        }
+
+        const tb = manager.addTask(taskBookId, {
+          title,
+          type,
+          priority,
+          dependencies: deps,
+          acceptanceCriteria: ac,
+          scope: buildScope(files, modules, tags),
+        }, expectedRevision);
+
+        if (!tb) {
+          console.error(`错误: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
+        }
+
+        if (json) printJson(tb);
+        else console.log(`[TaskBook] 已添加任务: ${tb.tasks[tb.tasks.length - 1].id}`);
+        break;
+      }
+
+      case 'update-task': {
+        const taskBookId = parsed.positionals[0];
+        const taskId = parsed.positionals[1];
+        if (!taskBookId || !taskId) {
+          console.error('错误: update-task 需要 <taskBookId> <taskId>');
+          process.exit(1);
+        }
+
+        const patch: Partial<Omit<TaskItem, 'id'>> = {};
+
+        const title = flagAsString(parsed.flags, 'title');
+        if (title) patch.title = title;
+
+        const executedBy = flagAsString(parsed.flags, 'executed-by');
+        if (executedBy) patch.executedBy = executedBy;
+
+        const status = flagAsString(parsed.flags, 'status') as TaskItem['status'] | undefined;
+        if (status) patch.status = status;
+
+        const priority = flagAsString(parsed.flags, 'priority') as TaskItem['priority'] | undefined;
+        if (priority) patch.priority = priority;
+
+        const deps = parseCsv(flagAsString(parsed.flags, 'deps'));
+        if (deps.length > 0) patch.dependencies = deps;
+
+        const ac = flagAsStringArray(parsed.flags, 'ac');
+        if (ac.length > 0) patch.acceptanceCriteria = ac;
+
+        const files = parseCsv(flagAsString(parsed.flags, 'files'));
+        const modules = parseCsv(flagAsString(parsed.flags, 'modules'));
+        const tags = parseCsv(flagAsString(parsed.flags, 'tags'));
+        const scope = buildScope(files, modules, tags);
+        if (scope) patch.scope = scope;
+
+        const actualWork = flagAsString(parsed.flags, 'actual-work');
+        if (actualWork) patch.actualWork = actualWork;
+
+        const blockedReason = flagAsString(parsed.flags, 'blocked-reason');
+        if (blockedReason) patch.blockedReason = blockedReason;
+
+        const tb = manager.updateTask(taskBookId, taskId, patch, expectedRevision);
+        if (!tb) {
+          console.error(`错误: TaskBook/task not found: ${taskBookId} ${taskId}`);
+          process.exit(1);
+        }
+
+        if (json) printJson(tb);
+        else console.log(`[TaskBook] 已更新任务: ${taskId}`);
+        break;
+      }
+
+      case 'unblock': {
+        const taskBookId = parsed.positionals[0];
+        const taskId = parsed.positionals[1];
+        const resolution = flagAsString(parsed.flags, 'resolution');
+        if (!taskBookId || !taskId || !resolution) {
+          console.error('错误: unblock 需要 <taskBookId> <taskId> --resolution <text>');
+          process.exit(1);
+        }
+
+        const tb = manager.unblockTask(taskBookId, taskId, resolution, expectedRevision);
+        if (!tb) {
+          console.error(`错误: TaskBook/task not found: ${taskBookId} ${taskId}`);
+          process.exit(1);
+        }
+
+        if (json) printJson(tb);
+        else console.log(`[TaskBook] 已解除阻塞: ${taskId}`);
+        break;
+      }
+
+      case 'claim': {
+        const taskBookId = parsed.positionals[0];
+        const taskId = parsed.positionals[1];
+        const by = flagAsString(parsed.flags, 'by');
+        if (!taskBookId || !taskId || !by) {
+          console.error('错误: claim 需要 <taskBookId> <taskId> --by <name>');
+          process.exit(1);
+        }
+
+        const tb = manager.updateTask(taskBookId, taskId, { executedBy: by }, expectedRevision);
+        if (!tb) {
+          console.error(`错误: TaskBook/task not found: ${taskBookId} ${taskId}`);
+          process.exit(1);
+        }
+        if (json) printJson(tb);
+        else console.log(`[TaskBook] 已认领 ${taskId} -> ${by}`);
+        break;
+      }
+
+      case 'append-work': {
+        const taskBookId = parsed.positionals[0];
+        const taskId = parsed.positionals[1];
+        const text = flagAsString(parsed.flags, 'text') ?? parsed.positionals.slice(2).join(' ');
+        if (!taskBookId || !taskId || !text) {
+          console.error('错误: append-work 需要 <taskBookId> <taskId> --text <text>');
+          process.exit(1);
+        }
+
+        const tb = manager.appendTaskActualWork(taskBookId, taskId, text, expectedRevision);
+        if (!tb) {
+          console.error(`错误: TaskBook/task not found: ${taskBookId} ${taskId}`);
+          process.exit(1);
+        }
+
+        if (json) printJson(tb);
+        else console.log(`[TaskBook] 已追加 actualWork: ${taskId}`);
+        break;
+      }
+
+      default: {
+        console.error(`未知命令: ${parsed.command}`);
         showHelp();
         process.exit(1);
       }
-
-      const tb = manager.addTask(taskBookId, {
-        title,
-        type,
-        priority,
-        dependencies: deps,
-        acceptanceCriteria: ac,
-        scope: buildScope(files, modules, tags),
-      }, expectedRevision);
-
-      if (!tb) {
-        console.error(`错误: TaskBook not found: ${taskBookId}`);
-        process.exit(1);
-      }
-
-      if (json) printJson(tb);
-      else console.log(`[TaskBook] 已添加任务: ${tb.tasks[tb.tasks.length - 1].id}`);
-      break;
     }
-
-    case 'update-task': {
-      const taskBookId = parsed.positionals[0];
-      const taskId = parsed.positionals[1];
-      if (!taskBookId || !taskId) {
-        console.error('错误: update-task 需要 <taskBookId> <taskId>');
-        process.exit(1);
-      }
-
-      const patch: Partial<Omit<TaskItem, 'id'>> = {};
-
-      const title = flagAsString(parsed.flags, 'title');
-      if (title) patch.title = title;
-
-      const executedBy = flagAsString(parsed.flags, 'executed-by');
-      if (executedBy) patch.executedBy = executedBy;
-
-      const status = flagAsString(parsed.flags, 'status') as TaskItem['status'] | undefined;
-      if (status) patch.status = status;
-
-      const priority = flagAsString(parsed.flags, 'priority') as TaskItem['priority'] | undefined;
-      if (priority) patch.priority = priority;
-
-      const deps = parseCsv(flagAsString(parsed.flags, 'deps'));
-      if (deps.length > 0) patch.dependencies = deps;
-
-      const ac = flagAsStringArray(parsed.flags, 'ac');
-      if (ac.length > 0) patch.acceptanceCriteria = ac;
-
-      const files = parseCsv(flagAsString(parsed.flags, 'files'));
-      const modules = parseCsv(flagAsString(parsed.flags, 'modules'));
-      const tags = parseCsv(flagAsString(parsed.flags, 'tags'));
-      const scope = buildScope(files, modules, tags);
-      if (scope) patch.scope = scope;
-
-      const actualWork = flagAsString(parsed.flags, 'actual-work');
-      if (actualWork) patch.actualWork = actualWork;
-
-      const blockedReason = flagAsString(parsed.flags, 'blocked-reason');
-      if (blockedReason) patch.blockedReason = blockedReason;
-
-      const tb = manager.updateTask(taskBookId, taskId, patch, expectedRevision);
-      if (!tb) {
-        console.error(`错误: TaskBook/task not found: ${taskBookId} ${taskId}`);
-        process.exit(1);
-      }
-
-      if (json) printJson(tb);
-      else console.log(`[TaskBook] 已更新任务: ${taskId}`);
-      break;
-    }
-
-    case 'unblock': {
-      const taskBookId = parsed.positionals[0];
-      const taskId = parsed.positionals[1];
-      const resolution = flagAsString(parsed.flags, 'resolution');
-      if (!taskBookId || !taskId || !resolution) {
-        console.error('错误: unblock 需要 <taskBookId> <taskId> --resolution <text>');
-        process.exit(1);
-      }
-
-      const tb = manager.unblockTask(taskBookId, taskId, resolution, expectedRevision);
-      if (!tb) {
-        console.error(`错误: TaskBook/task not found: ${taskBookId} ${taskId}`);
-        process.exit(1);
-      }
-
-      if (json) printJson(tb);
-      else console.log(`[TaskBook] 已解除阻塞: ${taskId}`);
-      break;
-    }
-
-    case 'claim': {
-      const taskBookId = parsed.positionals[0];
-      const taskId = parsed.positionals[1];
-      const by = flagAsString(parsed.flags, 'by');
-      if (!taskBookId || !taskId || !by) {
-        console.error('错误: claim 需要 <taskBookId> <taskId> --by <name>');
-        process.exit(1);
-      }
-
-      const tb = manager.updateTask(taskBookId, taskId, { executedBy: by }, expectedRevision);
-      if (!tb) {
-        console.error(`错误: TaskBook/task not found: ${taskBookId} ${taskId}`);
-        process.exit(1);
-      }
-      if (json) printJson(tb);
-      else console.log(`[TaskBook] 已认领 ${taskId} -> ${by}`);
-      break;
-    }
-
-    case 'append-work': {
-      const taskBookId = parsed.positionals[0];
-      const taskId = parsed.positionals[1];
-      const text = flagAsString(parsed.flags, 'text') ?? parsed.positionals.slice(2).join(' ');
-      if (!taskBookId || !taskId || !text) {
-        console.error('错误: append-work 需要 <taskBookId> <taskId> --text <text>');
-        process.exit(1);
-      }
-
-      const tb = manager.appendTaskActualWork(taskBookId, taskId, text, expectedRevision);
-      if (!tb) {
-        console.error(`错误: TaskBook/task not found: ${taskBookId} ${taskId}`);
-        process.exit(1);
-      }
-
-      if (json) printJson(tb);
-      else console.log(`[TaskBook] 已追加 actualWork: ${taskId}`);
-      break;
-    }
-
-    default: {
-      console.error(`未知命令: ${parsed.command}`);
-      showHelp();
-      process.exit(1);
-    }
-  }
   } catch (error) {
     if (error instanceof TaskBookConflictError) {
       console.error(`冲突: ${error.message}`);

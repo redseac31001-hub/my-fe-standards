@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-02-07T18:03:10.475Z",
+  "generatedAt": "2026-02-27T06:17:49.155Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -498,8 +498,8 @@
     {
       "path": "agents/AGENTS.md",
       "name": "AGENTS",
-      "size": 5246,
-      "mtime": "2026-02-07T14:41:59.241Z"
+      "size": 6119,
+      "mtime": "2026-02-27T05:38:55.233Z"
     },
     {
       "path": "agents/build-fix/AGENT.md",
@@ -588,8 +588,8 @@
     {
       "path": "agents/task-orchestrator/AGENT.md",
       "name": "AGENT",
-      "size": 10032,
-      "mtime": "2026-02-07T14:55:29.329Z"
+      "size": 10443,
+      "mtime": "2026-02-27T03:23:45.039Z"
     },
     {
       "path": "agents/task-orchestrator/templates/acceptance-report.md",
@@ -642,8 +642,8 @@
     {
       "path": "workflows/templates/default.workflow.json",
       "name": "default.workflow",
-      "size": 6343,
-      "mtime": "2026-02-07T17:37:20.328Z"
+      "size": 7271,
+      "mtime": "2026-02-27T05:59:09.020Z"
     },
     {
       "path": "taskbooks/README.md",
@@ -654,8 +654,8 @@
     {
       "path": "taskbooks/schema/taskbook.schema.json",
       "name": "taskbook.schema",
-      "size": 4884,
-      "mtime": "2026-01-31T13:40:32.284Z"
+      "size": 5033,
+      "mtime": "2026-02-10T02:55:48.992Z"
     }
   ],
   "stats": {

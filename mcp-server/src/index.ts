@@ -83,7 +83,19 @@ const AnalyzeProjectStructureArgsSchema = z.object({
 // ============================================================
 
 const TaskBookTypeSchema = z.enum(['new-feature', 'refactoring', 'debugging', 'testing', 'code-review'])
-const TaskTypeSchema = z.enum(['analysis', 'design', 'test', 'implement', 'review'])
+const TASK_TYPE_VALUES = [
+  'requirement',
+  'prd',
+  'analysis',
+  'design',
+  'test',
+  'implement',
+  'refactor',
+  'review',
+  'build-fix',
+  'acceptance',
+] as const
+const TaskTypeSchema = z.enum(TASK_TYPE_VALUES)
 const TaskStatusSchema = z.enum(['pending', 'in_progress', 'done', 'blocked', 'skipped'])
 const TaskPrioritySchema = z.enum(['critical', 'high', 'medium', 'low'])
 
@@ -637,7 +649,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           title: { type: 'string', description: '任务标题' },
           type: {
             type: 'string',
-            enum: ['analysis', 'design', 'test', 'implement', 'review'],
+            enum: [...TASK_TYPE_VALUES],
             description: '任务类型',
           },
           priority: {

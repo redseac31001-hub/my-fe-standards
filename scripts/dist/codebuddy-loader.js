@@ -522,7 +522,11 @@ const SCRIPTS_TO_DISTRIBUTE = [
     },
     {
         file: 'task-executor.js',
-        dependencies: ['types/index.js', 'taskbook-manager.js', 'context-collector.js', 'reference-finder.js']
+        dependencies: ['types/index.js', 'types/agent-runtime.js', 'taskbook-manager.js', 'context-collector.js', 'reference-finder.js', 'agent-runtime.js']
+    },
+    {
+        file: 'agent-runtime.js',
+        dependencies: ['types/agent-runtime.js', 'types/index.js']
     },
     {
         file: 'contract-validator.js',

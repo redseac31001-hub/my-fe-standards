@@ -276,17 +276,17 @@ async function loadLayerRules(layerId: string, folders: string[]): Promise<RuleC
   for (const folder of folders) {
     if (ctx.isRemote) {
       // 远程模式：从 manifest 查找文件
-        const matchingFiles = ctx.remoteManifest!.files.filter(
-          f => f.path.startsWith(`rules/${layerId}/${folder}`) && f.path.endsWith('.md')
-        );
-        for (const file of matchingFiles) {
-          const relativePath = file.path.replace(`rules/${layerId}/`, '');
-          const content = await loadRuleFile(layerId, relativePath);
-          if (content) {
-            contents.push({ path: relativePath, content: filterRuleByLevel(content, ctx.ruleLevel) });
-          }
+      const matchingFiles = ctx.remoteManifest!.files.filter(
+        f => f.path.startsWith(`rules/${layerId}/${folder}`) && f.path.endsWith('.md')
+      );
+      for (const file of matchingFiles) {
+        const relativePath = file.path.replace(`rules/${layerId}/`, '');
+        const content = await loadRuleFile(layerId, relativePath);
+        if (content) {
+          contents.push({ path: relativePath, content: filterRuleByLevel(content, ctx.ruleLevel) });
         }
-      } else {
+      }
+    } else {
       // 本地模式
       const folderPath = path.join(RULES_ROOT, layerId, folder);
       if (fs.existsSync(folderPath)) {
@@ -547,7 +547,11 @@ const SCRIPTS_TO_DISTRIBUTE: Array<{ file: string; dependencies?: string[] }> = 
   },
   {
     file: 'task-executor.js',
-    dependencies: ['types/index.js', 'taskbook-manager.js', 'context-collector.js', 'reference-finder.js']
+    dependencies: ['types/index.js', 'types/agent-runtime.js', 'taskbook-manager.js', 'context-collector.js', 'reference-finder.js', 'agent-runtime.js']
+  },
+  {
+    file: 'agent-runtime.js',
+    dependencies: ['types/agent-runtime.js', 'types/index.js']
   },
   {
     file: 'contract-validator.js',

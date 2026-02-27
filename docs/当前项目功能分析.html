@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>my-fe-standards - Functional Analysis</title>
+  <style>
+:root { color-scheme: light; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+  line-height: 1.55;
+  color: #111;
+  background: #fff;
+}
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 32px 22px 56px;
+}
+h1, h2, h3, h4 { line-height: 1.25; }
+h1 { font-size: 32px; margin: 0 0 12px; }
+h2 { font-size: 22px; margin: 30px 0 12px; padding-top: 8px; border-top: 1px solid #eee; }
+h3 { font-size: 18px; margin: 20px 0 10px; }
+h4 { font-size: 16px; margin: 18px 0 8px; }
+p { margin: 10px 0; }
+ul, ol { margin: 10px 0 10px 22px; }
+li { margin: 4px 0; }
+hr { border: 0; border-top: 1px solid #eee; margin: 18px 0; }
+a { color: #0b57d0; text-decoration: none; }
+a:hover { text-decoration: underline; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.95em;
+  background: #f6f8fa;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+pre {
+  background: #0b1020;
+  color: #e6edf3;
+  padding: 14px 14px;
+  border-radius: 10px;
+  overflow: auto;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+blockquote {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-left: 4px solid #ddd;
+  background: #fafafa;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 14px;
+}
+th, td {
+  border: 1px solid #e6e6e6;
+  padding: 8px 10px;
+  vertical-align: top;
+}
+th { background: #fafafa; text-align: left; }
+.toc { background: #fafafa; border: 1px solid #eee; padding: 14px 14px; border-radius: 10px; }
+.small { color: #666; font-size: 12px; }
+@media print {
+  body { background: #fff; }
+  .container { padding: 0; }
+  a { color: #111; }
+  pre { background: #f6f8fa; color: #111; }
+}
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="small">Generated at: 2026-02-09 14:42:59</div>
+    <h1 id="my-fe-standards">当前项目功能分析（my-fe-standards）<a class="headerlink" href="#my-fe-standards" title="Permanent link">&para;</a></h1>
+<p>更新时间：2026-02-09<br />
+范围：本仓库 <code>E:\mygit\my-fe-standards</code>（规则库/加载器/脚本/Agents/Skills/TaskBook/Workflow/MCP/Ralph）</p>
+<blockquote>
+<p>这份文档回答两个问题：<br />
+1) <strong>模块/数据流图</strong>：项目由哪些组件构成，它们如何交互、数据如何流动。<br />
+2) <strong>操作手册</strong>：以“真实使用场景”为主线，说明如何在业务项目中落地、执行闭环、排错与扩展。</p>
+</blockquote>
+<hr />
+<h2 id="1">1. 项目一句话<a class="headerlink" href="#1" title="Permanent link">&para;</a></h2>
+<p><code>my-fe-standards</code> 是一个可分发的 AI 辅助开发“规范 + 工具”平台：通过 <code>codebuddy-loader</code> 把 <strong>规则（Rules）</strong>、<strong>技能（Skills）</strong>、<strong>代理（Agents）</strong>、<strong>脚本（Scripts）</strong>、<strong>工作流（Workflow Spec）</strong>、<strong>任务书（TaskBook SSOT）</strong>、<strong>项目记忆（Reports）</strong> 与 <strong>Agent Call 文件协议</strong> 安装到业务项目的 <code>.codebuddy/</code> 目录里，供 CodeBuddy/Claude Code/Amp 等工具按需读取并形成可审计的闭环执行。</p>
+<p>核心入口：
+- 规则/工具分发：<code>scripts/dist/codebuddy-loader.js</code>（源：<code>scripts/src/codebuddy-loader.ts</code>）
+- 闭环编排：<code>.codebuddy/scripts/task-orchestrator.js</code>（源：<code>scripts/src/task-orchestrator.ts</code>）
+- 执行与质量闸门：<code>.codebuddy/scripts/task-executor.js</code>（源：<code>scripts/src/task-executor.ts</code>）
+- TaskBook 管理：<code>.codebuddy/scripts/taskbook-manager.js</code>（源：<code>scripts/src/taskbook-manager.ts</code>）
+- MCP 工具接口：<code>mcp-server/src/index.ts</code></p>
+<hr />
+<h2 id="2">2. 模块地图（仓库结构视角）<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
+<h3 id="21">2.1 目录与职责<a class="headerlink" href="#21" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>目录/文件</th>
+<th>职责</th>
+<th>业务项目落地位置（典型）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rules/</code></td>
+<td>三层规则：Layer1 基础（Eager），Layer2 业务（Lazy），Layer3 动作清单（Lazy）</td>
+<td><code>.codebuddy/rules/project-rules.md</code> + <code>.codebuddy/rules_cache/*</code></td>
+</tr>
+<tr>
+<td><code>custom-skills/</code></td>
+<td>Skills 知识包（SKILL.md + references/ 模板/清单）</td>
+<td><code>.codebuddy/skills/*</code></td>
+</tr>
+<tr>
+<td><code>agents/</code></td>
+<td>Agents 定义（AGENT.md + prompts/templates/checklists）</td>
+<td><code>.codebuddy/agents/*</code></td>
+</tr>
+<tr>
+<td><code>scripts/src/*</code></td>
+<td>TS 源码：加载器、分析器、TaskBook/Workflow/Reports/契约校验器等</td>
+<td><code>.codebuddy/scripts/*</code>（来自 <code>scripts/dist/*</code>）</td>
+</tr>
+<tr>
+<td><code>workflows/</code></td>
+<td>Workflow Spec schema + 默认模板（7-step 闭环）</td>
+<td><code>.codebuddy/workflows/*</code></td>
+</tr>
+<tr>
+<td><code>taskbooks/</code></td>
+<td>TaskBook schema（契约）+ README</td>
+<td><code>.codebuddy/taskbooks/*</code></td>
+</tr>
+<tr>
+<td><code>agent-calls/</code></td>
+<td>Agent Call 结果 schema（契约）</td>
+<td><code>.codebuddy/agent-calls/*</code></td>
+</tr>
+<tr>
+<td><code>mcp-server/</code></td>
+<td>MCP Server：对外暴露 ralph/taskbook/workflow/reports 等 tools/resources</td>
+<td>（作为独立进程）</td>
+</tr>
+<tr>
+<td><code>packages/agent/</code></td>
+<td><code>ralph-agent</code>：基于 Claude Agent SDK 的自主编码代理</td>
+<td>（作为独立 CLI）</td>
+</tr>
+<tr>
+<td><code>manifest.json</code></td>
+<td>远程模式清单（文件列表/mtime/大小/配置）</td>
+<td>远程拉取的入口之一</td>
+</tr>
+<tr>
+<td><code>config/loader-config.json</code></td>
+<td>加载器配置：层级、任务类型、相关性阈值、输出路径、结构分析阈值等</td>
+<td>影响 loader 行为</td>
+</tr>
+</tbody>
+</table>
+<h3 id="22">2.2 组件交互图（仓库 → 业务项目）<a class="headerlink" href="#22" title="Permanent link">&para;</a></h3>
+<p><strong>ASCII（便于 Word/纯文本阅读）</strong></p>
+<pre><code class="language-text">┌────────────────────────────────────────┐
+│  规则库仓库 my-fe-standards             │
+│  - rules/ custom-skills/ agents/        │
+│  - workflows/ taskbooks/ agent-calls/   │
+│  - scripts/dist/* (可执行脚本)          │
+│  - manifest.json (远程模式索引)         │
+└───────────────────────┬────────────────┘
+                        │ codebuddy-loader（本地/远程）
+                        ▼
+┌────────────────────────────────────────┐
+│  业务项目（target project）             │
+│  生成/更新：                            │
+│  .codebuddy/                            │
+│   ├─ rules/project-rules.md (Layer1)    │
+│   ├─ rules_cache/ (Layer2/3 原文缓存)   │
+│   ├─ skills/ agents/ scripts/           │
+│   ├─ workflows/ taskbooks/ agent-calls/ │
+│   └─ reports/ (结构/模块/健康度/证据)   │
+└────────────────────────────────────────┘
+                        │
+                        ▼
+┌────────────────────────────────────────┐
+│  AI 工具/Agent 执行层                   │
+│  - /task（Slash Command）               │
+│  - task-orchestrator/task-executor      │
+│  - Agent Call prompt/result 文件协议    │
+└────────────────────────────────────────┘
+</code></pre>
+<p><strong>Mermaid（可选，支持渲染的阅读器更直观）</strong></p>
+<pre><code class="language-mermaid">flowchart LR
+  subgraph Repo[my-fe-standards 仓库]
+    R1[rules/ 三层规则]
+    R2[custom-skills/ Skills]
+    R3[agents/ Agents]
+    R4[scripts/dist 可执行脚本]
+    R5[workflows/taskbooks/agent-calls schema+templates]
+    R6[manifest.json 远程清单]
+    C1[config/loader-config.json]
+  end
+
+  Loader[codebuddy-loader.js\n本地/远程]
+  subgraph Biz[业务项目（target）]
+    B1[.codebuddy/rules/project-rules.md\nLayer1 Eager]
+    B2[.codebuddy/rules_cache\nLayer2/3 Lazy 原文]
+    B3[.codebuddy/skills + agents + scripts]
+    B4[.codebuddy/workflows + taskbooks + agent-calls]
+    B5[.codebuddy/reports\nsnapshots + gates evidence]
+  end
+
+  Tools[AI 工具/Agent\n(CodeBuddy/Claude/Amp/...)]
+
+  Repo --&gt; Loader --&gt; Biz --&gt; Tools
+</code></pre>
+<hr />
+<h2 id="3">3. 核心概念与“数据对象”<a class="headerlink" href="#3" title="Permanent link">&para;</a></h2>
+<h3 id="31-rules">3.1 三层规则（Rules）<a class="headerlink" href="#31-rules" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Layer 1 Base（Eager）</strong>：被直接拼接进 <code>.codebuddy/rules/project-rules.md</code>，保证“核心规范常驻”。  </li>
+<li><strong>Layer 2 Business（Lazy）</strong>：命中业务依赖才写入 <code>.codebuddy/rules_cache/layer2_business/*.md</code>，并在 <code>project-rules.md</code> 写索引。  </li>
+<li><strong>Layer 3 Action（Lazy）</strong>：默认清单写入 <code>.codebuddy/rules_cache/layer3_action/*.md</code>，并在 <code>project-rules.md</code> 写索引。  </li>
+</ul>
+<p>相关实现要点：
+- 依赖识别：通过目标项目 <code>package.json</code> 检测 <code>vue</code> 版本与 <code>ant-design-vue</code> / <code>vant</code> 等依赖（<code>scripts/src/codebuddy-loader.ts</code>）。
+- 规则裁剪：<code>--rule-level summary|quick|full</code> 只裁剪 <strong>Layer1 Eager 拼接内容</strong>；Layer2/3 的缓存文件仍保留原文（full）。（<code>scripts/src/codebuddy-loader.ts</code>）</p>
+<h3 id="32-codebuddyssot">3.2 <code>.codebuddy/</code>：业务项目的落地目录（SSOT 与证据）<a class="headerlink" href="#32-codebuddyssot" title="Permanent link">&para;</a></h3>
+<p>典型结构（loader 生成/分发）：</p>
+<pre><code class="language-text">.codebuddy/
+├── rules/project-rules.md              # 主规则（含索引/说明）
+├── rules_cache/                        # Layer2/3 原文缓存
+├── skills/                             # Skills（SKILL.md + references）
+├── agents/                             # Agents（AGENT.md + prompts/templates）
+├── scripts/                            # 可执行脚本（taskbook/task-executor/...）
+├── workflows/                          # Workflow Spec（schema + 默认模板）
+├── taskbooks/
+│   ├── taskbook.schema.json            # TaskBook 契约
+│   ├── active/*.json                   # 进行中 TaskBook（SSOT）
+│   └── history/*.json                  # 已归档 TaskBook
+├── agent-calls/
+│   ├── agent-call.schema.json          # AgentCall 结果契约
+│   ├── &lt;requestId&gt;.prompt.md           # 输入（可审计）
+│   └── &lt;requestId&gt;.result.json         # 输出（可审计）
+└── reports/
+    ├── architecture/latest.json        # 架构/健康度快照
+    ├── modules/latest.json             # 模块图谱快照
+    ├── health/timeline.json            # 健康度时间线（如果生成）
+    ├── gates/&lt;taskBookId&gt;/*.json       # 质量闸门证据（checks gate 的命令执行结果）
+    └── taskbooks/&lt;id&gt;.acceptance.json  # 验收报告（闭环产物）
+</code></pre>
+<h3 id="33-taskbookssot">3.3 TaskBook：任务协作的唯一事实源（SSOT）<a class="headerlink" href="#33-taskbookssot" title="Permanent link">&para;</a></h3>
+<ul>
+<li>存储：<code>.codebuddy/taskbooks/active/&lt;taskBookId&gt;.json</code></li>
+<li>契约：<code>taskbooks/schema/taskbook.schema.json</code></li>
+<li>管理器：<code>scripts/src/taskbook-manager.ts</code>（支持 revision/锁、冲突检测、验收报告汇总）</li>
+</ul>
+<p>TaskBook 关键字段：
+- <code>status</code>: draft → confirmed → executing → completed / aborted<br />
+- <code>tasks[]</code>: 原子任务（id/title/type/status/deps/acceptanceCriteria/scope/actualWork）
+- <code>changelog[]</code>: 变更与审计（包含 gate、batch、agent-call 事件）</p>
+<h3 id="34-workflow-specdag-gates-policies">3.4 Workflow Spec：闭环执行规范（DAG + gates + policies）<a class="headerlink" href="#34-workflow-specdag-gates-policies" title="Permanent link">&para;</a></h3>
+<p>默认模板：<code>workflows/templates/default.workflow.json</code>（7 步闭环）：
+1) requirement+prd（可跳过）<br />
+2) analyze（生成 reports）<br />
+3) plan（TaskBook 已存在时 no-op）<br />
+4) tdd_implement（按 batch 策略推进 + smoke gate）<br />
+5) review（人工 gate）<br />
+6) build_fix（checks gate + 自动回滚重试策略）<br />
+7) acceptance（验收报告 + 归档）</p>
+<p>执行器：<code>scripts/src/task-executor.ts</code> 支持：
+- 拓扑排序 steps（基于 edges）
+- <code>skipWhen</code> 条件跳过
+- <code>gates</code>（当前强制实现 <code>checks</code>，<code>review</code> 需要人工 <code>--approve</code>）
+- <code>policies.concurrency</code> 并行度与冲突策略（deny_same_file_set）
+- <code>policies.testing.batching</code> 分批策略（风险分层 + smoke gate 周期）
+- <code>policies.buildFix</code> 失败回滚与最大重试次数</p>
+<h3 id="35-agent-call-ai">3.5 Agent Call 文件协议：把“需要 AI/人工介入”变成可恢复阻塞<a class="headerlink" href="#35-agent-call-ai" title="Permanent link">&para;</a></h3>
+<p>当执行器遇到需要外部执行的任务（<code>MANUAL_REQUIRED</code>），会：
+1) 生成 <code>.codebuddy/agent-calls/&lt;requestId&gt;.prompt.md</code>
+2) 将任务置为 <code>blocked</code>，并在 <code>blockedReason</code> 里附带一行元数据：
+   - 形如：<code>[agent-call] { ...json meta... }</code>
+3) 外部工具/人工写回 <code>.codebuddy/agent-calls/&lt;requestId&gt;.result.json</code>
+4) 再次运行执行器时自动 <code>apply</code>：把 <code>output.actualWork</code> 写入任务并置为 done</p>
+<hr />
+<h2 id="4">4. 数据流图（业务项目视角）<a class="headerlink" href="#4" title="Permanent link">&para;</a></h2>
+<h3 id="41-loader">4.1 接入/分发流程（Loader）<a class="headerlink" href="#41-loader" title="Permanent link">&para;</a></h3>
+<pre><code class="language-mermaid">sequenceDiagram
+  autonumber
+  participant Dev as 业务项目
+  participant L as codebuddy-loader
+  participant Remote as 远程静态源(可选)
+  participant FS as .codebuddy/ 目录
+
+  Dev-&gt;&gt;L: node codebuddy-loader.js [--remote URL]
+  alt 远程模式
+    L-&gt;&gt;Remote: GET manifest.json
+    L-&gt;&gt;Remote: GET rules/ + skills/ + agents/ + scripts/dist/ + workflows/...
+  else 本地模式
+    L-&gt;&gt;L: 读取本仓库 rules/ config/ scripts/dist...
+  end
+  L-&gt;&gt;FS: 写入 project-rules.md（Layer1）
+  L-&gt;&gt;FS: 写入 rules_cache（Layer2/3）
+  L-&gt;&gt;FS: 分发 scripts/workflows/taskbooks/agent-calls/commands/skills/agents
+  L-&gt;&gt;Dev: 更新 .gitignore（忽略 .codebuddy/）
+</code></pre>
+<h3 id="42-task-taskbook-workflow-gates-acceptance">4.2 端到端闭环（/task → TaskBook → Workflow → gates → acceptance）<a class="headerlink" href="#42-task-taskbook-workflow-gates-acceptance" title="Permanent link">&para;</a></h3>
+<pre><code class="language-mermaid">flowchart TD
+  U[用户输入 /task 或 CLI 需求] --&gt; O[task-orchestrator]
+  O --&gt;|create| TB[TaskBook draft]
+  O --&gt;|ensure reports| RPT[structure-analyzer + module-mapper]
+  O --&gt;|plan| P1[生成 planner prompt.md]
+  P1 --&gt;|外部执行| P2[写回 planner result.json]
+  P2 --&gt;|apply-plan| TB2[TaskBook tasks 已落地]
+  TB2 --&gt;|confirm| TB3[TaskBook confirmed]
+  TB3 --&gt; EX[task-executor/workflow_run]
+
+  EX --&gt;|tasks 可自动执行| AUTO[analysis 脚本写 reports]
+  EX --&gt;|MANUAL_REQUIRED| AC[生成 agent-call prompt.md]
+  AC --&gt;|外部执行| AR[写回 agent-call result.json]
+  AR --&gt;|auto apply| EX
+
+  EX --&gt; G1[checks gates\ncontract-validator/npm scripts]
+  EX --&gt; G2[review gate\n需 --approve]
+  EX --&gt; ACC[acceptance report + archive]
+</code></pre>
+<h3 id="43-gates">4.3 质量闸门（gates）证据流<a class="headerlink" href="#43-gates" title="Permanent link">&para;</a></h3>
+<pre><code class="language-text">workflow step 执行到 gates（checks）时：
+1) 执行 gate.params.commands / npmScripts（spawnSync shell）
+2) 将执行结果写入：.codebuddy/reports/gates/&lt;taskBookId&gt;/&lt;timestamp&gt;.&lt;stepId&gt;.&lt;gateId&gt;.json
+3) changelog 记录 gate 事件（便于 acceptance report 汇总）
+
+review gate：
+- 默认需要人工批准：task-executor 输出提示，要求使用 --approve &lt;gateId&gt; 继续
+</code></pre>
+<hr />
+<h2 id="5">5. 功能清单（按域划分）<a class="headerlink" href="#5" title="Permanent link">&para;</a></h2>
+<h3 id="51-rules">5.1 规则引擎（Rules）<a class="headerlink" href="#51-rules" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Vue2/3 自动分流（通过 <code>package.json</code> 中 <code>vue</code> 版本与 <code>@vue/composition-api</code> 检测）</li>
+<li>UI 库业务规范按需命中（<code>ant-design-vue</code> / <code>vant</code>）</li>
+<li>Layer1 Eager 合并输出（支持 <code>--rule-level</code> 裁剪）</li>
+<li>Layer2/3 Lazy 缓存 + 索引表（AI 任务需要时再读取缓存原文）</li>
+</ul>
+<h3 id="52-skills">5.2 技能系统（Skills）<a class="headerlink" href="#52-skills" title="Permanent link">&para;</a></h3>
+<p><code>custom-skills/</code> 当前包含（以目录为准）：
+- <code>frontend-code-review</code> / <code>component-refactoring</code> / <code>frontend-testing</code>
+- <code>build-optimization</code> / <code>performance-optimization</code>
+- <code>i18n-a11y</code> / <code>state-management</code>
+- <code>module-mapping</code> / <code>structure-review</code>
+- <code>prd</code> / <code>ralph-converter</code> / <code>skill-creator</code></p>
+<p>落地方式：
+- loader 将 <code>custom-skills/</code> 复制/下载到业务项目 <code>.codebuddy/skills/</code>
+- 由 Agent/AI 按需读取 <code>SKILL.md</code> 并进一步加载 <code>references/</code> 内容</p>
+<h3 id="53-agent-agents">5.3 Agent 系统（Agents）<a class="headerlink" href="#53-agent-agents" title="Permanent link">&para;</a></h3>
+<p>当前 Agents（以 <code>agents/</code> 目录为准）：
+- <code>task-orchestrator</code>：端到端闭环编排（MVP）
+- <code>structure-analyzer</code>：结构反模式检测 + 健康度评分
+- <code>planner</code>：复杂任务分解/风险评估（输出 tasks 计划）
+- <code>tdd-driver</code>：RED→GREEN→REFACTOR 指引
+- <code>code-reviewer</code>：结构化代码审查
+- <code>build-fix</code>：构建/类型错误诊断修复（最多 3 轮策略在 workflow）
+- <code>security-reviewer</code>：安全审查（XSS 等）
+- <code>performance-profiler</code>：性能诊断（Web Vitals 等）</p>
+<h3 id="54-scripts">5.4 脚本工具链（Scripts）<a class="headerlink" href="#54-scripts" title="Permanent link">&para;</a></h3>
+<p>loader 会分发 <code>.codebuddy/scripts/</code>（脚本清单在 <code>scripts/src/codebuddy-loader.ts</code> 中维护），其中关键脚本：
+- <code>structure-analyzer.js</code>：SA001–SA005 结构健康度
+- <code>module-mapper.js</code>：模块识别/业务分类/（可选）依赖分析
+- <code>report-manager.js</code>：reports 管理（status/diff/trend/cleanup/export）
+- <code>taskbook-manager.js</code>：TaskBook CRUD + plan/apply-plan + acceptance report 汇总
+- <code>task-executor.js</code>：Workflow 驱动执行 + gates + batching + agent-call 协议
+- <code>task-orchestrator.js</code>：一键闭环 runner（create→plan→confirm→execute）
+- <code>contract-validator.js</code>：契约校验（workflow/taskbook/agent-calls + batching scope 检查）
+- <code>agent-call-manager.js</code>：agent-call list/show/validate/serve（可选远程写回）
+- <code>context-collector.js</code>：收集目标文件内容 + 引用 + 关联测试 + Git 变更（注入 prompt）</p>
+<h3 id="55-mcp-server">5.5 MCP Server（对外工具接口）<a class="headerlink" href="#55-mcp-server" title="Permanent link">&para;</a></h3>
+<p><code>mcp-server/src/index.ts</code> 暴露：
+- Ralph：<code>ralph_init/status/next/complete/add_story/log/set_workdir/ping</code>
+- 结构分析：<code>analyze_project_structure</code>
+- CodeBuddy：<code>codebuddy_set_workdir</code>、<code>taskbook_*</code>、<code>workflow_run</code>、<code>reports_inspect</code>、<code>reports_hotspots</code>
+- Resources：<code>ralph://prd</code>、<code>ralph://progress</code>，以及 <code>codebuddy://workdir</code>、<code>codebuddy://workflows/*</code>、<code>codebuddy://taskbooks/*</code> 等</p>
+<h3 id="56-ralph">5.6 Ralph（自主编码）<a class="headerlink" href="#56-ralph" title="Permanent link">&para;</a></h3>
+<p>两条路径：
+- <code>scripts/ralph/ralph.sh</code>：长循环（支持 <code>amp</code>/<code>claude</code>），以 <code>&lt;promise&gt;COMPLETE&lt;/promise&gt;</code> 作为完成信号
+- <code>packages/agent/</code>：<code>ralph-agent</code>（基于 <code>@anthropic-ai/claude-code</code> SDK），按 <code>prd.json</code> 用户故事迭代执行</p>
+<hr />
+<h2 id="6">6. 操作手册（真实场景）<a class="headerlink" href="#6" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>下面的命令以“业务项目根目录”为工作目录（即 <code>process.cwd()</code> 指向业务项目）。</p>
+</blockquote>
+<h3 id="a">场景 A：业务项目首次接入（推荐远程一键）<a class="headerlink" href="#a" title="Permanent link">&para;</a></h3>
+<p>1) 直接拉取并执行 loader（不需要把脚本落到项目）：</p>
+<pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
+</code></pre>
+<p>2) 生成物检查：
+- <code>.codebuddy/rules/project-rules.md</code>
+- <code>.codebuddy/rules_cache/*</code>（取决于命中依赖）
+- <code>.codebuddy/scripts/task-orchestrator.js</code> 等</p>
+<h3 id="b">场景 B：仅更新规则/脚本（升级规则库）<a class="headerlink" href="#b" title="Permanent link">&para;</a></h3>
+<p>在业务项目根目录重复执行 loader 即可（覆盖更新为主）：</p>
+<pre><code class="language-bash">node path/to/codebuddy-loader.js --remote &lt;REMOTE_BASE_URL&gt;
+</code></pre>
+<p>建议把它固化到 <code>package.json</code>：</p>
+<pre><code class="language-json">{ &quot;scripts&quot;: { &quot;rules:update&quot;: &quot;node codebuddy-loader.js --remote &lt;REMOTE_BASE_URL&gt;&quot; } }
+</code></pre>
+<h3 id="c-taskbookworkflow">场景 C：只把规则作为“常驻规范”使用（不走 TaskBook/Workflow）<a class="headerlink" href="#c-taskbookworkflow" title="Permanent link">&para;</a></h3>
+<p>运行 loader 后，AI 工具只需读取：
+- <code>.codebuddy/rules/project-rules.md</code>
+- 需要细节时按索引读取 <code>.codebuddy/rules_cache/...</code></p>
+<h3 id="d">场景 D：项目结构审查（结构反模式 + 健康度）<a class="headerlink" href="#d" title="Permanent link">&para;</a></h3>
+<pre><code class="language-bash">node .codebuddy/scripts/structure-analyzer.js . --mode summary --output json
+</code></pre>
+<p>关注：
+- violations（SA001–SA005）与 score（分维度）
+- 结合 <code>.codebuddy/reports/architecture/latest.json</code> 做历史对比（若已启用 report-manager 的快照管理）</p>
+<h3 id="e">场景 E：模块图谱与业务域识别<a class="headerlink" href="#e" title="Permanent link">&para;</a></h3>
+<pre><code class="language-bash">node .codebuddy/scripts/module-mapper.js . --mode summary --output json
+</code></pre>
+<p>输出通常写入：
+- <code>.codebuddy/reports/modules/latest.json</code></p>
+<h3 id="ftaskbook">场景 F：TaskBook 手动使用（不走一键编排）<a class="headerlink" href="#ftaskbook" title="Permanent link">&para;</a></h3>
+<p>1) 创建 TaskBook：</p>
+<pre><code class="language-bash">node .codebuddy/scripts/taskbook-manager.js create --title &quot;实现用户登录&quot; --description &quot;...&quot; --type new-feature
+</code></pre>
+<p>2) 生成 planner prompt（写入 <code>.codebuddy/agent-calls/</code>）：</p>
+<pre><code class="language-bash">node .codebuddy/scripts/taskbook-manager.js plan &lt;taskBookId&gt;
+</code></pre>
+<p>3) 执行 planner prompt，并把结果写回 <code>&lt;requestId&gt;.result.json</code>（JSON，非 Markdown）。</p>
+<p>4) 应用计划：</p>
+<pre><code class="language-bash">node .codebuddy/scripts/taskbook-manager.js apply-plan &lt;taskBookId&gt; &lt;requestId&gt;
+</code></pre>
+<p>5) 确认并执行：</p>
+<pre><code class="language-bash">node .codebuddy/scripts/taskbook-manager.js confirm &lt;taskBookId&gt;
+node .codebuddy/scripts/task-executor.js &lt;taskBookId&gt;
+</code></pre>
+<h3 id="g">场景 G：一键闭环（推荐）<a class="headerlink" href="#g" title="Permanent link">&para;</a></h3>
+<pre><code class="language-bash">node .codebuddy/scripts/task-orchestrator.js &quot;实现用户登录功能&quot; --type new-feature
+</code></pre>
+<p>常见阻塞与恢复：
+- 若输出 <code>planner_result_missing</code>：说明已生成 planner prompt，但 result.json 未写回<br />
+  - 继续运行同一命令（或 <code>--taskbook &lt;id&gt;</code>）即可重试
+- 若执行过程中出现 <code>MANUAL_REQUIRED</code>：会生成 <code>.codebuddy/agent-calls/req-*.prompt.md</code>，任务转为 blocked<br />
+  - 写回 <code>.result.json</code> 后重新执行 <code>task-executor</code>/<code>task-orchestrator</code> 会自动 apply 并继续</p>
+<p>（可选）Watch 模式：自动等待缺失文件出现后继续（适合“你在另一个终端/工具里写回 result.json”）：</p>
+<pre><code class="language-bash">node .codebuddy/scripts/task-orchestrator.js &quot;实现用户登录功能&quot; --watch
+</code></pre>
+<h3 id="hgates">场景 H：质量闸门（gates）如何推进<a class="headerlink" href="#hgates" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>checks</code> gate：自动执行 <code>commands</code> / <code>npmScripts</code>，失败会阻塞；证据在 <code>.codebuddy/reports/gates/&lt;taskBookId&gt;/...json</code></li>
+<li><code>review</code> gate：默认需要人工批准：</li>
+</ul>
+<pre><code class="language-bash">node .codebuddy/scripts/task-executor.js &lt;taskBookId&gt; --approve review_passed
+</code></pre>
+<h3 id="i-agent">场景 I：契约校验（避免多 Agent 写入不一致）<a class="headerlink" href="#i-agent" title="Permanent link">&para;</a></h3>
+<pre><code class="language-bash">node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --agent-calls
+</code></pre>
+<h3 id="j">场景 J：远程模式完整自测（模拟真实用户）<a class="headerlink" href="#j" title="Permanent link">&para;</a></h3>
+<pre><code class="language-bash">node test/test-remote-full.js
+</code></pre>
+<h3 id="kmcp-server-ai">场景 K：MCP Server 集成（给外部 AI 工具用）<a class="headerlink" href="#kmcp-server-ai" title="Permanent link">&para;</a></h3>
+<p>在 <code>mcp-server/</code> 下构建/启动（需要 Node &gt;= 20）：</p>
+<pre><code class="language-bash">cd mcp-server
+npm run build
+npm start
+</code></pre>
+<p>之后外部 MCP Client 可调用 <code>taskbook_*</code> / <code>workflow_run</code> / <code>reports_*</code> 等工具，并通过 <code>codebuddy://...</code> 读取资源。</p>
+<hr />
+<h2 id="7">7. 扩展指南（怎么加能力）<a class="headerlink" href="#7" title="Permanent link">&para;</a></h2>
+<h3 id="71">7.1 新增/修改规则<a class="headerlink" href="#71" title="Permanent link">&para;</a></h3>
+<p>1) 在 <code>rules/layerX_*/</code> 下新增/修改 <code>.md</code><br />
+2) （远程模式）执行 <code>npm run build</code> 更新 <code>manifest.json</code><br />
+3) 业务项目重新运行 loader 拉取更新</p>
+<h3 id="72-skill">7.2 新增 Skill<a class="headerlink" href="#72-skill" title="Permanent link">&para;</a></h3>
+<p>1) 在 <code>custom-skills/&lt;skill-id&gt;/</code> 创建 <code>SKILL.md</code> + <code>references/</code><br />
+2) 更新 <code>manifest.json</code>（<code>npm run build</code>）<br />
+3) 业务项目 rerun loader</p>
+<h3 id="73-agent">7.3 新增 Agent<a class="headerlink" href="#73-agent" title="Permanent link">&para;</a></h3>
+<p>1) 在 <code>agents/&lt;agent-id&gt;/</code> 创建 <code>AGENT.md</code>（可带 prompts/templates/checklists）<br />
+2) 更新 <code>manifest.json</code><br />
+3) 业务项目 rerun loader</p>
+<h3 id="74-workflow">7.4 新增/调整 Workflow<a class="headerlink" href="#74-workflow" title="Permanent link">&para;</a></h3>
+<p>1) 修改 <code>workflows/templates/default.workflow.json</code> 或新增模板<br />
+2) 如有 schema 变更，同步 <code>workflows/schema/workflow.schema.json</code> 与 <code>contract-validator</code></p>
+<hr />
+<h2 id="8">8. 已识别的“一致性风险”（建议优先处理）<a class="headerlink" href="#8" title="Permanent link">&para;</a></h2>
+<h3 id="81">8.1 版本号多源不一致<a class="headerlink" href="#81" title="Permanent link">&para;</a></h3>
+<p>当前仓库存在多个版本来源：
+- <code>package.json</code> / <code>manifest.json</code>：<code>2.0.0</code>
+- <code>README.md</code>：<code>2.3.0</code>
+- <code>PROJECT.md</code>：<code>3.0.0</code></p>
+<p>建议：明确单一事实源（SSOT），并在构建/发布时自动同步其余文档。</p>
+<h3 id="82-tasktype">8.2 TaskType 契约与实现不一致（会影响闭环落地）<a class="headerlink" href="#82-tasktype" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>taskbooks/schema/taskbook.schema.json</code> 的 <code>taskType</code> 只允许：<code>analysis|design|test|implement|review</code></li>
+<li>但 <code>scripts/src/types/index.ts</code> 与 <code>scripts/src/task-executor.ts</code> 实际支持更多：<code>requirement|prd|refactor|build-fix|acceptance</code> 等</li>
+<li><code>workflows/templates/default.workflow.json</code> 也包含 requirement/prd/build_fix/acceptance 的 step 设计</li>
+</ul>
+<p>建议：统一 TaskType 枚举（schema / planner 输出 / executor dispatch / MCP zod schema）后，再宣称“7-step 闭环”完整可执行。</p>
+<hr />
+<h2 id="9">9. 附录：常用命令速查<a class="headerlink" href="#9" title="Permanent link">&para;</a></h2>
+<pre><code class="language-bash"># 规则/工具安装（业务项目）
+node codebuddy-loader.js --remote &lt;REMOTE_BASE_URL&gt;
+
+# 一键闭环
+node .codebuddy/scripts/task-orchestrator.js &quot;需求描述&quot; --type new-feature
+
+# 执行 workflow（遇到 review gate 需 approve）
+node .codebuddy/scripts/task-executor.js &lt;taskBookId&gt; --approve review_passed
+
+# TaskBook 管理
+node .codebuddy/scripts/taskbook-manager.js list
+node .codebuddy/scripts/taskbook-manager.js show &lt;taskBookId&gt;
+
+# 契约校验
+node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --agent-calls
+
+# 结构/模块分析
+node .codebuddy/scripts/structure-analyzer.js .
+node .codebuddy/scripts/module-mapper.js .
+</code></pre>
+  </div>
+</body>
+</html>

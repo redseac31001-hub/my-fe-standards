@@ -51,7 +51,18 @@
     },
     "taskType": {
       "type": "string",
-      "enum": ["analysis", "design", "test", "implement", "review"]
+      "enum": [
+        "requirement",
+        "prd",
+        "analysis",
+        "design",
+        "test",
+        "implement",
+        "refactor",
+        "review",
+        "build-fix",
+        "acceptance"
+      ]
     },
     "taskStatus": {
       "type": "string",

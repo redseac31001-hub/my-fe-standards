@@ -934,6 +934,35 @@ class TaskBookManager {
         if (missingScope.length > 0) {
             report.recommendations.suggested.push(`发现 ${missingScope.length} 个 pending 的实现相关任务缺少 scope.files/modules；批量预算与并行冲突检测将退化为串行。建议在规划阶段为任务补齐 scope。`);
         }
+        // T3.4: 汇总执行者分布（从任务的 executedBy 字段）
+        const executorCounts = {};
+        for (const task of taskBook.tasks) {
+            if (task.status === 'done' && task.executedBy) {
+                executorCounts[task.executedBy] = (executorCounts[task.executedBy] || 0) + 1;
+            }
+        }
+        if (Object.keys(executorCounts).length > 0) {
+            report.summary['executorDistribution'] = executorCounts;
+        }
+        // T3.4: 汇总批次完成信息（从 changelog 中提取 batch_complete 事件）
+        const batchCompleteEvents = [];
+        for (const entry of taskBook.changelog) {
+            const after = entry.after;
+            if (!isPlainObject(after))
+                continue;
+            if (after.event !== 'batch_complete')
+                continue;
+            batchCompleteEvents.push({
+                succeeded: typeof after.succeeded === 'number' ? after.succeeded : 0,
+                failed: typeof after.failed === 'number' ? after.failed : 0,
+                duration: typeof after.duration === 'number' ? after.duration : 0,
+                executors: Array.isArray(after.executors) ? after.executors.filter((v) => typeof v === 'string') : [],
+            });
+        }
+        if (batchCompleteEvents.length > 0) {
+            report.summary['batchCompleteCount'] = batchCompleteEvents.length;
+            report.summary['totalBatchDuration'] = batchCompleteEvents.reduce((s, b) => s + b.duration, 0);
+        }
         // 添加建议
         if (blockedTasks > 0) {
             report.recommendations.mustDo.push(`解决 ${blockedTasks} 个阻塞的任务`);

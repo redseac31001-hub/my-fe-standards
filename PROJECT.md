@@ -1,6 +1,6 @@
 # MY-FE-STANDARDS 项目架构图谱
 
-> 版本: 3.0.0 | 更新日期: 2026-02-07
+> 版本: 3.1.0 | 更新日期: 2026-02-27
 > 本文档记录项目的完整架构和已具备的功能能力，每完成新能力需同步更新。
 
 ---
@@ -131,10 +131,11 @@ my-fe-standards/
 │   │   ├── module-mapper.ts   # 模块图谱分析器
 │   │   ├── report-manager.ts  # 报告管理器
 │   │   ├── taskbook-manager.ts # TaskBook 管理器 (v2.2.0)
-│   │   ├── task-executor.ts   # 任务执行引擎 (v2.2.0)
-│   │   ├── simple-server.ts   # 简单服务器
+│   │   ├── task-executor.ts   # 任务执行引擎 (v2.3.0, AgentRuntime 集成)
+│   │   ├── agent-runtime.ts   # Agent 运行时 (v1.0.0, Agent 自动加载/prompt 渲染)
 │   │   └── types/             # 类型定义
 │   │       ├── index.ts
+│   │       ├── agent-runtime.ts  # AgentRuntime 类型定义
 │   │       ├── structure-analyzer.ts
 │   │       ├── module-mapper.ts
 │   │       └── reports.ts
@@ -189,7 +190,8 @@ my-fe-standards/
 | | 模块图谱分析器 | `scripts/src/module-mapper.ts` | 功能模块识别、依赖分析、业务分类 |
 | | 报告管理器 | `scripts/src/report-manager.ts` | 报告 CRUD、差异对比、趋势分析 |
 | | TaskBook 管理器 | `scripts/src/taskbook-manager.ts` | 任务书 CRUD、变更追踪、验收报告 |
-| | 任务执行引擎 | `scripts/src/task-executor.ts` | 并行任务调度、阻塞处理、状态管理 |
+| | 任务执行引擎 | `scripts/src/task-executor.ts` | 并行任务调度、AgentRuntime 集成、批次汇报 |
+| | Agent 运行时 | `scripts/src/agent-runtime.ts` | Agent 自动加载、YAML frontmatter 解析、Prompt 渲染 |
 | **Reports 项目记忆** | | | |
 | | 架构快照 | `.codebuddy/reports/architecture/` | 健康度评分、违规项、结构类型 |
 | | 模块图谱 | `.codebuddy/reports/modules/` | 模块列表、依赖图、业务分类 |
@@ -213,6 +215,7 @@ my-fe-standards/
 |----------|----------|------|------|
 | MCP analyze_project_structure | PLAN-001 | 🟢 已实现 | 结构分析 MCP 工具 |
 | MCP taskbook_* / workflow_run | PLAN-003 | 🟢 已实现 | TaskBook/Workflow MCP 工具 |
+| Agent 一拖多并行架构 | PLAN-006 | 🟢 已实现 | AgentRuntime + TaskExecutor 集成、并行调度、批次汇报 |
 
 ### ❌ 暂缓能力
 

@@ -27,9 +27,27 @@
 
 ## Agent 调用流程
 
+### 手动模式（传统）
 ```
 用户请求 → 意图识别 → 读取 AGENT.md → 执行工作流 → 生成报告
 ```
+
+### 自动模式（AgentRuntime, v1.0.0）
+```
+TaskExecutor → AgentRuntime.loadAll() → 扫描 agents/*/AGENT.md
+                                       ↓
+                        TaskItem → selectAgent(taskType)
+                                       ↓
+                        AgentRuntime.invoke() → renderPrompt()
+                                       ↓
+                        生成高质量 prompt → MANUAL_REQUIRED 协议
+                                       ↓
+                        外部 AI 工具消费 prompt → 执行任务
+```
+
+> **AgentRuntime** 自动加载所有 Agent 定义（YAML frontmatter + prompts/ 模板），
+> 根据任务类型智能匹配 Agent 并渲染上下文感知的 prompt。
+> 支持 **并行调度**（`maxParallelTasks: 2`），无冲突的任务可同时执行。
 
 ### 调用示例
 

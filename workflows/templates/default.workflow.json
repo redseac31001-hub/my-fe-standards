@@ -11,7 +11,10 @@
       "description": "Clarify requirements through structured Q&A and generate PRD with user stories and acceptance criteria.",
       "skipWhen": "no_tasks_of_type:requirement,prd",
       "toolHints": {
-        "recommended": ["skill:prd", "human"]
+        "recommended": [
+          "skill:prd",
+          "human"
+        ]
       },
       "outputs": {
         "prd": ".codebuddy/docs/prd-*.md"
@@ -24,10 +27,16 @@
       "description": "Generate architecture/module reports to support planning and impact analysis.",
       "skipWhen": "no_tasks_of_type:analysis",
       "toolHints": {
-        "recommended": ["script:structure-analyzer", "script:module-mapper"]
+        "recommended": [
+          "script:structure-analyzer",
+          "script:module-mapper"
+        ]
       },
       "outputs": {
-        "reports": [".codebuddy/reports/architecture/latest.json", ".codebuddy/reports/modules/latest.json"]
+        "reports": [
+          ".codebuddy/reports/architecture/latest.json",
+          ".codebuddy/reports/modules/latest.json"
+        ]
       }
     },
     {
@@ -36,7 +45,10 @@
       "title": "Create TaskBook (tasks + acceptance criteria)",
       "description": "Break requirements into executable tasks with dependencies and acceptance criteria. Technical design is embedded in task decomposition.",
       "toolHints": {
-        "recommended": ["agent:planner", "script:taskbook-manager"]
+        "recommended": [
+          "agent:planner",
+          "script:taskbook-manager"
+        ]
       },
       "outputs": {
         "taskbook": ".codebuddy/taskbooks/active/tb-*.json"
@@ -47,9 +59,16 @@
       "type": "tdd_implement",
       "title": "Test-first implementation (TDD batched)",
       "description": "Execute tasks using TDD cycle (RED->GREEN->REFACTOR) in batches controlled by policies.testing.batching; run smoke gates between batches.",
-      "gates": ["contracts_valid", "smoke_passed"],
+      "gates": [
+        "contracts_valid",
+        "smoke_passed"
+      ],
       "toolHints": {
-        "recommended": ["agent:tdd-driver", "agent:task-orchestrator", "human"]
+        "recommended": [
+          "agent:tdd-driver",
+          "agent:task-orchestrator",
+          "human"
+        ]
       }
     },
     {
@@ -57,9 +76,16 @@
       "type": "code_review",
       "title": "Code review gate",
       "description": "Perform code review (and optionally security/performance review).",
-      "gates": ["review_passed"],
+      "gates": [
+        "review_passed"
+      ],
       "toolHints": {
-        "recommended": ["agent:code-reviewer", "agent:security-reviewer", "agent:performance-profiler", "human"]
+        "recommended": [
+          "agent:code-reviewer",
+          "agent:security-reviewer",
+          "agent:performance-profiler",
+          "human"
+        ]
       }
     },
     {
@@ -67,9 +93,18 @@
       "type": "build_and_fix",
       "title": "Build verification & auto-fix",
       "description": "Run full build/typecheck/lint pipeline. On failure, auto-diagnose and fix errors up to 3 rounds.",
-      "gates": ["contracts_valid", "lint_passed", "typecheck_passed", "full_passed"],
+      "gates": [
+        "contracts_valid",
+        "lint_passed",
+        "typecheck_passed",
+        "full_passed"
+      ],
       "toolHints": {
-        "recommended": ["agent:build-fix", "shell:npm run build", "shell:npm test"]
+        "recommended": [
+          "agent:build-fix",
+          "shell:npm run build",
+          "shell:npm test"
+        ]
       }
     },
     {
@@ -78,17 +113,38 @@
       "title": "Acceptance & Archive",
       "description": "Generate acceptance report and archive TaskBook to history.",
       "toolHints": {
-        "recommended": ["script:taskbook-manager", "human"]
+        "recommended": [
+          "script:taskbook-manager",
+          "human"
+        ]
       }
     }
   ],
   "edges": [
-    { "from": "requirement_prd", "to": "analyze" },
-    { "from": "analyze", "to": "plan" },
-    { "from": "plan", "to": "tdd_implement" },
-    { "from": "tdd_implement", "to": "review" },
-    { "from": "review", "to": "build_fix" },
-    { "from": "build_fix", "to": "acceptance" }
+    {
+      "from": "requirement_prd",
+      "to": "analyze"
+    },
+    {
+      "from": "analyze",
+      "to": "plan"
+    },
+    {
+      "from": "plan",
+      "to": "tdd_implement"
+    },
+    {
+      "from": "tdd_implement",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "to": "build_fix"
+    },
+    {
+      "from": "build_fix",
+      "to": "acceptance"
+    }
   ],
   "gates": [
     {
@@ -97,7 +153,9 @@
       "title": "Contracts (TaskBook/Workflow) validated",
       "required": true,
       "params": {
-        "commands": ["node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --check-batching-scope"]
+        "commands": [
+          "node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --check-batching-scope"
+        ]
       }
     },
     {
@@ -107,7 +165,9 @@
       "required": true,
       "params": {
         "budgetMinutes": 5,
-        "commands": ["npm test"]
+        "commands": [
+          "npm test"
+        ]
       }
     },
     {
@@ -117,7 +177,9 @@
       "required": false,
       "params": {
         "budgetMinutes": 5,
-        "npmScripts": ["lint"]
+        "npmScripts": [
+          "lint"
+        ]
       }
     },
     {
@@ -127,7 +189,9 @@
       "required": false,
       "params": {
         "budgetMinutes": 10,
-        "npmScripts": ["typecheck"]
+        "npmScripts": [
+          "typecheck"
+        ]
       }
     },
     {
@@ -137,7 +201,9 @@
       "required": false,
       "params": {
         "budgetMinutes": 10,
-        "npmScripts": ["security"]
+        "npmScripts": [
+          "security"
+        ]
       }
     },
     {
@@ -147,17 +213,25 @@
       "required": false,
       "params": {
         "budgetMinutes": 15,
-        "npmScripts": ["perf"]
+        "npmScripts": [
+          "perf"
+        ]
       }
     },
     {
       "id": "full_passed",
       "type": "checks",
-      "title": "Full tests/build passed",
+      "title": "Full build passed (npm run build as hard gate)",
       "required": true,
       "params": {
         "budgetMinutes": 20,
-        "commands": ["npm test", "npm run build"]
+        "commands": [
+          "npm run build"
+        ],
+        "npmScripts": [
+          "test"
+        ],
+        "failIfMissing": false
       }
     },
     {
@@ -166,13 +240,17 @@
       "title": "Review passed",
       "required": true,
       "params": {
-        "checklist": ["self-verification", "defensive-coding", "clean-code"]
+        "checklist": [
+          "self-verification",
+          "defensive-coding",
+          "clean-code"
+        ]
       }
     }
   ],
   "policies": {
     "concurrency": {
-      "maxParallelTasks": 1,
+      "maxParallelTasks": 2,
       "conflictStrategy": "deny_same_file_set"
     },
     "blocking": {
@@ -180,15 +258,34 @@
       "requiresHumanToUnblock": true
     },
     "testing": {
-      "budgetsMinutes": { "smoke": 5, "full": 20 },
+      "budgetsMinutes": {
+        "smoke": 5,
+        "full": 20
+      },
       "batching": {
         "strategy": "risk_tiered",
         "riskTiers": {
-          "high": { "maxFiles": 3, "maxChangedLines": 200, "smokeEveryBatches": 1 },
-          "medium": { "maxFiles": 10, "maxChangedLines": 800, "smokeEveryBatches": 1 },
-          "low": { "maxFiles": 25, "maxChangedLines": 2000, "smokeEveryBatches": 2 }
+          "high": {
+            "maxFiles": 3,
+            "maxChangedLines": 200,
+            "smokeEveryBatches": 1
+          },
+          "medium": {
+            "maxFiles": 10,
+            "maxChangedLines": 800,
+            "smokeEveryBatches": 1
+          },
+          "low": {
+            "maxFiles": 25,
+            "maxChangedLines": 2000,
+            "smokeEveryBatches": 2
+          }
         },
-        "autoTune": { "stableBatches": 3, "increaseFactor": 1.5, "decreaseFactor": 0.5 }
+        "autoTune": {
+          "stableBatches": 3,
+          "increaseFactor": 1.5,
+          "decreaseFactor": 0.5
+        }
       }
     },
     "buildFix": {

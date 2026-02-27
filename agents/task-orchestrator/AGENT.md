@@ -1,3 +1,24 @@
+---
+name: task-orchestrator
+version: 2.0.0
+description: 端到端计划任务编排器，支持需求分解→执行→验收全流程
+triggers:
+  - "规划任务"
+  - "创建计划"
+  - "帮我规划"
+  - "plan task"
+  - "create plan"
+  - "/task"
+permissions:
+  tools:
+    - read_file
+    - write_file
+    - edit_file
+    - grep_search
+    - list_directory
+    - run_terminal_command
+---
+
 # Task Orchestrator Agent
 
 ## 元数据

@@ -175,8 +175,11 @@ class TaskExecutor {
     constructor(manager, config = {}) {
         this.isRunning = false;
         this.isPaused = false;
+        /** AgentRuntime 渲染的最后一个 prompt（用于注入 .prompt.md） */
+        this.lastRenderedPrompt = null;
         this.manager = manager;
         this.config = { ...DEFAULT_CONFIG, ...config };
+        this.runtime = config.runtime || null;
     }
     /**
      * 开始执行 TaskBook（兼容旧行为：任务完成后自动标记 TaskBook 为 completed）
@@ -274,6 +277,27 @@ class TaskExecutor {
             }
             console.log(`[TaskExecutor] 并行执行 ${tasksToExecute.length} 个任务`);
             const results = await Promise.all(tasksToExecute.map(task => this.executeTask(taskBookId, task)));
+            // T3.1: 批次完成汇报
+            const succeeded = results.filter(r => r.success).length;
+            const failed = results.filter(r => !r.success).length;
+            const batchDuration = results.reduce((sum, r) => sum + (r.duration || 0), 0);
+            const executors = results
+                .map(r => {
+                const task = current.tasks.find(t => t.id === r.taskId);
+                return task ? selectManualAgentId(task) : 'unknown';
+            })
+                .filter((v, i, a) => a.indexOf(v) === i); // 去重
+            // T3.3: 进度视图
+            const latestTb = this.manager.load(taskBookId);
+            if (latestTb) {
+                const done = latestTb.tasks.filter(t => t.status === 'done' || t.status === 'skipped').length;
+                const inProgress = latestTb.tasks.filter(t => t.status === 'in_progress').length;
+                const blocked = latestTb.tasks.filter(t => t.status === 'blocked').length;
+                const pending = latestTb.tasks.filter(t => t.status === 'pending').length;
+                console.log(`[进度] ✅ ${done}/${latestTb.tasks.length} 完成 | 🔄 ${inProgress} 进行中 | 🚫 ${blocked} 阻塞 | ⏳ ${pending} 待执行`);
+            }
+            // 写入 changelog
+            this.manager.logChange(taskBookId, null, 'modified', `批次完成: ${succeeded}/${results.length} 成功, ${failed} 失败/阻塞, 耗时 ${batchDuration}ms`, undefined, { event: 'batch_complete', succeeded, failed, duration: batchDuration, executors });
             for (const result of results) {
                 if (!result.success && result.error) {
                     console.log(`[TaskExecutor] 任务 ${result.taskId} 执行失败: ${result.error}`);
@@ -295,8 +319,16 @@ class TaskExecutor {
         try {
             // 根据任务类型调用不同的执行逻辑
             const actualWork = await this.dispatchTask(task);
-            // 更新任务状态为完成
+            // 记录执行者（如果通过 AgentRuntime 执行）
+            const executedBy = selectManualAgentId(task);
             this.manager.updateTaskStatus(taskBookId, task.id, 'done', actualWork);
+            // 更新 executedBy 字段
+            try {
+                this.manager.updateTask(taskBookId, task.id, { executedBy });
+            }
+            catch (_g) {
+                // updateTask 可能不支持 executedBy，忽略
+            }
             const result = {
                 taskId: task.id,
                 success: true,
@@ -304,7 +336,7 @@ class TaskExecutor {
                 duration: Date.now() - startTime,
             };
             (_d = (_c = this.config).onTaskComplete) === null || _d === void 0 ? void 0 : _d.call(_c, task, result);
-            console.log(`[TaskExecutor] 任务完成: ${task.title}`);
+            console.log(`[TaskExecutor] 任务完成: ${task.title} (by ${executedBy})`);
             return result;
         }
         catch (error) {
@@ -320,6 +352,8 @@ class TaskExecutor {
                         const msg = e instanceof Error ? e.message : String(e);
                         blockedReason = `${errorMessage}\n(agent-call init failed: ${msg})`;
                     }
+                    // 清除缓存的 renderedPrompt
+                    this.lastRenderedPrompt = null;
                 }
                 // 标记为阻塞，等待用户介入
                 this.manager.updateTaskStatus(taskBookId, task.id, 'blocked', undefined, blockedReason);
@@ -375,6 +409,8 @@ class TaskExecutor {
         const agentDefMissingNote = !agentDef
             ? `\n\n[agent-call] agent definition missing: expected .codebuddy/agents/${agentId}/AGENT.md (or agents/${agentId}/AGENT.md).`
             : '';
+        // 获取 AgentRuntime 渲染的 prompt（如果可用）
+        const runtimePrompt = this.lastRenderedPrompt;
         if (!fs.existsSync(promptAbsPath)) {
             const tb = this.manager.load(taskBookId);
             if (!tb)
@@ -389,6 +425,7 @@ class TaskExecutor {
                 agentDefinition: (_b = agentDef === null || agentDef === void 0 ? void 0 : agentDef.content) !== null && _b !== void 0 ? _b : null,
                 promptPath: meta.promptPath,
                 resultPath: meta.resultPath,
+                runtimePrompt: runtimePrompt !== null && runtimePrompt !== void 0 ? runtimePrompt : undefined,
             });
             fs.writeFileSync(promptAbsPath, prompt, 'utf-8');
             // Record creation in TaskBook changelog for auditability.
@@ -474,11 +511,46 @@ class TaskExecutor {
     }
     /**
      * 分发任务到对应的 Agent
+     *
+     * 优先级：
+     * 1. analysis 类型 → 直接执行脚本（structure-analyzer / module-mapper）
+     * 2. 其他类型且 AgentRuntime 可用 → 通过 AgentRuntime 渲染 prompt
+     * 3. AgentRuntime 不可用或返回 needs_human → 降级到 MANUAL_REQUIRED 文件协议
      */
     async dispatchTask(task) {
+        // analysis 类型始终直接执行脚本
+        if (task.type === 'analysis') {
+            return this.executeAnalysisTask(task);
+        }
+        // acceptance 类型始终需要人工确认
+        if (task.type === 'acceptance') {
+            return this.executeAcceptanceTask(task);
+        }
+        // 尝试通过 AgentRuntime 调用
+        if (this.runtime) {
+            const agentId = selectManualAgentId(task);
+            const agent = this.runtime.getAgent(agentId);
+            if (agent) {
+                const context = this.buildAgentContext(task);
+                const result = this.runtime.invoke({ agentId, context });
+                if (result.status === 'done' && result.renderedPrompt) {
+                    // AgentRuntime 成功渲染了高质量的 prompt，缓存到实例变量供 prompt.md 使用
+                    this.lastRenderedPrompt = result.renderedPrompt;
+                    console.log(`[TaskExecutor] AgentRuntime: ${agentId} 已渲染 prompt (${result.renderedPrompt.length} 字符)，等待外部执行`);
+                    throw new Error(`MANUAL_REQUIRED: AgentRuntime 已为 ${agentId} 准备好执行 prompt，需要外部 AI 工具执行`);
+                }
+                if (result.status === 'needs_human') {
+                    console.log(`[TaskExecutor] AgentRuntime: ${agentId} 需要人工介入，降级到 MANUAL_REQUIRED`);
+                    throw new Error(`MANUAL_REQUIRED: ${result.humanReason || '需要人工执行'}`);
+                }
+                if (result.status === 'error') {
+                    console.log(`[TaskExecutor] AgentRuntime: ${agentId} 执行出错，降级到 MANUAL_REQUIRED`);
+                    throw new Error(`MANUAL_REQUIRED: AgentRuntime 错误 - ${result.error}`);
+                }
+            }
+        }
+        // 降级路径：保留原有的 MANUAL_REQUIRED 行为
         switch (task.type) {
-            case 'analysis':
-                return this.executeAnalysisTask(task);
             case 'design':
                 return this.executeDesignTask(task);
             case 'test':
@@ -494,11 +566,65 @@ class TaskExecutor {
             case 'requirement':
             case 'prd':
                 return this.executePlanningTask(task);
-            case 'acceptance':
-                return this.executeAcceptanceTask(task);
             default:
                 throw new Error(`未知的任务类型: ${task.type}`);
         }
+    }
+    /**
+     * 构建 Agent 执行上下文
+     */
+    buildAgentContext(task) {
+        var _a;
+        const taskSnapshot = {
+            id: task.id,
+            title: task.title,
+            type: task.type,
+            description: task.actualWork || '',
+            priority: task.priority,
+            acceptanceCriteria: task.acceptanceCriteria || [],
+            scope: task.scope,
+        };
+        const context = {
+            taskBookId: '', // 由 executeTask 调用方传入，此处暂置空
+            task: taskSnapshot,
+            projectRoot: process.cwd(),
+        };
+        // 读取项目报告（如存在）
+        const archReport = path.join(process.cwd(), '.codebuddy/reports/architecture/latest.json');
+        const modulesReport = path.join(process.cwd(), '.codebuddy/reports/modules/latest.json');
+        if (fs.existsSync(archReport) || fs.existsSync(modulesReport)) {
+            context.reports = {};
+            try {
+                if (fs.existsSync(archReport)) {
+                    context.reports.architecture = JSON.parse(fs.readFileSync(archReport, 'utf-8'));
+                }
+                if (fs.existsSync(modulesReport)) {
+                    context.reports.modules = JSON.parse(fs.readFileSync(modulesReport, 'utf-8'));
+                }
+            }
+            catch (_b) {
+                // 报告解析失败不阻塞任务
+            }
+        }
+        // 读取 scope 中指定的文件内容
+        if (((_a = task.scope) === null || _a === void 0 ? void 0 : _a.files) && task.scope.files.length > 0) {
+            context.relatedFiles = [];
+            for (const filePath of task.scope.files.slice(0, 10)) { // 最多 10 个文件，避免上下文过大
+                const absPath = path.resolve(process.cwd(), filePath);
+                if (fs.existsSync(absPath)) {
+                    try {
+                        const content = fs.readFileSync(absPath, 'utf-8');
+                        if (content.length <= 50000) { // 单文件不超过 50KB
+                            context.relatedFiles.push({ path: filePath, content });
+                        }
+                    }
+                    catch (_c) {
+                        // 读取失败不阻塞
+                    }
+                }
+            }
+        }
+        return context;
     }
     /**
      * 执行分析任务
@@ -1212,6 +1338,20 @@ function buildManualTaskPrompt(args) {
             }
             return [];
         })(),
+        // AgentRuntime 渲染的高质量 prompt（如果可用）
+        ...(() => {
+            if (!args.runtimePrompt)
+                return [];
+            return [
+                '## AgentRuntime Rendered Prompt',
+                '',
+                '> 以下是 AgentRuntime 基于 Agent 定义和任务上下文自动渲染的执行 prompt。',
+                '> AI 工具应优先参考此 prompt 执行任务，它包含了完整的上下文和指令。',
+                '',
+                args.runtimePrompt.trimEnd(),
+                '',
+            ];
+        })(),
         '## Reason (why this was blocked)',
         '```text',
         args.manualReason.trimEnd(),
@@ -1632,7 +1772,7 @@ async function runWorkflow(taskBookId, options) {
     // 开始执行
     manager.updateStatus(taskBookId, 'executing');
     manager.logChange(taskBookId, null, 'modified', `开始执行 workflow: ${spec.id}@${spec.version}`, { workflowPath }, { workflowId: spec.id });
-    const executor = new TaskExecutor(manager, { maxParallel });
+    const executor = new TaskExecutor(manager, { maxParallel, runtime: createDefaultRuntime() });
     const buildFixPolicy = getPolicyBuildFix(spec);
     let buildFixRetryCount = 0;
     let stepIdx = 0;
@@ -1904,6 +2044,37 @@ async function runWorkflow(taskBookId, options) {
     }
     return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
 }
+/**
+ * 创建默认的 AgentRuntime 实例
+ * 优先使用 .codebuddy/agents/，其次使用 agents/（规则库内置）
+ */
+function createDefaultRuntime() {
+    const cwd = process.cwd();
+    const localAgentsDir = path.join(cwd, '.codebuddy/agents');
+    const builtinAgentsDir = path.join(cwd, 'agents');
+    // 检测是否存在 Agent 定义目录
+    const hasLocal = fs.existsSync(localAgentsDir);
+    const hasBuiltin = fs.existsSync(builtinAgentsDir);
+    if (!hasLocal && !hasBuiltin) {
+        return undefined;
+    }
+    try {
+        const { createAgentRuntime } = require('./agent-runtime');
+        const runtime = createAgentRuntime({
+            projectRoot: cwd,
+            agentsDir: hasLocal ? '.codebuddy/agents' : 'agents',
+            fallbackAgentsDir: hasLocal && hasBuiltin ? 'agents' : undefined,
+            verbose: false,
+        });
+        runtime.loadAll();
+        return runtime;
+    }
+    catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.log(`[TaskExecutor] AgentRuntime 初始化跳过: ${msg}`);
+        return undefined;
+    }
+}
 function parseCliArgs(args) {
     const parsed = {
         help: false,
@@ -1951,7 +2122,7 @@ async function main() {
     }
     if (parsed.tasksOnly) {
         const manager = new taskbook_manager_1.TaskBookManager(process.cwd());
-        const executor = new TaskExecutor(manager, { maxParallel: (_a = parsed.maxParallel) !== null && _a !== void 0 ? _a : DEFAULT_CONFIG.maxParallel });
+        const executor = new TaskExecutor(manager, { maxParallel: (_a = parsed.maxParallel) !== null && _a !== void 0 ? _a : DEFAULT_CONFIG.maxParallel, runtime: createDefaultRuntime() });
         const result = await executor.executeTasks(parsed.taskBookId, { maxParallel: parsed.maxParallel });
         if (result.status === 'completed') {
             manager.updateStatus(parsed.taskBookId, 'completed');
