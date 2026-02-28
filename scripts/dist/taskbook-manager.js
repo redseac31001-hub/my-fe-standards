@@ -1040,6 +1040,31 @@ class TaskBookManager {
         lines.push('╚══════════════════════════════════════════════════════════════╝');
         return lines.join('\n');
     }
+    /**
+     * 持久化 FinalReport 到 TaskBook
+     *
+     * 将 Phase 7 汇总报告写入 TaskBook.finalReport 字段，
+     * 同时将报告写入 .codebuddy/reports/final-{taskBookId}.json 方便外部工具读取。
+     *
+     * 使用文件锁保证 load → save 的原子性，防止并发写入导致数据丢失。
+     */
+    saveFinalReport(taskBookId, report) {
+        this.withTaskBookLock(taskBookId, () => {
+            const taskBook = this.load(taskBookId);
+            if (!taskBook)
+                throw new Error(`TaskBook not found: ${taskBookId}`);
+            const updated = { ...taskBook, finalReport: report };
+            this.touch(updated);
+            this.save(updated);
+        });
+        // 独立报告文件写入在锁外执行：不涉及 TaskBook 状态，失败不影响主流程
+        const reportsDir = path.join(this.baseDir, '.codebuddy', 'reports');
+        if (!fs.existsSync(reportsDir)) {
+            fs.mkdirSync(reportsDir, { recursive: true });
+        }
+        const reportPath = path.join(reportsDir, `final-${taskBookId}.json`);
+        fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8');
+    }
 }
 exports.TaskBookManager = TaskBookManager;
 // 导出单例

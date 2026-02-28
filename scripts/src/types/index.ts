@@ -369,6 +369,40 @@ export interface TaskBookContext {
 }
 
 /**
+ * 单个子 Agent 的执行结果摘要
+ */
+export interface AgentResultSummary {
+  requestId: string;
+  agentId: string;
+  taskId: string;
+  taskTitle: string;
+  taskType: TaskType;
+  status: 'success' | 'failed' | 'blocked';
+  actualWork?: string;
+  artifacts?: Array<{ type: string; path: string }>;
+  completedAt?: string;
+  error?: string;
+}
+
+/**
+ * 主 Agent 汇总报告（Phase 7 生成）
+ */
+export interface FinalReport {
+  generatedAt: string;
+  taskBookId: string;
+  executionSummary: string;
+  agentResults: AgentResultSummary[];
+  issueList: string[];
+  nextSteps: string[];
+  stats: {
+    totalAgentCalls: number;
+    successCount: number;
+    failedCount: number;
+    blockedCount: number;
+  };
+}
+
+/**
  * 完整的 TaskBook 结构
  */
 export interface TaskBook {
@@ -386,6 +420,8 @@ export interface TaskBook {
   tasks: TaskItem[];
   changelog: ChangeEntry[];
   meta?: Record<string, unknown>;
+  /** Phase 7 汇总报告（由 result-aggregator 生成） */
+  finalReport?: FinalReport;
 }
 
 /**

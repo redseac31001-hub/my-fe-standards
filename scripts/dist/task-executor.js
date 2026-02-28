@@ -46,6 +46,7 @@ const child_process_1 = require("child_process");
 const crypto_1 = require("crypto");
 const taskbook_manager_1 = require("./taskbook-manager");
 const context_collector_1 = require("./context-collector");
+const result_aggregator_1 = require("./result-aggregator");
 /**
  * 默认配置
  */
@@ -190,7 +191,16 @@ class TaskExecutor {
         if (!result.taskBook)
             return null;
         if (result.status === 'completed') {
+            // 先归档到 history/，再汇总——确保 saveFinalReport 读写同一目录（history/）
             this.manager.updateStatus(taskBookId, 'completed');
+            // Phase 7：汇总所有子 Agent 结果，生成 FinalReport（在归档后执行）
+            try {
+                (0, result_aggregator_1.aggregateAndPersist)(this.manager, taskBookId);
+            }
+            catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`[TaskExecutor] FinalReport 生成失败（不影响完成状态）：${msg}`);
+            }
             (_b = (_a = this.config).onAllComplete) === null || _b === void 0 ? void 0 : _b.call(_a, result.taskBook);
         }
         return this.manager.load(taskBookId);

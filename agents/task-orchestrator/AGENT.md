@@ -76,15 +76,28 @@ model: opus
 
 ### Phase 1: 意图识别 (Intent Recognition)
 
-**目标**: 解析用户输入，确定任务类型和范围
+**目标**: 解析用户输入，确定任务类型和范围，同时自动注入业务系统上下文
 
 **执行步骤**:
 1. 分析用户输入的关键词和上下文
 2. 识别任务类型：`new-feature` | `refactoring` | `debugging` | `testing` | `code-review`
 3. 提取核心需求描述
-4. 初始化 TaskBook 草稿
+4. **自动注入业务系统上下文**（执行以下步骤）：
+   - 读取 `manifest.json` 获取项目技术栈（框架、版本、依赖）
+   - 调用 Structure Analyzer 生成架构快照（模块列表、主要模式）
+   - 读取 `package.json` 识别测试框架和构建工具
+   - 扫描 `.codebuddy/reports/` 获取最近一次健康度报告（如存在）
+5. 初始化 TaskBook 草稿，将上下文注入 `TaskBook.context`
 
-**输出**: TaskBook 草稿 (status: draft)
+**上下文注入工具调用**:
+```
+Read: manifest.json
+Read: package.json
+Task(structure-analyzer): 获取架构快照（moduleSummary + entryPoints）
+Glob: .codebuddy/reports/*.json  （读取最新健康度报告）
+```
+
+**输出**: TaskBook 草稿 (status: draft)，context 已注入技术栈和架构快照
 
 ---
 
@@ -234,22 +247,57 @@ pending → in_progress → done
 
 ### Phase 7: 验收闭环 (Acceptance & Closure)
 
-**目标**: 确保所有任务完成并获得用户验收
+**目标**: 汇总所有子 Agent 执行结果，生成完整摘要，并获得用户验收
 
 **执行步骤**:
-1. 检查所有任务状态
-2. 运行测试验证（如适用）
-3. 生成验收报告
-4. 请求用户最终验收
-5. 归档 TaskBook 到 `.codebuddy/taskbooks/history/`
+1. 检查所有任务状态（done / blocked / skipped 统计）
+2. **调用 Result Aggregator 汇总子 Agent 结果**：
+   - 扫描 TaskBook changelog 中的所有 `agent-call` 事件
+   - 读取每个 `agent-calls/{requestId}.result.json`
+   - 合并生成 `FinalReport`（agentResults + issueList + stats）
+   - 将 FinalReport 持久化到 TaskBook.finalReport 和 `.codebuddy/reports/final-{taskBookId}.json`
+3. **加载 Phase7 汇总 Prompt 生成叙述性摘要**：
+   - 使用 `prompts/phase7-summary.md` 模板
+   - 将 FinalReport 数据注入模板变量
+   - 生成包含：执行摘要 + 子 Agent 详情 + 遗留问题 + 下一步建议 + 整体评分 的报告
+4. 运行可用的测试验证（如 `npm test` 存在）
+5. 展示完整验收报告，请求用户验收
+6. 根据用户决定归档 TaskBook 到 `.codebuddy/taskbooks/history/`
 
-**验收报告内容**:
-- 任务完成统计
-- 变更日志摘要
-- 测试结果
-- 后续建议
+**Result Aggregator 调用方式**:
+```typescript
+// 在 TaskExecutor.execute() 完成阶段：
+import { aggregateAndPersist } from './result-aggregator';
+const finalReport = aggregateAndPersist(manager, taskBookId);
+```
 
-**输出**: TaskBook.status 更新为 completed，记录 completedAt
+**验收报告展示结构**:
+```
+# Phase 7 执行摘要 - {TaskBook 标题}
+
+## 执行概况
+{叙述性摘要，2-4段}
+
+## 子 Agent 执行详情
+{Agent 执行结果表格}
+
+## 遗留问题
+{按 CRITICAL/HIGH/MEDIUM/LOW 分级}
+
+## 下一步行动建议
+{具体可操作的后续步骤}
+
+## 验收建议
+整体评分: {0-100} / 100
+建议: {通过验收 | 待修复后验收 | 需重新执行}
+```
+
+**用户选项**:
+- ✅ 验收通过 → TaskBook 归档为 completed
+- 🔁 需要修复 → 记录遗留问题，保留 TaskBook 为 executing
+- ❌ 驳回 → 重新规划，TaskBook 回退到 confirmed
+
+**输出**: TaskBook.status 更新为 completed，finalReport 持久化，记录 completedAt
 
 ---
 
@@ -270,14 +318,17 @@ pending → in_progress → done
 
 ## Agent 协作矩阵
 
-| 阶段 | 调用 Agent | 职责 |
+| 阶段 | 调用 Agent / 模块 | 职责 |
 |------|-----------|------|
-| Phase 2 | structure-analyzer | 获取项目架构图谱 |
+| Phase 1 | structure-analyzer | 注入业务系统架构快照（moduleSummary） |
+| Phase 2 | structure-analyzer | 获取项目架构图谱（完整扫描） |
 | Phase 3 | planner | 生成实施计划 |
 | Phase 5 | tdd-driver | 测试先行实现（RED→GREEN→REFACTOR） |
 | Phase 5 | code-reviewer | 代码质量审查 |
 | Phase 5 | build-fix | 构建验证与自动修复 |
 | Phase 5 | security-reviewer | 安全审查（按需） |
+| Phase 7 | result-aggregator | 汇总所有子 Agent 结果，生成 FinalReport |
+| Phase 7 | phase7-summary prompt | 生成叙述性执行摘要 + 下一步建议 |
 
 ---
 

@@ -20,6 +20,7 @@ import { TaskBookManager } from './taskbook-manager';
 import { collectContext, formatContextAsMarkdown } from './context-collector';
 import { AgentRuntime } from './agent-runtime';
 import { AgentContext, AgentTaskSnapshot } from './types/agent-runtime';
+import { aggregateAndPersist } from './result-aggregator';
 
 interface ExecuteTasksOptions {
   allowedTaskTypes?: Array<TaskItem['type']>;
@@ -245,7 +246,17 @@ export class TaskExecutor {
     if (!result.taskBook) return null;
 
     if (result.status === 'completed') {
+      // 先归档到 history/，再汇总——确保 saveFinalReport 读写同一目录（history/）
       this.manager.updateStatus(taskBookId, 'completed');
+
+      // Phase 7：汇总所有子 Agent 结果，生成 FinalReport（在归档后执行）
+      try {
+        aggregateAndPersist(this.manager, taskBookId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[TaskExecutor] FinalReport 生成失败（不影响完成状态）：${msg}`);
+      }
+
       this.config.onAllComplete?.(result.taskBook);
     }
 

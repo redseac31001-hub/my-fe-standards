@@ -5,7 +5,11 @@
       "Bash(npm run build:scripts)",
       "Bash(npm run build:manifest)",
       "Bash(node:*)",
-      "Bash(npm run build)"
+      "Bash(npm run build)",
+      "WebSearch",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(dir:*)"
     ],
     "additionalDirectories": [
       "E:\\mygit\\ralph\\"
