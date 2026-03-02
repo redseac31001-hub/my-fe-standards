@@ -10,7 +10,8 @@
       "Bash(ls:*)",
       "Bash(wc:*)",
       "Bash(dir:*)",
-      "Bash(powershell -Command \"& ''e:\\\\mygit\\\\system-notify\\\\notify.ps1'' ''Claude'' ''A路线完善+B路线精简为可选模式-全部完成''\")"
+      "Bash(powershell -Command \"& ''e:\\\\mygit\\\\system-notify\\\\notify.ps1'' ''Claude'' ''A路线完善+B路线精简为可选模式-全部完成''\")",
+      "Bash(powershell -Command \"& ''e:\\\\mygit\\\\system-notify\\\\notify.ps1'' ''Claude'' ''Agent/Skill 体系补全任务完成''\")"
     ],
     "additionalDirectories": [
       "E:\\mygit\\ralph\\"

@@ -25,6 +25,35 @@ dependencies:
     - defensive-coding
 ---
 
+## 元数据
+
+```yaml
+name: code-reviewer
+description: 代码审查 Agent，按 clean-code 规则和项目规范进行结构化代码审查
+version: 1.0.0
+triggers:
+  explicit:
+    - "代码审查"
+    - "code review"
+    - "审查代码"
+    - "review code"
+    - "CR"
+    - "代码质量"
+  implicit:
+    - pattern: "帮我审查.*代码"
+      confidence: 0.95
+    - pattern: "看看这段代码"
+      confidence: 0.85
+    - pattern: "这段代码.*有问题吗"
+      confidence: 0.85
+    - pattern: "代码写得.*怎么样"
+      confidence: 0.8
+    - pattern: "检查.*代码质量"
+      confidence: 0.9
+    - pattern: "review.*一下"
+      confidence: 0.85
+```
+
 # Code Reviewer Agent
 
 代码审查专用 Agent，按 clean-code 规则和项目规范对变更代码进行结构化审查。

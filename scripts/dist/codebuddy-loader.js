@@ -261,125 +261,78 @@ function filterRuleByLevel(content, level) {
     }
     return picked.join('').trimEnd() + '\n';
 }
-// ============ 技能系统 ============
-async function loadSkills(ctx, logger, skillsPath) {
-    const skills = [];
-    const localSkillsDir = path.join(process.cwd(), '.codebuddy/skills');
-    // 确保目录存在
-    if (!fs.existsSync(localSkillsDir)) {
-        fs.mkdirSync(localSkillsDir, { recursive: true });
+async function loadEntities(ctx, logger, sourcePath, options) {
+    const entities = [];
+    const localDir = path.join(process.cwd(), options.targetSubDir);
+    if (!fs.existsSync(localDir)) {
+        fs.mkdirSync(localDir, { recursive: true });
     }
     if (ctx.isRemote) {
-        // 远程模式：从 manifest 获取 skill 文件列表并下载
-        const skillFiles = ctx.remoteManifest.files.filter(f => f.path.startsWith('custom-skills/') && f.path.endsWith('.md'));
-        for (const file of skillFiles) {
+        const files = ctx.remoteManifest.files.filter(f => f.path.startsWith(options.manifestPrefix) && f.path.endsWith('.md'));
+        for (const file of files) {
             const fileUrl = `${ctx.remoteBaseUrl}/${file.path}`;
             try {
                 const content = await (0, fetcher_1.fetchUrl)(ctx, logger, fileUrl);
-                // 计算本地路径：custom-skills/xxx/yyy.md -> xxx/yyy.md
-                const relativePath = file.path.replace('custom-skills/', '');
-                const localPath = path.join(localSkillsDir, relativePath);
-                const localDir = path.dirname(localPath);
-                if (!fs.existsSync(localDir)) {
-                    fs.mkdirSync(localDir, { recursive: true });
+                const relativePath = file.path.replace(options.manifestPrefix, '');
+                const localPath = path.join(localDir, relativePath);
+                const localDirPath = path.dirname(localPath);
+                if (!fs.existsSync(localDirPath)) {
+                    fs.mkdirSync(localDirPath, { recursive: true });
                 }
                 fs.writeFileSync(localPath, content, 'utf-8');
-                logger.verbose(`已下载技能文件: ${relativePath}`);
-                // 解析 SKILL.md 元数据
-                if (file.path.endsWith('SKILL.md')) {
-                    const skillId = relativePath.split('/')[0];
-                    const metadata = (0, metadata_parser_1.parseSkillMetadata)(skillId, content);
+                logger.verbose(`已下载${options.label}文件: ${relativePath}`);
+                if (file.path.endsWith(options.metadataFileName)) {
+                    const entityId = relativePath.split('/')[0];
+                    const metadata = options.parseMetadata(entityId, content);
                     if (metadata)
-                        skills.push(metadata);
+                        entities.push(metadata);
                 }
             }
             catch (e) {
-                logger.warn(`技能文件下载失败: ${file.path} - ${e.message}`);
+                logger.warn(`${options.label}文件下载失败: ${file.path} - ${e.message}`);
             }
         }
     }
     else {
-        // 本地模式：复制技能文件
-        const sourceDir = path.join(PROJECT_ROOT, skillsPath);
+        const sourceDir = path.join(PROJECT_ROOT, sourcePath);
         if (fs.existsSync(sourceDir)) {
-            (0, distributor_1.copyRecursive)(sourceDir, localSkillsDir);
-            // 解析 SKILL.md
-            const skillDirs = fs.readdirSync(localSkillsDir).filter(f => {
-                const stat = fs.statSync(path.join(localSkillsDir, f));
-                return stat.isDirectory();
+            (0, distributor_1.copyRecursive)(sourceDir, localDir);
+            const entityDirs = fs.readdirSync(localDir).filter(f => {
+                const fullPath = path.join(localDir, f);
+                return fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory();
             });
-            for (const skillId of skillDirs) {
-                const skillFile = path.join(localSkillsDir, skillId, 'SKILL.md');
-                if (fs.existsSync(skillFile)) {
-                    const content = fs.readFileSync(skillFile, 'utf-8');
-                    const metadata = (0, metadata_parser_1.parseSkillMetadata)(skillId, content);
+            for (const entityId of entityDirs) {
+                const metadataFile = path.join(localDir, entityId, options.metadataFileName);
+                if (fs.existsSync(metadataFile)) {
+                    const content = fs.readFileSync(metadataFile, 'utf-8');
+                    const metadata = options.parseMetadata(entityId, content);
                     if (metadata)
-                        skills.push(metadata);
+                        entities.push(metadata);
                 }
             }
         }
     }
-    return skills;
+    return entities;
+}
+// ============ 技能系统 ============
+async function loadSkills(ctx, logger, skillsPath) {
+    return loadEntities(ctx, logger, skillsPath, {
+        manifestPrefix: 'custom-skills/',
+        targetSubDir: '.codebuddy/skills',
+        metadataFileName: 'SKILL.md',
+        parseMetadata: metadata_parser_1.parseSkillMetadata,
+        label: '技能',
+    });
 }
 // ============ Agent 系统 ============
 async function loadAgents(ctx, logger, agentsPath) {
-    const agents = [];
-    const localAgentsDir = path.join(process.cwd(), '.codebuddy/agents');
-    // 确保目录存在
-    if (!fs.existsSync(localAgentsDir)) {
-        fs.mkdirSync(localAgentsDir, { recursive: true });
-    }
-    if (ctx.isRemote) {
-        // 远程模式：从 manifest 获取 agent 文件列表并下载
-        const agentFiles = ctx.remoteManifest.files.filter(f => f.path.startsWith('agents/') && f.path.endsWith('.md'));
-        for (const file of agentFiles) {
-            const fileUrl = `${ctx.remoteBaseUrl}/${file.path}`;
-            try {
-                const content = await (0, fetcher_1.fetchUrl)(ctx, logger, fileUrl);
-                // 计算本地路径：agents/xxx/yyy.md -> xxx/yyy.md
-                const relativePath = file.path.replace('agents/', '');
-                const localPath = path.join(localAgentsDir, relativePath);
-                const localDir = path.dirname(localPath);
-                if (!fs.existsSync(localDir)) {
-                    fs.mkdirSync(localDir, { recursive: true });
-                }
-                fs.writeFileSync(localPath, content, 'utf-8');
-                logger.verbose(`已下载Agent文件: ${relativePath}`);
-                // 解析 AGENT.md 元数据
-                if (file.path.endsWith('AGENT.md')) {
-                    const agentId = relativePath.split('/')[0];
-                    const metadata = (0, metadata_parser_1.parseAgentMetadata)(agentId, content);
-                    if (metadata)
-                        agents.push(metadata);
-                }
-            }
-            catch (e) {
-                logger.warn(`Agent文件下载失败: ${file.path} - ${e.message}`);
-            }
-        }
-    }
-    else {
-        // 本地模式：复制 Agent 文件
-        const sourceDir = path.join(PROJECT_ROOT, agentsPath);
-        if (fs.existsSync(sourceDir)) {
-            (0, distributor_1.copyRecursive)(sourceDir, localAgentsDir);
-            // 解析 AGENT.md
-            const agentDirs = fs.readdirSync(localAgentsDir).filter(f => {
-                const fullPath = path.join(localAgentsDir, f);
-                return fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory();
-            });
-            for (const agentId of agentDirs) {
-                const agentFile = path.join(localAgentsDir, agentId, 'AGENT.md');
-                if (fs.existsSync(agentFile)) {
-                    const content = fs.readFileSync(agentFile, 'utf-8');
-                    const metadata = (0, metadata_parser_1.parseAgentMetadata)(agentId, content);
-                    if (metadata)
-                        agents.push(metadata);
-                }
-            }
-        }
-    }
-    return agents;
+    return loadEntities(ctx, logger, agentsPath, {
+        manifestPrefix: 'agents/',
+        targetSubDir: '.codebuddy/agents',
+        metadataFileName: 'AGENT.md',
+        parseMetadata: metadata_parser_1.parseAgentMetadata,
+        label: 'Agent',
+    });
 }
 // ============ 脚本分发系统 ============
 /**

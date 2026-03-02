@@ -21,6 +21,35 @@ dependencies:
     - defensive-coding
 ---
 
+## 元数据
+
+```yaml
+name: security-reviewer
+description: 前端安全审查 Agent，检测 XSS、CSRF、敏感数据泄露等安全漏洞
+version: 1.0.0
+triggers:
+  explicit:
+    - "安全审查"
+    - "security review"
+    - "检查 XSS"
+    - "检查安全"
+    - "OWASP"
+    - "安全漏洞"
+  implicit:
+    - pattern: "有没有.*安全漏洞"
+      confidence: 0.95
+    - pattern: "检查.*权限"
+      confidence: 0.85
+    - pattern: "XSS.*风险"
+      confidence: 0.95
+    - pattern: "敏感数据.*泄露"
+      confidence: 0.9
+    - pattern: "代码.*安全"
+      confidence: 0.85
+    - pattern: "注入.*攻击"
+      confidence: 0.9
+```
+
 # Security Reviewer Agent
 
 前端安全审查专用 Agent，专注于检测 Web 前端常见安全漏洞。

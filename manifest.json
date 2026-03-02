@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-02-27T06:17:49.155Z",
+  "generatedAt": "2026-03-02T08:36:15.704Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -232,10 +232,16 @@
       "mtime": "2026-01-07T10:48:17.338Z"
     },
     {
+      "path": "rules/layer3_action/context-management.md",
+      "name": "context-management",
+      "size": 5384,
+      "mtime": "2026-03-02T08:10:47.910Z"
+    },
+    {
       "path": "rules/layer3_action/debugging.md",
       "name": "debugging",
-      "size": 3768,
-      "mtime": "2026-01-13T09:26:03.373Z"
+      "size": 4535,
+      "mtime": "2026-03-02T08:26:47.821Z"
     },
     {
       "path": "rules/layer3_action/defensive-coding.md",
@@ -270,8 +276,8 @@
     {
       "path": "custom-skills/build-optimization/SKILL.md",
       "name": "SKILL",
-      "size": 4454,
-      "mtime": "2026-01-25T12:14:48.187Z"
+      "size": 4512,
+      "mtime": "2026-02-28T07:42:59.674Z"
     },
     {
       "path": "custom-skills/component-refactoring/references/complexity-patterns.md",
@@ -312,8 +318,8 @@
     {
       "path": "custom-skills/component-refactoring/SKILL.md",
       "name": "SKILL",
-      "size": 2629,
-      "mtime": "2026-01-13T03:04:15.114Z"
+      "size": 2690,
+      "mtime": "2026-02-28T07:38:38.586Z"
     },
     {
       "path": "custom-skills/custom-skills-guide.md",
@@ -342,8 +348,8 @@
     {
       "path": "custom-skills/frontend-code-review/SKILL.md",
       "name": "SKILL",
-      "size": 2868,
-      "mtime": "2026-01-13T09:25:39.857Z"
+      "size": 2922,
+      "mtime": "2026-02-28T07:39:27.437Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/async-testing.md",
@@ -402,14 +408,14 @@
     {
       "path": "custom-skills/frontend-testing/SKILL.md",
       "name": "SKILL",
-      "size": 2169,
-      "mtime": "2026-01-13T09:25:37.956Z"
+      "size": 2220,
+      "mtime": "2026-02-28T07:40:13.902Z"
     },
     {
       "path": "custom-skills/i18n-a11y/SKILL.md",
       "name": "SKILL",
-      "size": 4712,
-      "mtime": "2026-01-25T12:14:51.145Z"
+      "size": 4765,
+      "mtime": "2026-02-28T07:43:43.290Z"
     },
     {
       "path": "custom-skills/module-mapping/references/dependency-analysis.md",
@@ -432,20 +438,20 @@
     {
       "path": "custom-skills/performance-optimization/SKILL.md",
       "name": "SKILL",
-      "size": 4231,
-      "mtime": "2026-01-25T12:14:45.392Z"
+      "size": 4292,
+      "mtime": "2026-02-28T07:41:57.681Z"
     },
     {
       "path": "custom-skills/prd/SKILL.md",
       "name": "SKILL",
-      "size": 8413,
-      "mtime": "2026-02-07T14:59:11.872Z"
+      "size": 8461,
+      "mtime": "2026-02-28T07:44:30.357Z"
     },
     {
       "path": "custom-skills/ralph-converter/SKILL.md",
       "name": "SKILL",
-      "size": 7744,
-      "mtime": "2026-01-26T05:49:51.892Z"
+      "size": 7782,
+      "mtime": "2026-02-28T07:45:18.731Z"
     },
     {
       "path": "custom-skills/skill-creator/references/output-patterns.md",
@@ -462,14 +468,14 @@
     {
       "path": "custom-skills/skill-creator/SKILL.md",
       "name": "SKILL",
-      "size": 17798,
-      "mtime": "2026-01-11T22:32:44.000Z"
+      "size": 17843,
+      "mtime": "2026-02-28T07:46:11.467Z"
     },
     {
       "path": "custom-skills/state-management/SKILL.md",
       "name": "SKILL",
-      "size": 4375,
-      "mtime": "2026-01-25T12:14:42.906Z"
+      "size": 4423,
+      "mtime": "2026-02-28T07:41:04.315Z"
     },
     {
       "path": "custom-skills/structure-review/references/anti-patterns.md",
@@ -498,14 +504,26 @@
     {
       "path": "agents/AGENTS.md",
       "name": "AGENTS",
-      "size": 6119,
-      "mtime": "2026-02-27T05:38:55.233Z"
+      "size": 6598,
+      "mtime": "2026-03-02T08:34:03.151Z"
+    },
+    {
+      "path": "agents/bug-investigator/AGENT.md",
+      "name": "AGENT",
+      "size": 7596,
+      "mtime": "2026-03-02T08:04:49.749Z"
+    },
+    {
+      "path": "agents/bug-investigator/prompts/investigate.md",
+      "name": "investigate",
+      "size": 4432,
+      "mtime": "2026-03-02T08:06:10.072Z"
     },
     {
       "path": "agents/build-fix/AGENT.md",
       "name": "AGENT",
-      "size": 5685,
-      "mtime": "2026-02-07T14:31:58.002Z"
+      "size": 6431,
+      "mtime": "2026-03-02T06:23:47.205Z"
     },
     {
       "path": "agents/build-fix/prompts/diagnose-fix.md",
@@ -516,8 +534,8 @@
     {
       "path": "agents/code-reviewer/AGENT.md",
       "name": "AGENT",
-      "size": 6268,
-      "mtime": "2026-02-07T14:32:00.511Z"
+      "size": 6970,
+      "mtime": "2026-03-02T06:24:08.872Z"
     },
     {
       "path": "agents/code-reviewer/prompts/review.md",
@@ -528,8 +546,8 @@
     {
       "path": "agents/performance-profiler/AGENT.md",
       "name": "AGENT",
-      "size": 4374,
-      "mtime": "2026-01-25T12:11:47.379Z"
+      "size": 5133,
+      "mtime": "2026-03-02T06:24:53.661Z"
     },
     {
       "path": "agents/performance-profiler/templates/performance-report.md",
@@ -540,8 +558,8 @@
     {
       "path": "agents/planner/AGENT.md",
       "name": "AGENT",
-      "size": 4188,
-      "mtime": "2026-01-25T12:11:52.035Z"
+      "size": 5402,
+      "mtime": "2026-03-02T08:22:14.666Z"
     },
     {
       "path": "agents/planner/templates/implementation-plan.md",
@@ -552,8 +570,8 @@
     {
       "path": "agents/security-reviewer/AGENT.md",
       "name": "AGENT",
-      "size": 4600,
-      "mtime": "2026-01-25T12:09:35.771Z"
+      "size": 5283,
+      "mtime": "2026-03-02T06:24:38.551Z"
     },
     {
       "path": "agents/security-reviewer/checklists/xss-checklist.md",
@@ -588,8 +606,14 @@
     {
       "path": "agents/task-orchestrator/AGENT.md",
       "name": "AGENT",
-      "size": 10443,
-      "mtime": "2026-02-27T03:23:45.039Z"
+      "size": 14827,
+      "mtime": "2026-03-02T08:19:08.863Z"
+    },
+    {
+      "path": "agents/task-orchestrator/prompts/phase7-summary.md",
+      "name": "phase7-summary",
+      "size": 4517,
+      "mtime": "2026-02-28T03:19:37.881Z"
     },
     {
       "path": "agents/task-orchestrator/templates/acceptance-report.md",
@@ -606,8 +630,8 @@
     {
       "path": "agents/tdd-driver/AGENT.md",
       "name": "AGENT",
-      "size": 6337,
-      "mtime": "2026-02-07T14:31:54.906Z"
+      "size": 7022,
+      "mtime": "2026-03-02T06:23:21.361Z"
     },
     {
       "path": "agents/tdd-driver/prompts/green.md",
@@ -659,10 +683,10 @@
     }
   ],
   "stats": {
-    "totalFiles": 82,
-    "ruleFiles": 17,
+    "totalFiles": 86,
+    "ruleFiles": 18,
     "skillFiles": 38,
-    "agentFiles": 22,
+    "agentFiles": 25,
     "workflowFiles": 3,
     "taskbookFiles": 2
   }

@@ -5,7 +5,7 @@ description: 端到端计划任务编排器，支持需求分解→执行→验�
 triggers:
   - "规划任务"
   - "创建计划"
-  - "帮我规划"
+  - "帮我实现"
   - "plan task"
   - "create plan"
   - "/task"
@@ -31,7 +31,7 @@ triggers:
   explicit:
     - "规划任务"
     - "创建计划"
-    - "帮我规划"
+    - "帮我实现"
     - "plan task"
     - "create plan"
     - "/task"
@@ -69,6 +69,8 @@ model: opus
 4. **协调执行** - 编排 Planner、TDD-Driver、Code-Reviewer、Build-Fix 等 Agent 完成工作
 5. **追踪变更** - 记录所有偏离原计划的改动
 6. **交付验收** - 确保所有任务完成并请求用户验收
+
+> ⚠️ **职责边界**：如果用户只想要规划方案（不需要执行编码），应由 `planner` Agent 处理。`task-orchestrator` 在 Phase 4 收到用户"确认执行"后才进入编码阶段。涉及运行时 bug 排查时，Phase 5 应编排 `bug-investigator` Agent 进行根因定位。
 
 ---
 
@@ -199,6 +201,7 @@ Task(structure-analyzer): 获取架构分析
    - `test` 任务 → 调用 TDD-Driver Agent（RED 阶段）
    - `implement` 任务 → 调用 TDD-Driver Agent（GREEN 阶段）
    - `refactor` 任务 → 调用 TDD-Driver Agent（REFACTOR 阶段）
+   - `debugging` 任务 → 调用 Bug-Investigator Agent（根因定位 + 修复方案）
    - `review` 任务 → 调用 Code-Reviewer Agent
    - `build-fix` 任务 → 调用 Build-Fix Agent
 4. **状态更新**: 实时更新 TaskBook.tasks[].status
@@ -226,13 +229,14 @@ pending → in_progress → done
 ├─ 测试通过 → 标记 done，继续下一任务
 └─ 测试失败 → 进入修复循环
    │
-   ├─ 第 1-3 轮：
+   ├─ 第 1-3 次调用 build-fix Agent：
+   │  （每次调用 build-fix 内部按 P0→P1→P2→P3→P4 优先级逐类修复）
    │  1. 读取 `.codebuddy/agents/build-fix/AGENT.md` 获取修复流程
    │  2. 按修复流程定位并修复问题
    │  3. 重新运行 npm test
    │  └─ 通过 → 退出循环，标记 done
    │
-   └─ 第 3 轮后仍失败 → 标记 blocked，记录失败原因，请求人工介入
+   └─ 第 3 次调用后仍失败 → 标记 blocked，记录失败原因，请求人工介入
 ```
 
 **最终全量验证（所有任务完成后）**:
@@ -243,8 +247,8 @@ npm test        # 全量测试验证
 ```
 
 - 全量验证通过 → 进入 Phase 7 验收
-- 全量验证失败 → 回到修复循环，针对失败项修复（最多 3 轮）
-- 3 轮后仍失败 → 带失败信息进入 Phase 7，在验收报告中标明
+- 全量验证失败 → 调用 build-fix Agent 进入修复循环，针对失败项修复（最多调用 3 次 build-fix）
+- 3 次调用后仍失败 → 带失败信息进入 Phase 7，在验收报告中标明
 
 **输出**: 每个任务的 actualWork 描述
 
@@ -354,8 +358,10 @@ npm test        # 全量测试验证
 | Phase 3 | planner | 生成实施计划 |
 | Phase 5 | tdd-driver | 测试先行实现（RED→GREEN→REFACTOR） |
 | Phase 5 | code-reviewer | 代码质量审查 |
-| Phase 5 | build-fix | 构建验证与自动修复 |
-| Phase 5 | security-reviewer | 安全审查（按需） |
+| Phase 5 | build-fix | 构建验证与自动修复（每次调用内部按 P0→P1→P2→P3→P4 优先级修复） |
+| Phase 5 | bug-investigator | 运行时 Bug 根因定位（分层验证 + 依赖图裁剪） |
+| Phase 5 | security-reviewer | 安全审查（按需，有安全相关改动时触发） |
+| Phase 5 | performance-profiler | 性能分析（按需，有性能相关改动时触发） |
 | Phase 7 | AI 自主汇总 | 回顾对话上下文，生成验收报告 |
 
 ---

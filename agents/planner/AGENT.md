@@ -3,6 +3,7 @@ name: planner
 version: 1.0.0
 description: 任务规划 Agent，用于复杂任务分解、实现步骤规划和风险评估
 triggers:
+  - "帮我规划"
   - "规划"
   - "plan"
   - "任务分解"
@@ -25,9 +26,50 @@ dependencies:
     - debugging
 ---
 
+## 元数据
+
+```yaml
+name: planner
+description: 任务规划 Agent，用于复杂任务分解、实现步骤规划和风险评估
+version: 1.0.0
+triggers:
+  explicit:
+    - "帮我规划"
+    - "规划"
+    - "plan"
+    - "任务分解"
+    - "设计方案"
+    - "实现计划"
+    - "架构设计"
+    - "重构规划"
+    - "制定计划"
+    - "拆分任务"
+  implicit:
+    - pattern: "帮我规划.*任务"
+      confidence: 0.9
+    - pattern: "制定.*计划"
+      confidence: 0.9
+    - pattern: "拆分.*任务"
+      confidence: 0.9
+    - pattern: "怎么实现.*功能"
+      confidence: 0.8
+    - pattern: "怎么做"
+      confidence: 0.75
+    - pattern: "方案对比"
+      confidence: 0.85
+    - pattern: "可行性分析"
+      confidence: 0.85
+    - pattern: "分析.*步骤"
+      confidence: 0.8
+    - pattern: "需要多少.*工作量"
+      confidence: 0.75
+```
+
 # Planner Agent
 
 任务规划专用 Agent，专注于复杂前端任务的分解、规划和风险评估。
+
+> ⚠️ **职责边界**：Planner 仅产出规划方案，不执行编码。如果用户需要"规划 + 实现"的端到端流程，应由 `task-orchestrator` 处理。Planner 适用于纯分析、方案对比、可行性评估等不涉及代码编写的场景。
 
 ## 职责范围
 

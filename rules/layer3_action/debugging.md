@@ -96,6 +96,22 @@ updateUI(); // 如果 fetchData 未 await，这里可能先执行
 | **Network Tab** | API 请求/响应分析 |
 | **Performance Tab** | 性能瓶颈定位 |
 
-## 6. Metadata
+## 6. Agent 联动
+
+当调试问题涉及多文件时，建议触发 `bug-investigator` Agent：
+- 读取 `.codebuddy/agents/bug-investigator/AGENT.md` 获取完整工作流
+- 按 4 阶段工作流系统性定位根因：入口定位 → 依赖图裁剪 → 分层验证 → 修复方案
+- 单文件简单问题可直接使用本检查清单，无需触发 Agent
+
+## 7. 上下文管理
+
+当关联文件过多时，参考 `context-management.md` 的分级裁剪策略：
+- ≤ 5 文件：全量读取
+- 6-15 文件：焦点读取（入口全文 + 其余只读接口）
+- 16-30 文件：分批读取（每批 ≤ 8 个）
+- > 30 文件：结构化扫描（先全局视图再深入）
+
+## 8. Metadata
 *   **Version**: 1.0
-*   **Related Rules**: `refactoring.md`, `testing.md`
+*   **Related Rules**: `refactoring.md`, `testing.md`, `context-management.md`
+*   **Related Agents**: `bug-investigator`

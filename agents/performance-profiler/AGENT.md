@@ -19,6 +19,38 @@ permissions:
     - performance-optimization
 ---
 
+## 元数据
+
+```yaml
+name: performance-profiler
+description: 前端性能分析 Agent，诊断 Lighthouse 指标、Web Vitals 和渲染性能问题
+version: 1.0.0
+triggers:
+  explicit:
+    - "性能分析"
+    - "performance"
+    - "lighthouse"
+    - "web vitals"
+    - "性能优化"
+    - "加载速度"
+    - "渲染性能"
+  implicit:
+    - pattern: "页面.*很慢"
+      confidence: 0.9
+    - pattern: "加载.*太慢"
+      confidence: 0.9
+    - pattern: "分析.*性能"
+      confidence: 0.9
+    - pattern: "LCP|FID|CLS|INP"
+      confidence: 0.95
+    - pattern: "首屏.*优化"
+      confidence: 0.85
+    - pattern: "bundle.*太大"
+      confidence: 0.85
+    - pattern: "内存.*泄漏"
+      confidence: 0.8
+```
+
 # Performance Profiler Agent
 
 前端性能分析专用 Agent，专注于诊断和优化 Web 应用性能。

@@ -264,140 +264,108 @@ function filterRuleByLevel(content: string, level: Context['ruleLevel']): string
   return picked.join('').trimEnd() + '\n';
 }
 
-// ============ 技能系统 ============
+// ============ 通用实体加载器 ============
 
-async function loadSkills(ctx: Readonly<Context>, logger: Logger, skillsPath: string): Promise<SkillMetadata[]> {
-  const skills: SkillMetadata[] = [];
-  const localSkillsDir = path.join(process.cwd(), '.codebuddy/skills');
+interface LoadEntitiesOptions<T> {
+  /** manifest 文件路径前缀，如 'custom-skills/' 或 'agents/' */
+  manifestPrefix: string;
+  /** 本地目标子目录，如 '.codebuddy/skills' 或 '.codebuddy/agents' */
+  targetSubDir: string;
+  /** 元数据文件名，如 'SKILL.md' 或 'AGENT.md' */
+  metadataFileName: string;
+  /** 解析元数据的函数 */
+  parseMetadata: (entityId: string, content: string) => T | null;
+  /** 日志标签，如 '技能' 或 'Agent' */
+  label: string;
+}
 
-  // 确保目录存在
-  if (!fs.existsSync(localSkillsDir)) {
-    fs.mkdirSync(localSkillsDir, { recursive: true });
+async function loadEntities<T>(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  sourcePath: string,
+  options: LoadEntitiesOptions<T>
+): Promise<T[]> {
+  const entities: T[] = [];
+  const localDir = path.join(process.cwd(), options.targetSubDir);
+
+  if (!fs.existsSync(localDir)) {
+    fs.mkdirSync(localDir, { recursive: true });
   }
 
   if (ctx.isRemote) {
-    // 远程模式：从 manifest 获取 skill 文件列表并下载
-    const skillFiles = ctx.remoteManifest!.files.filter(
-      f => f.path.startsWith('custom-skills/') && f.path.endsWith('.md')
+    const files = ctx.remoteManifest!.files.filter(
+      f => f.path.startsWith(options.manifestPrefix) && f.path.endsWith('.md')
     );
 
-    for (const file of skillFiles) {
+    for (const file of files) {
       const fileUrl = `${ctx.remoteBaseUrl}/${file.path}`;
       try {
         const content = await fetchUrl(ctx, logger, fileUrl);
-        // 计算本地路径：custom-skills/xxx/yyy.md -> xxx/yyy.md
-        const relativePath = file.path.replace('custom-skills/', '');
-        const localPath = path.join(localSkillsDir, relativePath);
-        const localDir = path.dirname(localPath);
+        const relativePath = file.path.replace(options.manifestPrefix, '');
+        const localPath = path.join(localDir, relativePath);
+        const localDirPath = path.dirname(localPath);
 
-        if (!fs.existsSync(localDir)) {
-          fs.mkdirSync(localDir, { recursive: true });
+        if (!fs.existsSync(localDirPath)) {
+          fs.mkdirSync(localDirPath, { recursive: true });
         }
         fs.writeFileSync(localPath, content, 'utf-8');
-        logger.verbose(`已下载技能文件: ${relativePath}`);
+        logger.verbose(`已下载${options.label}文件: ${relativePath}`);
 
-        // 解析 SKILL.md 元数据
-        if (file.path.endsWith('SKILL.md')) {
-          const skillId = relativePath.split('/')[0];
-          const metadata = parseSkillMetadata(skillId, content);
-          if (metadata) skills.push(metadata);
+        if (file.path.endsWith(options.metadataFileName)) {
+          const entityId = relativePath.split('/')[0];
+          const metadata = options.parseMetadata(entityId, content);
+          if (metadata) entities.push(metadata);
         }
       } catch (e) {
-        logger.warn(`技能文件下载失败: ${file.path} - ${(e as Error).message}`);
+        logger.warn(`${options.label}文件下载失败: ${file.path} - ${(e as Error).message}`);
       }
     }
   } else {
-    // 本地模式：复制技能文件
-    const sourceDir = path.join(PROJECT_ROOT, skillsPath);
+    const sourceDir = path.join(PROJECT_ROOT, sourcePath);
     if (fs.existsSync(sourceDir)) {
-      copyRecursive(sourceDir, localSkillsDir);
+      copyRecursive(sourceDir, localDir);
 
-      // 解析 SKILL.md
-      const skillDirs = fs.readdirSync(localSkillsDir).filter(f => {
-        const stat = fs.statSync(path.join(localSkillsDir, f));
-        return stat.isDirectory();
+      const entityDirs = fs.readdirSync(localDir).filter(f => {
+        const fullPath = path.join(localDir, f);
+        return fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory();
       });
 
-      for (const skillId of skillDirs) {
-        const skillFile = path.join(localSkillsDir, skillId, 'SKILL.md');
-        if (fs.existsSync(skillFile)) {
-          const content = fs.readFileSync(skillFile, 'utf-8');
-          const metadata = parseSkillMetadata(skillId, content);
-          if (metadata) skills.push(metadata);
+      for (const entityId of entityDirs) {
+        const metadataFile = path.join(localDir, entityId, options.metadataFileName);
+        if (fs.existsSync(metadataFile)) {
+          const content = fs.readFileSync(metadataFile, 'utf-8');
+          const metadata = options.parseMetadata(entityId, content);
+          if (metadata) entities.push(metadata);
         }
       }
     }
   }
 
-  return skills;
+  return entities;
+}
+
+// ============ 技能系统 ============
+
+async function loadSkills(ctx: Readonly<Context>, logger: Logger, skillsPath: string): Promise<SkillMetadata[]> {
+  return loadEntities<SkillMetadata>(ctx, logger, skillsPath, {
+    manifestPrefix: 'custom-skills/',
+    targetSubDir: '.codebuddy/skills',
+    metadataFileName: 'SKILL.md',
+    parseMetadata: parseSkillMetadata,
+    label: '技能',
+  });
 }
 
 // ============ Agent 系统 ============
 
 async function loadAgents(ctx: Readonly<Context>, logger: Logger, agentsPath: string): Promise<AgentMetadata[]> {
-  const agents: AgentMetadata[] = [];
-  const localAgentsDir = path.join(process.cwd(), '.codebuddy/agents');
-
-  // 确保目录存在
-  if (!fs.existsSync(localAgentsDir)) {
-    fs.mkdirSync(localAgentsDir, { recursive: true });
-  }
-
-  if (ctx.isRemote) {
-    // 远程模式：从 manifest 获取 agent 文件列表并下载
-    const agentFiles = ctx.remoteManifest!.files.filter(
-      f => f.path.startsWith('agents/') && f.path.endsWith('.md')
-    );
-
-    for (const file of agentFiles) {
-      const fileUrl = `${ctx.remoteBaseUrl}/${file.path}`;
-      try {
-        const content = await fetchUrl(ctx, logger, fileUrl);
-        // 计算本地路径：agents/xxx/yyy.md -> xxx/yyy.md
-        const relativePath = file.path.replace('agents/', '');
-        const localPath = path.join(localAgentsDir, relativePath);
-        const localDir = path.dirname(localPath);
-
-        if (!fs.existsSync(localDir)) {
-          fs.mkdirSync(localDir, { recursive: true });
-        }
-        fs.writeFileSync(localPath, content, 'utf-8');
-        logger.verbose(`已下载Agent文件: ${relativePath}`);
-
-        // 解析 AGENT.md 元数据
-        if (file.path.endsWith('AGENT.md')) {
-          const agentId = relativePath.split('/')[0];
-          const metadata = parseAgentMetadata(agentId, content);
-          if (metadata) agents.push(metadata);
-        }
-      } catch (e) {
-        logger.warn(`Agent文件下载失败: ${file.path} - ${(e as Error).message}`);
-      }
-    }
-  } else {
-    // 本地模式：复制 Agent 文件
-    const sourceDir = path.join(PROJECT_ROOT, agentsPath);
-    if (fs.existsSync(sourceDir)) {
-      copyRecursive(sourceDir, localAgentsDir);
-
-      // 解析 AGENT.md
-      const agentDirs = fs.readdirSync(localAgentsDir).filter(f => {
-        const fullPath = path.join(localAgentsDir, f);
-        return fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory();
-      });
-
-      for (const agentId of agentDirs) {
-        const agentFile = path.join(localAgentsDir, agentId, 'AGENT.md');
-        if (fs.existsSync(agentFile)) {
-          const content = fs.readFileSync(agentFile, 'utf-8');
-          const metadata = parseAgentMetadata(agentId, content);
-          if (metadata) agents.push(metadata);
-        }
-      }
-    }
-  }
-
-  return agents;
+  return loadEntities<AgentMetadata>(ctx, logger, agentsPath, {
+    manifestPrefix: 'agents/',
+    targetSubDir: '.codebuddy/agents',
+    metadataFileName: 'AGENT.md',
+    parseMetadata: parseAgentMetadata,
+    label: 'Agent',
+  });
 }
 
 // ============ 脚本分发系统 ============

@@ -26,6 +26,35 @@ dependencies:
     - testing
 ---
 
+## 元数据
+
+```yaml
+name: tdd-driver
+description: TDD 驱动 Agent，通过 RED->GREEN->REFACTOR 循环确保代码质量
+version: 1.0.0
+triggers:
+  explicit:
+    - "TDD"
+    - "测试驱动"
+    - "test first"
+    - "写测试"
+    - "测试先行"
+    - "RED GREEN REFACTOR"
+  implicit:
+    - pattern: "帮我写.*测试"
+      confidence: 0.9
+    - pattern: "先写测试.*再实现"
+      confidence: 0.95
+    - pattern: "TDD.*开发"
+      confidence: 0.9
+    - pattern: "测试覆盖率.*不够"
+      confidence: 0.85
+    - pattern: "补充.*测试用例"
+      confidence: 0.85
+    - pattern: "单元测试.*怎么写"
+      confidence: 0.8
+```
+
 # TDD Driver Agent
 
 测试驱动开发（TDD）执行 Agent，通过结构化的 RED->GREEN->REFACTOR 循环驱动弱模型完成高质量代码实现。

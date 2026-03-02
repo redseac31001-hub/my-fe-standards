@@ -454,10 +454,11 @@ ${table}
 export function generateRuleActivationPrompt(_config: LoaderConfig): string {
   let table = '| 任务类型 | 关键词 | 重点规则 |\n|---------|--------|--------|\n';
   table += '| 重构 | refactor, optimize, cleanup | Layer1 架构规范 + Layer3 重构检查清单 |\n';
-  table += '| 调试 | debug, fix, bugfix | Layer3 调试检查清单 + TypeScript 类型规范 |\n';
+  table += '| **调试/Bug修复** | debug, fix, bugfix, 报错, 排查 | Layer3 调试清单 + **上下文管理** + TypeScript 类型规范 |\n';
   table += '| 新功能 | feature, implement, add | Layer1 全部 + Layer2 UI 库规范 |\n';
   table += '| 测试 | test, unit-test, e2e | Layer3 测试策略 |\n';
   table += '| 代码审查 | review, pr | Layer3 自检清单 |\n';
+  table += '| **大规模改动** | refactor entire, 重构模块, 系统重构 | Layer3 上下文管理 + 重构检查清单 |\n';
 
   return `
 # 🎯 规则激活指南

@@ -25,6 +25,38 @@ dependencies:
     - strict-types
 ---
 
+## 元数据
+
+```yaml
+name: build-fix
+description: 构建修复 Agent，自动诊断和修复构建/类型检查/Lint 错误
+version: 1.0.0
+triggers:
+  explicit:
+    - "构建失败"
+    - "build failed"
+    - "编译错误"
+    - "类型错误"
+    - "type error"
+    - "lint error"
+    - "tsc error"
+  implicit:
+    - pattern: "构建.*报错"
+      confidence: 0.95
+    - pattern: "编译.*失败"
+      confidence: 0.95
+    - pattern: "TS.*错误"
+      confidence: 0.9
+    - pattern: "TypeScript.*报错"
+      confidence: 0.9
+    - pattern: "类型.*不匹配"
+      confidence: 0.9
+    - pattern: "import.*找不到"
+      confidence: 0.85
+    - pattern: "npm run build.*失败"
+      confidence: 0.95
+```
+
 # Build Fix Agent
 
 构建修复专用 Agent，自动诊断和修复前端项目的构建、类型检查、Lint 错误。

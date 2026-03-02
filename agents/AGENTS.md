@@ -20,10 +20,11 @@
 | `structure-analyzer` | 结构分析 | 目录反模式检测、健康度评分 | "结构分析"、"目录审查"、"架构检查" |
 | `security-reviewer` | 安全审查 | XSS/CSRF/OWASP 检测 | "安全审查"、"security"、"xss" |
 | `performance-profiler` | 性能分析 | Lighthouse/Web Vitals 诊断 | "性能分析"、"performance"、"lighthouse" |
-| `planner` | 任务规划 | 复杂任务分解与风险评估 | "规划"、"plan"、"任务分解" |
+| `planner` | 任务规划 | 复杂任务分解与风险评估（仅规划，不编码） | "帮我规划"、"规划"、"plan"、"任务分解"、"方案对比" |
 | `tdd-driver` | TDD 驱动 | RED→GREEN→REFACTOR 循环驱动实现 | "TDD"、"测试驱动"、"test first" |
 | `build-fix` | 构建修复 | 自动诊断修复构建/类型/Lint 错误 | "构建失败"、"build failed"、"类型错误" |
 | `code-reviewer` | 代码审查 | 按 clean-code 规则结构化审查 | "代码审查"、"code review"、"CR" |
+| `bug-investigator` | Bug 调查 | 运行时 bug 分层定位、依赖图裁剪、根因分析 | "修复bug"、"排查问题"、"报错"、"不生效" |
 
 ## Agent 调用流程
 
@@ -97,6 +98,10 @@ agents/
     ├── AGENT.md
     └── prompts/
         └── review.md            # 审查 prompt
+├── bug-investigator/            # Bug 调查 Agent
+│   ├── AGENT.md
+│   └── prompts/
+│       └── investigate.md       # 调查 prompt
 ```
 
 ## AGENT.md 规范
@@ -146,6 +151,7 @@ Agent 可以关联 Layer3 Action 规则：
 - `tdd-driver` → `layer3_action/testing.md`, `layer1_base/code-quality/clean-code.md`
 - `build-fix` → `layer1_base/typescript/strict-types.md`
 - `code-reviewer` → `layer1_base/code-quality/clean-code.md`, `layer3_action/defensive-coding.md`
+- `bug-investigator` → `layer3_action/debugging.md`, `layer3_action/context-management.md`
 
 ---
 
