@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-03-02T08:36:15.704Z",
+  "generatedAt": "2026-03-02T09:20:50.875Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -38,7 +38,8 @@
           "debugging",
           "testing",
           "self-verification",
-          "defensive-coding"
+          "defensive-coding",
+          "context-management"
         ],
         "loadMode": "lazy",
         "_comment": "defaults 始终加载，可通过 --task 参数筛选"

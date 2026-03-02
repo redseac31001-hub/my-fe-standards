@@ -31,6 +31,10 @@ my-fe-standards/
 │   ├── task-orchestrator/     #    任务编排 Agent (v2.2.0)
 │   ├── structure-analyzer/     #    结构分析 Agent (v2.1.0)
 │   ├── planner/               #    规划 Agent
+│   ├── tdd-driver/            #    TDD 驱动 Agent
+│   ├── code-reviewer/         #    代码审查 Agent
+│   ├── build-fix/             #    构建修复 Agent
+│   ├── bug-investigator/      #    Bug 调查 Agent (NEW)
 │   ├── security-reviewer/     #    安全审查 Agent
 │   └── performance-profiler/  #    性能分析 Agent
 ├── config/
@@ -424,6 +428,7 @@ node scripts/codebuddy-loader.js --remote <URL> --verbose
 
 ## 🔗 相关文档
 
+- [业务项目使用指南（接入必读）](docs/business-project-guide.md)
 - [交接/接力说明（团队协作）](docs/HANDOFF.md)
 - [远程接入指南](docs/remote-usage-guide.md)
 - [业务项目 E2E 验证方案](docs/e2e-validation-playbook.md)

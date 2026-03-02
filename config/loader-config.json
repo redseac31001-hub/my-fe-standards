@@ -34,7 +34,7 @@
         "action": {
             "id": "layer3_action",
             "title": "Layer 3: 任务检查清单",
-            "defaults": ["refactoring", "debugging", "testing", "self-verification", "defensive-coding"],
+            "defaults": ["refactoring", "debugging", "testing", "self-verification", "defensive-coding", "context-management"],
             "loadMode": "lazy",
             "_comment": "defaults 始终加载，可通过 --task 参数筛选"
         }
