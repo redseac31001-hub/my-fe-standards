@@ -1,6 +1,8 @@
 ---
 name: i18n-a11y
 description: 国际化与可访问性技能，涵盖 vue-i18n 配置、WCAG 合规性检测和无障碍最佳实践。触发条件：国际化、i18n、多语言、可访问性、a11y、WCAG、无障碍。
+triggers:
+  - "国际化/i18n/无障碍/a11y/ARIA"
 ---
 
 # i18n & Accessibility Skill

@@ -119,6 +119,8 @@ export interface Context {
   taskType: string | null;
   relevanceThreshold: number;
   ruleLevel: 'summary' | 'quick' | 'full';
+  /** 是否启用 B 路线编排脚本（task-executor、agent-call 协议等）。默认 false */
+  enableOrchestrator: boolean;
 }
 
 /**
@@ -155,6 +157,7 @@ export interface SkillMetadata {
   id: string;
   name: string;
   description: string;
+  triggers: string[];
 }
 
 // ============ Agent 系统类型 ============
@@ -167,6 +170,8 @@ export interface AgentMetadata {
   name: string;
   description: string;
   triggers: string[];
+  /** 隐式触发模式（从 AGENT.md body 中的 implicit triggers 解析） */
+  implicitTriggers?: Array<{ pattern: string; confidence: number }>;
   permissions: string[];
   workflowSummary?: string;
   relatedSkills?: string[];

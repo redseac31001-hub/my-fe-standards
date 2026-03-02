@@ -1,6 +1,8 @@
 ---
 name: performance-optimization
 description: 前端性能优化技能，涵盖渲染优化、虚拟滚动、懒加载策略和包体积分析。触发条件：性能优化、渲染卡顿、列表性能、包体积过大、加载速度慢。
+triggers:
+  - "性能优化/懒加载/虚拟滚动/首屏"
 ---
 
 # Performance Optimization Skill

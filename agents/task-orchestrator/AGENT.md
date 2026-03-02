@@ -88,6 +88,7 @@ model: opus
    - 读取 `package.json` 识别测试框架和构建工具
    - 扫描 `.codebuddy/reports/` 获取最近一次健康度报告（如存在）
 5. 初始化 TaskBook 草稿，将上下文注入 `TaskBook.context`
+   - **可选增强**: 如果 `.codebuddy/scripts/taskbook-manager.js` 存在，可调用以持久化任务状态（支持跨会话恢复）。否则在对话上下文中维护即可。
 
 **上下文注入工具调用**:
 ```
@@ -215,6 +216,36 @@ pending → in_progress → done
 - 使用 Task 工具并行启动多个 Agent
 - 汇总所有 Agent 结果后继续
 
+**测试→修复自动循环（强制执行）**:
+
+每个 `implement` / `refactor` 任务完成后，必须执行以下验证循环：
+
+```
+任务完成 → npm test
+│
+├─ 测试通过 → 标记 done，继续下一任务
+└─ 测试失败 → 进入修复循环
+   │
+   ├─ 第 1-3 轮：
+   │  1. 读取 `.codebuddy/agents/build-fix/AGENT.md` 获取修复流程
+   │  2. 按修复流程定位并修复问题
+   │  3. 重新运行 npm test
+   │  └─ 通过 → 退出循环，标记 done
+   │
+   └─ 第 3 轮后仍失败 → 标记 blocked，记录失败原因，请求人工介入
+```
+
+**最终全量验证（所有任务完成后）**:
+
+```bash
+npm run build   # 构建验证
+npm test        # 全量测试验证
+```
+
+- 全量验证通过 → 进入 Phase 7 验收
+- 全量验证失败 → 回到修复循环，针对失败项修复（最多 3 轮）
+- 3 轮后仍失败 → 带失败信息进入 Phase 7，在验收报告中标明
+
 **输出**: 每个任务的 actualWork 描述
 
 ---
@@ -243,43 +274,41 @@ pending → in_progress → done
 
 **输出**: TaskBook.changelog 持续更新
 
+> **可选增强**: 如果 `.codebuddy/scripts/taskbook-manager.js` 存在，变更日志可持久化到 TaskBook JSON 文件中（支持跨会话恢复和审计）。否则在对话上下文中维护变更记录即可。
+
 ---
 
 ### Phase 7: 验收闭环 (Acceptance & Closure)
 
-**目标**: 汇总所有子 Agent 执行结果，生成完整摘要，并获得用户验收
+**目标**: 回顾执行结果，生成验收报告，并获得用户验收
 
 **执行步骤**:
 1. 检查所有任务状态（done / blocked / skipped 统计）
-2. **调用 Result Aggregator 汇总子 Agent 结果**：
-   - 扫描 TaskBook changelog 中的所有 `agent-call` 事件
-   - 读取每个 `agent-calls/{requestId}.result.json`
-   - 合并生成 `FinalReport`（agentResults + issueList + stats）
-   - 将 FinalReport 持久化到 TaskBook.finalReport 和 `.codebuddy/reports/final-{taskBookId}.json`
-3. **加载 Phase7 汇总 Prompt 生成叙述性摘要**：
-   - 使用 `prompts/phase7-summary.md` 模板
-   - 将 FinalReport 数据注入模板变量
-   - 生成包含：执行摘要 + 子 Agent 详情 + 遗留问题 + 下一步建议 + 整体评分 的报告
-4. 运行可用的测试验证（如 `npm test` 存在）
+2. **AI 自主汇总执行结果**：
+   - 回顾 Phase 5 中各任务的完成情况（对话上下文中已有完整记录）
+   - 汇总代码变更内容、测试结果、遗留问题
+3. **运行自动化验证**：
+   - 运行 `npm test`（如存在）确认测试通过
+   - 运行 `npm run build`（如存在）确认构建通过
+4. **生成验收报告**：包含执行摘要 + 代码变更 + 测试结果 + 遗留问题 + 下一步建议 + 整体评分
 5. 展示完整验收报告，请求用户验收
-6. 根据用户决定归档 TaskBook 到 `.codebuddy/taskbooks/history/`
-
-**Result Aggregator 调用方式**:
-```typescript
-// 在 TaskExecutor.execute() 完成阶段：
-import { aggregateAndPersist } from './result-aggregator';
-const finalReport = aggregateAndPersist(manager, taskBookId);
-```
+6. **可选增强**: 如果 `.codebuddy/scripts/taskbook-manager.js` 存在，可将结果持久化到 TaskBook 并归档到 `.codebuddy/taskbooks/history/`
 
 **验收报告展示结构**:
 ```
-# Phase 7 执行摘要 - {TaskBook 标题}
+# 验收报告 - {任务标题}
 
-## 执行概况
-{叙述性摘要，2-4段}
+## 执行摘要
+{叙述性总结，2-4段，概述完成了什么、用了什么方案}
 
-## 子 Agent 执行详情
-{Agent 执行结果表格}
+## 代码变更
+{变更文件列表、新增/修改/删除统计}
+
+## 测试结果
+{npm test 输出摘要、覆盖率}
+
+## 构建验证
+{npm run build 结果}
 
 ## 遗留问题
 {按 CRITICAL/HIGH/MEDIUM/LOW 分级}
@@ -293,11 +322,11 @@ const finalReport = aggregateAndPersist(manager, taskBookId);
 ```
 
 **用户选项**:
-- ✅ 验收通过 → TaskBook 归档为 completed
-- 🔁 需要修复 → 记录遗留问题，保留 TaskBook 为 executing
-- ❌ 驳回 → 重新规划，TaskBook 回退到 confirmed
+- ✅ 验收通过 → 归档为 completed
+- 🔁 需要修复 → 记录遗留问题，继续迭代
+- ❌ 驳回 → 重新规划
 
-**输出**: TaskBook.status 更新为 completed，finalReport 持久化，记录 completedAt
+**输出**: 验收报告已生成，用户已确认
 
 ---
 
@@ -327,8 +356,7 @@ const finalReport = aggregateAndPersist(manager, taskBookId);
 | Phase 5 | code-reviewer | 代码质量审查 |
 | Phase 5 | build-fix | 构建验证与自动修复 |
 | Phase 5 | security-reviewer | 安全审查（按需） |
-| Phase 7 | result-aggregator | 汇总所有子 Agent 结果，生成 FinalReport |
-| Phase 7 | phase7-summary prompt | 生成叙述性执行摘要 + 下一步建议 |
+| Phase 7 | AI 自主汇总 | 回顾对话上下文，生成验收报告 |
 
 ---
 

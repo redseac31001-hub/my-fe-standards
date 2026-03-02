@@ -1,6 +1,8 @@
 ---
 name: component-refactoring
 description: Refactor high-complexity React or Vue components. Use when complexity > 50, lineCount > 300, or user asks for code splitting, hook/composable extraction. Supports React (Hooks) and Vue (2 Options API, 3 Composition API).
+triggers:
+  - "重构/拆分组件/提取 Hook/组件优化"
 ---
 
 # Component Refactoring Skill

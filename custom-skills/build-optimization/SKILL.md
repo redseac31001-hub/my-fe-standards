@@ -1,6 +1,8 @@
 ---
 name: build-optimization
 description: 构建优化技能，涵盖 Vite/Webpack 配置优化、构建缓存和 CI 加速。触发条件：构建优化、构建速度慢、Vite 配置、Webpack 配置、包体积分析。
+triggers:
+  - "构建优化/Webpack/Vite/打包/分包"
 ---
 
 # Build Optimization Skill

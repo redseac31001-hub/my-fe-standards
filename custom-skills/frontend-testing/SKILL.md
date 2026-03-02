@@ -1,6 +1,8 @@
 ---
 name: frontend-testing
 description: Generate tests for frontend components (React/Vue). Supports Vitest, Jest, Vue Test Utils, and React Testing Library. Triggers on testing requests, spec files, or coverage improvements.
+triggers:
+  - "写测试/测试用例/Mock/断言"
 ---
 
 # Frontend Testing Skill

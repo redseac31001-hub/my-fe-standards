@@ -1,6 +1,8 @@
 ---
 name: state-management
 description: Pinia/Vuex 状态管理重构与测试技能。触发条件：Store 重构、状态逻辑复杂化、Vuex 迁移 Pinia、Store 单元测试编写、状态规范化设计。
+triggers:
+  - "状态管理/Vuex/Pinia/Store"
 ---
 
 # State Management Skill
