@@ -32,11 +32,11 @@
 无需下载任何文件，在**业务项目根目录**执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
 ```
 
 **执行过程**：
-1. 下载 `codebuddy-loader.js` 到内存
+1. 下载 `codebuddy-loader.bundle.js` 到内存
 2. 拉取远程 `manifest.json` 获取文件清单
 3. 下载规则、技能、Agent、脚本到业务项目的 `.codebuddy/` 目录
 4. 生成 `.codebuddy/rules/project-rules.md` 主规则文件

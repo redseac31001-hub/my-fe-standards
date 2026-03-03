@@ -4,16 +4,19 @@
   "description": "AI 辅助开发平台 - 前端架构师规则库 + Ralph 自主编码系统",
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "esbuild": "^0.27.3",
     "typescript": "^5.0.0"
   },
   "scripts": {
     "build:scripts": "tsc -p scripts/tsconfig.json",
+    "build:bundle": "esbuild scripts/src/codebuddy-loader.ts --bundle --platform=node --format=cjs --target=node18 --outfile=scripts/dist/codebuddy-loader.bundle.js",
     "build:manifest": "node scripts/dist/generate-manifest.js",
-    "build": "npm run build:scripts && npm run build:manifest",
+    "build": "npm run build:scripts && npm run build:bundle && npm run build:manifest",
     "codebuddy": "node scripts/dist/codebuddy-loader.js",
     "codebuddy:install": "node scripts/dist/codebuddy-loader.js",
     "serve": "node scripts/dist/simple-server.js",
-    "remote": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm",
+    "remote": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm",
+    "remote:full": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm --enable-orchestrator",
     "ralph": "bash scripts/ralph/ralph.sh",
     "ralph:claude": "bash scripts/ralph/ralph.sh --tool claude",
     "task": "node scripts/dist/taskbook-manager.js"

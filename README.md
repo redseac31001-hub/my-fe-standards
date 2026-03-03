@@ -72,7 +72,7 @@ my-fe-standards/
 
 ```bash
 # 一键远程加载规则（无需预先下载脚本）
-curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
 ```
 
 ### 方式二：本地模式
@@ -376,7 +376,8 @@ node codebuddy-loader.js [options]
 | `npm run build:manifest` | 仅生成规则清单 manifest.json |
 | `npm run codebuddy` | 本地模式运行加载器 |
 | `npm run serve` | 启动本地 HTTP 服务器（测试用） |
-| `npm run remote` | **远程模式测试**：从 GitHub 远程拉取脚本和规则 |
+| `npm run remote` | **远程模式测试（核心）**：下载 `codebuddy-loader.bundle.js` 并拉取规则 |
+| `npm run remote:full` | **远程模式测试（完整编排）**：额外启用 `--enable-orchestrator` |
 
 ### 远程模式测试
 
@@ -391,7 +392,7 @@ npm run remote
 ```
 
 该命令会：
-1. 从 GitHub Raw URL 下载 `codebuddy-loader.js`
+1. 从 GitHub Raw URL 下载 `codebuddy-loader.bundle.js`
 2. 执行加载器，从远程拉取 `manifest.json` 和规则文件
 3. 在当前目录生成 `.codebuddy/` 配置
 

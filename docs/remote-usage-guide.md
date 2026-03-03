@@ -1,10 +1,10 @@
 # 业务系统远程接入指南
 
-> 本文档说明如何在业务项目中通过 `codebuddy-loader.js` 从远程规则源拉取规则，并生成 `.codebuddy/rules/project-rules.md`。
+> 本文档说明如何在业务项目中通过 `codebuddy-loader.bundle.js` 从远程规则源拉取规则，并生成 `.codebuddy/rules/project-rules.md`。
 
 ## 概述
 
-`codebuddy-loader.js` 当前支持两种使用方式：
+`codebuddy-loader.bundle.js` 当前支持两种使用方式：
 
 1. 远程模式（业务项目接入推荐）：通过 `--remote <URL>` 从静态 HTTP 源读取：
    - `manifest.json`
@@ -28,17 +28,17 @@
 无需在业务项目里落脚本文件，直接远程拉取并执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
 ```
 
 ### 分步执行（适合落地到项目/CI）
 
 ```bash
 # 1) 下载脚本到业务项目根目录
-curl -O https://your-server.com/standards/scripts/dist/codebuddy-loader.js
+curl -O https://your-server.com/standards/scripts/dist/codebuddy-loader.bundle.js
 
 # 2) 执行生成（显式指定远程源）
-node codebuddy-loader.js --remote https://your-server.com/standards
+node codebuddy-loader.bundle.js --remote https://your-server.com/standards
 ```
 
 也可以通过 npm script 固化：
@@ -46,7 +46,7 @@ node codebuddy-loader.js --remote https://your-server.com/standards
 ```json
 {
   "scripts": {
-    "rules:update": "node codebuddy-loader.js --remote https://your-server.com/standards"
+    "rules:update": "node codebuddy-loader.bundle.js --remote https://your-server.com/standards"
   }
 }
 ```
@@ -146,4 +146,3 @@ node codebuddy-loader.js --remote https://example.com/standards
 1. CI/CD 定时更新：建议在流水线中定期执行 `rules:update`，让规则随仓库同步更新。
 2. 版本锁定：如需稳定性，使用固定分支或 tag 的静态部署地址。
 3. git 忽略：加载器会尝试将 `.codebuddy/` 追加到业务项目的 `.gitignore`，避免提交生成文件；如你希望提交生成文件，可在项目侧移除该忽略项，或使用 `git add -f .codebuddy/` 强制添加。
-
