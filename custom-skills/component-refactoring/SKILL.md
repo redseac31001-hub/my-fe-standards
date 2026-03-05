@@ -21,7 +21,7 @@ Look at the file extension and code patterns:
 
 | Framework | Strategy Ref | Key Actions |
 |-----------|--------------|-------------|
-| **React** | [references/react-hook-extraction.md](references/react-hook-extraction.md) | Extract custom hooks, sub-components |
+| **React** | React Hook Extraction | Extract custom hooks, sub-components |
 | **Vue 3** | [references/vue/composition-api.md](references/vue/composition-api.md) | Extract composables, use `script setup` |
 | **Vue 2** | [references/vue/options-api.md](references/vue/options-api.md) | Remove mixins, extract sub-components |
 
@@ -43,7 +43,7 @@ pnpm refactor-component <path>
 4. **Verify**: Functionality check + Type check.
 
 ### React Specifics
-See [references/react-hook-extraction.md](references/react-hook-extraction.md) and [references/react-component-splitting.md](references/react-component-splitting.md).
+See React Hook Extraction and React Component Splitting patterns for detailed guidance.
 
 ### Vue Specifics
 See [references/vue/component-splitting.md](references/vue/component-splitting.md) for general splitting advice.

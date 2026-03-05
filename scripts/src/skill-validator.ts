@@ -194,10 +194,11 @@ function validateSkillDir(skillId: string, skillDir: string): { issues: Issue[];
   }
 
   // Suggest keeping frontmatter minimal (name/description only).
-  const allowedKeys = new Set(['name', 'description']);
+  // Allow triggers/tools/related as recommended fields per skill-creator standard.
+  const allowedKeys = new Set(['name', 'description', 'triggers', 'tools', 'related']);
   for (const k of Object.keys(meta)) {
     if (!allowedKeys.has(k)) {
-      issues.push({ level: 'warning', skillId, file: relSkillFile, message: `frontmatter 包含非推荐字段: ${k}（建议仅保留 name/description）` });
+      issues.push({ level: 'warning', skillId, file: relSkillFile, message: `frontmatter 包含非推荐字段: ${k}（建议仅保留 name/description/triggers/tools/related）` });
     }
   }
 
