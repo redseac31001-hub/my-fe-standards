@@ -686,6 +686,136 @@ ${table}
 **\u91CD\u8981**: \u5F53\u9700\u8981\u67E5\u770B\u89C4\u5219\u8BE6\u60C5\u65F6\uFF0C\u4F7F\u7528 \`read_file\` \u5DE5\u5177\u8BFB\u53D6 \`.codebuddy/rules_cache/\` \u4E0B\u7684\u5BF9\u5E94\u6587\u4EF6\u3002
 `;
 }
+function generateWorkspacePrompt(workspaceInfo) {
+  if (!workspaceInfo.isWorkspace || workspaceInfo.projects.length <= 1) return "";
+  const { projects } = workspaceInfo;
+  let indexTable = "| \u9879\u76EE\u540D\u79F0 | \u8DEF\u5F84\u524D\u7F00 | \u8BED\u8A00 | \u6846\u67B6 | UI \u5E93 | Vue \u7248\u672C | \u89C4\u5219\u7F13\u5B58\u8DEF\u5F84 |\n";
+  indexTable += "|---------|---------|------|------|-------|---------|-------------|\n";
+  for (const p of projects) {
+    const vueVer = p.vueProfile ? `v${p.vueProfile.version}` : "-";
+    const uiLibs = p.uiLibLabels.length > 0 ? p.uiLibLabels.join(", ") : "-";
+    const cachePath = p.relativePath === "." ? "`.codebuddy/rules_cache/layer2_business/`" : `\`.codebuddy/rules_cache/projects/${p.relativePath}/layer2_business/\``;
+    indexTable += `| ${p.name} | \`${p.relativePath}/\` | ${p.lang} | ${p.frameworkLabel || "-"} | ${uiLibs} | ${vueVer} | ${cachePath} |
+`;
+  }
+  const sortedProjects = [...projects].filter((p) => p.relativePath !== ".").sort((a, b) => b.relativePath.length - a.relativePath.length);
+  let routingRules = "";
+  for (const p of sortedProjects) {
+    const label = [p.lang, p.frameworkLabel, ...p.uiLibLabels].filter(Boolean).join(" + ") || "\u901A\u7528";
+    routingRules += `\u251C\u2500 \u8DEF\u5F84\u4EE5 \`${p.relativePath}/\` \u5F00\u5934\uFF1F \u2192 \u5E94\u7528 **${p.name}** \u7684\u89C4\u5219\uFF08${label}\uFF09
+`;
+  }
+  const rootProject = projects.find((p) => p.relativePath === ".");
+  if (rootProject) {
+    const rootLabel = [rootProject.frameworkLabel, ...rootProject.uiLibLabels].filter(Boolean).join(" + ") || "\u901A\u7528";
+    routingRules += `\u2514\u2500 \u5176\u4ED6\u8DEF\u5F84 \u2192 \u5E94\u7528 **${rootProject.name}** \u6839\u9879\u76EE\u89C4\u5219\uFF08${rootLabel}\uFF09
+`;
+  } else {
+    routingRules += `\u2514\u2500 \u5176\u4ED6\u8DEF\u5F84 \u2192 \u4F7F\u7528\u901A\u7528\u89C4\u5219\uFF08\u65E0\u6839\u9879\u76EE package.json\uFF09
+`;
+  }
+  const exampleProject = sortedProjects[0];
+  let routingExample = "";
+  if (exampleProject) {
+    routingExample = `
+### \u8DEF\u7531\u793A\u4F8B
+
+\u5F53\u7528\u6237\u7F16\u8F91 \`${exampleProject.relativePath}/src/App.vue\` \u65F6\uFF1A
+
+1. \u83B7\u53D6\u6587\u4EF6\u76F8\u5BF9\u8DEF\u5F84\uFF1A\`${exampleProject.relativePath}/src/App.vue\`
+2. \u5339\u914D\u8DEF\u5F84\u524D\u7F00\uFF1A\`${exampleProject.relativePath}/\` \u2192 **${exampleProject.name}**
+3. \u52A0\u8F7D\u5BF9\u5E94 Layer2 \u89C4\u5219\u7F13\u5B58\uFF1A\`.codebuddy/rules_cache/projects/${exampleProject.relativePath}/layer2_business/\`
+4. \u5E94\u7528\u6280\u672F\u6808\u7EA6\u5B9A\uFF1A${exampleProject.frameworkLabel || "\u901A\u7528"}${exampleProject.uiLibLabels.length > 0 ? " + " + exampleProject.uiLibLabels.join(" + ") : ""}
+`;
+  }
+  const hasVue2 = projects.some((p) => p.vueProfile?.version === 2);
+  const hasVue3 = projects.some((p) => p.vueProfile?.version === 3);
+  let mixWarning = "";
+  if (hasVue2 && hasVue3) {
+    mixWarning = `
+### \u26A0\uFE0F \u8DE8\u9879\u76EE\u6280\u672F\u6808\u9694\u79BB\u8B66\u544A
+
+\u672C Workspace \u540C\u65F6\u5305\u542B Vue 2 \u548C Vue 3 \u9879\u76EE\uFF0C**\u4E25\u7981\u6DF7\u7528**\uFF1A
+
+- **Vue 2 \u9879\u76EE**\u7981\u6B62\u4F7F\u7528\uFF1A\`<script setup>\`\u3001\`defineProps()\`\u3001\`defineEmits()\`
+- **Vue 3 \u9879\u76EE**\u7981\u6B62\u4F7F\u7528\uFF1AOptions API\uFF08\`data()\`\u3001\`methods\`\u3001\`computed\`\uFF09\u3001\`this.$refs\`
+- \u7F16\u8F91\u6587\u4EF6\u524D**\u5FC5\u987B**\u5148\u786E\u8BA4\u6240\u5C5E\u9879\u76EE\uFF0C\u518D\u5E94\u7528\u5BF9\u5E94\u7248\u672C\u7684\u89C4\u8303
+`;
+  }
+  let projectList = "";
+  for (const p of projects) {
+    const techStack = [p.frameworkLabel, ...p.uiLibLabels].filter(Boolean).join(" + ") || "-";
+    const shortName = p.relativePath === "." ? "\u6839\u9879\u76EE" : p.relativePath.split("/").pop();
+    const aliases = [p.name, shortName, p.relativePath].filter((v, i, a) => a.indexOf(v) === i);
+    projectList += `| **${p.name}** | \`${p.relativePath}\` | ${p.lang} | ${techStack} | ${aliases.map((a) => `\`${a}\``).join(", ")} |
+`;
+  }
+  return `
+# \u{1F3E2} Workspace \u591A\u9879\u76EE\u8DEF\u7531
+
+\u672C\u76EE\u5F55\u4E3A **Workspace \u6A21\u5F0F**\uFF0C\u5305\u542B ${projects.length} \u4E2A\u5B50\u9879\u76EE\u3002\u7F16\u8F91\u6587\u4EF6\u65F6\u5FC5\u987B\u5148\u5224\u65AD\u6240\u5C5E\u9879\u76EE\uFF0C\u518D\u5E94\u7528\u5BF9\u5E94\u89C4\u5219\u3002
+
+## \u{1F3AF} \u5FEB\u6377\u9879\u76EE\u5B9A\u4F4D
+
+\u5728\u5BF9\u8BDD\u6D88\u606F\u4E2D\u4F7F\u7528 \`@project <\u540D\u79F0>\` \u53EF\u5FEB\u901F\u9501\u5B9A\u5F53\u524D\u64CD\u4F5C\u7684\u76EE\u6807\u9879\u76EE\uFF0C\u540E\u7EED\u64CD\u4F5C\u5C06\u81EA\u52A8\u5E94\u7528\u8BE5\u9879\u76EE\u7684\u6280\u672F\u6808\u89C4\u5219\u3002
+
+### \u7528\u6CD5
+
+\`\`\`
+@project <\u9879\u76EE\u540D\u79F0|\u8DEF\u5F84\u524D\u7F00|\u522B\u540D>
+<\u4F60\u7684\u9700\u6C42\u63CF\u8FF0>
+\`\`\`
+
+### \u793A\u4F8B
+
+\`\`\`
+@project ${sortedProjects[0]?.name || projects[0].name}
+\u5E2E\u6211\u6DFB\u52A0\u4E00\u4E2A\u65B0\u7684\u5217\u8868\u9875
+
+@project ${projects.length > 1 ? projects[1].name : projects[0].name}
+\u68C0\u67E5\u767B\u5F55\u903B\u8F91\u6709\u6CA1\u6709\u95EE\u9898
+\`\`\`
+
+### \u53EF\u7528\u9879\u76EE\u5217\u8868
+
+| \u9879\u76EE\u540D\u79F0 | \u8DEF\u5F84 | \u8BED\u8A00 | \u6846\u67B6 | \u53EF\u7528\u522B\u540D |
+|---------|------|------|------|---------|
+${projectList}
+
+### \u5339\u914D\u89C4\u5219
+
+1. **\u7CBE\u786E\u5339\u914D**\uFF1A\u4F18\u5148\u5339\u914D\u9879\u76EE\u540D\u79F0\u6216\u8DEF\u5F84\u524D\u7F00
+2. **\u6A21\u7CCA\u5339\u914D**\uFF1A\u8F93\u5165\u7684\u540D\u79F0\u662F\u9879\u76EE\u540D/\u8DEF\u5F84\u7684\u5B50\u4E32\u65F6\u81EA\u52A8\u5339\u914D\uFF08\u5982 \`@project mobile\` \u53EF\u5339\u914D \`app-mobile\`\uFF09
+3. **\u6B67\u4E49\u5904\u7406**\uFF1A\u5982\u679C\u5339\u914D\u5230\u591A\u4E2A\u9879\u76EE\uFF0C\u8BF7\u4F7F\u7528\u66F4\u5177\u4F53\u7684\u540D\u79F0\u6216\u5B8C\u6574\u8DEF\u5F84
+
+### \u884C\u4E3A\u7EA6\u5B9A
+
+- \u6307\u5B9A \`@project\` \u540E\uFF0C**\u672C\u8F6E\u5BF9\u8BDD**\u4E2D\u6240\u6709\u6587\u4EF6\u64CD\u4F5C\u9ED8\u8BA4\u9650\u5B9A\u5728\u8BE5\u9879\u76EE\u76EE\u5F55\u4E0B
+- \u5F15\u7528\u6587\u4EF6\u8DEF\u5F84\u65F6\u81EA\u52A8\u8865\u5168\u9879\u76EE\u8DEF\u5F84\u524D\u7F00
+- \u5E94\u7528\u8BE5\u9879\u76EE\u5BF9\u5E94\u7684 Layer2 \u89C4\u5219\u7F13\u5B58
+- \u672A\u6307\u5B9A \`@project\` \u65F6\uFF0C\u6309\u6587\u4EF6\u8DEF\u5F84\u81EA\u52A8\u8DEF\u7531\uFF08\u89C1\u4E0B\u65B9\u8DEF\u7531\u89C4\u5219\uFF09
+
+## \u9879\u76EE\u7D22\u5F15
+
+${indexTable}
+
+## \u8DEF\u5F84\u8DEF\u7531\u89C4\u5219
+
+\u83B7\u53D6\u5F53\u524D\u64CD\u4F5C\u6587\u4EF6\u76F8\u5BF9\u4E8E Workspace \u6839\u76EE\u5F55\u7684\u8DEF\u5F84\uFF0C\u6309\u4EE5\u4E0B\u89C4\u5219\u4ECE\u4E0A\u5230\u4E0B\u5339\u914D\uFF08\u6700\u5177\u4F53\u7684\u8DEF\u5F84\u4F18\u5148\uFF09\uFF1A
+
+\`\`\`
+${routingRules}\`\`\`
+
+### \u8DEF\u7531\u5224\u5B9A\u6B65\u9AA4
+
+1. \u83B7\u53D6\u5F53\u524D\u6587\u4EF6\u76F8\u5BF9\u4E8E Workspace \u6839\u76EE\u5F55\u7684\u8DEF\u5F84
+2. \u6309\u8DEF\u5F84\u524D\u7F00\u4ECE\u4E0A\u5230\u4E0B\u5339\u914D\uFF08\u6700\u957F\u5339\u914D\u4F18\u5148\uFF09
+3. \u52A0\u8F7D\u5339\u914D\u9879\u76EE\u7684 Layer2 \u89C4\u5219\u7F13\u5B58
+4. \u5E94\u7528\u5BF9\u5E94\u6280\u672F\u6808\u7684\u7F16\u7801\u7EA6\u5B9A
+${routingExample}${mixWarning}
+**\u91CD\u8981**: \u6BCF\u4E2A\u5B50\u9879\u76EE\u7684 Layer2 \u89C4\u5219\u7F13\u5B58\u72EC\u7ACB\u5B58\u653E\u5728 \`.codebuddy/rules_cache/projects/{\u9879\u76EE\u8DEF\u5F84}/layer2_business/\` \u4E0B\u3002
+`;
+}
 
 // scripts/src/codebuddy-loader.ts
 var SCRIPT_DIR = __dirname;
@@ -714,6 +844,7 @@ function showHelp() {
   --threshold <n>      \u8BBE\u7F6E\u76F8\u5173\u6027\u9608\u503C (0-1, \u9ED8\u8BA4: 0.5)
   --rule-level <lvl>   \u89C4\u5219\u5185\u5BB9\u88C1\u526A\u7B49\u7EA7\uFF08\u57FA\u4E8E @level:summary/quick/full \u5206\u6BB5\u6807\u8BB0\uFF0C\u9ED8\u8BA4: full\uFF09
   --enable-orchestrator \u542F\u7528 B \u8DEF\u7EBF\u7F16\u6392\u811A\u672C\u5206\u53D1\uFF08task-executor\u3001agent-call \u534F\u8BAE\u7B49\uFF09
+  --no-workspace       \u7981\u7528 workspace \u591A\u9879\u76EE\u81EA\u52A8\u53D1\u73B0
   --verbose, -v        \u542F\u7528\u8BE6\u7EC6\u65E5\u5FD7
   --timeout <ms>       \u8BBE\u7F6E\u7F51\u7EDC\u8BF7\u6C42\u8D85\u65F6\uFF08\u9ED8\u8BA4: 10000ms\uFF09
 
@@ -787,6 +918,189 @@ function checkVueProfile(dependencies) {
     return { version: 2, type: "options" };
   }
   return null;
+}
+var WORKSPACE_EXCLUDE_DIRS = /* @__PURE__ */ new Set([
+  "node_modules",
+  "dist",
+  "build",
+  ".codebuddy",
+  ".git",
+  "coverage",
+  ".next",
+  ".nuxt",
+  ".output",
+  ".cache"
+]);
+var MAX_SUB_PROJECTS = 20;
+var PROJECT_MARKERS = [
+  {
+    files: ["package.json"],
+    lang: "javascript",
+    refinements: [
+      { files: ["tsconfig.json"], lang: "typescript" }
+    ]
+  },
+  { files: ["pom.xml"], lang: "java" },
+  { files: ["build.gradle", "build.gradle.kts"], lang: "java" },
+  { files: ["go.mod"], lang: "go" },
+  { files: ["pyproject.toml", "setup.py"], lang: "python" },
+  { files: ["Cargo.toml"], lang: "rust" }
+  // .NET: *.csproj 通过单独逻辑检测（通配符）
+];
+function detectFrameworkLabel(deps) {
+  if (deps["vue"]) {
+    const v = deps["vue"];
+    if (v.startsWith("3") || v.startsWith("^3") || v.startsWith("~3")) return "Vue 3";
+    if (v.startsWith("2") || v.startsWith("^2") || v.startsWith("~2")) return "Vue 2";
+    return "Vue";
+  }
+  if (deps["react"]) return "React";
+  if (deps["@angular/core"]) return "Angular";
+  if (deps["svelte"]) return "Svelte";
+  return "";
+}
+var KNOWN_UI_LIBS = {
+  "ant-design-vue": "Ant Design Vue",
+  "vant": "Vant",
+  "element-plus": "Element Plus",
+  "element-ui": "Element UI",
+  "naive-ui": "Naive UI",
+  "vuetify": "Vuetify",
+  "@arco-design/web-vue": "Arco Design Vue",
+  "antd": "Ant Design",
+  "@mui/material": "MUI"
+};
+function detectUILibs(deps) {
+  const result = [];
+  for (const [pkg, label] of Object.entries(KNOWN_UI_LIBS)) {
+    if (deps[pkg]) {
+      result.push(label);
+    }
+  }
+  return result;
+}
+function discoverWorkspace(logger, targetDir) {
+  const projects = [];
+  const visited = /* @__PURE__ */ new Set();
+  function scan(dir, depth) {
+    if (depth > 2) return;
+    if (projects.length >= MAX_SUB_PROJECTS) return;
+    let realDir;
+    try {
+      realDir = fs2.realpathSync(dir);
+    } catch {
+      return;
+    }
+    if (visited.has(realDir)) return;
+    visited.add(realDir);
+    const relativePath = path2.relative(targetDir, dir).replace(/\\/g, "/") || ".";
+    let detected = false;
+    for (const marker of PROJECT_MARKERS) {
+      const markerFile = marker.files.find((f) => fs2.existsSync(path2.join(dir, f)));
+      if (!markerFile) continue;
+      let lang = marker.lang;
+      if (marker.refinements) {
+        for (const ref of marker.refinements) {
+          if (ref.files.some((f) => fs2.existsSync(path2.join(dir, f)))) {
+            lang = ref.lang;
+            break;
+          }
+        }
+      }
+      if (markerFile === "package.json") {
+        try {
+          const pkgContent = JSON.parse(fs2.readFileSync(path2.join(dir, "package.json"), "utf-8"));
+          const deps = { ...pkgContent.dependencies, ...pkgContent.devDependencies };
+          projects.push({
+            name: pkgContent.name || path2.basename(dir),
+            relativePath,
+            absolutePath: dir,
+            lang,
+            packageJson: pkgContent,
+            vueProfile: checkVueProfile(deps),
+            dependencies: deps,
+            matchedLayer2Rules: [],
+            frameworkLabel: detectFrameworkLabel(deps),
+            uiLibLabels: detectUILibs(deps)
+          });
+        } catch {
+          logger.warn(`\u89E3\u6790 package.json \u5931\u8D25: ${path2.join(dir, "package.json")}`);
+        }
+      } else {
+        projects.push({
+          name: path2.basename(dir),
+          relativePath,
+          absolutePath: dir,
+          lang,
+          vueProfile: null,
+          dependencies: {},
+          matchedLayer2Rules: [],
+          frameworkLabel: "",
+          uiLibLabels: []
+        });
+      }
+      detected = true;
+      break;
+    }
+    if (!detected) {
+      try {
+        const entries = fs2.readdirSync(dir);
+        const hasCsproj = entries.some((e) => e.endsWith(".csproj") || e.endsWith(".sln"));
+        if (hasCsproj) {
+          projects.push({
+            name: path2.basename(dir),
+            relativePath,
+            absolutePath: dir,
+            lang: "dotnet",
+            vueProfile: null,
+            dependencies: {},
+            matchedLayer2Rules: [],
+            frameworkLabel: "",
+            uiLibLabels: []
+          });
+          detected = true;
+        }
+      } catch {
+      }
+    }
+    if (depth < 2) {
+      let entries;
+      try {
+        entries = fs2.readdirSync(dir);
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.startsWith(".") || WORKSPACE_EXCLUDE_DIRS.has(entry)) continue;
+        const childPath = path2.join(dir, entry);
+        try {
+          const stat = fs2.statSync(childPath);
+          if (stat.isDirectory()) {
+            scan(childPath, depth + 1);
+          }
+        } catch {
+        }
+      }
+    }
+  }
+  scan(targetDir, 0);
+  if (projects.length >= MAX_SUB_PROJECTS) {
+    logger.warn(`\u5B50\u9879\u76EE\u6570\u91CF\u5DF2\u8FBE\u4E0A\u9650 ${MAX_SUB_PROJECTS}\uFF0C\u540E\u7EED\u5B50\u9879\u76EE\u88AB\u622A\u65AD`);
+  }
+  const isWorkspace = projects.length > 1;
+  if (isWorkspace) {
+    logger.log(`\u53D1\u73B0 Workspace \u6A21\u5F0F\uFF1A${projects.length} \u4E2A\u5B50\u9879\u76EE`);
+    for (const p of projects) {
+      const label = [p.lang, p.frameworkLabel, ...p.uiLibLabels].filter(Boolean).join(" + ");
+      logger.verbose(`  - ${p.relativePath} (${label || "\u65E0\u6846\u67B6\u68C0\u6D4B"})`);
+    }
+  }
+  return {
+    isWorkspace,
+    rootDir: targetDir,
+    projects,
+    discoveredAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
 }
 async function loadRuleFile(ctx, logger, layerId, filePath) {
   if (ctx.isRemote) {
@@ -1179,11 +1493,15 @@ function parseArgs() {
   let ruleLevel = DEFAULT_RULE_LEVEL;
   let requestTimeout = DEFAULT_TIMEOUT;
   let enableOrchestrator = false;
+  let disableWorkspace = false;
   if (args.includes("--verbose") || args.includes("-v")) {
     isVerbose = true;
   }
   if (args.includes("--enable-orchestrator")) {
     enableOrchestrator = true;
+  }
+  if (args.includes("--no-workspace")) {
+    disableWorkspace = true;
   }
   const remoteIndex = args.indexOf("--remote");
   if (remoteIndex !== -1) {
@@ -1243,7 +1561,8 @@ function parseArgs() {
     taskType,
     relevanceThreshold,
     ruleLevel,
-    enableOrchestrator
+    enableOrchestrator,
+    disableWorkspace
   };
 }
 async function main() {
@@ -1260,10 +1579,29 @@ async function main() {
   }
   const targetDir = process.cwd();
   logger.log(`\u76EE\u6807\u9879\u76EE: ${targetDir}`);
+  const workspaceInfo = ctx.disableWorkspace ? { isWorkspace: false, rootDir: targetDir, projects: [], discoveredAt: (/* @__PURE__ */ new Date()).toISOString() } : discoverWorkspace(logger, targetDir);
+  if (ctx.disableWorkspace) {
+    logger.verbose("Workspace \u53D1\u73B0\u5DF2\u7981\u7528\uFF08--no-workspace\uFF09");
+  } else if (workspaceInfo.isWorkspace) {
+    logger.log(`Workspace \u6A21\u5F0F: ${workspaceInfo.projects.length} \u4E2A\u5B50\u9879\u76EE`);
+  } else {
+    logger.verbose("\u5355\u9879\u76EE\u6A21\u5F0F\uFF08\u672A\u53D1\u73B0\u591A\u4E2A\u5B50\u9879\u76EE\uFF09");
+  }
   const { layers, skills: skillsConfig, output, frontmatter } = config;
-  const pkg = getPackageJson(logger, targetDir);
-  const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
-  const vueProfile = checkVueProfile(dependencies);
+  let pkg;
+  let dependencies;
+  let vueProfile;
+  if (workspaceInfo.isWorkspace && workspaceInfo.projects.length > 0) {
+    const primaryProject = workspaceInfo.projects.find((p) => p.vueProfile !== null) || workspaceInfo.projects[0];
+    pkg = primaryProject.packageJson ?? {};
+    dependencies = primaryProject.dependencies;
+    vueProfile = primaryProject.vueProfile;
+    logger.verbose(`\u4E3B\u9879\u76EE\uFF08Layer1 \u57FA\u51C6\uFF09: ${primaryProject.name} (${primaryProject.relativePath})`);
+  } else {
+    pkg = getPackageJson(logger, targetDir);
+    dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+    vueProfile = checkVueProfile(dependencies);
+  }
   if (vueProfile) {
     logger.log(`\u68C0\u6D4B\u5230 Vue ${vueProfile.version} (${vueProfile.type})`);
   }
@@ -1335,6 +1673,39 @@ ${rule.content}
       }
     }
   }
+  if (workspaceInfo.isWorkspace) {
+    logger.log("\u5904\u7406 Workspace \u5B50\u9879\u76EE Layer2 \u89C4\u5219...");
+    for (const project of workspaceInfo.projects) {
+      if (project.relativePath === ".") continue;
+      for (const [depName, ruleFolders] of Object.entries(businessDeps)) {
+        if (project.dependencies[depName]) {
+          logger.verbose(`  ${project.name}: \u68C0\u6D4B\u5230 ${depName}\uFF0C\u6DFB\u52A0\u89C4\u5219\u7D22\u5F15`);
+          for (const folder of ruleFolders) {
+            project.matchedLayer2Rules.push({
+              dep: depName,
+              rule: folder,
+              path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${folder}.md`
+            });
+            const projectCacheDir = path2.join(
+              targetDir,
+              `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`
+            );
+            if (!fs2.existsSync(projectCacheDir)) {
+              fs2.mkdirSync(projectCacheDir, { recursive: true });
+            }
+            const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", folder + ".md");
+            if (content) {
+              fs2.writeFileSync(path2.join(projectCacheDir, folder + ".md"), content, "utf-8");
+            }
+          }
+        }
+      }
+    }
+    const rootProject = workspaceInfo.projects.find((p) => p.relativePath === ".");
+    if (rootProject) {
+      rootProject.matchedLayer2Rules = [...layer2Index];
+    }
+  }
   logger.log("\u5904\u7406 Layer 3: \u4EFB\u52A1\u68C0\u67E5\u6E05\u5355 (Lazy Load)...");
   const layer3Index = [];
   const actionDefaults = layers.action?.defaults || [];
@@ -1371,6 +1742,32 @@ ${rule.content}
 `;
     }
     finalContent += "\n";
+  }
+  if (workspaceInfo.isWorkspace) {
+    const workspaceIndex = {
+      version: "1.0.0",
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      rootDir: targetDir,
+      projectCount: workspaceInfo.projects.length,
+      projects: workspaceInfo.projects.map((p) => ({
+        name: p.name,
+        relativePath: p.relativePath,
+        lang: p.lang,
+        frameworkLabel: p.frameworkLabel,
+        uiLibLabels: p.uiLibLabels,
+        vueVersion: p.vueProfile?.version ?? null,
+        layer2CachePath: p.relativePath === "." ? ".codebuddy/rules_cache/layer2_business/" : `.codebuddy/rules_cache/projects/${p.relativePath}/layer2_business/`,
+        matchedRules: p.matchedLayer2Rules.map((r) => r.rule)
+      }))
+    };
+    const workspaceIndexPath = path2.join(targetDir, ".codebuddy/workspace-index.json");
+    const workspaceIndexDir = path2.dirname(workspaceIndexPath);
+    if (!fs2.existsSync(workspaceIndexDir)) {
+      fs2.mkdirSync(workspaceIndexDir, { recursive: true });
+    }
+    fs2.writeFileSync(workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2), "utf-8");
+    logger.log(`\u5DF2\u751F\u6210 workspace-index.json (${workspaceInfo.projects.length} \u4E2A\u9879\u76EE)`);
+    finalContent += generateWorkspacePrompt(workspaceInfo);
   }
   finalContent += generateRuleActivationPrompt(config);
   if (skillsConfig?.enabled) {
@@ -1449,6 +1846,13 @@ ${rule.content}
   logger.log(`   TaskBook \u5951\u7EA6: ${distributedTaskBooks.length} \u4E2A`);
   logger.log(`   Agent Call \u5951\u7EA6: ${distributedAgentCalls.length} \u4E2A`);
   logger.log(`   Slash Commands: ${distributedCommands.length} \u4E2A`);
+  if (workspaceInfo.isWorkspace) {
+    logger.log(`   Workspace \u5B50\u9879\u76EE: ${workspaceInfo.projects.length} \u4E2A`);
+    for (const p of workspaceInfo.projects) {
+      const rules = p.matchedLayer2Rules.map((r) => r.rule).join(", ") || "\u65E0";
+      logger.log(`     - ${p.name} (${p.relativePath}): ${p.frameworkLabel || "\u65E0\u6846\u67B6"} | \u89C4\u5219: ${rules}`);
+    }
+  }
   logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
 }
 main().catch((err) => {

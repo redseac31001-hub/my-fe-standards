@@ -34,6 +34,10 @@ import {
   SkillMetadata,
   AgentMetadata,
   PackageJson,
+  ProjectLang,
+  SubProject,
+  WorkspaceInfo,
+  WorkspaceIndex,
 } from './types';
 import { Logger, createLogger, logError } from './lib/logger';
 import { fetchUrl } from './lib/fetcher';
@@ -49,6 +53,7 @@ import {
   generateAgentsPrompt,
   generateSkillsPrompt,
   generateRuleActivationPrompt,
+  generateWorkspacePrompt,
 } from './lib/prompt-builder';
 
 // ============ 配置常量 ============
@@ -83,6 +88,7 @@ function showHelp(): void {
   --threshold <n>      设置相关性阈值 (0-1, 默认: 0.5)
   --rule-level <lvl>   规则内容裁剪等级（基于 @level:summary/quick/full 分段标记，默认: full）
   --enable-orchestrator 启用 B 路线编排脚本分发（task-executor、agent-call 协议等）
+  --no-workspace       禁用 workspace 多项目自动发现
   --verbose, -v        启用详细日志
   --timeout <ms>       设置网络请求超时（默认: 10000ms）
 
@@ -165,6 +171,252 @@ function checkVueProfile(dependencies: Record<string, string>): VueProfile | nul
     return { version: 2, type: 'options' };
   }
   return null;
+}
+
+// ============ Workspace 多项目发现 ============
+
+/** 应排除的目录名 */
+const WORKSPACE_EXCLUDE_DIRS = new Set([
+  'node_modules', 'dist', 'build', '.codebuddy', '.git',
+  'coverage', '.next', '.nuxt', '.output', '.cache',
+]);
+
+/** 最大发现子项目数 */
+const MAX_SUB_PROJECTS = 20;
+
+/**
+ * 项目标志文件配置
+ * 按优先级排序，匹配即停
+ */
+interface ProjectMarker {
+  /** 标志文件名（任一存在即匹配） */
+  files: string[];
+  /** 语言标签 */
+  lang: ProjectLang;
+  /** 细化规则：匹配后可进一步细化语言 */
+  refinements?: Array<{ files: string[]; lang: ProjectLang }>;
+}
+
+const PROJECT_MARKERS: ProjectMarker[] = [
+  {
+    files: ['package.json'], lang: 'javascript', refinements: [
+      { files: ['tsconfig.json'], lang: 'typescript' },
+    ]
+  },
+  { files: ['pom.xml'], lang: 'java' },
+  { files: ['build.gradle', 'build.gradle.kts'], lang: 'java' },
+  { files: ['go.mod'], lang: 'go' },
+  { files: ['pyproject.toml', 'setup.py'], lang: 'python' },
+  { files: ['Cargo.toml'], lang: 'rust' },
+  // .NET: *.csproj 通过单独逻辑检测（通配符）
+];
+
+/**
+ * 检测框架标签
+ */
+function detectFrameworkLabel(deps: Record<string, string>): string {
+  if (deps['vue']) {
+    const v = deps['vue'];
+    if (v.startsWith('3') || v.startsWith('^3') || v.startsWith('~3')) return 'Vue 3';
+    if (v.startsWith('2') || v.startsWith('^2') || v.startsWith('~2')) return 'Vue 2';
+    return 'Vue';
+  }
+  if (deps['react']) return 'React';
+  if (deps['@angular/core']) return 'Angular';
+  if (deps['svelte']) return 'Svelte';
+  return '';
+}
+
+/** 已知 UI 库映射（包名 → 显示名） */
+const KNOWN_UI_LIBS: Record<string, string> = {
+  'ant-design-vue': 'Ant Design Vue',
+  'vant': 'Vant',
+  'element-plus': 'Element Plus',
+  'element-ui': 'Element UI',
+  'naive-ui': 'Naive UI',
+  'vuetify': 'Vuetify',
+  '@arco-design/web-vue': 'Arco Design Vue',
+  'antd': 'Ant Design',
+  '@mui/material': 'MUI',
+};
+
+/**
+ * 检测项目使用的 UI 库
+ */
+function detectUILibs(deps: Record<string, string>): string[] {
+  const result: string[] = [];
+  for (const [pkg, label] of Object.entries(KNOWN_UI_LIBS)) {
+    if (deps[pkg]) {
+      result.push(label);
+    }
+  }
+  return result;
+}
+
+/**
+ * 从 targetDir 递归扫描子项目
+ *
+ * - 最多扫描 2 层深度
+ * - 排除 node_modules、dist 等目录
+ * - 防循环：维护 visited Set（处理 symlink）
+ * - 超过 MAX_SUB_PROJECTS 截断并警告
+ */
+function discoverWorkspace(logger: Logger, targetDir: string): WorkspaceInfo {
+  const projects: SubProject[] = [];
+  const visited = new Set<string>();
+
+  /**
+   * 递归扫描目录
+   * @param dir 当前目录
+   * @param depth 当前深度（0 = targetDir 本身）
+   */
+  function scan(dir: string, depth: number): void {
+    if (depth > 2) return;
+    if (projects.length >= MAX_SUB_PROJECTS) return;
+
+    // 防循环：解析真实路径
+    let realDir: string;
+    try {
+      realDir = fs.realpathSync(dir);
+    } catch {
+      return;
+    }
+    if (visited.has(realDir)) return;
+    visited.add(realDir);
+
+    // 检测当前目录是否为项目（多语言标志文件检测）
+    const relativePath = path.relative(targetDir, dir).replace(/\\/g, '/') || '.';
+    let detected = false;
+
+    // 按 PROJECT_MARKERS 优先级逐个检测
+    for (const marker of PROJECT_MARKERS) {
+      const markerFile = marker.files.find(f => fs.existsSync(path.join(dir, f)));
+      if (!markerFile) continue;
+
+      // 匹配到标志文件
+      let lang = marker.lang;
+
+      // 细化语言（如 JS → TS）
+      if (marker.refinements) {
+        for (const ref of marker.refinements) {
+          if (ref.files.some(f => fs.existsSync(path.join(dir, f)))) {
+            lang = ref.lang;
+            break;
+          }
+        }
+      }
+
+      if (markerFile === 'package.json') {
+        // JS/TS 项目：解析 package.json
+        try {
+          const pkgContent = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8')) as PackageJson;
+          const deps: Record<string, string> = { ...pkgContent.dependencies, ...pkgContent.devDependencies };
+
+          projects.push({
+            name: pkgContent.name || path.basename(dir),
+            relativePath,
+            absolutePath: dir,
+            lang,
+            packageJson: pkgContent,
+            vueProfile: checkVueProfile(deps),
+            dependencies: deps,
+            matchedLayer2Rules: [],
+            frameworkLabel: detectFrameworkLabel(deps),
+            uiLibLabels: detectUILibs(deps),
+          });
+        } catch {
+          logger.warn(`解析 package.json 失败: ${path.join(dir, 'package.json')}`);
+        }
+      } else {
+        // 非 JS 项目：用目录名作为项目名
+        projects.push({
+          name: path.basename(dir),
+          relativePath,
+          absolutePath: dir,
+          lang,
+          vueProfile: null,
+          dependencies: {},
+          matchedLayer2Rules: [],
+          frameworkLabel: '',
+          uiLibLabels: [],
+        });
+      }
+
+      detected = true;
+      break; // 匹配即停
+    }
+
+    // .NET 项目特殊检测（通配符 *.csproj）
+    if (!detected) {
+      try {
+        const entries = fs.readdirSync(dir);
+        const hasCsproj = entries.some(e => e.endsWith('.csproj') || e.endsWith('.sln'));
+        if (hasCsproj) {
+          projects.push({
+            name: path.basename(dir),
+            relativePath,
+            absolutePath: dir,
+            lang: 'dotnet',
+            vueProfile: null,
+            dependencies: {},
+            matchedLayer2Rules: [],
+            frameworkLabel: '',
+            uiLibLabels: [],
+          });
+          detected = true;
+        }
+      } catch {
+        // 无法访问，跳过
+      }
+    }
+
+    // 继续扫描子目录
+    if (depth < 2) {
+      let entries: string[];
+      try {
+        entries = fs.readdirSync(dir);
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        // 排除隐藏目录和已知无关目录
+        if (entry.startsWith('.') || WORKSPACE_EXCLUDE_DIRS.has(entry)) continue;
+
+        const childPath = path.join(dir, entry);
+        try {
+          const stat = fs.statSync(childPath);
+          if (stat.isDirectory()) {
+            scan(childPath, depth + 1);
+          }
+        } catch {
+          // 无法访问的目录，跳过
+        }
+      }
+    }
+  }
+
+  scan(targetDir, 0);
+
+  if (projects.length >= MAX_SUB_PROJECTS) {
+    logger.warn(`子项目数量已达上限 ${MAX_SUB_PROJECTS}，后续子项目被截断`);
+  }
+
+  const isWorkspace = projects.length > 1;
+
+  if (isWorkspace) {
+    logger.log(`发现 Workspace 模式：${projects.length} 个子项目`);
+    for (const p of projects) {
+      const label = [p.lang, p.frameworkLabel, ...p.uiLibLabels].filter(Boolean).join(' + ');
+      logger.verbose(`  - ${p.relativePath} (${label || '无框架检测'})`);
+    }
+  }
+
+  return {
+    isWorkspace,
+    rootDir: targetDir,
+    projects,
+    discoveredAt: new Date().toISOString(),
+  };
 }
 
 // ============ 规则加载 ============
@@ -671,6 +923,7 @@ function parseArgs(): Readonly<Context> {
   let ruleLevel: Context['ruleLevel'] = DEFAULT_RULE_LEVEL;
   let requestTimeout = DEFAULT_TIMEOUT;
   let enableOrchestrator = false;
+  let disableWorkspace = false;
 
   if (args.includes('--verbose') || args.includes('-v')) {
     isVerbose = true;
@@ -678,6 +931,10 @@ function parseArgs(): Readonly<Context> {
 
   if (args.includes('--enable-orchestrator')) {
     enableOrchestrator = true;
+  }
+
+  if (args.includes('--no-workspace')) {
+    disableWorkspace = true;
   }
 
   const remoteIndex = args.indexOf('--remote');
@@ -744,6 +1001,7 @@ function parseArgs(): Readonly<Context> {
     relevanceThreshold,
     ruleLevel,
     enableOrchestrator,
+    disableWorkspace,
   };
 }
 
@@ -771,12 +1029,40 @@ async function main(): Promise<void> {
   const targetDir = process.cwd();
   logger.log(`目标项目: ${targetDir}`);
 
+  // ============ Workspace 多项目发现 ============
+  const workspaceInfo: WorkspaceInfo = ctx.disableWorkspace
+    ? { isWorkspace: false, rootDir: targetDir, projects: [], discoveredAt: new Date().toISOString() }
+    : discoverWorkspace(logger, targetDir);
+
+  if (ctx.disableWorkspace) {
+    logger.verbose('Workspace 发现已禁用（--no-workspace）');
+  } else if (workspaceInfo.isWorkspace) {
+    logger.log(`Workspace 模式: ${workspaceInfo.projects.length} 个子项目`);
+  } else {
+    logger.verbose('单项目模式（未发现多个子项目）');
+  }
+
   const { layers, skills: skillsConfig, output, frontmatter } = config;
 
-  // 检测项目依赖
-  const pkg = getPackageJson(logger, targetDir);
-  const dependencies: Record<string, string> = { ...pkg.dependencies, ...pkg.devDependencies };
-  const vueProfile = checkVueProfile(dependencies);
+  // 检测项目依赖（向后兼容：选择 primaryProject 作为 Layer1 基准）
+  let pkg: PackageJson;
+  let dependencies: Record<string, string>;
+  let vueProfile: VueProfile | null;
+
+  if (workspaceInfo.isWorkspace && workspaceInfo.projects.length > 0) {
+    // Workspace 模式：选择第一个有 Vue 依赖的项目，否则取第一个
+    const primaryProject =
+      workspaceInfo.projects.find(p => p.vueProfile !== null) ||
+      workspaceInfo.projects[0];
+    pkg = primaryProject.packageJson ?? {};
+    dependencies = primaryProject.dependencies;
+    vueProfile = primaryProject.vueProfile;
+    logger.verbose(`主项目（Layer1 基准）: ${primaryProject.name} (${primaryProject.relativePath})`);
+  } else {
+    pkg = getPackageJson(logger, targetDir);
+    dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+    vueProfile = checkVueProfile(dependencies);
+  }
 
   if (vueProfile) {
     logger.log(`检测到 Vue ${vueProfile.version} (${vueProfile.type})`);
@@ -857,6 +1143,47 @@ updatedAt: ${updatedAt}
     }
   }
 
+  // ============ Workspace: 为每个子项目匹配并缓存 Layer2 规则 ============
+  if (workspaceInfo.isWorkspace) {
+    logger.log('处理 Workspace 子项目 Layer2 规则...');
+    for (const project of workspaceInfo.projects) {
+      // 跳过根项目（已在上面处理）
+      if (project.relativePath === '.') continue;
+
+      for (const [depName, ruleFolders] of Object.entries(businessDeps)) {
+        if (project.dependencies[depName]) {
+          logger.verbose(`  ${project.name}: 检测到 ${depName}，添加规则索引`);
+          for (const folder of ruleFolders) {
+            project.matchedLayer2Rules.push({
+              dep: depName,
+              rule: folder,
+              path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${folder}.md`,
+            });
+
+            // 缓存到子项目独立目录
+            const projectCacheDir = path.join(
+              targetDir,
+              `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`
+            );
+            if (!fs.existsSync(projectCacheDir)) {
+              fs.mkdirSync(projectCacheDir, { recursive: true });
+            }
+            const content = await loadRuleFile(ctx, logger, layers.business?.id || 'layer2_business', folder + '.md');
+            if (content) {
+              fs.writeFileSync(path.join(projectCacheDir, folder + '.md'), content, 'utf-8');
+            }
+          }
+        }
+      }
+    }
+
+    // 同时填充根项目的 matchedLayer2Rules（如果存在）
+    const rootProject = workspaceInfo.projects.find(p => p.relativePath === '.');
+    if (rootProject) {
+      rootProject.matchedLayer2Rules = [...layer2Index];
+    }
+  }
+
   // ============ Layer 3: Action (Lazy Load - Index Only) ============
   logger.log('处理 Layer 3: 任务检查清单 (Lazy Load)...');
 
@@ -893,6 +1220,40 @@ updatedAt: ${updatedAt}
       finalContent += `| ${item.rule} | \`${item.path}\` | 任务检查清单 |\n`;
     }
     finalContent += '\n';
+  }
+
+  // ============ Workspace: 生成索引文件和提示词 ============
+  if (workspaceInfo.isWorkspace) {
+    // 生成 workspace-index.json
+    const workspaceIndex: WorkspaceIndex = {
+      version: '1.0.0',
+      generatedAt: new Date().toISOString(),
+      rootDir: targetDir,
+      projectCount: workspaceInfo.projects.length,
+      projects: workspaceInfo.projects.map(p => ({
+        name: p.name,
+        relativePath: p.relativePath,
+        lang: p.lang,
+        frameworkLabel: p.frameworkLabel,
+        uiLibLabels: p.uiLibLabels,
+        vueVersion: p.vueProfile?.version ?? null,
+        layer2CachePath: p.relativePath === '.'
+          ? '.codebuddy/rules_cache/layer2_business/'
+          : `.codebuddy/rules_cache/projects/${p.relativePath}/layer2_business/`,
+        matchedRules: p.matchedLayer2Rules.map(r => r.rule),
+      })),
+    };
+
+    const workspaceIndexPath = path.join(targetDir, '.codebuddy/workspace-index.json');
+    const workspaceIndexDir = path.dirname(workspaceIndexPath);
+    if (!fs.existsSync(workspaceIndexDir)) {
+      fs.mkdirSync(workspaceIndexDir, { recursive: true });
+    }
+    fs.writeFileSync(workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2), 'utf-8');
+    logger.log(`已生成 workspace-index.json (${workspaceInfo.projects.length} 个项目)`);
+
+    // 注入 workspace 提示词
+    finalContent += generateWorkspacePrompt(workspaceInfo);
   }
 
   // ============ 规则激活提示词 ============
@@ -993,6 +1354,13 @@ updatedAt: ${updatedAt}
   logger.log(`   TaskBook 契约: ${distributedTaskBooks.length} 个`);
   logger.log(`   Agent Call 契约: ${distributedAgentCalls.length} 个`);
   logger.log(`   Slash Commands: ${distributedCommands.length} 个`);
+  if (workspaceInfo.isWorkspace) {
+    logger.log(`   Workspace 子项目: ${workspaceInfo.projects.length} 个`);
+    for (const p of workspaceInfo.projects) {
+      const rules = p.matchedLayer2Rules.map(r => r.rule).join(', ') || '无';
+      logger.log(`     - ${p.name} (${p.relativePath}): ${p.frameworkLabel || '无框架'} | 规则: ${rules}`);
+    }
+  }
   logger.log('═══════════════════════════════════════════════════════════════════');
 }
 

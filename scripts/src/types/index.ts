@@ -121,6 +121,8 @@ export interface Context {
   ruleLevel: 'summary' | 'quick' | 'full';
   /** 是否启用 B 路线编排脚本（task-executor、agent-call 协议等）。默认 false */
   enableOrchestrator: boolean;
+  /** --no-workspace 时为 true，禁用 workspace 多项目发现 */
+  disableWorkspace?: boolean;
 }
 
 /**
@@ -527,6 +529,73 @@ export interface AcceptanceReport {
     suggested: string[];
     technicalDebt: string[];
   };
+}
+
+// ============ Workspace 多项目类型 ============
+
+/**
+ * 项目语言类型
+ */
+export type ProjectLang = 'typescript' | 'javascript' | 'java' | 'python' | 'go' | 'rust' | 'dotnet' | 'unknown';
+
+/**
+ * 单个子项目描述
+ */
+export interface SubProject {
+  /** 项目名称（来自 package.json name 或目录名） */
+  name: string;
+  /** 相对于 workspace 根目录的路径（始终用 / 分隔） */
+  relativePath: string;
+  /** 绝对路径 */
+  absolutePath: string;
+  /** 项目语言 */
+  lang: ProjectLang;
+  /** package.json 内容（仅 JS/TS 项目） */
+  packageJson?: PackageJson;
+  /** Vue 版本检测结果 */
+  vueProfile: VueProfile | null;
+  /** 合并后的依赖（dependencies + devDependencies，仅 JS/TS 项目） */
+  dependencies: Record<string, string>;
+  /** 匹配到的 Layer2 规则列表（由 main 填充） */
+  matchedLayer2Rules: RuleIndexItem[];
+  /** 框架标签，如 "Vue 3"、"React" */
+  frameworkLabel: string;
+  /** UI 库标签列表，如 ["ant-design-vue", "vant"] */
+  uiLibLabels: string[];
+}
+
+/**
+ * Workspace 发现结果
+ */
+export interface WorkspaceInfo {
+  /** 是否为多项目 workspace（projects.length > 1） */
+  isWorkspace: boolean;
+  /** workspace 根目录 */
+  rootDir: string;
+  /** 发现的子项目列表 */
+  projects: SubProject[];
+  /** 发现时间戳 */
+  discoveredAt: string;
+}
+
+/**
+ * 序列化到 workspace-index.json 的结构
+ */
+export interface WorkspaceIndex {
+  version: string;
+  generatedAt: string;
+  rootDir: string;
+  projectCount: number;
+  projects: Array<{
+    name: string;
+    relativePath: string;
+    lang: ProjectLang;
+    frameworkLabel: string;
+    uiLibLabels: string[];
+    vueVersion: number | null;
+    layer2CachePath: string;
+    matchedRules: string[];
+  }>;
 }
 
 // ============ 上下文收集类型 ============

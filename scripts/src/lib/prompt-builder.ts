@@ -4,7 +4,7 @@
  * 将加载的规则、技能、Agent 等数据组装为 CodeBuddy 可消费的提示词文本
  */
 
-import { SkillMetadata, AgentMetadata, LoaderConfig } from '../types';
+import { SkillMetadata, AgentMetadata, LoaderConfig, WorkspaceInfo } from '../types';
 
 export function generateWorkflowsPrompt(workflows: string[]): string {
   if (workflows.length === 0) return '';
@@ -468,5 +468,153 @@ export function generateRuleActivationPrompt(_config: LoaderConfig): string {
 ${table}
 
 **重要**: 当需要查看规则详情时，使用 \`read_file\` 工具读取 \`.codebuddy/rules_cache/\` 下的对应文件。
+`;
+}
+
+export function generateWorkspacePrompt(workspaceInfo: WorkspaceInfo): string {
+  if (!workspaceInfo.isWorkspace || workspaceInfo.projects.length <= 1) return '';
+
+  const { projects } = workspaceInfo;
+
+  // 项目索引表
+  let indexTable = '| 项目名称 | 路径前缀 | 语言 | 框架 | UI 库 | Vue 版本 | 规则缓存路径 |\n';
+  indexTable += '|---------|---------|------|------|-------|---------|-------------|\n';
+
+  for (const p of projects) {
+    const vueVer = p.vueProfile ? `v${p.vueProfile.version}` : '-';
+    const uiLibs = p.uiLibLabels.length > 0 ? p.uiLibLabels.join(', ') : '-';
+    const cachePath = p.relativePath === '.'
+      ? '`.codebuddy/rules_cache/layer2_business/`'
+      : `\`.codebuddy/rules_cache/projects/${p.relativePath}/layer2_business/\``;
+    indexTable += `| ${p.name} | \`${p.relativePath}/\` | ${p.lang} | ${p.frameworkLabel || '-'} | ${uiLibs} | ${vueVer} | ${cachePath} |\n`;
+  }
+
+  // 路由规则（按路径长度从深到浅排列）
+  const sortedProjects = [...projects]
+    .filter(p => p.relativePath !== '.')
+    .sort((a, b) => b.relativePath.length - a.relativePath.length);
+
+  let routingRules = '';
+  for (const p of sortedProjects) {
+    const label = [p.lang, p.frameworkLabel, ...p.uiLibLabels].filter(Boolean).join(' + ') || '通用';
+    routingRules += `├─ 路径以 \`${p.relativePath}/\` 开头？ → 应用 **${p.name}** 的规则（${label}）\n`;
+  }
+
+  // 根项目（relativePath === '.'）
+  const rootProject = projects.find(p => p.relativePath === '.');
+  if (rootProject) {
+    const rootLabel = [rootProject.frameworkLabel, ...rootProject.uiLibLabels].filter(Boolean).join(' + ') || '通用';
+    routingRules += `└─ 其他路径 → 应用 **${rootProject.name}** 根项目规则（${rootLabel}）\n`;
+  } else {
+    routingRules += `└─ 其他路径 → 使用通用规则（无根项目 package.json）\n`;
+  }
+
+  // 示例路径路由（取第一个非根项目）
+  const exampleProject = sortedProjects[0];
+  let routingExample = '';
+  if (exampleProject) {
+    routingExample = `
+### 路由示例
+
+当用户编辑 \`${exampleProject.relativePath}/src/App.vue\` 时：
+
+1. 获取文件相对路径：\`${exampleProject.relativePath}/src/App.vue\`
+2. 匹配路径前缀：\`${exampleProject.relativePath}/\` → **${exampleProject.name}**
+3. 加载对应 Layer2 规则缓存：\`.codebuddy/rules_cache/projects/${exampleProject.relativePath}/layer2_business/\`
+4. 应用技术栈约定：${exampleProject.frameworkLabel || '通用'}${exampleProject.uiLibLabels.length > 0 ? ' + ' + exampleProject.uiLibLabels.join(' + ') : ''}
+`;
+  }
+
+  // 禁止混用警告
+  const hasVue2 = projects.some(p => p.vueProfile?.version === 2);
+  const hasVue3 = projects.some(p => p.vueProfile?.version === 3);
+
+  let mixWarning = '';
+  if (hasVue2 && hasVue3) {
+    mixWarning = `
+### ⚠️ 跨项目技术栈隔离警告
+
+本 Workspace 同时包含 Vue 2 和 Vue 3 项目，**严禁混用**：
+
+- **Vue 2 项目**禁止使用：\`<script setup>\`、\`defineProps()\`、\`defineEmits()\`
+- **Vue 3 项目**禁止使用：Options API（\`data()\`、\`methods\`、\`computed\`）、\`this.$refs\`
+- 编辑文件前**必须**先确认所属项目，再应用对应版本的规范
+`;
+  }
+
+  // 生成快捷定位项目列表
+  let projectList = '';
+  for (const p of projects) {
+    const techStack = [p.frameworkLabel, ...p.uiLibLabels].filter(Boolean).join(' + ') || '-';
+    // 别名：取最后一段路径作为短名，加上项目名本身
+    const shortName = p.relativePath === '.' ? '根项目' : p.relativePath.split('/').pop()!;
+    const aliases = [p.name, shortName, p.relativePath].filter((v, i, a) => a.indexOf(v) === i);
+    projectList += `| **${p.name}** | \`${p.relativePath}\` | ${p.lang} | ${techStack} | ${aliases.map(a => `\`${a}\``).join(', ')} |\n`;
+  }
+
+  return `
+# 🏢 Workspace 多项目路由
+
+本目录为 **Workspace 模式**，包含 ${projects.length} 个子项目。编辑文件时必须先判断所属项目，再应用对应规则。
+
+## 🎯 快捷项目定位
+
+在对话消息中使用 \`@project <名称>\` 可快速锁定当前操作的目标项目，后续操作将自动应用该项目的技术栈规则。
+
+### 用法
+
+\`\`\`
+@project <项目名称|路径前缀|别名>
+<你的需求描述>
+\`\`\`
+
+### 示例
+
+\`\`\`
+@project ${sortedProjects[0]?.name || projects[0].name}
+帮我添加一个新的列表页
+
+@project ${projects.length > 1 ? projects[1].name : projects[0].name}
+检查登录逻辑有没有问题
+\`\`\`
+
+### 可用项目列表
+
+| 项目名称 | 路径 | 语言 | 框架 | 可用别名 |
+|---------|------|------|------|---------|
+${projectList}
+
+### 匹配规则
+
+1. **精确匹配**：优先匹配项目名称或路径前缀
+2. **模糊匹配**：输入的名称是项目名/路径的子串时自动匹配（如 \`@project mobile\` 可匹配 \`app-mobile\`）
+3. **歧义处理**：如果匹配到多个项目，请使用更具体的名称或完整路径
+
+### 行为约定
+
+- 指定 \`@project\` 后，**本轮对话**中所有文件操作默认限定在该项目目录下
+- 引用文件路径时自动补全项目路径前缀
+- 应用该项目对应的 Layer2 规则缓存
+- 未指定 \`@project\` 时，按文件路径自动路由（见下方路由规则）
+
+## 项目索引
+
+${indexTable}
+
+## 路径路由规则
+
+获取当前操作文件相对于 Workspace 根目录的路径，按以下规则从上到下匹配（最具体的路径优先）：
+
+\`\`\`
+${routingRules}\`\`\`
+
+### 路由判定步骤
+
+1. 获取当前文件相对于 Workspace 根目录的路径
+2. 按路径前缀从上到下匹配（最长匹配优先）
+3. 加载匹配项目的 Layer2 规则缓存
+4. 应用对应技术栈的编码约定
+${routingExample}${mixWarning}
+**重要**: 每个子项目的 Layer2 规则缓存独立存放在 \`.codebuddy/rules_cache/projects/{项目路径}/layer2_business/\` 下。
 `;
 }

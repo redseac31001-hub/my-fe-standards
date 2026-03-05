@@ -14,6 +14,22 @@
 
 - **三层规则架构**：基础层 + 业务层 + 动作层，渐进式加载
 - **整洁代码原则**：命名、函数、SOLID、代码坏味道，所有任务自动遵循
+# AI 辅助开发平台
+
+> **前端架构师规则库 + Ralph 自主编码系统 + 项目记忆系统 + 计划任务系统**
+
+这是一个完整的 AI 辅助开发平台，集成了：
+- **规则引擎**：三层规则架构，为 CodeBuddy (GLM-4.7) 提供知识源
+- **技能系统**：可扩展的专业技能库
+- **Agent 系统**：任务编排、结构分析、安全审查、性能分析等智能代理
+- **Reports 项目记忆**：持久化分析结果，避免重复分析，追踪健康度趋势
+- **TaskBook 计划任务**：端到端的需求分解→执行→验收闭环
+- **MCP Server**：标准化工具接口
+
+## 🎯 核心特性
+
+- **三层规则架构**：基础层 + 业务层 + 动作层，渐进式加载
+- **整洁代码原则**：命名、函数、SOLID、代码坏味道，所有任务自动遵循
 - **技能系统**：支持 CodeBuddy Skills，动态加载专业技能
 - **计划任务系统**：/task 命令，端到端的需求分解→执行→验收
 - **Workflow Spec**：工作流规范（步骤依赖 DAG + 质量闸门 gates + 策略 policies），支持多工具/多模型快速适配
@@ -21,6 +37,7 @@
 - **智能检测**：自动识别 Vue 2/3 版本和 UI 库依赖
 - **远程加载**：支持 HTTP 远程模式和 Git 私有仓库模式
 - **多工具支持**：CodeBuddy / Claude Code / Amp
+- **Workspace 多项目定位**：`@project` 快捷锁定目标项目，自动应用对应规则
 - **全中文支持**：规则内容和提示词全部使用简体中文
 
 ## 📂 目录结构
@@ -274,7 +291,6 @@ node .codebuddy/scripts/taskbook-manager.js add-task <taskBookId> --title "生�
   node .codebuddy/scripts/contract-validator.js --workflows --taskbooks
 
   # 可选：校验 agent-call result.json（.codebuddy/agent-calls）
-  node .codebuddy/scripts/contract-validator.js --agent-calls
   node .codebuddy/scripts/contract-validator.js --agent-call <requestId>
 
   # 可选：当启用 risk_tiered batching 时，提示（warning）缺少 scope.files/modules 的任务
@@ -303,6 +319,41 @@ node .codebuddy/scripts/taskbook-manager.js add-task <taskBookId> --title "生�
 └── health/
     └── timeline.json            # 健康度时间线
 ```
+
+## 🏢 Workspace 多项目定位
+
+当 Workspace 包含多个子项目时，加载器会自动发现并生成项目索引。在对话中使用 `@project` 可快速锁定目标项目：
+
+### 用法
+
+```
+@project <项目名称|路径前缀|别名>
+<你的需求描述>
+```
+
+### 示例
+
+```
+@project app-mobile
+帮我添加一个新的列表页
+
+@project admin
+检查登录逻辑有没有问题
+```
+
+### 匹配规则
+
+| 规则 | 说明 |
+|------|------|
+| **精确匹配** | 优先匹配项目名称或路径前缀 |
+| **模糊匹配** | 输入名称是项目名/路径的子串时自动匹配 |
+| **自动路由** | 未指定 `@project` 时，按编辑文件路径自动路由到对应项目 |
+
+### 行为约定
+
+- 指定 `@project` 后，本轮对话中所有文件操作默认限定在该项目目录下
+- 自动应用该项目对应的 Layer2 规则缓存
+- 相关命令行选项：`--no-workspace` 可禁用多项目自动发现
 
 ## 🧩 技能系统
 
@@ -334,7 +385,9 @@ node codebuddy-loader.js [options]
 | `--remote <URL>` | 从远程 URL 获取规则 |
 | `--task <type>` | 按任务类型筛选规则 |
 | `--threshold <n>` | 设置相关性阈值 (0-1) |
-| `--rule-level <lvl>` | 规则裁剪等级：`summary` / `quick` / `full`（默认 `full`；仅影响 Layer1 Eager 内容） |
+| `--rule-level <lvl>` | 规则裁剪等级：`summary` / `quick` / `full`（默认 `full`） |
+| `--enable-orchestrator` | 启用 B 路线编排脚本分发 |
+| `--no-workspace` | 禁用 Workspace 多项目自动发现 |
 | `--verbose, -v` | 启用详细日志 |
 | `--timeout <ms>` | 设置网络请求超时 |
 
