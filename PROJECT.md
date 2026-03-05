@@ -1,6 +1,6 @@
 # MY-FE-STANDARDS 项目架构图谱
 
-> 版本: 3.1.0 | 更新日期: 2026-02-27
+> 版本: 3.2.0 | 更新日期: 2026-03-05
 > 本文档记录项目的完整架构和已具备的功能能力，每完成新能力需同步更新。
 
 ---
@@ -157,6 +157,8 @@ my-fe-standards/
 | | 三层规则加载 | `scripts/src/codebuddy-loader.ts` | Layer1/2/3 规则动态加载 |
 | | 配置生成 | `scripts/src/codebuddy-loader.ts` | .codebuddy 目录配置生成 |
 | | 远程加载 | `scripts/src/codebuddy-loader.ts` | 支持远程拉取规则 |
+| | Workspace 多项目识别 | `scripts/src/codebuddy-loader.ts` | 多语言项目自动发现（JS/TS/Java/Go/Python/Rust/.NET） |
+| | @project 快捷定位 | `scripts/src/lib/prompt-builder.ts` | 对话中使用 `@project` 锁定目标项目，自动应用对应规则 |
 | **Rules 规则** | | | |
 | | 整洁代码原则 | `rules/layer1_base/code-quality/` | 命名、函数、SOLID、代码坏味道、审查清单 |
 | | 架构规范 | `rules/layer1_base/architecture/` | Feature-Based 目录结构 |
@@ -276,6 +278,7 @@ await mcp.call("get_skills", { name: "frontend-code-review" });
 
 | 日期 | 版本 | 更新内容 |
 |------|------|----------|
+| 2026-03-05 | 3.2.0 | Workspace 多语言项目识别（JS/TS/Java/Go/Python/Rust/.NET）；新增 `@project` 快捷项目定位约定；提示词和索引表增加语言列 |
 | 2026-02-07 | 3.0.0 | Workflow v2.0.0 七步闭环；新增 tdd-driver/code-reviewer/build-fix Agent + Prompt 模板体系；TaskType 扩展为 10 种；task-executor Agent 路由 + prompt 注入 |
 | 2026-01-30 | 2.3.0 | 新增整洁代码核心原则 (Clean Code)；code-quality 加入 Layer1 基础规则；更新评分系统 |
 | 2026-01-30 | 2.2.0 | 新增 Task Orchestrator Agent；新增 /task 命令；新增 taskbook-manager、task-executor 脚本；支持端到端计划任务执行与验收 |
