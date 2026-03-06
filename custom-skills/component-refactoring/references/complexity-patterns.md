@@ -6,7 +6,7 @@ This document provides patterns for reducing cognitive complexity in Dify React 
 
 ### SonarJS Cognitive Complexity
 
-The `pnpm analyze-component` tool uses SonarJS cognitive complexity metrics:
+If the target project ships a `pnpm analyze-component` helper, it commonly uses SonarJS cognitive complexity metrics like:
 
 - **Total Complexity**: Sum of all functions' complexity in the file
 - **Max Complexity**: Highest single function complexity

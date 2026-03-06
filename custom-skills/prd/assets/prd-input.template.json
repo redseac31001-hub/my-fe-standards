@@ -1,0 +1,52 @@
+{
+  "feature_name": "task-priority-system",
+  "title": "Task Priority System",
+  "introduction": "Add priority levels to tasks so users can focus on what matters most.",
+  "goals": [
+    "Allow assigning priority to any task",
+    "Make high-priority tasks visually obvious"
+  ],
+  "user_stories": [
+    {
+      "title": "Add priority field to the tasks table",
+      "description": "As a developer, I want to store task priority so that it persists across sessions.",
+      "acceptance_criteria": [
+        "Add priority column to tasks table with values high, medium, low",
+        "Generate and run migration successfully",
+        "Typecheck passes"
+      ],
+      "suggested_task_type": "implement"
+    },
+    {
+      "title": "Display priority indicator on task cards",
+      "description": "As a user, I want to see task priority at a glance so that I can focus on the most important tasks first.",
+      "acceptance_criteria": [
+        "Each task card shows a visible priority badge",
+        "Badge colors distinguish high, medium, and low priority",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "suggested_task_type": "implement"
+    }
+  ],
+  "functional_requirements": [
+    "FR-1: The system must persist task priority in storage.",
+    "FR-2: The system must render priority on each task card."
+  ],
+  "non_goals": [
+    "No automatic priority assignment",
+    "No priority-based notifications in phase one"
+  ],
+  "design_considerations": [
+    "Reuse the existing badge component if possible"
+  ],
+  "technical_considerations": [
+    "Priority state should be exposed through existing task query APIs"
+  ],
+  "success_metrics": [
+    "Users can identify high-priority tasks without opening task details"
+  ],
+  "open_questions": [
+    "Should priority also affect default task sorting?"
+  ]
+}

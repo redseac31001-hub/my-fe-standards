@@ -4,12 +4,12 @@
  *
  * 职责:
  * - 扫描 agents/ 目录，加载所有 Agent 定义（AGENT.md + prompts/）
- * - 解析 YAML frontmatter 元数据
+ * - 解析 Agent frontmatter / legacy YAML 元数据
  * - 渲染 prompt 模板（变量替换）
  * - 提供统一的 invoke() 调用接口
  *
  * 约束:
- * - 零外部依赖（仅 Node.js 内置模块）
+ * - 零外部依赖（仅 Node.js 内置模块 + 项目内共享解析工具）
  * - 不引入新的通信协议，复用现有 Agent Call 文件协议作为降级路径
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
@@ -50,6 +50,7 @@ exports.AgentRuntime = void 0;
 exports.createAgentRuntime = createAgentRuntime;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const frontmatter_utils_1 = require("./lib/frontmatter-utils");
 // ============ 日志工具 ============
 let _verbose = false;
 function rtLog(message) {
@@ -62,209 +63,72 @@ function rtDebug(message) {
 function rtWarn(message) {
     console.warn(`[AgentRuntime:WARN] ${message}`);
 }
-// ============ YAML Frontmatter 解析（零依赖） ============
-/**
- * 从 Markdown 文件内容中提取 YAML frontmatter 块
- * 返回 [frontmatter字符串, body正文] 或 null
- */
-function extractFrontmatter(content) {
-    const match = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$/);
+// ============ Agent 元数据解析 ============
+function normalizeAgentDocument(content) {
+    return content.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+}
+function extractFirstYamlCodeBlock(content) {
+    var _a;
+    const normalized = normalizeAgentDocument(content);
+    const match = normalized.match(/```ya?ml\s*\n([\s\S]*?)\n```\n?/);
     if (!match)
         return null;
-    return { yaml: match[1], body: match[2] };
+    const start = (_a = match.index) !== null && _a !== void 0 ? _a : 0;
+    const body = `${normalized.slice(0, start)}${normalized.slice(start + match[0].length)}`.trimStart();
+    return { yaml: match[1], body };
 }
-/**
- * 简易 YAML 解析器（覆盖 AGENT.md 的 frontmatter 格式）
- *
- * 支持:
- * - 标量值: key: value
- * - 字符串数组: key:\n  - item1\n  - item2
- * - 嵌套对象（一级）: key:\n  subkey:\n    - item
- * - 引号字符串: key: "value" / key: 'value'
- *
- * 不支持: 多行字符串、锚点、复杂嵌套等完整 YAML 特性
- */
-function parseSimpleYaml(yamlStr) {
-    const result = {};
-    const lines = yamlStr.split(/\r?\n/);
-    let i = 0;
-    while (i < lines.length) {
-        const line = lines[i];
-        const trimmed = line.trimEnd();
-        // 跳过空行和注释
-        if (!trimmed || trimmed.startsWith('#')) {
-            i++;
-            continue;
-        }
-        // 顶层 key: value
-        const kvMatch = trimmed.match(/^(\w[\w-]*):\s*(.*)/);
-        if (!kvMatch) {
-            i++;
-            continue;
-        }
-        const key = kvMatch[1];
-        const inlineValue = kvMatch[2].trim();
-        if (inlineValue && !inlineValue.startsWith('#')) {
-            // 内联标量值
-            result[key] = unquote(inlineValue);
-            i++;
-            continue;
-        }
-        // 值在下一行（数组或嵌套对象）
-        const children = collectIndentedBlock(lines, i + 1);
-        if (children.items.length > 0) {
-            if (isArrayBlock(children.items)) {
-                result[key] = parseArrayItems(children.items);
-            }
-            else {
-                result[key] = parseNestedObject(children.items);
-            }
-            i = children.nextIndex;
-        }
-        else {
-            result[key] = '';
-            i++;
-        }
-    }
-    return result;
+function parseOptionalVersion(yaml) {
+    const version = (0, frontmatter_utils_1.extractYamlScalar)(yaml, 'version');
+    if (!version || version === 'null')
+        return undefined;
+    return version;
 }
-/** 去除引号 */
-function unquote(value) {
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
-        return value.slice(1, -1);
-    }
-    return value;
-}
-/** 收集缩进块 */
-function collectIndentedBlock(lines, startIndex) {
-    const items = [];
-    let i = startIndex;
-    while (i < lines.length) {
-        const line = lines[i];
-        if (!line.trimEnd()) {
-            i++;
-            continue;
-        }
-        // 缩进的行（至少 2 空格或 1 tab）
-        if (/^[ \t]{2,}/.test(line) || /^\t/.test(line) || /^  /.test(line)) {
-            items.push(line);
-            i++;
-        }
-        else {
-            break;
-        }
-    }
-    return { items, nextIndex: i };
-}
-/** 判断是否为数组块 */
-function isArrayBlock(items) {
-    return items.some(line => /^\s*-\s/.test(line));
-}
-/** 解析数组项 */
-function parseArrayItems(items) {
-    const result = [];
-    for (const line of items) {
-        const m = line.match(/^\s*-\s+(.*)/);
-        if (m) {
-            result.push(unquote(m[1].trim()));
-        }
-    }
-    return result;
-}
-/** 解析嵌套对象（一级） */
-function parseNestedObject(items) {
-    const result = {};
-    let i = 0;
-    while (i < items.length) {
-        const line = items[i].trim();
-        if (!line || line.startsWith('#')) {
-            i++;
-            continue;
-        }
-        const kvMatch = line.match(/^(\w[\w-]*):\s*(.*)/);
-        if (!kvMatch) {
-            i++;
-            continue;
-        }
-        const key = kvMatch[1];
-        const inlineValue = kvMatch[2].trim();
-        if (inlineValue && !inlineValue.startsWith('#')) {
-            result[key] = unquote(inlineValue);
-            i++;
-            continue;
-        }
-        // 子数组
-        const subItems = [];
-        i++;
-        while (i < items.length) {
-            const subLine = items[i];
-            if (/^\s{4,}-\s/.test(subLine) || /^\s{2,}-\s/.test(subLine.replace(/^\s{2}/, ''))) {
-                subItems.push(subLine);
-                i++;
-            }
-            else if (subLine.trim() === '' || /^\s{4,}/.test(subLine)) {
-                i++;
-            }
-            else {
-                break;
-            }
-        }
-        if (subItems.length > 0) {
-            result[key] = parseArrayItems(subItems);
-        }
-        else {
-            result[key] = '';
-        }
-    }
-    return result;
-}
-/** 将解析的 raw 对象转换为 AgentFrontmatter */
-function toAgentFrontmatter(raw) {
-    const name = String(raw['name'] || '');
-    const description = String(raw['description'] || '');
-    const version = raw['version'] ? String(raw['version']) : undefined;
-    const model = raw['model'] ? String(raw['model']) : undefined;
-    // triggers: 支持两种格式
-    let triggers;
-    if (raw['triggers']) {
-        if (Array.isArray(raw['triggers'])) {
-            triggers = raw['triggers'].map(String);
-        }
-        else if (typeof raw['triggers'] === 'object') {
-            // triggers: { explicit: [...], implicit: [...] }
-            const tObj = raw['triggers'];
-            const explicit = Array.isArray(tObj['explicit']) ? tObj['explicit'].map(String) : [];
-            // implicit 中可能有复杂对象，这里简化处理
-            triggers = explicit;
-        }
-    }
-    // permissions: 支持字符串数组或 { tools, skills } 对象
+function parseAgentFrontmatter(yaml) {
+    const name = (0, frontmatter_utils_1.extractYamlScalar)(yaml, 'name');
+    const description = (0, frontmatter_utils_1.extractYamlScalar)(yaml, 'description');
+    if (!name || !description)
+        return null;
+    const triggersBlock = (0, frontmatter_utils_1.extractYamlSection)(yaml, 'triggers');
+    const explicitTriggers = triggersBlock ? (0, frontmatter_utils_1.parseYamlList)(triggersBlock, 'explicit', 2) : [];
+    const plainTriggers = (0, frontmatter_utils_1.parseYamlList)(yaml, 'triggers');
+    const triggers = explicitTriggers.length > 0 ? explicitTriggers : plainTriggers;
+    const permissionsBlock = (0, frontmatter_utils_1.extractYamlSection)(yaml, 'permissions');
+    const tools = permissionsBlock ? (0, frontmatter_utils_1.parseYamlList)(permissionsBlock, 'tools', 2) : [];
+    const skills = permissionsBlock ? (0, frontmatter_utils_1.parseYamlList)(permissionsBlock, 'skills', 2) : [];
+    const flatPermissions = (0, frontmatter_utils_1.parseYamlList)(yaml, 'permissions');
     let permissions;
-    if (raw['permissions']) {
-        if (Array.isArray(raw['permissions'])) {
-            permissions = raw['permissions'].map(String);
-        }
-        else if (typeof raw['permissions'] === 'object') {
-            const pObj = raw['permissions'];
-            permissions = {
-                tools: Array.isArray(pObj['tools']) ? pObj['tools'].map(String) : undefined,
-                skills: Array.isArray(pObj['skills']) ? pObj['skills'].map(String) : undefined,
-            };
-        }
+    if (tools.length > 0 || skills.length > 0) {
+        permissions = {
+            tools: tools.length > 0 ? tools : undefined,
+            skills: skills.length > 0 ? skills : undefined,
+        };
     }
-    // dependencies
+    else if (flatPermissions.length > 0) {
+        permissions = flatPermissions;
+    }
+    const dependenciesBlock = (0, frontmatter_utils_1.extractYamlSection)(yaml, 'dependencies');
     let dependencies;
-    if (raw['dependencies'] && typeof raw['dependencies'] === 'object' && !Array.isArray(raw['dependencies'])) {
-        dependencies = {};
-        const dObj = raw['dependencies'];
-        for (const [k, v] of Object.entries(dObj)) {
-            if (Array.isArray(v)) {
-                dependencies[k] = v.map(String);
+    if (dependenciesBlock) {
+        const parsedDependencies = {};
+        for (const key of (0, frontmatter_utils_1.listYamlKeys)(dependenciesBlock, 2)) {
+            const values = (0, frontmatter_utils_1.parseYamlList)(dependenciesBlock, key, 2);
+            if (values.length > 0) {
+                parsedDependencies[key] = values;
             }
         }
+        if (Object.keys(parsedDependencies).length > 0) {
+            dependencies = parsedDependencies;
+        }
     }
-    return { name, description, version, triggers, permissions, dependencies, model };
+    return {
+        name,
+        description,
+        version: parseOptionalVersion(yaml),
+        triggers: triggers.length > 0 ? triggers : undefined,
+        permissions,
+        dependencies,
+        model: (0, frontmatter_utils_1.extractYamlScalar)(yaml, 'model'),
+    };
 }
 // ============ 核心类 ============
 /**
@@ -337,15 +201,35 @@ class AgentRuntime {
                 continue;
             try {
                 const content = fs.readFileSync(agentMdPath, 'utf-8');
-                const extracted = extractFrontmatter(content);
-                if (!extracted) {
-                    rtWarn(`Agent '${agentId}': AGENT.md 缺少 YAML frontmatter`);
-                    continue;
+                const parsedDocument = (0, frontmatter_utils_1.splitFrontmatterDocument)(content);
+                let metadata;
+                let body;
+                if (parsedDocument.ok) {
+                    metadata = parseAgentFrontmatter(parsedDocument.frontmatter);
+                    body = parsedDocument.body;
+                    if (!metadata) {
+                        rtWarn(`Agent '${agentId}': frontmatter 缺少必填字段 name/description`);
+                        continue;
+                    }
                 }
-                const raw = parseSimpleYaml(extracted.yaml);
-                const metadata = toAgentFrontmatter(raw);
-                if (!metadata.name) {
-                    metadata.name = agentId;
+                else {
+                    const normalized = normalizeAgentDocument(content);
+                    if (normalized.startsWith('---')) {
+                        rtWarn(`Agent '${agentId}': ${parsedDocument.error}`);
+                        continue;
+                    }
+                    const legacyDocument = extractFirstYamlCodeBlock(content);
+                    if (!legacyDocument) {
+                        rtWarn(`Agent '${agentId}': AGENT.md 缺少 frontmatter 或 legacy YAML metadata`);
+                        continue;
+                    }
+                    metadata = parseAgentFrontmatter(legacyDocument.yaml);
+                    body = legacyDocument.body;
+                    if (!metadata) {
+                        rtWarn(`Agent '${agentId}': legacy YAML metadata 缺少必填字段 name/description`);
+                        continue;
+                    }
+                    rtDebug(`Agent '${agentId}' 使用 legacy YAML metadata 回退路径`);
                 }
                 // 加载 prompts/ 子目录
                 const prompts = {};
@@ -365,7 +249,7 @@ class AgentRuntime {
                     id: agentId,
                     definitionPath: agentMdPath,
                     metadata,
-                    body: extracted.body,
+                    body,
                     prompts,
                     skills,
                     rules,
@@ -389,6 +273,7 @@ class AgentRuntime {
      * 列出所有已注册 Agent 的元信息
      */
     listAgents() {
+        var _a;
         this.ensureLoaded();
         const result = [];
         for (const [id, agent] of this.registry) {
@@ -397,6 +282,7 @@ class AgentRuntime {
                 triggers.push(...agent.metadata.triggers);
             }
             const permissions = [];
+            let relatedSkills;
             if (agent.metadata.permissions) {
                 if (Array.isArray(agent.metadata.permissions)) {
                     permissions.push(...agent.metadata.permissions);
@@ -404,16 +290,22 @@ class AgentRuntime {
                 else {
                     if (agent.metadata.permissions.tools)
                         permissions.push(...agent.metadata.permissions.tools);
-                    if (agent.metadata.permissions.skills)
-                        permissions.push(...agent.metadata.permissions.skills);
+                    if ((_a = agent.metadata.permissions.skills) === null || _a === void 0 ? void 0 : _a.length) {
+                        relatedSkills = [...agent.metadata.permissions.skills];
+                    }
                 }
             }
+            const relatedRules = agent.metadata.dependencies
+                ? Object.values(agent.metadata.dependencies).flat()
+                : undefined;
             result.push({
                 id,
                 name: agent.metadata.name,
                 description: agent.metadata.description,
                 triggers,
                 permissions,
+                relatedSkills,
+                relatedRules: relatedRules && relatedRules.length > 0 ? relatedRules : undefined,
             });
         }
         return result;

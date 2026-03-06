@@ -20,7 +20,7 @@ def validate_skill(skill_path):
         return False, "SKILL.md not found"
 
     # Read and validate frontmatter
-    content = skill_md.read_text()
+    content = skill_md.read_text(encoding="utf-8-sig")
     if not content.startswith("---"):
         return False, "No YAML frontmatter found"
 
@@ -40,7 +40,7 @@ def validate_skill(skill_path):
         return False, f"Invalid YAML in frontmatter: {e}"
 
     # Define allowed properties
-    ALLOWED_PROPERTIES = {"name", "description", "license", "allowed-tools", "metadata"}
+    ALLOWED_PROPERTIES = {"name", "description", "license", "allowed-tools", "metadata", "triggers", "tools", "related"}
 
     # Check for unexpected properties (excluding nested keys under metadata)
     unexpected_keys = set(frontmatter.keys()) - ALLOWED_PROPERTIES
@@ -55,6 +55,18 @@ def validate_skill(skill_path):
         return False, "Missing 'name' in frontmatter"
     if "description" not in frontmatter:
         return False, "Missing 'description' in frontmatter"
+
+    metadata = frontmatter.get("metadata")
+    if metadata is not None:
+        if not isinstance(metadata, dict):
+            return False, "metadata must be a mapping if provided"
+        allowed_metadata_properties = {"triggers", "tools", "related"}
+        unexpected_metadata_keys = set(metadata.keys()) - allowed_metadata_properties
+        if unexpected_metadata_keys:
+            return False, (
+                f"Unexpected key(s) in metadata: {', '.join(sorted(unexpected_metadata_keys))}. "
+                f"Allowed metadata keys are: {', '.join(sorted(allowed_metadata_properties))}"
+            )
 
     # Extract name for validation
     name = frontmatter.get("name", "")

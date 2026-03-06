@@ -32,7 +32,7 @@ When testing a **single component, hook, or utility**:
 
 ```
 1. Read source code completely
-2. Run `pnpm analyze-component <path>` (if available)
+2. Run `pnpm analyze-component <path>` if the target project provides it
 3. Check complexity score and features detected
 4. Write the test file
 5. Run test: `pnpm test <file>.spec.tsx`
@@ -103,7 +103,7 @@ pnpm test:coverage path/to/directory/
 
 ## Component Complexity Guidelines
 
-Use `pnpm analyze-component <path>` to assess complexity before testing.
+Use `pnpm analyze-component <path>` to assess complexity before testing when the target project provides that helper; otherwise estimate complexity from file size, branching, effects, and dependencies.
 
 ### 🔴 Very Complex Components (Complexity > 50)
 

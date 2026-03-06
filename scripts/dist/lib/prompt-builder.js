@@ -15,6 +15,26 @@ exports.generateAgentsPrompt = generateAgentsPrompt;
 exports.generateSkillsPrompt = generateSkillsPrompt;
 exports.generateRuleActivationPrompt = generateRuleActivationPrompt;
 exports.generateWorkspacePrompt = generateWorkspacePrompt;
+function summarizeHintItems(values, maxItems = 2) {
+    if (!values || values.length === 0)
+        return null;
+    const uniqueValues = [...new Set(values.map(value => value.trim()).filter(Boolean))];
+    if (uniqueValues.length === 0)
+        return null;
+    if (uniqueValues.length <= maxItems)
+        return uniqueValues.join(', ');
+    return `${uniqueValues.slice(0, maxItems).join(', ')} +${uniqueValues.length - maxItems}`;
+}
+function buildSkillHint(skill) {
+    const parts = [];
+    const tools = summarizeHintItems(skill.tools);
+    const related = summarizeHintItems(skill.related);
+    if (tools)
+        parts.push(`tools: ${tools}`);
+    if (related)
+        parts.push(`related: ${related}`);
+    return parts.length > 0 ? parts.join('; ') : '-';
+}
 function generateWorkflowsPrompt(workflows) {
     if (workflows.length === 0)
         return '';
@@ -402,9 +422,9 @@ ${agentDetails}
 function generateSkillsPrompt(skills) {
     if (skills.length === 0)
         return '';
-    let table = '| 技能名称 | 技能 ID | 触发场景 |\n|---------|---------|----------|\n';
+    let table = '| Skill | ID | When to use | Hints |\n|-------|----|-------------|-------|\n';
     for (const skill of skills) {
-        table += `| **${skill.name}** | \`${skill.id}\` | ${skill.description} |\n`;
+        table += `| **${skill.name}** | \`${skill.id}\` | ${skill.description} | ${buildSkillHint(skill)} |\n`;
     }
     // 动态生成决策树节点（从 Skill 元数据）
     let decisionNodes = '';

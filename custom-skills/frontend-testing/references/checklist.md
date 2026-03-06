@@ -29,7 +29,7 @@ Use this checklist when generating or reviewing tests for Dify frontend componen
 
 ### Complexity Assessment
 
-- [ ] Run `pnpm analyze-component <path>` for complexity score
+- [ ] Run `pnpm analyze-component <path>` for complexity score when available
 - [ ] **Complexity > 50**: Consider refactoring before testing
 - [ ] **500+ lines**: Consider splitting before testing
 - [ ] **30-50 complexity**: Use multiple describe blocks, organized structure
@@ -198,8 +198,8 @@ pnpm test:watch path/to/file.spec.tsx
 pnpm test -u path/to/file.spec.tsx
 
 # Analyze component
-pnpm analyze-component path/to/component.tsx
+pnpm analyze-component path/to/component.tsx   # optional project helper
 
 # Review existing test
-pnpm analyze-component path/to/component.tsx --review
+pnpm analyze-component path/to/component.tsx --review   # optional project helper
 ```

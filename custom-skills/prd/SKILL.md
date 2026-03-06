@@ -1,273 +1,39 @@
 ---
 name: prd
 description: "Generate a Product Requirements Document (PRD) for a new feature. Use when planning a feature, starting a new project, or when asked to create a PRD. Triggers on: create a prd, write prd for, plan this feature, requirements for, spec out."
-triggers:
-  - "PRD/需求文档/产品文档"
+metadata:
+  triggers:
+    - "PRD/需求文档/产品文档"
 ---
 
-# PRD Generator
+# PRD Skill
 
-Create detailed Product Requirements Documents that are clear, actionable, and suitable for implementation.
+生成可执行的 PRD，只做需求澄清和文档产出，不直接进入实现。
 
----
+## Routing
 
-## The Job
+- **需要先补关键背景、目标、边界**：读取 [references/discovery-questions.md](references/discovery-questions.md)
+- **需要生成正式 PRD、用户故事、验收标准、JSON 摘要**：读取 [references/prd-sections.md](references/prd-sections.md)
 
-1. Receive a feature description from the user
-2. Ask 3-5 essential clarifying questions (with lettered options)
-3. Generate a structured PRD based on answers
-4. Save to `tasks/prd-[feature-name].md`
+## Workflow
 
-**Important:** Do NOT start implementing. Just create the PRD.
+1. 先判断用户输入是否足够完整；只有在关键范围不清时才追问。
+2. 追问时只问 3-5 个高价值问题，使用编号 + 字母选项，方便用户快速回复。
+3. 如果已经整理成结构化输入，优先运行 `scripts/create_prd.py` 生成 Markdown PRD，并附带结构化 JSON 摘要供 task-orchestrator 消费。
+4. 将结果保存到 `tasks/prd-[feature-name].md`，文件名使用 kebab-case。
+5. 如果仍有不确定项，保留在 `Open Questions`，不要自行假设成确定需求。
 
----
+## Scripts
 
-## Step 1: Clarifying Questions
+- 标准 PRD 生成器： [scripts/create_prd.py](scripts/create_prd.py)
 
-Ask only critical questions where the initial prompt is ambiguous. Focus on:
+## Assets
 
-- **Problem/Goal:** What problem does this solve?
-- **Core Functionality:** What are the key actions?
-- **Scope/Boundaries:** What should it NOT do?
-- **Success Criteria:** How do we know it's done?
-
-### Format Questions Like This:
-
-```
-1. What is the primary goal of this feature?
-   A. Improve user onboarding experience
-   B. Increase user retention
-   C. Reduce support burden
-   D. Other: [please specify]
-
-2. Who is the target user?
-   A. New users only
-   B. Existing users only
-   C. All users
-   D. Admin users only
-
-3. What is the scope?
-   A. Minimal viable version
-   B. Full-featured implementation
-   C. Just the backend/API
-   D. Just the UI
-```
-
-This lets users respond with "1A, 2C, 3B" for quick iteration.
-
----
-
-## Step 2: PRD Structure
-
-Generate the PRD with these sections:
-
-### 1. Introduction/Overview
-Brief description of the feature and the problem it solves.
-
-### 2. Goals
-Specific, measurable objectives (bullet list).
-
-### 3. User Stories
-Each story needs:
-- **Title:** Short descriptive name
-- **Description:** "As a [user], I want [feature] so that [benefit]"
-- **Acceptance Criteria:** Verifiable checklist of what "done" means
-
-Each story should be small enough to implement in one focused session.
-
-**Format:**
-```markdown
-### US-001: [Title]
-**Description:** As a [user], I want [feature] so that [benefit].
-
-**Acceptance Criteria:**
-- [ ] Specific verifiable criterion
-- [ ] Another criterion
-- [ ] Typecheck/lint passes
-- [ ] **[UI stories only]** Verify in browser using dev-browser skill
-```
-
-**Important:** 
-- Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
-- **For any story with UI changes:** Always include "Verify in browser using dev-browser skill" as acceptance criteria. This ensures visual verification of frontend work.
-
-### 4. Functional Requirements
-Numbered list of specific functionalities:
-- "FR-1: The system must allow users to..."
-- "FR-2: When a user clicks X, the system must..."
-
-Be explicit and unambiguous.
-
-### 5. Non-Goals (Out of Scope)
-What this feature will NOT include. Critical for managing scope.
-
-### 6. Design Considerations (Optional)
-- UI/UX requirements
-- Link to mockups if available
-- Relevant existing components to reuse
-
-### 7. Technical Considerations (Optional)
-- Known constraints or dependencies
-- Integration points with existing systems
-- Performance requirements
-
-### 8. Success Metrics
-How will success be measured?
-- "Reduce time to complete X by 50%"
-- "Increase conversion rate by 10%"
-
-### 9. Open Questions
-Remaining questions or areas needing clarification.
-
----
-
-## Writing for Junior Developers
-
-The PRD reader may be a junior developer or AI agent. Therefore:
-
-- Be explicit and unambiguous
-- Avoid jargon or explain it
-- Provide enough detail to understand purpose and core logic
-- Number requirements for easy reference
-- Use concrete examples where helpful
-
----
+PRD 模板： [assets/prd-template.md](assets/prd-template.md)
+结构化输入模板： [assets/prd-input.template.json](assets/prd-input.template.json)
 
 ## Output
 
-- **Format:** Markdown (`.md`)
-- **Location:** `tasks/`
-- **Filename:** `prd-[feature-name].md` (kebab-case)
-
-### 结构化输出（TaskBook 衔接）
-
-PRD 生成完成后，额外输出一个 JSON 摘要块，供 task-orchestrator 自动消费：
-
-```json
-{
-  "prdId": "prd-[feature-name]",
-  "title": "功能标题",
-  "goals": ["目标1", "目标2"],
-  "userStories": [
-    {
-      "id": "US-001",
-      "title": "故事标题",
-      "description": "As a [user], I want [feature] so that [benefit]",
-      "acceptanceCriteria": ["标准1", "标准2"],
-      "suggestedTaskType": "implement"
-    }
-  ],
-  "functionalRequirements": ["FR-1: ...", "FR-2: ..."],
-  "nonGoals": ["不做的事1"],
-  "technicalConsiderations": ["约束1"],
-  "openQuestions": ["待确认问题1"]
-}
-```
-
-**衔接流程**：
-1. PRD Skill 生成 Markdown 文档 + JSON 摘要
-2. task-orchestrator 读取 JSON 摘要，自动创建 TaskBook
-3. 每个 User Story 映射为一个或多个 TaskBook 任务
-4. `suggestedTaskType` 用于 task-executor 的 Agent 路由（test/implement/refactor/review 等）
-
----
-
-## Example PRD
-
-```markdown
-# PRD: Task Priority System
-
-## Introduction
-
-Add priority levels to tasks so users can focus on what matters most. Tasks can be marked as high, medium, or low priority, with visual indicators and filtering to help users manage their workload effectively.
-
-## Goals
-
-- Allow assigning priority (high/medium/low) to any task
-- Provide clear visual differentiation between priority levels
-- Enable filtering and sorting by priority
-- Default new tasks to medium priority
-
-## User Stories
-
-### US-001: Add priority field to database
-**Description:** As a developer, I need to store task priority so it persists across sessions.
-
-**Acceptance Criteria:**
-- [ ] Add priority column to tasks table: 'high' | 'medium' | 'low' (default 'medium')
-- [ ] Generate and run migration successfully
-- [ ] Typecheck passes
-
-### US-002: Display priority indicator on task cards
-**Description:** As a user, I want to see task priority at a glance so I know what needs attention first.
-
-**Acceptance Criteria:**
-- [ ] Each task card shows colored priority badge (red=high, yellow=medium, gray=low)
-- [ ] Priority visible without hovering or clicking
-- [ ] Typecheck passes
-- [ ] Verify in browser using dev-browser skill
-
-### US-003: Add priority selector to task edit
-**Description:** As a user, I want to change a task's priority when editing it.
-
-**Acceptance Criteria:**
-- [ ] Priority dropdown in task edit modal
-- [ ] Shows current priority as selected
-- [ ] Saves immediately on selection change
-- [ ] Typecheck passes
-- [ ] Verify in browser using dev-browser skill
-
-### US-004: Filter tasks by priority
-**Description:** As a user, I want to filter the task list to see only high-priority items when I'm focused.
-
-**Acceptance Criteria:**
-- [ ] Filter dropdown with options: All | High | Medium | Low
-- [ ] Filter persists in URL params
-- [ ] Empty state message when no tasks match filter
-- [ ] Typecheck passes
-- [ ] Verify in browser using dev-browser skill
-
-## Functional Requirements
-
-- FR-1: Add `priority` field to tasks table ('high' | 'medium' | 'low', default 'medium')
-- FR-2: Display colored priority badge on each task card
-- FR-3: Include priority selector in task edit modal
-- FR-4: Add priority filter dropdown to task list header
-- FR-5: Sort by priority within each status column (high to medium to low)
-
-## Non-Goals
-
-- No priority-based notifications or reminders
-- No automatic priority assignment based on due date
-- No priority inheritance for subtasks
-
-## Technical Considerations
-
-- Reuse existing badge component with color variants
-- Filter state managed via URL search params
-- Priority stored in database, not computed
-
-## Success Metrics
-
-- Users can change priority in under 2 clicks
-- High-priority tasks immediately visible at top of lists
-- No regression in task list performance
-
-## Open Questions
-
-- Should priority affect task ordering within a column?
-- Should we add keyboard shortcuts for priority changes?
-```
-
----
-
-## Checklist
-
-Before saving the PRD:
-
-- [ ] Asked clarifying questions with lettered options
-- [ ] Incorporated user's answers
-- [ ] User stories are small and specific
-- [ ] Functional requirements are numbered and unambiguous
-- [ ] Non-goals section defines clear boundaries
-- [ ] Saved to `tasks/prd-[feature-name].md`
+- 完整 PRD 文档
+- 对应的 JSON 摘要块
+- 明确的范围边界、验收标准、开放问题

@@ -102,9 +102,9 @@ custom-skills/frontend-code-review/
 - **名称**：component-refactoring
 - **路径**：`custom-skills/component-refactoring/`
 - **触发条件**：
-  - `pnpm analyze-component --json` 显示复杂度 > 50 或行数 > 300
+  - 项目自带 `pnpm analyze-component --json` 时显示复杂度 > 50 或行数 > 300
   - 用户请求代码拆分、Hook 提取或复杂度降低
-  - `pnpm analyze-component` 警告需要在测试前重构
+  - 项目自带 `pnpm analyze-component` 且提示需要在测试前重构
 
 #### 复杂度评分解读
 
@@ -201,19 +201,19 @@ const useAppInfoModals = () => {
 cd web
 
 # 生成重构提示
-pnpm refactor-component <path>
+pnpm refactor-component <path>   # 项目自带时可用
 
 # 输出重构分析为 JSON
-pnpm refactor-component <path> --json
+pnpm refactor-component <path> --json   # 项目自带时可用
 
 # 分析组件复杂度
-pnpm analyze-component <path> --json
+pnpm analyze-component <path> --json   # 项目自带时可用
 ```
 
 #### 重构工作流
 
-1. **生成重构提示**：`pnpm refactor-component <path>`
-2. **分析详情**：`pnpm analyze-component <path> --json`
+1. **生成重构提示**：项目提供该命令时运行 `pnpm refactor-component <path>`
+2. **分析详情**：项目提供该命令时运行 `pnpm analyze-component <path> --json`
 3. **制定计划**：根据检测到的特性规划重构
 4. **增量执行**：每次提取一个部分，运行 lint、类型检查和测试
 5. **验证**：重新运行分析命令验证改进
@@ -241,7 +241,7 @@ custom-skills/component-refactoring/
   - 请求为组件、Hook 或工具函数编写测试
   - 提及 Vitest、React Testing Library、RTL 或 spec 文件
   - 请求测试覆盖率改进
-  - 使用 `pnpm analyze-component` 输出作为上下文
+  - 项目提供 `pnpm analyze-component` 时可用其输出作为上下文
 
 #### 技术栈
 
@@ -267,7 +267,7 @@ pnpm test path/to/file.spec.tsx
 # 生成覆盖率报告
 pnpm test:coverage
 
-# 分析组件复杂度
+# 分析组件复杂度（项目提供该命令时）
 pnpm analyze-component <path>
 ```
 
@@ -384,7 +384,7 @@ custom-skills/frontend-testing/
 ```
 skill-name/
 ├── SKILL.md (必需)
-│   ├── YAML frontmatter (name, description)
+│   ├── YAML frontmatter (name, description, optional metadata)
 │   └── Markdown 指令
 └── 捆绑资源 (可选)
     ├── scripts/      - 可执行脚本 (Python/Bash 等)
@@ -535,9 +535,9 @@ custom-skills/skill-creator/
 
 # === 组件重构 ===
 cd web
-pnpm refactor-component <path>           # 生成重构提示
-pnpm refactor-component <path> --json    # JSON 格式输出
-pnpm analyze-component <path> --json     # 分析复杂度
+pnpm refactor-component <path>           # 项目提供该命令时生成重构提示
+pnpm refactor-component <path> --json    # 项目提供该命令时输出 JSON
+pnpm analyze-component <path> --json     # 项目提供该命令时分析复杂度
 
 # === 前端测试 ===
 cd web
@@ -545,8 +545,8 @@ pnpm test                                # 运行所有测试
 pnpm test:watch                          # 监视模式
 pnpm test path/to/file.spec.tsx          # 运行特定文件
 pnpm test:coverage                       # 覆盖率报告
-pnpm analyze-component <path>            # 分析组件
-pnpm analyze-component <path> --review   # 审查现有测试
+pnpm analyze-component <path>            # 项目提供该命令时分析组件
+pnpm analyze-component <path> --review   # 项目提供该命令时审查现有测试
 
 # === 技能创建 ===
 scripts/init_skill.py <name> --path <dir>    # 初始化技能

@@ -6,6 +6,27 @@
 
 import { SkillMetadata, AgentMetadata, LoaderConfig, WorkspaceInfo } from '../types';
 
+function summarizeHintItems(values: string[] | undefined, maxItems = 2): string | null {
+  if (!values || values.length === 0) return null;
+
+  const uniqueValues = [...new Set(values.map(value => value.trim()).filter(Boolean))];
+  if (uniqueValues.length === 0) return null;
+  if (uniqueValues.length <= maxItems) return uniqueValues.join(', ');
+
+  return `${uniqueValues.slice(0, maxItems).join(', ')} +${uniqueValues.length - maxItems}`;
+}
+
+function buildSkillHint(skill: SkillMetadata): string {
+  const parts: string[] = [];
+  const tools = summarizeHintItems(skill.tools);
+  const related = summarizeHintItems(skill.related);
+
+  if (tools) parts.push(`tools: ${tools}`);
+  if (related) parts.push(`related: ${related}`);
+
+  return parts.length > 0 ? parts.join('; ') : '-';
+}
+
 export function generateWorkflowsPrompt(workflows: string[]): string {
   if (workflows.length === 0) return '';
 
@@ -403,9 +424,9 @@ ${agentDetails}
 export function generateSkillsPrompt(skills: SkillMetadata[]): string {
   if (skills.length === 0) return '';
 
-  let table = '| 技能名称 | 技能 ID | 触发场景 |\n|---------|---------|----------|\n';
+  let table = '| Skill | ID | When to use | Hints |\n|-------|----|-------------|-------|\n';
   for (const skill of skills) {
-    table += `| **${skill.name}** | \`${skill.id}\` | ${skill.description} |\n`;
+    table += `| **${skill.name}** | \`${skill.id}\` | ${skill.description} | ${buildSkillHint(skill)} |\n`;
   }
 
   // 动态生成决策树节点（从 Skill 元数据）

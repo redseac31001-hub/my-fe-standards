@@ -1,0 +1,19 @@
+{
+  "project": "[Project Name]",
+  "branchName": "ralph/[feature-name-kebab-case]",
+  "description": "[Feature description]",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "[Story title]",
+      "description": "As a [user], I want [feature] so that [benefit]",
+      "acceptanceCriteria": [
+        "[Concrete criterion]",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

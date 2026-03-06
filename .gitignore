@@ -68,6 +68,8 @@ coverage/
 .eslintcache
 .stylelintcache
 *.tsbuildinfo
+__pycache__/
+*.pyc
 
 # =========================
 # Temporary Files

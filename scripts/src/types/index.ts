@@ -160,6 +160,8 @@ export interface SkillMetadata {
   name: string;
   description: string;
   triggers: string[];
+  tools?: string[];
+  related?: string[];
 }
 
 // ============ Agent 系统类型 ============

@@ -1,85 +1,54 @@
 "use strict";
-/**
- * 元数据解析模块
- *
- * 从 SKILL.md / AGENT.md 的 YAML frontmatter 提取结构化元数据
- */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseSkillMetadata = parseSkillMetadata;
 exports.parseAgentMetadata = parseAgentMetadata;
+const frontmatter_utils_1 = require("./frontmatter-utils");
 function parseSkillMetadata(skillId, content) {
-    const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-    if (!frontmatterMatch)
+    const fm = (0, frontmatter_utils_1.parseFrontmatterBlock)(content);
+    if (!fm.ok)
         return null;
-    const frontmatter = frontmatterMatch[1];
-    const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
-    let descMatch = frontmatter.match(/^description:\s*["'](.+)["']$/m);
-    if (!descMatch)
-        descMatch = frontmatter.match(/^description:\s*(.+)$/m);
-    if (!nameMatch || !descMatch)
+    const frontmatter = fm.frontmatter;
+    const name = (0, frontmatter_utils_1.extractYamlScalar)(frontmatter, 'name');
+    const description = (0, frontmatter_utils_1.extractYamlScalar)(frontmatter, 'description');
+    if (!name || !description)
         return null;
-    // 解析 triggers（与 Agent 的 triggers 解析一致）
-    const triggers = [];
-    const triggersMatch = frontmatter.match(/^triggers:\s*\n((?:\s+-\s*.+\n?)+)/m);
-    if (triggersMatch) {
-        const triggerLines = triggersMatch[1].split('\n');
-        for (const line of triggerLines) {
-            const match = line.match(/^\s+-\s*["']?(.+?)["']?\s*$/);
-            if (match)
-                triggers.push(match[1]);
-        }
-    }
+    const metadataBlock = (0, frontmatter_utils_1.extractYamlSection)(frontmatter, 'metadata');
+    const metadataTriggers = metadataBlock ? (0, frontmatter_utils_1.parseYamlList)(metadataBlock, 'triggers', 2) : [];
+    const legacyTriggers = (0, frontmatter_utils_1.parseYamlList)(frontmatter, 'triggers');
+    const triggers = metadataTriggers.length > 0 ? metadataTriggers : legacyTriggers;
+    const metadataTools = metadataBlock ? (0, frontmatter_utils_1.parseYamlList)(metadataBlock, 'tools', 2) : [];
+    const legacyTools = (0, frontmatter_utils_1.parseYamlList)(frontmatter, 'tools');
+    const tools = metadataTools.length > 0 ? metadataTools : legacyTools;
+    const metadataRelated = metadataBlock ? (0, frontmatter_utils_1.parseYamlList)(metadataBlock, 'related', 2) : [];
+    const legacyRelated = (0, frontmatter_utils_1.parseYamlList)(frontmatter, 'related');
+    const related = metadataRelated.length > 0 ? metadataRelated : legacyRelated;
     return {
         id: skillId,
-        name: nameMatch[1].trim(),
-        description: descMatch[1].trim(),
+        name,
+        description,
         triggers,
+        tools,
+        related,
     };
 }
 function parseAgentMetadata(agentId, content) {
-    const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-    if (!frontmatterMatch)
+    const fm = (0, frontmatter_utils_1.parseFrontmatterBlock)(content);
+    if (!fm.ok)
         return null;
-    const frontmatter = frontmatterMatch[1];
-    const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
-    let descMatch = frontmatter.match(/^description:\s*["'](.+)["']$/m);
-    if (!descMatch)
-        descMatch = frontmatter.match(/^description:\s*(.+)$/m);
-    if (!nameMatch || !descMatch)
+    const frontmatter = fm.frontmatter;
+    const name = (0, frontmatter_utils_1.extractYamlScalar)(frontmatter, 'name');
+    const description = (0, frontmatter_utils_1.extractYamlScalar)(frontmatter, 'description');
+    if (!name || !description)
         return null;
-    // 解析 triggers
-    const triggers = [];
-    const triggersMatch = frontmatter.match(/^triggers:\s*\n((?:\s+-\s*.+\n?)+)/m);
-    if (triggersMatch) {
-        const triggerLines = triggersMatch[1].split('\n');
-        for (const line of triggerLines) {
-            const match = line.match(/^\s+-\s*["']?(.+?)["']?\s*$/);
-            if (match)
-                triggers.push(match[1]);
-        }
-    }
-    // 解析 permissions
-    const permissions = [];
-    const permMatch = frontmatter.match(/permissions:\s*\n\s+tools:\s*\n((?:\s+-\s*.+\n?)+)/m);
-    if (permMatch) {
-        const permLines = permMatch[1].split('\n');
-        for (const line of permLines) {
-            const match = line.match(/^\s+-\s*(.+?)\s*$/);
-            if (match)
-                permissions.push(match[1]);
-        }
-    }
-    // 解析 workflow_summary
-    let workflowSummary;
-    const workflowMatch = frontmatter.match(/workflow_summary:\s*\|\s*\n((?:\s+.+\n?)+)/m);
-    if (workflowMatch) {
-        workflowSummary = workflowMatch[1]
-            .split('\n')
-            .map(line => line.replace(/^\s{2}/, ''))
-            .join('\n')
-            .trim();
-    }
-    // 解析 body 中的 implicit triggers（YAML 代码块）
+    const triggers = (0, frontmatter_utils_1.parseYamlList)(frontmatter, 'triggers');
+    const permissionsBlock = (0, frontmatter_utils_1.extractYamlSection)(frontmatter, 'permissions');
+    const permissions = permissionsBlock ? (0, frontmatter_utils_1.parseYamlList)(permissionsBlock, 'tools', 2) : [];
+    const relatedSkills = permissionsBlock ? (0, frontmatter_utils_1.parseYamlList)(permissionsBlock, 'skills', 2) : [];
+    const dependenciesBlock = (0, frontmatter_utils_1.extractYamlSection)(frontmatter, 'dependencies');
+    const relatedRules = dependenciesBlock
+        ? (0, frontmatter_utils_1.listYamlKeys)(dependenciesBlock, 2).flatMap(key => (0, frontmatter_utils_1.parseYamlList)(dependenciesBlock, key, 2))
+        : [];
+    const workflowSummary = (0, frontmatter_utils_1.extractYamlBlockScalar)(frontmatter, 'workflow_summary');
     const implicitTriggers = [];
     const bodyYamlMatch = content.match(/```yaml\s*\n([\s\S]*?)```/);
     if (bodyYamlMatch) {
@@ -87,19 +56,21 @@ function parseAgentMetadata(agentId, content) {
         const implicitSection = bodyYaml.match(/implicit:\s*\n((?:\s+-[\s\S]*?)(?=\n\S|\n```|$))/);
         if (implicitSection) {
             const patternRegex = /- pattern:\s*["'](.+?)["']\s*\n\s+confidence:\s*([\d.]+)/g;
-            let pMatch;
-            while ((pMatch = patternRegex.exec(implicitSection[1]))) {
-                implicitTriggers.push({ pattern: pMatch[1], confidence: parseFloat(pMatch[2]) });
+            let patternMatch;
+            while ((patternMatch = patternRegex.exec(implicitSection[1]))) {
+                implicitTriggers.push({ pattern: patternMatch[1], confidence: parseFloat(patternMatch[2]) });
             }
         }
     }
     return {
         id: agentId,
-        name: nameMatch[1].trim(),
-        description: descMatch[1].trim(),
+        name,
+        description,
         triggers,
         implicitTriggers: implicitTriggers.length > 0 ? implicitTriggers : undefined,
         permissions,
         workflowSummary,
+        relatedSkills: relatedSkills.length > 0 ? relatedSkills : undefined,
+        relatedRules: relatedRules.length > 0 ? relatedRules : undefined,
     };
 }

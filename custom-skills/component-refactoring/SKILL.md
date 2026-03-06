@@ -1,8 +1,9 @@
 ---
 name: component-refactoring
-description: Refactor high-complexity React or Vue components. Use when complexity > 50, lineCount > 300, or user asks for code splitting, hook/composable extraction. Supports React (Hooks) and Vue (2 Options API, 3 Composition API).
-triggers:
-  - "重构/拆分组件/提取 Hook/组件优化"
+description: Refactor high-complexity React or Vue components. Use when complexity exceeds 50, lineCount exceeds 300, or the user asks for code splitting or hook/composable extraction. Supports React (Hooks) and Vue (2 Options API, 3 Composition API).
+metadata:
+  triggers:
+    - "重构/拆分组件/提取 Hook/组件优化"
 ---
 
 # Component Refactoring Skill
@@ -28,12 +29,14 @@ Look at the file extension and code patterns:
 ## Quick Reference Commands
 
 ```bash
-# Analyze complexity (Works for both .tsx and .vue)
+# Optional helper if the target project already ships an analyzer
 pnpm analyze-component <path> --json
 
-# Generate refactoring prompt
+# Optional helper if the target project already ships a refactor prompt tool
 pnpm refactor-component <path>
 ```
+
+If these project-specific commands do not exist, inspect file size, branch depth, state/effect density, and template complexity manually before refactoring.
 
 ## Core Refactoring Workflow
 

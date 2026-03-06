@@ -5,7 +5,8 @@
  * 测试不同类型的模拟业务项目是否能正确生成规则文件
  */
 
-const { execSync, spawnSync, spawn } = require('child_process');
+const childProcess = require('child_process');
+const { spawnSync, spawn } = childProcess;
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -13,6 +14,49 @@ const path = require('path');
 const SLEEP_INT32 = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) {
   Atomics.wait(SLEEP_INT32, 0, 0, ms);
+}
+
+function splitCommandArgs(argString) {
+  if (!argString || !argString.trim()) return [];
+
+  const args = [];
+  const re = /"([^"]*)"|'([^']*)'|[^\s]+/g;
+  let match = null;
+  while ((match = re.exec(argString))) {
+    args.push(match[1] ?? match[2] ?? match[0]);
+  }
+  return args;
+}
+
+function buildExecError(command, result) {
+  const error = new Error(`Command failed: ${command}\n${result.stderr || result.stdout || ''}`.trim());
+  error.status = result.status;
+  error.stdout = result.stdout;
+  error.stderr = result.stderr;
+  return error;
+}
+
+function execSync(command, options = {}) {
+  const trimmed = String(command).trim();
+  const nodeMatch = trimmed.match(/^node\s+"([^"]+)"(?:\s+([\s\S]*))?$/);
+
+  if (nodeMatch) {
+    const scriptPath = nodeMatch[1];
+    const args = splitCommandArgs(nodeMatch[2] || '');
+    const result = spawnSync(process.execPath, [scriptPath, ...args], {
+      stdio: 'pipe',
+      encoding: 'utf-8',
+      ...options,
+    });
+
+    if (result.status !== 0) {
+      throw buildExecError(command, result);
+    }
+
+    return result.stdout;
+  }
+
+  return childProcess.execSync(command, options);
 }
 
 function httpRequestJson({ method, url, headers = {}, body = '', timeoutMs = 5000 }) {
@@ -224,9 +268,75 @@ child.on('close', (code) => {
   return JSON.parse(res.stdout);
 }
 
+function detectPythonRunner() {
+  const candidates = [
+    { command: 'python', prefix: [] },
+    { command: 'py', prefix: ['-3'] },
+  ];
+
+  for (const candidate of candidates) {
+    const res = spawnSync(candidate.command, [...candidate.prefix, '--version'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+    if (res.status === 0) return candidate;
+  }
+
+  return null;
+}
+
+function runPythonScript(pythonRunner, scriptPath, args, options = {}) {
+  if (!pythonRunner) {
+    throw new Error('python runner unavailable');
+  }
+
+  const res = spawnSync(pythonRunner.command, [...pythonRunner.prefix, scriptPath, ...args], {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+    ...options,
+  });
+
+  if (res.status !== 0) {
+    throw new Error(`python script failed (exit=${res.status}): ${res.stderr || res.stdout}`);
+  }
+
+  return res.stdout;
+}
+
+function removePathIfExists(targetPath) {
+  if (!fs.existsSync(targetPath)) return;
+
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      fs.rmSync(targetPath, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 150,
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (process.platform === 'win32') {
+        try {
+          execSync(`attrib -R "${targetPath}" /S /D`, { stdio: 'ignore' });
+        } catch {
+          // ignore cleanup fallback errors
+        }
+      }
+      sleepSync(150 * (attempt + 1));
+    }
+  }
+
+  throw lastError;
+}
+
 // 测试配置
 const MOCK_PROJECTS_DIR = path.join(__dirname, 'mock-projects');
+const TEST_RUNTIME_DIR = path.join(__dirname, '..', 'temp', 'test-run');
 const RULE_LOADER_PATH = path.join(__dirname, '..', 'scripts', 'dist', 'codebuddy-loader.js');
+const PYTHON_RUNNER = detectPythonRunner();
 
 // 测试用例
 const TEST_CASES = [
@@ -287,11 +397,31 @@ function logWarn(message) {
   log(`⚠️  ${message}`, colors.yellow);
 }
 
+function prepareProjectSandbox(projectName) {
+  const sourceDir = path.join(MOCK_PROJECTS_DIR, projectName);
+  const runtimeDir = path.join(
+    TEST_RUNTIME_DIR,
+    `${projectName}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+  );
+
+  fs.mkdirSync(TEST_RUNTIME_DIR, { recursive: true });
+  fs.cpSync(sourceDir, runtimeDir, {
+    recursive: true,
+    filter: src => {
+      const rel = path.relative(sourceDir, src);
+      if (!rel) return true;
+      return rel !== '.codebuddy' && !rel.startsWith(`.codebuddy${path.sep}`);
+    },
+  });
+
+  return runtimeDir;
+}
+
 /**
  * 运行单个测试用例
  */
 function runTestCase(testCase) {
-  const projectDir = path.join(MOCK_PROJECTS_DIR, testCase.dir);
+  const projectDir = prepareProjectSandbox(testCase.dir);
   const outputDir = path.join(projectDir, '.codebuddy', 'rules');
   const outputFile = path.join(outputDir, 'project-rules.md');
   const scriptsDir = path.join(projectDir, '.codebuddy', 'scripts');
@@ -315,29 +445,12 @@ function runTestCase(testCase) {
   log(`\n${colors.bold}测试: ${testCase.name}${colors.reset}`);
   log(`目录: ${projectDir}`);
 
-  // 清理之前的输出
-  if (fs.existsSync(outputDir)) {
-    fs.rmSync(outputDir, { recursive: true, force: true });
-  }
-  if (fs.existsSync(scriptsDir)) {
-    fs.rmSync(scriptsDir, { recursive: true, force: true });
-  }
-  if (fs.existsSync(workflowDir)) {
-    fs.rmSync(workflowDir, { recursive: true, force: true });
-  }
-  if (fs.existsSync(taskbooksDir)) {
-    fs.rmSync(taskbooksDir, { recursive: true, force: true });
-  }
-  if (fs.existsSync(reportsDir)) {
-    fs.rmSync(reportsDir, { recursive: true, force: true });
-  }
-  if (fs.existsSync(agentCallsDir)) {
-    fs.rmSync(agentCallsDir, { recursive: true, force: true });
-  }
+  // 沙箱目录每次重新复制，无需删除 fixture 自带的 .codebuddy 内容。
+  // 避免在 Windows 上删除被外部进程占用的 project-rules.md 导致测试提前失败。
 
   try {
     // 执行规则加载器
-    execSync(`node "${RULE_LOADER_PATH}"`, {
+    execSync(`node "${RULE_LOADER_PATH}" --enable-orchestrator`, {
       cwd: projectDir,
       stdio: 'pipe',
       encoding: 'utf-8',
@@ -516,6 +629,36 @@ function runTestCase(testCase) {
     } catch (e) {
       logError(`validator E2E 失败: ${e.message}`);
       allPassed = false;
+    }
+
+    // E2E: skill-creator quick_validate / package（确保 UTF-8 + 打包链路可用）
+    if (PYTHON_RUNNER) {
+      try {
+        const skillScriptsDir = path.join(projectDir, '.codebuddy', 'skills', 'skill-creator', 'scripts');
+        const targetSkillDir = path.join(projectDir, '.codebuddy', 'skills', 'frontend-testing');
+        const distDir = path.join(projectDir, '.codebuddy', 'tmp-skill-dist');
+        const quickValidateScript = path.join(skillScriptsDir, 'quick_validate.py');
+        const packageScript = path.join(skillScriptsDir, 'package_skill.py');
+
+        fs.rmSync(distDir, { recursive: true, force: true });
+        runPythonScript(PYTHON_RUNNER, quickValidateScript, [targetSkillDir], { cwd: projectDir });
+        runPythonScript(PYTHON_RUNNER, packageScript, [targetSkillDir, distDir], { cwd: projectDir });
+
+        const packagedSkill = path.join(distDir, 'frontend-testing.skill');
+        if (!fs.existsSync(packagedSkill)) {
+          throw new Error(`未生成 .skill 包: ${packagedSkill}`);
+        }
+        if (fs.statSync(packagedSkill).size <= 0) {
+          throw new Error(`生成的 .skill 包为空: ${packagedSkill}`);
+        }
+
+        logSuccess('skill-creator quick_validate / package 通过');
+      } catch (e) {
+        logError(`skill-creator packaging E2E 失败: ${e.message}`);
+        allPassed = false;
+      }
+    } else {
+      logWarn('未检测到 Python，跳过 skill-creator quick_validate / package E2E');
     }
 
     // E2E: 模拟业务项目交互流程（加载 -> 创建 TaskBook -> 执行 workflow -> 验收归档）

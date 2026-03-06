@@ -10,10 +10,10 @@
  * INSTRUCTIONS:
  * 1. Replace `ComponentName` with your component name
  * 2. Update import path
- * 3. Add/remove test sections based on component features (use analyze-component)
+ * 3. Add/remove test sections based on component features (use analyze-component if the project provides it)
  * 4. Follow AAA pattern: Arrange → Act → Assert
  *
- * RUN FIRST: pnpm analyze-component <path> to identify required test scenarios
+ * RUN FIRST: pnpm analyze-component <path> if available to identify required test scenarios
  */
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'

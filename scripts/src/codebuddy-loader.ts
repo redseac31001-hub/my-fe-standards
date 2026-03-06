@@ -643,6 +643,7 @@ const CORE_SCRIPTS: Array<{ file: string; dependencies?: string[] }> = [
   },
   {
     file: 'skill-validator.js',
+    dependencies: ['lib/frontmatter-utils.js']
   },
 ];
 
@@ -652,6 +653,7 @@ const CORE_SCRIPTS: Array<{ file: string; dependencies?: string[] }> = [
 const OPTIONAL_SCRIPTS: Array<{ file: string; dependencies?: string[] }> = [
   {
     file: 'agent-registry.js',
+    dependencies: ['lib/frontmatter-utils.js']
   },
   {
     file: 'agent-call-manager.js',
@@ -665,11 +667,11 @@ const OPTIONAL_SCRIPTS: Array<{ file: string; dependencies?: string[] }> = [
   },
   {
     file: 'task-executor.js',
-    dependencies: ['types/index.js', 'types/agent-runtime.js', 'taskbook-manager.js', 'context-collector.js', 'reference-finder.js', 'agent-runtime.js']
+    dependencies: ['types/index.js', 'types/agent-runtime.js', 'taskbook-manager.js', 'context-collector.js', 'reference-finder.js', 'agent-runtime.js', 'result-aggregator.js']
   },
   {
     file: 'agent-runtime.js',
-    dependencies: ['types/agent-runtime.js', 'types/index.js']
+    dependencies: ['types/agent-runtime.js', 'types/index.js', 'lib/frontmatter-utils.js']
   },
   {
     file: 'contract-validator.js',

@@ -1,5 +1,5 @@
 /**
- * Agent Registry (dependency-free)
+ * Agent Registry (shared frontmatter parser)
  *
  * Scan Agent definitions under:
  * - .codebuddy/agents/<agentId>/AGENT.md (preferred in business projects)
@@ -10,6 +10,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  extractYamlScalar,
+  extractYamlSection,
+  parseFrontmatterBlock,
+  parseYamlList,
+} from './lib/frontmatter-utils';
 
 type ParsedCli = {
   command: string | null;
@@ -114,109 +120,72 @@ Agent Registry - Agent 定义扫描与注册表输出
 `.trim());
 }
 
-function parseFrontmatter(md: string): string | null {
-  const m = md.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-  return m ? m[1] : null;
-}
-
 function parseFirstYamlCodeBlock(md: string): string | null {
   const m = md.match(/```ya?ml\s*([\s\S]*?)\s*```/);
   return m ? m[1] : null;
 }
 
-function parseYamlListBlock(block: string): string[] {
-  const out: string[] = [];
-  const lines = block.split(/\r?\n/);
-  for (const line of lines) {
-    const m = line.match(/^\s*-\s*["']?(.+?)["']?\s*$/);
-    if (m && m[1]) out.push(m[1]);
-  }
-  return out;
+function parseOptionalVersion(yaml: string): string | undefined {
+  const versionRaw = extractYamlScalar(yaml, 'version');
+  if (!versionRaw || versionRaw === 'null') return undefined;
+  return versionRaw;
 }
 
-function parseAgentEntry(agentId: string, agentMdPathAbs: string): { ok: true; entry: AgentRegistryEntry } | { ok: false; issue: RegistryIssue } {
-  const raw = fs.readFileSync(agentMdPathAbs, 'utf-8');
-  const fm = parseFrontmatter(raw);
-  const rel = toPosixPath(path.relative(process.cwd(), agentMdPathAbs));
-  if (!fm) {
-    // Backward compatible: some agents use a dedicated YAML code block instead of frontmatter.
-    const yaml = parseFirstYamlCodeBlock(raw);
-    if (!yaml) {
-      return { ok: false, issue: { level: 'error', agentId, file: rel, message: 'missing metadata (frontmatter or ```yaml``` block)' } };
-    }
+function buildAgentEntryFromYaml(agentId: string, yaml: string, rel: string): AgentRegistryEntry | null {
+  const name = extractYamlScalar(yaml, 'name');
+  const description = extractYamlScalar(yaml, 'description');
+  if (!name || !description) return null;
 
-    const nameMatch = yaml.match(/^name:\s*(.+)$/m);
-    const versionMatch = yaml.match(/^version:\s*(.+)$/m);
-    let descMatch = yaml.match(/^description:\s*["'](.+)["']$/m);
-    if (!descMatch) descMatch = yaml.match(/^description:\s*(.+)$/m);
+  const triggersBlock = extractYamlSection(yaml, 'triggers');
+  const explicitTriggers = triggersBlock ? parseYamlList(triggersBlock, 'explicit', 2) : [];
+  const plainTriggers = parseYamlList(yaml, 'triggers');
+  const triggers = explicitTriggers.length > 0 ? explicitTriggers : plainTriggers;
 
-    if (!nameMatch || !descMatch) {
-      return { ok: false, issue: { level: 'error', agentId, file: rel, message: 'yaml metadata missing required fields: name/description' } };
-    }
+  const permissionsBlock = extractYamlSection(yaml, 'permissions');
+  const tools = permissionsBlock ? parseYamlList(permissionsBlock, 'tools', 2) : [];
+  const skills = permissionsBlock ? parseYamlList(permissionsBlock, 'skills', 2) : [];
 
-    const triggers: string[] = [];
-    const explicitMatch = yaml.match(/triggers:\s*\n[\s\S]*?\bexplicit:\s*\n([\s\S]*?)(?:\n\s*implicit:|\s*$)/m);
-    if (explicitMatch) triggers.push(...parseYamlListBlock(explicitMatch[1]));
+  const dependenciesBlock = extractYamlSection(yaml, 'dependencies');
+  const layer3Action = dependenciesBlock ? parseYamlList(dependenciesBlock, 'layer3_action', 2) : [];
 
-    const tools: string[] = [];
-    const permissionsMatch = yaml.match(/permissions:\s*\n([\s\S]*?)(?:\n[a-zA-Z_][^:\n]*:|\s*$)/m);
-    if (permissionsMatch) tools.push(...parseYamlListBlock(permissionsMatch[1]));
-
-    const versionRaw = versionMatch ? versionMatch[1].trim() : '';
-    const version = versionRaw && versionRaw !== 'null' ? versionRaw : undefined;
-
-    const entry: AgentRegistryEntry = {
-      id: agentId,
-      name: nameMatch[1].trim(),
-      version,
-      description: descMatch[1].trim(),
-      triggers,
-      permissions: { tools, skills: [] },
-      dependencies: { layer3_action: [] },
-      sourcePath: rel,
-    };
-
-    return { ok: true, entry };
-  }
-
-  const nameMatch = fm.match(/^name:\s*(.+)$/m);
-  const versionMatch = fm.match(/^version:\s*(.+)$/m);
-  let descMatch = fm.match(/^description:\s*["'](.+)["']$/m);
-  if (!descMatch) descMatch = fm.match(/^description:\s*(.+)$/m);
-
-  if (!nameMatch || !descMatch) {
-    return { ok: false, issue: { level: 'error', agentId, file: rel, message: 'frontmatter missing required fields: name/description' } };
-  }
-
-  const triggers: string[] = [];
-  const triggersMatch = fm.match(/^triggers:\s*\n((?:\s+-\s*.+\n?)+)/m);
-  if (triggersMatch) triggers.push(...parseYamlListBlock(triggersMatch[1]));
-
-  const tools: string[] = [];
-  const toolsMatch = fm.match(/permissions:\s*\n[\s\S]*?\s+tools:\s*\n((?:\s+-\s*.+\n?)+)/m);
-  if (toolsMatch) tools.push(...parseYamlListBlock(toolsMatch[1]));
-
-  const skills: string[] = [];
-  const skillsMatch = fm.match(/permissions:\s*\n[\s\S]*?\s+skills:\s*\n((?:\s+-\s*.+\n?)+)/m);
-  if (skillsMatch) skills.push(...parseYamlListBlock(skillsMatch[1]));
-
-  const layer3Action: string[] = [];
-  const layer3Match = fm.match(/dependencies:\s*\n[\s\S]*?\s+layer3_action:\s*\n((?:\s+-\s*.+\n?)+)/m);
-  if (layer3Match) layer3Action.push(...parseYamlListBlock(layer3Match[1]));
-
-  const versionRaw = versionMatch ? versionMatch[1].trim() : '';
-  const version = versionRaw && versionRaw !== 'null' ? versionRaw : undefined;
-
-  const entry: AgentRegistryEntry = {
+  return {
     id: agentId,
-    name: nameMatch[1].trim(),
-    version,
-    description: descMatch[1].trim(),
+    name,
+    version: parseOptionalVersion(yaml),
+    description,
     triggers,
     permissions: { tools, skills },
     dependencies: { layer3_action: layer3Action },
     sourcePath: rel,
   };
+}
+
+function parseAgentEntry(agentId: string, agentMdPathAbs: string): { ok: true; entry: AgentRegistryEntry } | { ok: false; issue: RegistryIssue } {
+  const raw = fs.readFileSync(agentMdPathAbs, 'utf-8');
+  const rel = toPosixPath(path.relative(process.cwd(), agentMdPathAbs));
+  const fm = parseFrontmatterBlock(raw);
+
+  if (fm.ok) {
+    const entry = buildAgentEntryFromYaml(agentId, fm.frontmatter, rel);
+    if (!entry) {
+      return { ok: false, issue: { level: 'error', agentId, file: rel, message: 'frontmatter missing required fields: name/description' } };
+    }
+    return { ok: true, entry };
+  }
+
+  if (raw.replace(/^\uFEFF/, '').startsWith('---')) {
+    return { ok: false, issue: { level: 'error', agentId, file: rel, message: fm.error } };
+  }
+
+  const yaml = parseFirstYamlCodeBlock(raw);
+  if (!yaml) {
+    return { ok: false, issue: { level: 'error', agentId, file: rel, message: 'missing metadata (frontmatter or ```yaml``` block)' } };
+  }
+
+  const entry = buildAgentEntryFromYaml(agentId, yaml, rel);
+  if (!entry) {
+    return { ok: false, issue: { level: 'error', agentId, file: rel, message: 'yaml metadata missing required fields: name/description' } };
+  }
 
   return { ok: true, entry };
 }

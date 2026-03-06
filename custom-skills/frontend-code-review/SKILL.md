@@ -1,8 +1,9 @@
----
+﻿---
 name: frontend-code-review
 description: "Trigger when the user requests a review of frontend files (e.g., `.tsx`, `.ts`, `.js`, `.vue`). Support both pending-change reviews and focused file reviews while applying the checklist rules."
-triggers:
-  - "审查代码/代码质量/code review"
+metadata:
+  triggers:
+    - "审查代码/代码质量/code review"
 ---
 
 # Frontend Code Review
@@ -72,4 +73,3 @@ If you use Template A (i.e., there are issues to fix) and at least one issue req
 ## Code review
 No issues found.
 ```
-

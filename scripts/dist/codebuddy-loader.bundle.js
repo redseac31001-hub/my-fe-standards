@@ -162,62 +162,168 @@ function copyRecursive(src, dest) {
   }
 }
 
-// scripts/src/lib/metadata-parser.ts
-function parseSkillMetadata(skillId, content) {
-  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-  if (!frontmatterMatch) return null;
-  const frontmatter = frontmatterMatch[1];
-  const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
-  let descMatch = frontmatter.match(/^description:\s*["'](.+)["']$/m);
-  if (!descMatch) descMatch = frontmatter.match(/^description:\s*(.+)$/m);
-  if (!nameMatch || !descMatch) return null;
-  const triggers = [];
-  const triggersMatch = frontmatter.match(/^triggers:\s*\n((?:\s+-\s*.+\n?)+)/m);
-  if (triggersMatch) {
-    const triggerLines = triggersMatch[1].split("\n");
-    for (const line of triggerLines) {
-      const match = line.match(/^\s+-\s*["']?(.+?)["']?\s*$/);
-      if (match) triggers.push(match[1]);
+// scripts/src/lib/frontmatter-utils.ts
+function normalizeNewlines(text) {
+  return text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+}
+function stripWrappingQuotes(value) {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if (first === '"' && last === '"' || first === "'" && last === "'") {
+      return trimmed.slice(1, -1).trim();
     }
   }
+  return trimmed;
+}
+function countLeadingSpaces(line) {
+  const match = line.match(/^ */);
+  return match ? match[0].length : 0;
+}
+function indentPrefix(indent) {
+  return " ".repeat(Math.max(0, indent));
+}
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function parseFrontmatterBlock(md) {
+  const normalized = normalizeNewlines(md);
+  if (!normalized.startsWith("---")) {
+    return { ok: false, error: "missing YAML frontmatter (must start with ---)" };
+  }
+  const match = normalized.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!match) {
+    return { ok: false, error: "YAML frontmatter is not closed (missing ending ---)" };
+  }
+  return { ok: true, frontmatter: match[1], endIndex: match[0].length };
+}
+function extractYamlScalar(frontmatter, key) {
+  const normalized = normalizeNewlines(frontmatter);
+  const pattern = new RegExp(`^${escapeRegex(key)}:\\s*(.+)$`, "m");
+  const match = normalized.match(pattern);
+  if (!match) return void 0;
+  return stripWrappingQuotes(match[1]);
+}
+function listYamlKeys(yaml, indent = 0) {
+  const normalized = normalizeNewlines(yaml);
+  const prefix = indentPrefix(indent);
+  const keys = [];
+  for (const line of normalized.split("\n")) {
+    const match = line.match(new RegExp(`^${escapeRegex(prefix)}([A-Za-z0-9_-]+):(?:\\s+.*)?$`));
+    if (match) keys.push(match[1]);
+  }
+  return keys;
+}
+function extractYamlSection(frontmatter, key, indent = 0) {
+  const normalized = normalizeNewlines(frontmatter);
+  const lines = normalized.split("\n");
+  const prefix = indentPrefix(indent);
+  const startPattern = new RegExp(`^${escapeRegex(prefix)}${escapeRegex(key)}:\\s*$`);
+  for (let i = 0; i < lines.length; i++) {
+    if (!startPattern.test(lines[i])) continue;
+    const collected = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j];
+      if (!line.trim()) {
+        collected.push(line);
+        continue;
+      }
+      if (countLeadingSpaces(line) <= indent) break;
+      collected.push(line);
+    }
+    return collected.join("\n");
+  }
+  return null;
+}
+function extractYamlBlockScalar(frontmatter, key, indent = 0) {
+  const normalized = normalizeNewlines(frontmatter);
+  const lines = normalized.split("\n");
+  const prefix = indentPrefix(indent);
+  const startPattern = new RegExp(`^${escapeRegex(prefix)}${escapeRegex(key)}:\\s*[>|][+-]?\\s*$`);
+  for (let i = 0; i < lines.length; i++) {
+    if (!startPattern.test(lines[i])) continue;
+    const collected = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j];
+      if (!line.trim()) {
+        collected.push("");
+        continue;
+      }
+      if (countLeadingSpaces(line) <= indent) break;
+      collected.push(line);
+    }
+    const nonEmptyLines = collected.filter((line) => line.trim());
+    if (nonEmptyLines.length === 0) return "";
+    const contentIndent = Math.min(...nonEmptyLines.map(countLeadingSpaces));
+    return collected.map((line) => line.trim() ? line.slice(contentIndent) : "").join("\n").trim();
+  }
+  return void 0;
+}
+function parseYamlList(frontmatter, key, indent = 0) {
+  const normalized = normalizeNewlines(frontmatter);
+  const lines = normalized.split("\n");
+  const prefix = indentPrefix(indent);
+  const itemPrefix = indentPrefix(indent + 2);
+  const startPattern = new RegExp(`^${escapeRegex(prefix)}${escapeRegex(key)}:\\s*$`);
+  const itemPattern = new RegExp(`^${escapeRegex(itemPrefix)}-\\s*(.+?)\\s*$`);
+  const values = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!startPattern.test(lines[i])) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j];
+      if (!line.trim()) continue;
+      const currentIndent = countLeadingSpaces(line);
+      if (currentIndent <= indent) break;
+      const itemMatch = line.match(itemPattern);
+      if (itemMatch) values.push(stripWrappingQuotes(itemMatch[1]));
+    }
+    break;
+  }
+  return values;
+}
+
+// scripts/src/lib/metadata-parser.ts
+function parseSkillMetadata(skillId, content) {
+  const fm = parseFrontmatterBlock(content);
+  if (!fm.ok) return null;
+  const frontmatter = fm.frontmatter;
+  const name = extractYamlScalar(frontmatter, "name");
+  const description = extractYamlScalar(frontmatter, "description");
+  if (!name || !description) return null;
+  const metadataBlock = extractYamlSection(frontmatter, "metadata");
+  const metadataTriggers = metadataBlock ? parseYamlList(metadataBlock, "triggers", 2) : [];
+  const legacyTriggers = parseYamlList(frontmatter, "triggers");
+  const triggers = metadataTriggers.length > 0 ? metadataTriggers : legacyTriggers;
+  const metadataTools = metadataBlock ? parseYamlList(metadataBlock, "tools", 2) : [];
+  const legacyTools = parseYamlList(frontmatter, "tools");
+  const tools = metadataTools.length > 0 ? metadataTools : legacyTools;
+  const metadataRelated = metadataBlock ? parseYamlList(metadataBlock, "related", 2) : [];
+  const legacyRelated = parseYamlList(frontmatter, "related");
+  const related = metadataRelated.length > 0 ? metadataRelated : legacyRelated;
   return {
     id: skillId,
-    name: nameMatch[1].trim(),
-    description: descMatch[1].trim(),
-    triggers
+    name,
+    description,
+    triggers,
+    tools,
+    related
   };
 }
 function parseAgentMetadata(agentId, content) {
-  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-  if (!frontmatterMatch) return null;
-  const frontmatter = frontmatterMatch[1];
-  const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
-  let descMatch = frontmatter.match(/^description:\s*["'](.+)["']$/m);
-  if (!descMatch) descMatch = frontmatter.match(/^description:\s*(.+)$/m);
-  if (!nameMatch || !descMatch) return null;
-  const triggers = [];
-  const triggersMatch = frontmatter.match(/^triggers:\s*\n((?:\s+-\s*.+\n?)+)/m);
-  if (triggersMatch) {
-    const triggerLines = triggersMatch[1].split("\n");
-    for (const line of triggerLines) {
-      const match = line.match(/^\s+-\s*["']?(.+?)["']?\s*$/);
-      if (match) triggers.push(match[1]);
-    }
-  }
-  const permissions = [];
-  const permMatch = frontmatter.match(/permissions:\s*\n\s+tools:\s*\n((?:\s+-\s*.+\n?)+)/m);
-  if (permMatch) {
-    const permLines = permMatch[1].split("\n");
-    for (const line of permLines) {
-      const match = line.match(/^\s+-\s*(.+?)\s*$/);
-      if (match) permissions.push(match[1]);
-    }
-  }
-  let workflowSummary;
-  const workflowMatch = frontmatter.match(/workflow_summary:\s*\|\s*\n((?:\s+.+\n?)+)/m);
-  if (workflowMatch) {
-    workflowSummary = workflowMatch[1].split("\n").map((line) => line.replace(/^\s{2}/, "")).join("\n").trim();
-  }
+  const fm = parseFrontmatterBlock(content);
+  if (!fm.ok) return null;
+  const frontmatter = fm.frontmatter;
+  const name = extractYamlScalar(frontmatter, "name");
+  const description = extractYamlScalar(frontmatter, "description");
+  if (!name || !description) return null;
+  const triggers = parseYamlList(frontmatter, "triggers");
+  const permissionsBlock = extractYamlSection(frontmatter, "permissions");
+  const permissions = permissionsBlock ? parseYamlList(permissionsBlock, "tools", 2) : [];
+  const relatedSkills = permissionsBlock ? parseYamlList(permissionsBlock, "skills", 2) : [];
+  const dependenciesBlock = extractYamlSection(frontmatter, "dependencies");
+  const relatedRules = dependenciesBlock ? listYamlKeys(dependenciesBlock, 2).flatMap((key) => parseYamlList(dependenciesBlock, key, 2)) : [];
+  const workflowSummary = extractYamlBlockScalar(frontmatter, "workflow_summary");
   const implicitTriggers = [];
   const bodyYamlMatch = content.match(/```yaml\s*\n([\s\S]*?)```/);
   if (bodyYamlMatch) {
@@ -225,24 +331,41 @@ function parseAgentMetadata(agentId, content) {
     const implicitSection = bodyYaml.match(/implicit:\s*\n((?:\s+-[\s\S]*?)(?=\n\S|\n```|$))/);
     if (implicitSection) {
       const patternRegex = /- pattern:\s*["'](.+?)["']\s*\n\s+confidence:\s*([\d.]+)/g;
-      let pMatch;
-      while (pMatch = patternRegex.exec(implicitSection[1])) {
-        implicitTriggers.push({ pattern: pMatch[1], confidence: parseFloat(pMatch[2]) });
+      let patternMatch;
+      while (patternMatch = patternRegex.exec(implicitSection[1])) {
+        implicitTriggers.push({ pattern: patternMatch[1], confidence: parseFloat(patternMatch[2]) });
       }
     }
   }
   return {
     id: agentId,
-    name: nameMatch[1].trim(),
-    description: descMatch[1].trim(),
+    name,
+    description,
     triggers,
     implicitTriggers: implicitTriggers.length > 0 ? implicitTriggers : void 0,
     permissions,
-    workflowSummary
+    workflowSummary,
+    relatedSkills: relatedSkills.length > 0 ? relatedSkills : void 0,
+    relatedRules: relatedRules.length > 0 ? relatedRules : void 0
   };
 }
 
 // scripts/src/lib/prompt-builder.ts
+function summarizeHintItems(values, maxItems = 2) {
+  if (!values || values.length === 0) return null;
+  const uniqueValues = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  if (uniqueValues.length === 0) return null;
+  if (uniqueValues.length <= maxItems) return uniqueValues.join(", ");
+  return `${uniqueValues.slice(0, maxItems).join(", ")} +${uniqueValues.length - maxItems}`;
+}
+function buildSkillHint(skill) {
+  const parts = [];
+  const tools = summarizeHintItems(skill.tools);
+  const related = summarizeHintItems(skill.related);
+  if (tools) parts.push(`tools: ${tools}`);
+  if (related) parts.push(`related: ${related}`);
+  return parts.length > 0 ? parts.join("; ") : "-";
+}
 function generateWorkflowsPrompt(workflows) {
   if (workflows.length === 0) return "";
   const workflowFiles = workflows.filter((f) => f.endsWith(".workflow.json")).sort((a, b) => a.localeCompare(b));
@@ -619,9 +742,9 @@ ${agentDetails}
 }
 function generateSkillsPrompt(skills) {
   if (skills.length === 0) return "";
-  let table = "| \u6280\u80FD\u540D\u79F0 | \u6280\u80FD ID | \u89E6\u53D1\u573A\u666F |\n|---------|---------|----------|\n";
+  let table = "| Skill | ID | When to use | Hints |\n|-------|----|-------------|-------|\n";
   for (const skill of skills) {
-    table += `| **${skill.name}** | \`${skill.id}\` | ${skill.description} |
+    table += `| **${skill.name}** | \`${skill.id}\` | ${skill.description} | ${buildSkillHint(skill)} |
 `;
   }
   let decisionNodes = "";
@@ -1269,12 +1392,14 @@ var CORE_SCRIPTS = [
     file: "rule-validator.js"
   },
   {
-    file: "skill-validator.js"
+    file: "skill-validator.js",
+    dependencies: ["lib/frontmatter-utils.js"]
   }
 ];
 var OPTIONAL_SCRIPTS = [
   {
-    file: "agent-registry.js"
+    file: "agent-registry.js",
+    dependencies: ["lib/frontmatter-utils.js"]
   },
   {
     file: "agent-call-manager.js"
@@ -1288,11 +1413,11 @@ var OPTIONAL_SCRIPTS = [
   },
   {
     file: "task-executor.js",
-    dependencies: ["types/index.js", "types/agent-runtime.js", "taskbook-manager.js", "context-collector.js", "reference-finder.js", "agent-runtime.js"]
+    dependencies: ["types/index.js", "types/agent-runtime.js", "taskbook-manager.js", "context-collector.js", "reference-finder.js", "agent-runtime.js", "result-aggregator.js"]
   },
   {
     file: "agent-runtime.js",
-    dependencies: ["types/agent-runtime.js", "types/index.js"]
+    dependencies: ["types/agent-runtime.js", "types/index.js", "lib/frontmatter-utils.js"]
   },
   {
     file: "contract-validator.js"

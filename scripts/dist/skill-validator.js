@@ -42,6 +42,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const frontmatter_utils_1 = require("./lib/frontmatter-utils");
 function toPosixPath(p) {
     return p.replace(/\\/g, '/');
 }
@@ -103,31 +104,6 @@ function readText(filePath) {
     catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
-}
-function parseFrontmatter(md) {
-    const normalized = md.replace(/^\uFEFF/, '');
-    if (!normalized.startsWith('---'))
-        return { ok: false, error: '缺少 YAML frontmatter（需要以 --- 开头）' };
-    const m = normalized.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n/);
-    if (!m)
-        return { ok: false, error: 'YAML frontmatter 未闭合（缺少结束 ---）' };
-    return { ok: true, frontmatter: m[1], endIndex: m[0].length };
-}
-function parseSimpleYamlObject(yaml) {
-    const obj = {};
-    const lines = yaml.split(/\r?\n/);
-    for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line)
-            continue;
-        if (line.startsWith('#'))
-            continue;
-        const m = line.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
-        if (!m)
-            continue;
-        obj[m[1]] = m[2];
-    }
-    return obj;
 }
 function detectDefaultSkillsDir(cwd) {
     const candidates = [path.join(cwd, 'custom-skills'), path.join(cwd, '.codebuddy', 'skills')];
@@ -193,14 +169,14 @@ function validateSkillDir(skillId, skillDir) {
         return { issues, checkedFileCount: 1 };
     }
     const raw = read.data;
-    const fm = parseFrontmatter(raw);
+    const fm = (0, frontmatter_utils_1.parseFrontmatterBlock)(raw);
     if (!fm.ok) {
         issues.push({ level: 'error', skillId, file: relSkillFile, message: fm.error });
         return { issues, checkedFileCount: 1 };
     }
-    const meta = parseSimpleYamlObject(fm.frontmatter);
-    const name = ((_a = meta.name) !== null && _a !== void 0 ? _a : '').trim();
-    const description = ((_b = meta.description) !== null && _b !== void 0 ? _b : '').trim();
+    const frontmatter = fm.frontmatter;
+    const name = ((_a = (0, frontmatter_utils_1.extractYamlScalar)(frontmatter, 'name')) !== null && _a !== void 0 ? _a : '').trim();
+    const description = ((_b = (0, frontmatter_utils_1.extractYamlScalar)(frontmatter, 'description')) !== null && _b !== void 0 ? _b : '').trim();
     if (!name)
         issues.push({ level: 'error', skillId, file: relSkillFile, message: 'frontmatter 缺少 name' });
     if (!description)
@@ -208,12 +184,46 @@ function validateSkillDir(skillId, skillDir) {
     if (name && name !== skillId) {
         issues.push({ level: 'warning', skillId, file: relSkillFile, message: `skillId 与 frontmatter.name 不一致（dir=${skillId}, name=${name}）` });
     }
-    // Suggest keeping frontmatter minimal (name/description only).
-    // Allow triggers/tools/related as recommended fields per skill-creator standard.
-    const allowedKeys = new Set(['name', 'description', 'triggers', 'tools', 'related']);
-    for (const k of Object.keys(meta)) {
+    const topLevelKeys = (0, frontmatter_utils_1.listYamlKeys)(frontmatter);
+    const allowedKeys = new Set(['name', 'description', 'metadata', 'triggers', 'tools', 'related']);
+    for (const k of topLevelKeys) {
         if (!allowedKeys.has(k)) {
-            issues.push({ level: 'warning', skillId, file: relSkillFile, message: `frontmatter 包含非推荐字段: ${k}（建议仅保留 name/description/triggers/tools/related）` });
+            issues.push({ level: 'warning', skillId, file: relSkillFile, message: `frontmatter 包含非推荐字段: ${k}（建议仅保留 name/description/metadata）` });
+        }
+    }
+    for (const legacyKey of ['triggers', 'tools', 'related']) {
+        if (topLevelKeys.includes(legacyKey)) {
+            issues.push({
+                level: 'warning',
+                skillId,
+                file: relSkillFile,
+                message: `top-level ${legacyKey} 已废弃，建议迁移到 metadata.${legacyKey}`,
+            });
+        }
+    }
+    const metadataBlock = (0, frontmatter_utils_1.extractYamlSection)(frontmatter, 'metadata');
+    if (metadataBlock) {
+        const metadataKeys = (0, frontmatter_utils_1.listYamlKeys)(metadataBlock, 2);
+        const allowedMetadataKeys = new Set(['triggers', 'tools', 'related']);
+        for (const key of metadataKeys) {
+            if (!allowedMetadataKeys.has(key)) {
+                issues.push({
+                    level: 'warning',
+                    skillId,
+                    file: relSkillFile,
+                    message: `metadata 包含未知字段: ${key}（推荐仅使用 triggers/tools/related）`,
+                });
+            }
+        }
+        for (const key of ['triggers', 'tools', 'related']) {
+            if (topLevelKeys.includes(key) && (0, frontmatter_utils_1.parseYamlList)(metadataBlock, key, 2).length > 0) {
+                issues.push({
+                    level: 'warning',
+                    skillId,
+                    file: relSkillFile,
+                    message: `同时存在 legacy ${key} 与 metadata.${key}，建议只保留 metadata.${key}`,
+                });
+            }
         }
     }
     // Code fences balanced.
