@@ -38,9 +38,12 @@ export function fetchUrl(ctx: Readonly<Context>, logger: Logger, url: string, re
         return;
       }
 
-      let data = '';
-      res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer | string) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
       res.on('end', () => {
+        const data = Buffer.concat(chunks).toString('utf-8');
         logger.verbose(`Fetched ${data.length} bytes from ${url}`);
         resolve(data);
       });

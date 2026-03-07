@@ -3,6 +3,39 @@
 > Tags: #TypeScript #TypeSafety #BestPractices
 > Priority: Critical
 
+<!-- @level:summary -->
+## Summary (摘要)
+
+必须开启 `strict: true`，禁止显式 `any`，优先使用 `unknown` + 类型守卫。所有导出函数应声明明确返回类型；遗留代码只在顺手修改相关逻辑时逐步收敛，不做无关清扫。
+
+---
+
+<!-- @level:quick -->
+## Quick Reference (快速参考)
+
+### 核心规则
+
+| 场景 | 规则 |
+|------|------|
+| 编译选项 | `tsconfig.json` 必须启用 `strict: true` |
+| 不确定类型 | 优先 `unknown`，再用类型守卫缩窄 |
+| 导出函数 | 必须声明明确返回类型 |
+| 对象形状 | 优先 `interface` |
+| 联合/函数签名 | 优先 `type` |
+
+### 允许与禁止
+
+| 类型 | 说明 |
+|------|------|
+| ✅ 允许 | 为第三方库兼容临时使用 `as unknown as T` |
+| ✅ 允许 | 修改到的遗留代码顺手补齐类型 |
+| ❌ 禁止 | 新代码显式写 `any` |
+| ❌ 禁止 | 为省事关闭 `strict` 或绕过类型错误 |
+| ❌ 禁止 | 与当前任务无关时大面积“顺手修类型” |
+
+---
+
+<!-- @level:full -->
 ## 1. Context (背景与适用范围)
 适用于所有 `.ts` 和 `.vue` 文件。
 TypeScript 的核心价值在于类型安全。过度使用 `any` 或忽略类型检查会使 TypeScript 退化为 "AnyScript"，丧失其优势。

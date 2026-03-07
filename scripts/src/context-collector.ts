@@ -23,6 +23,7 @@ import {
   TaskItem,
 } from './types';
 import { findReferences, findRelatedTests } from './reference-finder';
+import { isDirectCliEntry } from './lib/cli-entry';
 
 const MAX_FILE_CONTENT_LINES = 300;
 const MAX_FILE_CONTENT_CHARS = 20_000;
@@ -420,6 +421,6 @@ function main(): void {
   }
 }
 
-if (require.main === module) {
+if (isDirectCliEntry('context-collector.js')) {
   main();
 }

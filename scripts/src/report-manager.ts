@@ -14,6 +14,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { isDirectCliEntry } from './lib/cli-entry';
 import {
   ReportsManifest,
   ReportMeta,
@@ -1546,6 +1547,6 @@ export {
 };
 
 // CLI 入口 - 仅当作为主模块运行时才执行
-if (require.main === module) {
+if (isDirectCliEntry('report-manager.js')) {
   main();
 }

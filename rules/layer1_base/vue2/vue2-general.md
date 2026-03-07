@@ -3,6 +3,35 @@
 > Tags: #Vue2 #OptionsAPI #LegacyMaintenance
 > Priority: Medium
 
+<!-- @level:summary -->
+## Summary (摘要)
+
+Vue 2 项目处于维护模式，默认使用一致的 Options API 组织顺序。禁止用 Mixins 承载新逻辑、禁止直接修改 props，并且必须避开 Vue 2 响应式系统对对象新增属性和数组索引赋值的已知陷阱。
+
+---
+
+<!-- @level:quick -->
+## Quick Reference (快速参考)
+
+### 核心规则
+
+| 场景 | 规则 |
+|------|------|
+| 组件组织 | 按 `name -> components -> props -> data -> computed -> watch -> lifecycle -> methods` 排序 |
+| 逻辑复用 | 新逻辑不要继续堆 Mixins，优先工厂函数或 Provide/Inject |
+| Props 使用 | 只读，不直接修改，不在 `data` 中直接复制 |
+| 响应式更新 | 新增对象属性用 `$set`，数组索引更新用 `$set/splice` |
+| 生命周期 | `created` 做数据初始化，`mounted` 做 DOM 操作，`beforeDestroy` 做清理 |
+
+### 快速避坑
+
+- `this.obj.newKey = value` 不会被可靠追踪，改用 `this.$set(this.obj, 'newKey', value)`。
+- `this.arr[index] = value` 不要直接写，改用 `this.$set(this.arr, index, value)`。
+- 维护老项目时优先保持稳定，不要为了“现代化”一次性重写整片组件。
+
+---
+
+<!-- @level:full -->
 ## 1. Context (背景与适用范围)
 适用于需要维护的 Vue 2.x 项目。
 对于新项目，**强烈建议直接使用 Vue 3**。本规则仅为维护旧项目提供指导。

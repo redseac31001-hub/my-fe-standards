@@ -6,6 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { isDirectCliEntry } from './lib/cli-entry';
 import {
   TaskBook,
   TaskBookStatus,
@@ -2219,6 +2220,6 @@ function main(): void {
   }
 }
 
-if (require.main === module) {
+if (isDirectCliEntry('taskbook-manager.js')) {
   main();
 }

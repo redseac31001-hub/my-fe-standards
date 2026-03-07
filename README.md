@@ -483,6 +483,7 @@ node scripts/codebuddy-loader.js --remote <URL> --verbose
 ## 🔗 相关文档
 
 - [业务项目使用指南（接入必读）](docs/business-project-guide.md)
+- [业务项目试点验证方案（Go / No-Go）](docs/business-pilot-plan.md)
 - [交接/接力说明（团队协作）](docs/HANDOFF.md)
 - [远程接入指南](docs/remote-usage-guide.md)
 - [业务项目 E2E 验证方案](docs/e2e-validation-playbook.md)

@@ -8,9 +8,17 @@
 
 1. 远程模式（业务项目接入推荐）：通过 `--remote <URL>` 从静态 HTTP 源读取：
    - `manifest.json`
-   - `config/loader-config.json`
-   - `rules/`
+   - `packs/content-pack-*.json`（优先）
+   - 旧版逐文件内容树（回退）
 2. 本地模式（规则库开发/调试）：在规则库仓库内运行，读取本地 `rules/` + `config/`。
+
+远程模式的当前策略是：
+
+1. 先拉取 `manifest.json`
+2. 按当前 `--profile` 优先下载对应 content pack
+3. 解包到业务项目本地缓存
+4. 继续按本地文件模式安装
+5. 如果 pack 缺失或校验失败，自动回退到逐文件拉取
 
 运行后会在业务项目生成：
 
@@ -64,17 +72,30 @@ your-project/
 
 ## 服务端准备（静态托管）
 
-确保以下文件可通过 HTTP 访问（路径需与 `--remote` 对应）：
+推荐的静态托管结构如下（路径需与 `--remote` 对应）：
 
 ```text
 https://your-server.com/standards/
 ├── manifest.json
-├── config/
-│   └── loader-config.json
-└── rules/
-    ├── layer1_base/
-    ├── layer2_business/
-    └── layer3_action/
+└── packs/
+    ├── content-pack-core.json
+    ├── content-pack-analysis.json
+    ├── content-pack-orchestrator.json
+    └── content-pack-full.json
+```
+
+兼容旧版回退时，仍可同时托管逐文件内容树：
+
+```text
+https://your-server.com/standards/
+├── rules/
+├── custom-skills/
+├── agents/
+├── scripts/dist/
+├── workflows/
+├── taskbooks/
+├── agent-calls/
+└── .claude/commands/
 ```
 
 在规则仓库中执行：
@@ -83,7 +104,15 @@ https://your-server.com/standards/
 npm run build
 ```
 
-会生成/更新 `manifest.json`（包含所有规则文件的路径与元信息）。
+会生成/更新：
+
+- `manifest.json`
+- `packs/content-pack-core.json`
+- `packs/content-pack-analysis.json`
+- `packs/content-pack-orchestrator.json`
+- `packs/content-pack-full.json`
+
+`manifest.json` 会包含 pack 元数据（文件名、sha256、大小、entryCount），loader 会据此校验下载结果。
 
 如需跨域（业务项目与规则源不同域），请在静态服务器上配置 CORS。
 
@@ -92,6 +121,7 @@ npm run build
 | 参数 | 说明 | 示例 |
 |------|------|------|
 | `--remote <URL>` | 远程规则库地址（远程模式必需） | `--remote https://example.com/standards` |
+| `--profile <name>` | 远程安装档位：`core / analysis / orchestrator / full` | `--profile analysis` |
 | `--task <type>` | 按任务类型筛选规则 | `--task refactoring` |
 | `--threshold <n>` | 相关性阈值 (0-1) | `--threshold 0.7` |
 | `--timeout <ms>` | 请求超时（默认 10000） | `--timeout 30000` |
@@ -100,12 +130,31 @@ npm run build
 
 支持的 `--task` 类型：`refactoring` / `debugging` / `testing` / `new-feature` / `code-review`。
 
+默认 `--profile` 为 `analysis`。
+
+兼容说明：
+
+- `--enable-orchestrator` 仍可使用，但等价于 `--profile full`
+
 ## 高级用法
 
 ### 任务筛选（--task）
 
 ```bash
 node codebuddy-loader.js --remote https://your-server.com/standards --task refactoring
+```
+
+### 指定远程 profile（--profile）
+
+```bash
+# 最小 validator/runtime
+node codebuddy-loader.js --remote https://your-server.com/standards --profile core
+
+# 默认分析型安装
+node codebuddy-loader.js --remote https://your-server.com/standards --profile analysis
+
+# 编排运行时
+node codebuddy-loader.js --remote https://your-server.com/standards --profile orchestrator
 ```
 
 ### 相关性阈值（--threshold）
@@ -127,6 +176,20 @@ node codebuddy-loader.js --remote https://your-server.com/standards --task debug
 - 服务端未部署 `manifest.json`
 - `npm run build` 未执行或产物未同步
 
+### content pack 校验失败 / 自动回退
+
+如果日志里出现类似：
+
+- `远程内容包不可用，回退逐文件拉取`
+
+说明 loader 已检测到 pack 缺失或 `sha256` 校验失败。此时会自动尝试旧版逐文件远程安装。
+
+排查重点：
+
+- `manifest.json` 中的 `packs.*.sha256` 是否与实际文件一致
+- `packs/` 目录是否已同步
+- 远程源是否仍同时保留旧版逐文件内容树，供回退使用
+
 ### 网络超时
 
 ```bash
@@ -143,6 +206,7 @@ node codebuddy-loader.js --remote https://example.com/standards
 
 ## 最佳实践
 
-1. CI/CD 定时更新：建议在流水线中定期执行 `rules:update`，让规则随仓库同步更新。
+1. CI/CD 定时更新：建议在流水线中定期执行 `rules:update`，同步 `manifest.json` 和 `packs/`。
 2. 版本锁定：如需稳定性，使用固定分支或 tag 的静态部署地址。
-3. git 忽略：加载器会尝试将 `.codebuddy/` 追加到业务项目的 `.gitignore`，避免提交生成文件；如你希望提交生成文件，可在项目侧移除该忽略项，或使用 `git add -f .codebuddy/` 强制添加。
+3. 回退窗口：如果你在迁移远程源，建议短期内同时保留 `packs/` 和旧版逐文件树，确保 loader 能自动回退。
+4. git 忽略：加载器会尝试将 `.codebuddy/` 追加到业务项目的 `.gitignore`，避免提交生成文件；如你希望提交生成文件，可在项目侧移除该忽略项，或使用 `git add -f .codebuddy/` 强制添加。

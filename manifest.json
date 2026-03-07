@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "generatedAt": "2026-03-06T08:55:50.448Z",
+  "generatedAt": "2026-03-07T11:31:02.720Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -169,8 +169,8 @@
     {
       "path": "rules/layer1_base/architecture/feature-based-structure.md",
       "name": "feature-based-structure",
-      "size": 2191,
-      "mtime": "2025-12-30T05:30:19.408Z"
+      "size": 3194,
+      "mtime": "2026-03-07T11:17:18.509Z"
     },
     {
       "path": "rules/layer1_base/code-quality/clean-code.md",
@@ -187,20 +187,20 @@
     {
       "path": "rules/layer1_base/typescript/strict-types.md",
       "name": "strict-types",
-      "size": 2887,
-      "mtime": "2026-01-24T05:49:02.564Z"
+      "size": 3911,
+      "mtime": "2026-03-07T11:17:18.509Z"
     },
     {
       "path": "rules/layer1_base/vue2/vue2-composition.md",
       "name": "vue2-composition",
-      "size": 1530,
-      "mtime": "2025-12-30T08:23:12.895Z"
+      "size": 2588,
+      "mtime": "2026-03-07T11:17:18.509Z"
     },
     {
       "path": "rules/layer1_base/vue2/vue2-general.md",
       "name": "vue2-general",
-      "size": 4163,
-      "mtime": "2025-12-30T07:20:27.263Z"
+      "size": 5371,
+      "mtime": "2026-03-07T11:17:18.509Z"
     },
     {
       "path": "rules/layer1_base/vue3/pinia.md",
@@ -815,6 +815,44 @@
       "mtime": "2026-02-10T02:55:48.992Z"
     }
   ],
+  "packs": {
+    "core": {
+      "profile": "core",
+      "file": "packs/content-pack-core.json",
+      "format": "content-pack-json-v1",
+      "sha256": "9d0fbd04a41fa73cbf1dfedf5dd3e19b6f4d881433e9aad2f71ae76df0f3bab0",
+      "size": 536312,
+      "entryCount": 107,
+      "generatedAt": "2026-03-07T11:31:02.630Z"
+    },
+    "analysis": {
+      "profile": "analysis",
+      "file": "packs/content-pack-analysis.json",
+      "format": "content-pack-json-v1",
+      "sha256": "f019adf457c9475daabcdaeb4e17a1e604b45fc0959da2271f29df91a48ce84f",
+      "size": 778058,
+      "entryCount": 110,
+      "generatedAt": "2026-03-07T11:31:02.651Z"
+    },
+    "orchestrator": {
+      "profile": "orchestrator",
+      "file": "packs/content-pack-orchestrator.json",
+      "format": "content-pack-json-v1",
+      "sha256": "bb133bb07e0e8255863f2e8801906e759ecf2bb7a670dcc9e281c7e4e0d885db",
+      "size": 1252415,
+      "entryCount": 121,
+      "generatedAt": "2026-03-07T11:31:02.678Z"
+    },
+    "full": {
+      "profile": "full",
+      "file": "packs/content-pack-full.json",
+      "format": "content-pack-json-v1",
+      "sha256": "5c0b906777666e6375301dc62355a92033e3ea0e7914baa8d0074ab59b57fbf9",
+      "size": 1266102,
+      "entryCount": 122,
+      "generatedAt": "2026-03-07T11:31:02.709Z"
+    }
+  },
   "stats": {
     "totalFiles": 108,
     "ruleFiles": 18,

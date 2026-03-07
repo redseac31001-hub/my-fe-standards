@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
+import { isDirectCliEntry } from './lib/cli-entry';
 
 type ParsedCli = {
   positionals: string[];
@@ -658,6 +659,6 @@ function main(): void {
   }
 }
 
-if (require.main === module) {
+if (isDirectCliEntry('task-orchestrator.js')) {
   main();
 }

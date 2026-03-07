@@ -16,11 +16,21 @@ import {
   WorkflowStep,
   WorkflowGate,
 } from './types';
+import { isDirectCliEntry } from './lib/cli-entry';
 import { TaskBookManager } from './taskbook-manager';
 import { collectContext, formatContextAsMarkdown } from './context-collector';
-import { AgentRuntime } from './agent-runtime';
+import { AgentRuntime, createAgentRuntime } from './agent-runtime';
 import { AgentContext, AgentTaskSnapshot } from './types/agent-runtime';
 import { aggregateAndPersist } from './result-aggregator';
+import { WorkerExecutor, createConfiguredWorkerExecutor } from './lib/worker-executor';
+import {
+  classifyBlockedReason,
+  computeDurationMs,
+  inferBlockedExecutionMode,
+  inferCompletedExecutionMode,
+  inferPlannedExecutionMode,
+  recordExecutionMetric,
+} from './lib/execution-metrics';
 
 interface ExecuteTasksOptions {
   allowedTaskTypes?: Array<TaskItem['type']>;
@@ -55,8 +65,9 @@ type GateResult = {
  * 任务执行器配置
  */
 export interface TaskExecutorConfig {
-  maxParallel: number;           // 最大并行数
-  runtime?: AgentRuntime;        // Agent 运行时（可选，用于自动调用子 Agent）
+  maxParallel: number;           // ????????
+  runtime?: AgentRuntime;        // Agent ??????????????????????Agent??
+  workerExecutor?: WorkerExecutor; // ????? renderedPrompt ??????
   onTaskStart?: (task: TaskItem) => void;
   onTaskComplete?: (task: TaskItem, result: TaskExecutionResult) => void;
   onTaskBlocked?: (task: TaskItem, reason: string) => void;
@@ -151,6 +162,18 @@ type AgentTaskOutput = {
   actualWork: string;
 };
 
+type TaskDispatchResult = {
+  actualWork: string;
+  executedBy?: string;
+  artifacts?: Array<{ type: string; path: string }>;
+  workerExecution?: {
+    requestId: string;
+    agentId: string;
+    worker: string;
+    completedAt?: string;
+  };
+};
+
 type ConflictStrategy = 'allow' | 'deny_same_file_set';
 
 function priorityScore(priority: string | undefined): number {
@@ -227,6 +250,7 @@ export class TaskExecutor {
   private manager: TaskBookManager;
   private config: TaskExecutorConfig;
   private runtime: AgentRuntime | null;
+  private workerExecutor: WorkerExecutor | null;
   private isRunning: boolean = false;
   private isPaused: boolean = false;
   /** AgentRuntime 渲染的最后一个 prompt（用于注入 .prompt.md） */
@@ -236,6 +260,7 @@ export class TaskExecutor {
     this.manager = manager;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.runtime = config.runtime || null;
+    this.workerExecutor = config.workerExecutor ?? createConfiguredWorkerExecutor();
   }
 
   /**
@@ -412,23 +437,50 @@ export class TaskExecutor {
     // 更新任务状态为进行中
     this.manager.updateTaskStatus(taskBookId, task.id, 'in_progress');
     this.config.onTaskStart?.(task);
+    this.lastRenderedPrompt = null;
+
+    const plannedAgentId = task.type === 'analysis' || task.type === 'acceptance'
+      ? undefined
+      : selectManualAgentId(task);
+    recordExecutionMetric({
+      eventType: 'task_started',
+      taskBookId,
+      taskId: task.id,
+      taskType: task.type,
+      taskTitle: task.title,
+      executionMode: inferPlannedExecutionMode(task.type, Boolean(this.workerExecutor)),
+      agentId: plannedAgentId,
+    });
 
     console.log(`[TaskExecutor] 开始执行任务: ${task.title} (${task.type})`);
 
     try {
       // 根据任务类型调用不同的执行逻辑
-      const actualWork = await this.dispatchTask(task);
+      const dispatchResult = await this.dispatchTask(taskBookId, task);
+      const actualWork = dispatchResult.actualWork;
 
-      // 记录执行者（如果通过 AgentRuntime 执行）
-      const executedBy = selectManualAgentId(task);
+      const executedBy = dispatchResult.executedBy || selectManualAgentId(task);
       this.manager.updateTaskStatus(taskBookId, task.id, 'done', actualWork);
 
-      // 更新 executedBy 字段
+      if (dispatchResult.workerExecution) {
+        this.manager.logChange(taskBookId, task.id, 'modified', 'worker-executor applied: ' + dispatchResult.workerExecution.requestId, undefined, {
+          event: 'worker-executor',
+          action: 'applied',
+          requestId: dispatchResult.workerExecution.requestId,
+          agentId: dispatchResult.workerExecution.agentId,
+          worker: dispatchResult.workerExecution.worker,
+          completedAt: dispatchResult.workerExecution.completedAt,
+          artifacts: dispatchResult.artifacts,
+        });
+      }
+
       try {
         this.manager.updateTask(taskBookId, task.id, { executedBy });
       } catch {
-        // updateTask 可能不支持 executedBy，忽略
+        // updateTask ????????executedBy?????
       }
+
+      this.lastRenderedPrompt = null;
 
       const result: TaskExecutionResult = {
         taskId: task.id,
@@ -436,6 +488,20 @@ export class TaskExecutor {
         actualWork,
         duration: Date.now() - startTime,
       };
+
+      recordExecutionMetric({
+        eventType: 'task_completed',
+        taskBookId,
+        taskId: task.id,
+        taskType: task.type,
+        taskTitle: task.title,
+        executionMode: inferCompletedExecutionMode(task.type, executedBy),
+        agentId: plannedAgentId,
+        requestId: dispatchResult.workerExecution?.requestId,
+        worker: dispatchResult.workerExecution?.worker,
+        status: 'success',
+        durationMs: result.duration,
+      });
 
       this.config.onTaskComplete?.(task, result);
       console.log(`[TaskExecutor] 任务完成: ${task.title} (by ${executedBy})`);
@@ -461,6 +527,22 @@ export class TaskExecutor {
         this.manager.updateTaskStatus(taskBookId, task.id, 'blocked', undefined, blockedReason);
         this.config.onTaskBlocked?.(task, blockedReason);
 
+        const agentCallMeta = extractAgentCallMeta(blockedReason);
+        recordExecutionMetric({
+          eventType: 'task_blocked',
+          taskBookId,
+          taskId: task.id,
+          taskType: task.type,
+          taskTitle: task.title,
+          executionMode: inferBlockedExecutionMode(task.type, blockedReason, Boolean(this.workerExecutor)),
+          agentId: plannedAgentId,
+          requestId: agentCallMeta?.requestId,
+          status: 'blocked',
+          durationMs: Date.now() - startTime,
+          blockedReasonCode: classifyBlockedReason(blockedReason),
+          blockedReason: truncateMetricText(blockedReason),
+        });
+
         return {
           taskId: task.id,
           success: false,
@@ -471,6 +553,20 @@ export class TaskExecutor {
 
       // 不可恢复的错误，保留为 pending 状态等待重试
       console.error(`[TaskExecutor] 任务执行出错: ${task.title}`, error);
+
+      recordExecutionMetric({
+        eventType: 'task_failed',
+        taskBookId,
+        taskId: task.id,
+        taskType: task.type,
+        taskTitle: task.title,
+        executionMode: inferBlockedExecutionMode(task.type, errorMessage, Boolean(this.workerExecutor)),
+        agentId: plannedAgentId,
+        status: 'failed',
+        durationMs: Date.now() - startTime,
+        blockedReasonCode: classifyBlockedReason(errorMessage),
+        blockedReason: truncateMetricText(errorMessage),
+      });
 
       return {
         taskId: task.id,
@@ -551,6 +647,20 @@ export class TaskExecutor {
         promptPath: meta.promptPath,
         resultPath: meta.resultPath,
       });
+
+      recordExecutionMetric({
+        eventType: 'agent_call_created',
+        taskBookId,
+        taskId: task.id,
+        taskType: task.type,
+        taskTitle: task.title,
+        executionMode: 'agent-call',
+        agentId,
+        requestId,
+        status: 'blocked',
+        blockedReasonCode: classifyBlockedReason(manualReason),
+        blockedReason: truncateMetricText(manualReason),
+      });
     }
 
     if (!fs.existsSync(resultAbsPath)) {
@@ -627,6 +737,20 @@ export class TaskExecutor {
         artifacts: result.artifacts,
       });
 
+      recordExecutionMetric({
+        eventType: 'agent_call_applied',
+        taskBookId,
+        taskId: task.id,
+        taskType: task.type,
+        taskTitle: task.title,
+        executionMode: 'agent-call',
+        agentId: meta.agentId,
+        requestId: meta.requestId,
+        status: 'success',
+        durationMs: computeDurationMs(meta.createdAt, result.completedAt),
+        resumed: true,
+      });
+
       applied += 1;
     }
 
@@ -641,71 +765,113 @@ export class TaskExecutor {
    * 2. 其他类型且 AgentRuntime 可用 → 通过 AgentRuntime 渲染 prompt
    * 3. AgentRuntime 不可用或返回 needs_human → 降级到 MANUAL_REQUIRED 文件协议
    */
-  private async dispatchTask(task: TaskItem): Promise<string> {
-    // analysis 类型始终直接执行脚本
+  private async dispatchTask(taskBookId: string, task: TaskItem): Promise<TaskDispatchResult> {
     if (task.type === 'analysis') {
-      return this.executeAnalysisTask(task);
+      return { actualWork: await this.executeAnalysisTask(task) };
     }
 
-    // acceptance 类型始终需要人工确认
     if (task.type === 'acceptance') {
-      return this.executeAcceptanceTask(task);
+      return { actualWork: await this.executeAcceptanceTask(task) };
     }
 
-    // 尝试通过 AgentRuntime 调用
     if (this.runtime) {
       const agentId = selectManualAgentId(task);
       const agent = this.runtime.getAgent(agentId);
 
       if (agent) {
-        const context = this.buildAgentContext(task);
+        const context = this.buildAgentContext(taskBookId, task);
         const result = this.runtime.invoke({ agentId, context });
 
         if (result.status === 'done' && result.renderedPrompt) {
-          // AgentRuntime 成功渲染了高质量的 prompt，缓存到实例变量供 prompt.md 使用
           this.lastRenderedPrompt = result.renderedPrompt;
-          console.log(`[TaskExecutor] AgentRuntime: ${agentId} 已渲染 prompt (${result.renderedPrompt.length} 字符)，等待外部执行`);
-          throw new Error(`MANUAL_REQUIRED: AgentRuntime 已为 ${agentId} 准备好执行 prompt，需要外部 AI 工具执行`);
+
+          const workerResult = this.tryDispatchWithWorker(taskBookId, task, agentId, context, result.renderedPrompt);
+          if (workerResult) {
+            return workerResult;
+          }
+
+          console.log('[TaskExecutor] AgentRuntime: ' + agentId + ' ?????prompt (' + result.renderedPrompt.length + ' ???)???????????');
+          throw new Error('MANUAL_REQUIRED: AgentRuntime ??? ' + agentId + ' ????????prompt????????AI ??????');
         }
 
         if (result.status === 'needs_human') {
-          console.log(`[TaskExecutor] AgentRuntime: ${agentId} 需要人工介入，降级到 MANUAL_REQUIRED`);
-          throw new Error(`MANUAL_REQUIRED: ${result.humanReason || '需要人工执行'}`);
+          console.log('[TaskExecutor] AgentRuntime: ' + agentId + ' ????????????????MANUAL_REQUIRED');
+          throw new Error('MANUAL_REQUIRED: ' + (result.humanReason || '??????????'));
         }
 
         if (result.status === 'error') {
-          console.log(`[TaskExecutor] AgentRuntime: ${agentId} 执行出错，降级到 MANUAL_REQUIRED`);
-          throw new Error(`MANUAL_REQUIRED: AgentRuntime 错误 - ${result.error}`);
+          console.log('[TaskExecutor] AgentRuntime: ' + agentId + ' ???????????? MANUAL_REQUIRED');
+          throw new Error('MANUAL_REQUIRED: AgentRuntime ??? - ' + result.error);
         }
       }
     }
 
-    // 降级路径：保留原有的 MANUAL_REQUIRED 行为
     switch (task.type) {
       case 'design':
-        return this.executeDesignTask(task);
+        return { actualWork: await this.executeDesignTask(task) };
       case 'test':
-        return this.executeTestTask(task);
+        return { actualWork: await this.executeTestTask(task) };
       case 'implement':
-        return this.executeImplementTask(task);
+        return { actualWork: await this.executeImplementTask(task) };
       case 'refactor':
-        return this.executeImplementTask(task);
+        return { actualWork: await this.executeImplementTask(task) };
       case 'review':
-        return this.executeReviewTask(task);
+        return { actualWork: await this.executeReviewTask(task) };
       case 'build-fix':
-        return this.executeBuildFixTask(task);
+        return { actualWork: await this.executeBuildFixTask(task) };
       case 'requirement':
       case 'prd':
-        return this.executePlanningTask(task);
+        return { actualWork: await this.executePlanningTask(task) };
       default:
-        throw new Error(`未知的任务类型: ${task.type}`);
+        throw new Error('??????????? ' + task.type);
     }
+  }
+
+  private tryDispatchWithWorker(
+    taskBookId: string,
+    task: TaskItem,
+    agentId: string,
+    context: AgentContext,
+    renderedPrompt: string,
+  ): TaskDispatchResult | null {
+    if (!this.workerExecutor) return null;
+
+    const requestId = computeAgentCallRequestId(taskBookId, task.id);
+    const workerResult = this.workerExecutor.execute({
+      requestId,
+      taskBookId,
+      agentId,
+      projectRoot: process.cwd(),
+      prompt: renderedPrompt,
+      task,
+      context,
+    });
+
+    if (workerResult.status === 'success' && workerResult.actualWork) {
+      console.log('[TaskExecutor] WorkerExecutor: ' + agentId + ' ????????? (' + this.workerExecutor.describe() + ')');
+      this.lastRenderedPrompt = null;
+      return {
+        actualWork: workerResult.actualWork,
+        executedBy: 'worker-executor:' + agentId,
+        artifacts: workerResult.artifacts,
+        workerExecution: {
+          requestId,
+          agentId,
+          worker: this.workerExecutor.describe(),
+          completedAt: workerResult.completedAt,
+        },
+      };
+    }
+
+    const reason = workerResult.error || ('status=' + workerResult.status);
+    console.log('[TaskExecutor] WorkerExecutor: ' + agentId + ' ' + workerResult.status + '?????? MANUAL_REQUIRED (' + reason + ')');
+    throw new Error('MANUAL_REQUIRED: WorkerExecutor(' + this.workerExecutor.describe() + ') ' + workerResult.status + ' - ' + reason);
   }
 
   /**
    * 构建 Agent 执行上下文
    */
-  private buildAgentContext(task: TaskItem): AgentContext {
+  private buildAgentContext(taskBookId: string, task: TaskItem): AgentContext {
     const taskSnapshot: AgentTaskSnapshot = {
       id: task.id,
       title: task.title,
@@ -717,7 +883,7 @@ export class TaskExecutor {
     };
 
     const context: AgentContext = {
-      taskBookId: '', // 由 executeTask 调用方传入，此处暂置空
+      taskBookId,
       task: taskSnapshot,
       projectRoot: process.cwd(),
     };
@@ -1300,6 +1466,12 @@ function sanitizeForFilename(value: string): string {
 
 function toPosixPath(value: string): string {
   return value.replace(/\\/g, '/');
+}
+
+function truncateMetricText(value: string, maxLength: number = 500): string {
+  const trimmed = String(value || '').trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength)}...`;
 }
 
 function computeAgentCallRequestId(taskBookId: string, taskId: string): string {
@@ -2391,7 +2563,6 @@ function createDefaultRuntime(): AgentRuntime | undefined {
   }
 
   try {
-    const { createAgentRuntime } = require('./agent-runtime') as typeof import('./agent-runtime');
     const runtime = createAgentRuntime({
       projectRoot: cwd,
       agentsDir: hasLocal ? '.codebuddy/agents' : 'agents',
@@ -2495,7 +2666,7 @@ async function main(): Promise<void> {
   }
 }
 
-if (require.main === module) {
+if (isDirectCliEntry('task-executor.js')) {
   main().catch((e) => {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[Workflow] Fatal Error: ${message}`);

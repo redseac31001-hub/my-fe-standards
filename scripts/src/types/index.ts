@@ -16,6 +16,31 @@ export interface ManifestFile {
   mtime: string;
 }
 
+export interface ManifestContentPack {
+  profile: InstallProfile;
+  file: string;
+  format: 'content-pack-json-v1';
+  sha256: string;
+  size: number;
+  entryCount: number;
+  generatedAt: string;
+}
+
+export interface ContentPackEntry {
+  path: string;
+  sha256: string;
+  content: string;
+}
+
+export interface ContentPack {
+  schemaVersion: '1.0.0';
+  version: string;
+  profile: InstallProfile;
+  generatedAt: string;
+  entryCount: number;
+  entries: ContentPackEntry[];
+}
+
 /**
  * 完整的 Manifest 结构
  */
@@ -26,6 +51,7 @@ export interface Manifest {
   model: string;
   config: ManifestConfig;
   files: ManifestFile[];
+  packs?: Partial<Record<InstallProfile, ManifestContentPack>>;
   stats: ManifestStats;
 }
 
@@ -115,10 +141,14 @@ export interface Context {
   isVerbose: boolean;
   remoteBaseUrl: string;
   remoteManifest: Manifest | null;
+  remoteContentRoot: string | null;
+  remoteContentPack: ManifestContentPack | null;
   requestTimeout: number;
   taskType: string | null;
   relevanceThreshold: number;
   ruleLevel: 'summary' | 'quick' | 'full';
+  /** 当前分发档位。默认 analysis；orchestrator/full 会隐含 enableOrchestrator=true。 */
+  profile: InstallProfile;
   /** 是否启用 B 路线编排脚本（task-executor、agent-call 协议等）。默认 false */
   enableOrchestrator: boolean;
   /** --no-workspace 时为 true，禁用 workspace 多项目发现 */
@@ -211,6 +241,60 @@ export interface PackageJson {
   version?: string;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+}
+
+// ============ 安装状态类型 ============
+
+export type InstallMode = 'local' | 'remote';
+export type InstallProfile = 'core' | 'analysis' | 'orchestrator' | 'full';
+
+export interface InstallManagedFile {
+  path: string;
+  sha256: string;
+  size: number;
+}
+
+export interface InstallState {
+  /** install.json 自身 schema 版本 */
+  schemaVersion: string;
+  /** 当前 loader 版本 */
+  version: string;
+  installedAt: string;
+  mode: InstallMode;
+  profile: InstallProfile;
+  enableOrchestrator: boolean;
+  contentHash: string;
+  source: {
+    remoteBaseUrl: string | null;
+    manifestVersion: string | null;
+    contentPackFile?: string | null;
+    contentPackFormat?: string | null;
+    contentPackSha256?: string | null;
+  };
+  options: {
+    taskType: string | null;
+    ruleLevel: 'summary' | 'quick' | 'full';
+    relevanceThreshold: number;
+    workspaceDiscovery: boolean;
+  };
+  outputs: {
+    rulesFile: string;
+    workspaceIndexFile: string | null;
+  };
+  managedFiles: InstallManagedFile[];
+  stats: {
+    layer1Rules: number;
+    layer2Indexes: number;
+    layer3Indexes: number;
+    skills: number;
+    agents: number;
+    scripts: number;
+    workflows: number;
+    taskbooks: number;
+    agentCalls: number;
+    commands: number;
+    workspaceProjects: number;
+  };
 }
 
 // ============ Workflow Spec 类型 ============

@@ -65,9 +65,12 @@ function fetchUrl(ctx, logger, url, retries = 3) {
                 reject(new Error(`HTTP ${res.statusCode}: Failed to fetch ${url}`));
                 return;
             }
-            let data = '';
-            res.on('data', (chunk) => { data += chunk.toString(); });
+            const chunks = [];
+            res.on('data', (chunk) => {
+                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            });
             res.on('end', () => {
+                const data = Buffer.concat(chunks).toString('utf-8');
                 logger.verbose(`Fetched ${data.length} bytes from ${url}`);
                 resolve(data);
             });

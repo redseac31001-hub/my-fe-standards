@@ -9,8 +9,10 @@ exports.generateWorkflowsPrompt = generateWorkflowsPrompt;
 exports.generateTaskBooksPrompt = generateTaskBooksPrompt;
 exports.generateAgentCallsPrompt = generateAgentCallsPrompt;
 exports.generateCommandsPrompt = generateCommandsPrompt;
+exports.generateCommandsReadme = generateCommandsReadme;
 exports.generateScriptsReadme = generateScriptsReadme;
 exports.generateScriptsPrompt = generateScriptsPrompt;
+exports.generateQuickActionGuide = generateQuickActionGuide;
 exports.generateAgentsPrompt = generateAgentsPrompt;
 exports.generateSkillsPrompt = generateSkillsPrompt;
 exports.generateRuleActivationPrompt = generateRuleActivationPrompt;
@@ -110,19 +112,113 @@ function generateAgentCallsPrompt(files) {
 ${table}
 `;
 }
+function getCommandPromptEntry(cmd) {
+    const commandName = cmd.replace(/\.md$/, '');
+    const path = `.codebuddy/commands/${cmd}`;
+    if (cmd === 'task.md') {
+        return {
+            command: '/task',
+            path,
+            description: '端到端计划任务编排',
+            example: '/task 实现用户登录功能',
+        };
+    }
+    if (cmd === 'agent-call.md') {
+        return {
+            command: '/agent-call',
+            path,
+            description: '执行 Agent Call 并写回 result.json',
+            example: '/agent-call req-20260204-xxxxxx',
+        };
+    }
+    return {
+        command: `/${commandName}`,
+        path,
+        description: '-',
+        example: `/${commandName}`,
+    };
+}
+function getScriptPromptEntry(script) {
+    const path = `.codebuddy/scripts/${script}`;
+    if (script === 'structure-analyzer.js') {
+        return {
+            file: script,
+            path,
+            description: '项目结构分析器',
+            usage: `node ${path} .`,
+        };
+    }
+    if (script === 'module-mapper.js') {
+        return {
+            file: script,
+            path,
+            description: '模块图谱分析器',
+            usage: `node ${path} .`,
+        };
+    }
+    if (script === 'report-manager.js') {
+        return {
+            file: script,
+            path,
+            description: '报告管理器',
+            usage: `node ${path} status`,
+        };
+    }
+    if (script === 'agent-call-manager.js') {
+        return {
+            file: script,
+            path,
+            description: 'Agent Call 管理器（list/show/validate）',
+            usage: `node ${path} list`,
+        };
+    }
+    if (script === 'task-orchestrator.js') {
+        return {
+            file: script,
+            path,
+            description: '一键闭环执行器（创建/规划/执行/验收）',
+            usage: `node ${path} "实现用户登录" --type new-feature`,
+        };
+    }
+    if (script === 'contract-validator.js') {
+        return {
+            file: script,
+            path,
+            description: '契约校验器（TaskBook/Workflow）',
+            usage: `node ${path} --workflows --taskbooks`,
+        };
+    }
+    return {
+        file: script,
+        path,
+        description: '-',
+        usage: `node ${path}`,
+    };
+}
+function buildCommandsTable(commands) {
+    const entries = commands
+        .map(getCommandPromptEntry)
+        .sort((a, b) => a.command.localeCompare(b.command));
+    let table = '| 命令 | 路径 | 说明 | 示例 |\n|------|------|------|------|\n';
+    for (const entry of entries) {
+        table += `| \`${entry.command}\` | \`${entry.path}\` | ${entry.description} | \`${entry.example}\` |\n`;
+    }
+    return table;
+}
+function buildScriptsTable(scripts) {
+    const entries = scripts
+        .map(getScriptPromptEntry)
+        .sort((a, b) => a.file.localeCompare(b.file));
+    let table = '| 脚本 | 路径 | 说明 | 用法 |\n|------|------|------|------|\n';
+    for (const entry of entries) {
+        table += `| \`${entry.file}\` | \`${entry.path}\` | ${entry.description} | \`${entry.usage}\` |\n`;
+    }
+    return table;
+}
 function generateCommandsPrompt(commands) {
     if (commands.length === 0)
         return '';
-    let table = '| 命令 | 说明 | 触发方式 |\n|------|------|----------|\n';
-    for (const cmd of commands) {
-        if (cmd === 'task.md') {
-            table += `| \`/task\` | 端到端计划任务编排 | \`/task 实现用户登录功能\` 或 "帮我实现xxx" |\n`;
-        }
-        else {
-            const cmdName = cmd.replace('.md', '');
-            table += `| \`/${cmdName}\` | - | \`/${cmdName}\` |\n`;
-        }
-    }
+    const table = buildCommandsTable(commands);
     return `
 # 📋 Slash Commands 索引
 
@@ -132,121 +228,76 @@ function generateCommandsPrompt(commands) {
 
 ${table}
 
-## 🚀 /task 命令使用指南
+优先读取短入口：\`.codebuddy/commands/README.md\`。
 
-\`/task\` 是端到端的计划任务编排命令，支持：
-
-### 触发方式
-
-\`\`\`bash
-# Slash Command 方式
-/task 实现用户登录功能
-/task 重构订单处理模块
-
-# 关键词自动触发
-帮我实现商品搜索功能
-开发用户中心模块
-重构购物车逻辑
-\`\`\`
-
-### 工作流程
-
-\`\`\`
-意图识别 → 上下文收集 → 需求分解 → 用户确认 → 自动执行 → 变更追踪 → 验收闭环
-\`\`\`
-
-### 核心特性
-
-- **并行执行**: 无依赖任务自动并行，提升效率
-- **变更追踪**: 实时记录偏离原计划的改动及原因
-- **阻塞处理**: 遇到阻塞暂停，等待用户介入
-- **验收闭环**: 生成验收报告，请求最终确认
-- **任务持久化**: TaskBook 可恢复，支持中断继续
-
-### TaskBook 存储
-
-\`\`\`
-.codebuddy/taskbooks/
-├── active/      # 进行中的任务书
-└── history/     # 已完成的任务书
-\`\`\`
-
-**详细使用说明**: 请读取 \`.codebuddy/commands/task.md\`
+按需再读具体命令文件：
+- 任务闭环：\`.codebuddy/commands/task.md\`
+- Agent Call 文件协议：\`.codebuddy/commands/agent-call.md\`
 `;
 }
+function generateCommandsReadme(commands) {
+    const table = buildCommandsTable(commands);
+    return [
+        '# CodeBuddy Slash Commands',
+        '',
+        '> 自动生成，请勿手动编辑',
+        '',
+        '## 已安装命令',
+        '',
+        table.trimEnd(),
+        '',
+        '## 快速入口',
+        '',
+        '- 业务需求、重构、缺陷修复：优先使用 `/task`，详细说明见 `task.md`。',
+        '- 需要执行 `.codebuddy/agent-calls/*.prompt.md`：使用 `/agent-call`，详细说明见 `agent-call.md`。',
+        '',
+        '## 推荐阅读顺序',
+        '',
+        '1. 先看本 README 确认入口。',
+        '2. 再按需读取对应命令文件，避免一次性扫读全部说明。',
+    ].join('\n');
+}
 function generateScriptsReadme(scripts) {
-    const lines = [
+    const table = buildScriptsTable(scripts);
+    return [
         '# CodeBuddy 工具脚本',
         '',
         '> 自动生成，请勿手动编辑',
         '',
         '## 已安装脚本',
         '',
-        '| 脚本 | 说明 | 用法 |',
-        '|------|------|------|',
-    ];
-    for (const script of scripts) {
-        if (script === 'structure-analyzer.js') {
-            lines.push(`| \`${script}\` | 项目结构分析器 | \`node .codebuddy/scripts/${script} .\` |`);
-        }
-        else if (script === 'agent-call-manager.js') {
-            lines.push(`| \`${script}\` | Agent Call 管理器（list/show/validate） | \`node .codebuddy/scripts/${script} list\` |`);
-        }
-        else if (script === 'task-orchestrator.js') {
-            lines.push(`| \`${script}\` | 一键闭环执行器（创建/规划/执行/验收） | \`node .codebuddy/scripts/${script} "实现用户登录" --type new-feature\` |`);
-        }
-        else if (script === 'contract-validator.js') {
-            lines.push(`| \`${script}\` | 契约校验器（TaskBook/Workflow）| \`node .codebuddy/scripts/${script} --workflows --taskbooks\` |`);
-        }
-        else {
-            lines.push(`| \`${script}\` | - | \`node .codebuddy/scripts/${script}\` |`);
-        }
-    }
-    lines.push('');
-    lines.push('## 使用示例');
-    lines.push('');
-    lines.push('### 项目结构分析');
-    lines.push('');
-    lines.push('```bash');
-    lines.push('# 分析当前项目');
-    lines.push('node .codebuddy/scripts/structure-analyzer.js .');
-    lines.push('');
-    lines.push('# 输出 JSON 格式');
-    lines.push('node .codebuddy/scripts/structure-analyzer.js . --output json');
-    lines.push('');
-    lines.push('# 完整模式（含目录树）');
-    lines.push('node .codebuddy/scripts/structure-analyzer.js . --mode full');
-    lines.push('```');
-    lines.push('');
-    return lines.join('\n');
+        table.trimEnd(),
+        '',
+        '## 常用场景',
+        '',
+        '### 结构分析',
+        '',
+        '```bash',
+        'node .codebuddy/scripts/structure-analyzer.js .',
+        'node .codebuddy/scripts/structure-analyzer.js . --output json',
+        '```',
+        '',
+        '### 查看分析报告',
+        '',
+        '```bash',
+        'node .codebuddy/scripts/report-manager.js status',
+        'node .codebuddy/scripts/report-manager.js inspect --module "src/features/user"',
+        '```',
+        '',
+        '### 编排 / 契约校验',
+        '',
+        '```bash',
+        'node .codebuddy/scripts/contract-validator.js --workflows --taskbooks',
+        'node .codebuddy/scripts/task-orchestrator.js "实现用户登录" --type new-feature',
+        '```',
+        '',
+        '报告默认写入 `.codebuddy/reports/`，优先复用已有分析结果，再决定是否重跑脚本。',
+    ].join('\n');
 }
 function generateScriptsPrompt(scripts) {
     if (scripts.length === 0)
         return '';
-    let table = '| 脚本 | 说明 | 用法 |\n|------|------|------|\n';
-    for (const script of scripts) {
-        if (script === 'structure-analyzer.js') {
-            table += `| \`${script}\` | 项目结构分析器 | \`node .codebuddy/scripts/${script} .\` |\n`;
-        }
-        else if (script === 'module-mapper.js') {
-            table += `| \`${script}\` | 模块图谱分析器 | \`node .codebuddy/scripts/${script} .\` |\n`;
-        }
-        else if (script === 'report-manager.js') {
-            table += `| \`${script}\` | 报告管理器 | \`node .codebuddy/scripts/${script} status\` |\n`;
-        }
-        else if (script === 'agent-call-manager.js') {
-            table += `| \`${script}\` | Agent Call 管理器（list/show/validate） | \`node .codebuddy/scripts/${script} list\` |\n`;
-        }
-        else if (script === 'task-orchestrator.js') {
-            table += `| \`${script}\` | 一键闭环执行器（创建/规划/执行/验收） | \`node .codebuddy/scripts/${script} "实现用户登录" --type new-feature\` |\n`;
-        }
-        else if (script === 'contract-validator.js') {
-            table += `| \`${script}\` | 契约校验器（TaskBook/Workflow）| \`node .codebuddy/scripts/${script} --workflows --taskbooks\` |\n`;
-        }
-        else {
-            table += `| \`${script}\` | - | \`node .codebuddy/scripts/${script}\` |\n`;
-        }
-    }
+    const table = buildScriptsTable(scripts);
     return `
 # 🔧 工具脚本索引 (Scripts Index)
 
@@ -256,157 +307,203 @@ function generateScriptsPrompt(scripts) {
 
 ${table}
 
-## 🚀 脚本调用指南 (CodeBuddy)
+常用示例与说明见 \`.codebuddy/scripts/README.md\`。
 
-当用户请求执行结构分析、健康度检查等任务时，可以：
-
-1. **直接调用脚本**（推荐）:
-   \`\`\`bash
-   node .codebuddy/scripts/structure-analyzer.js .
-   \`\`\`
-
-2. **或使用 MCP 工具**（如已配置）:
-   \`\`\`
-   analyze_project_structure({ projectPath: "." })
-   \`\`\`
-
-## 📊 报告系统 (Project Memory)
-
-分析结果自动保存到 \`.codebuddy/reports/\` 目录：
-
-\`\`\`
-.codebuddy/reports/
-├── manifest.json                 # 报告索引
-├── architecture/latest.json      # 架构快照
-├── modules/latest.json           # 模块图谱
-└── health/timeline.json          # 健康度时间线
-\`\`\`
-
-### 报告管理命令
-
-\`\`\`bash
-# 查看报告状态
-node .codebuddy/scripts/report-manager.js status
-
-# 查询模块/文件（上下游/热点/趋势）
-node .codebuddy/scripts/report-manager.js inspect --module "src/features/user"
-node .codebuddy/scripts/report-manager.js inspect --file "src/features/user/index.ts"
-
-# 热点模块列表
-node .codebuddy/scripts/report-manager.js hotspots --top 10
-
-# 导出 Markdown 报告
-node .codebuddy/scripts/report-manager.js export
-
-# 清理过期报告
-node .codebuddy/scripts/report-manager.js cleanup
-\`\`\`
-
-### 报告复用
-
-当报告存在且 < 24小时时，可直接读取 JSON 文件而无需重新分析：
-- 架构快照: \`.codebuddy/reports/architecture/latest.json\`
-- 模块图谱: \`.codebuddy/reports/modules/latest.json\`
-
-## 脚本与 Skill/Agent 的关系
-
-| 组件 | 职责 | 位置 |
-|------|------|------|
-| **脚本** | 实际执行逻辑 | \`.codebuddy/scripts/\` |
-| **Skill** | 知识上下文 | \`.codebuddy/skills/\` |
-| **Agent** | 工作流定义 | \`.codebuddy/agents/\` |
-| **Reports** | 项目记忆 | \`.codebuddy/reports/\` |
-
-**调用链**: Skill/Agent 提供知识 → 脚本执行分析 → Reports 持久化 → 后续任务复用
+分析类脚本默认把结果写入 \`.codebuddy/reports/\`，优先复用已有报告，再决定是否重跑。
 `;
+}
+function generateQuickActionGuide() {
+    return `
+## ⚡ 快速行动指引
+
+| 场景 | 优先动作 | 入口 |
+|------|----------|------|
+| 新功能 / 重构 / 缺陷修复 | 走任务闭环，不要手工跳步骤 | \`/task <需求>\` |
+| 需要理解项目结构 | 先做结构分析，再读相关规则/代码 | \`node .codebuddy/scripts/structure-analyzer.js .\` |
+| 需要查看已有分析结果 | 先查报告状态，避免重复扫描 | \`node .codebuddy/scripts/report-manager.js status\` |
+| 需要执行外部 Agent Call | 读取 prompt，写回 result.json | \`/agent-call <requestId>\` |
+| 需要校验 TaskBook / Workflow 契约 | 先跑契约校验 | \`node .codebuddy/scripts/contract-validator.js --workflows --taskbooks\` |
+| 需要细节规范 | 按需读取缓存规则，不要全文扫读全部规则 | \`.codebuddy/rules_cache/\` |
+
+优先读短入口：\`.codebuddy/scripts/README.md\`、\`.codebuddy/commands/README.md\`、\`.codebuddy/rules_cache/\`。
+`;
+}
+function truncateText(value, max = 48) {
+    if (value.length <= max)
+        return value;
+    return `${value.slice(0, max - 1).trimEnd()}...`;
+}
+function summarizeRouteTriggers(triggers, maxItems = 3) {
+    const values = [...new Set((triggers || []).map(trigger => trigger.trim()).filter(Boolean))];
+    if (values.length === 0)
+        return '-';
+    const formatted = values.slice(0, maxItems).map(trigger => `\`${trigger}\``).join(', ');
+    return values.length > maxItems ? `${formatted} +${values.length - maxItems}` : formatted;
+}
+function formatRouteIds(ids) {
+    return ids.map(id => `\`${id}\``).join(', ');
+}
+function buildAgentHint(agent) {
+    const parts = [];
+    if (agent.relatedSkills && agent.relatedSkills.length > 0) {
+        parts.push(`skills ${agent.relatedSkills.length}`);
+    }
+    if (agent.relatedRules && agent.relatedRules.length > 0) {
+        parts.push(`rules ${agent.relatedRules.length}`);
+    }
+    if (agent.permissions.length > 0) {
+        parts.push(`tools ${Math.min(agent.permissions.length, 3)}+`);
+    }
+    return parts.length > 0 ? parts.join(' / ') : '-';
+}
+function classifyAgentRouteCategory(agent) {
+    const text = `${agent.id} ${agent.name} ${agent.description}`.toLowerCase();
+    if (/(orchestrator|planner|tdd|编排|规划|交付)/.test(text)) {
+        return 'orchestration';
+    }
+    if (/(build|bug|fix|debug|investigator|profiler|修复|排查|诊断|构建|性能)/.test(text)) {
+        return 'diagnosis';
+    }
+    if (/(review|security|structure|analyzer|审查|架构|安全)/.test(text)) {
+        return 'review';
+    }
+    return 'other';
+}
+function groupAgentsByScenario(agents) {
+    const groups = [
+        {
+            key: 'orchestration',
+            title: '计划与执行',
+            signal: '多文件、多步骤、需要规划/实现/验收闭环',
+            items: [],
+        },
+        {
+            key: 'diagnosis',
+            title: '诊断与修复',
+            signal: '构建失败、运行时报错、根因排查、性能异常',
+            items: [],
+        },
+        {
+            key: 'review',
+            title: '分析与审查',
+            signal: '结构分析、代码审查、安全检查、专项评估',
+            items: [],
+        },
+        {
+            key: 'other',
+            title: '其他',
+            signal: '未落入以上场景的专用 Agent',
+            items: [],
+        },
+    ];
+    for (const agent of [...agents].sort((a, b) => a.id.localeCompare(b.id))) {
+        const group = groups.find(item => item.key === classifyAgentRouteCategory(agent));
+        group === null || group === void 0 ? void 0 : group.items.push(agent);
+    }
+    return groups.filter(group => group.items.length > 0);
+}
+function classifySkillRouteCategory(skill) {
+    const text = `${skill.id} ${skill.name} ${skill.description}`.toLowerCase();
+    if (/(structure|module|architecture)/.test(text)) {
+        return 'architecture';
+    }
+    if (/(component|state|refactor|重构|store)/.test(text)) {
+        return 'implementation';
+    }
+    if (/(review|testing|a11y|i18n|wcag|无障碍)/.test(text)) {
+        return 'quality';
+    }
+    if (/(performance|build|render|bundle)/.test(text)) {
+        return 'performance';
+    }
+    if (/(prd|ralph|skill-creator|requirements|spec)/.test(text)) {
+        return 'workflow';
+    }
+    return 'other';
+}
+function groupSkillsByScenario(skills) {
+    const groups = [
+        {
+            key: 'architecture',
+            title: '架构与分析',
+            signal: '项目结构、目录治理、模块关系、架构健康度',
+            items: [],
+        },
+        {
+            key: 'implementation',
+            title: '实现与重构',
+            signal: '组件拆分、状态管理、具体代码改造',
+            items: [],
+        },
+        {
+            key: 'quality',
+            title: '质量与体验',
+            signal: '代码审查、测试、国际化、可访问性',
+            items: [],
+        },
+        {
+            key: 'performance',
+            title: '性能与构建',
+            signal: '渲染性能、包体积、构建速度、配置优化',
+            items: [],
+        },
+        {
+            key: 'workflow',
+            title: '产品与流程',
+            signal: 'PRD、格式转换、技能定义与维护',
+            items: [],
+        },
+        {
+            key: 'other',
+            title: '其他',
+            signal: '未落入以上场景的专用 Skill',
+            items: [],
+        },
+    ];
+    for (const skill of [...skills].sort((a, b) => a.id.localeCompare(b.id))) {
+        const group = groups.find(item => item.key === classifySkillRouteCategory(skill));
+        group === null || group === void 0 ? void 0 : group.items.push(skill);
+    }
+    return groups.filter(group => group.items.length > 0);
 }
 function generateAgentsPrompt(agents) {
     if (agents.length === 0)
         return '';
-    // 生成 Agent 详情列表（包含工作流程摘要）
-    let agentDetails = '';
-    for (const agent of agents) {
-        const triggerText = agent.triggers.join(', ');
-        agentDetails += `### ${agent.name} (\`${agent.id}\`)\n\n`;
-        agentDetails += `- **描述**: ${agent.description}\n`;
-        agentDetails += `- **触发词**: ${triggerText}\n`;
-        if (agent.workflowSummary) {
-            agentDetails += `\n${agent.workflowSummary}\n`;
-        }
-        agentDetails += '\n';
+    const groups = groupAgentsByScenario(agents);
+    let routeTable = '| 场景 | 判断信号 | 优先 Agent |\n|------|----------|------------|\n';
+    for (const group of groups) {
+        routeTable += `| ${group.title} | ${group.signal} | ${formatRouteIds(group.items.map(agent => agent.id))} |\n`;
     }
-    // 动态生成决策树节点（从 Agent 元数据）
-    let decisionNodes = '';
-    for (const agent of agents) {
-        if (agent.triggers.length === 0)
-            continue;
-        const triggerList = agent.triggers.join('/');
-        decisionNodes += `├─ 包含"${triggerList}"？\n`;
-        decisionNodes += `│  └─ YES → ${agent.id}（${agent.description}）\n│\n`;
-    }
-    decisionNodes += `└─ 以上均不匹配？\n`;
-    decisionNodes += `   └─ 回退到【第三步：Skill 决策树】`;
-    // 从 agents 中提取所有触发词和隐式模式，动态生成第一步判断依据
-    const orchestratorKeywords = [];
-    for (const agent of agents) {
-        // 收集显式触发词（去除 /command 格式的）
-        for (const t of agent.triggers) {
-            if (!t.startsWith('/') && !t.startsWith('plan ') && !t.startsWith('create ')) {
-                orchestratorKeywords.push(t);
-            }
+    let groupSections = '';
+    for (const group of groups) {
+        let table = '| Agent | 何时使用 | 入口提示 | 补充 |\n|-------|----------|----------|------|\n';
+        for (const agent of group.items) {
+            table += `| \`${agent.id}\` | ${truncateText(agent.description)} | ${summarizeRouteTriggers(agent.triggers, 2)} | ${buildAgentHint(agent)} |\n`;
         }
-        // 收集隐式触发模式中的关键词
-        if (agent.implicitTriggers) {
-            for (const it of agent.implicitTriggers) {
-                // 从 pattern 中提取中文关键词，如 "帮我实现.*功能" -> "帮我实现...功能"
-                const cleaned = it.pattern.replace(/\.\*/g, '').replace(/[\\^$|?+()[\]{}]/g, '');
-                if (cleaned.length > 0) {
-                    orchestratorKeywords.push(cleaned);
-                }
-            }
-        }
+        groupSections += `### ${group.title}\n\n${table}\n`;
     }
-    // 去重
-    const uniqueKeywords = [...new Set(orchestratorKeywords)];
-    const keywordHints = uniqueKeywords.length > 0
-        ? uniqueKeywords.map(k => `"${k}"`).join('/')
-        : '"规划/计划/帮我实现/帮我规划/开发"';
     return `
 # 🤖 Agent 与 Skill 统一调度指南
 
-本规则库支持 **Agent 执行模式** 和 **Skill 知识模式**。收到用户请求后，按以下决策树从上到下判断。
+本规则库支持 **Agent 执行模式** 和 **Skill 知识模式**。优先按任务规模判断，再按场景分类路由。
 
 ## 第一步：判断任务规模
 
-\`\`\`
-用户请求
-│
-├─ 是否涉及多文件、多步骤、需要规划+实现+审查？
-│  │  判断依据：
-│  │  - 提到"整个模块/系统/功能"（非单个文件/组件）
-│  │  - 包含 ${keywordHints}
-│  │  - 需要先设计再编码再测试
-│  │
-│  ├─ YES → 进入【第二步：Agent 决策树】
-│  └─ NO（单文件/单组件/单次操作）→ 进入【第三步：Skill 决策树】
-\`\`\`
+| 任务规模 | 处理方式 |
+|----------|----------|
+| 多文件、多步骤、需要规划/执行/验收 | 进入【第二步：Agent 分类路由】 |
+| 单文件、单组件、单次具体操作 | 进入【第三步：Skill 分类路由】 |
+| 纯概念问答或简单语法说明 | 不加载 Agent/Skill，直接基于规则回答 |
 
-## 第二步：Agent 决策树（多步骤流程）
+## 第二步：Agent 分类路由（多步骤流程）
 
-命中即停，不再继续匹配：
+${routeTable}
 
-\`\`\`
-${decisionNodes}
-\`\`\`
+命中某个场景后，再按需读取对应 \`.codebuddy/agents/<agent-id>/AGENT.md\`，不要先把所有 Agent 全文扫一遍。
 
-**Agent 调用步骤**:
-1. 调用 \`read_file\` 读取 \`.codebuddy/agents/<agent-id>/AGENT.md\`
-2. 严格按 AGENT.md 中定义的步骤顺序执行，不可跳过
-3. 合并结果输出完整报告
+## 已安装 Agents（按场景分组）
 
-## 已安装 Agents 详情
-
-${agentDetails}
+${groupSections}
 
 ## Agent 与 Skill 的区别
 
@@ -422,42 +519,33 @@ ${agentDetails}
 function generateSkillsPrompt(skills) {
     if (skills.length === 0)
         return '';
-    let table = '| Skill | ID | When to use | Hints |\n|-------|----|-------------|-------|\n';
-    for (const skill of skills) {
-        table += `| **${skill.name}** | \`${skill.id}\` | ${skill.description} | ${buildSkillHint(skill)} |\n`;
+    const groups = groupSkillsByScenario(skills);
+    let routeTable = '| 场景 | 判断信号 | 优先 Skill |\n|------|----------|------------|\n';
+    for (const group of groups) {
+        routeTable += `| ${group.title} | ${group.signal} | ${formatRouteIds(group.items.map(skill => skill.id))} |\n`;
     }
-    // 动态生成决策树节点（从 Skill 元数据）
-    let decisionNodes = '';
-    for (const skill of skills) {
-        if (skill.triggers.length === 0)
-            continue;
-        const triggerList = skill.triggers.join('/');
-        decisionNodes += `├─ 包含"${triggerList}"？\n`;
-        decisionNodes += `│  └─ YES → ${skill.id}（${skill.name}）\n│\n`;
+    let groupSections = '';
+    for (const group of groups) {
+        let table = '| Skill | 何时使用 | 入口提示 | Hints |\n|-------|----------|----------|-------|\n';
+        for (const skill of group.items) {
+            table += `| \`${skill.id}\` | ${truncateText(skill.description)} | ${summarizeRouteTriggers(skill.triggers, 2)} | ${buildSkillHint(skill)} |\n`;
+        }
+        groupSections += `### ${group.title}\n\n${table}\n`;
     }
-    decisionNodes += `└─ 以上均不匹配？\n`;
-    decisionNodes += `   └─ 不加载技能，直接基于规则回答`;
     return `
-## 第三步：Skill 决策树（单次操作）
+## 第三步：Skill 分类路由（单次操作）
 
 技能文件已下载至 \`.codebuddy/skills/\`。
 
 > **Skill 是知识源，不是执行者。** 如果任务需要多步骤自主流程，请回到第二步使用 Agent。
 
-命中即停，不再继续匹配：
+${routeTable}
 
-\`\`\`
-${decisionNodes}
-\`\`\`
+命中某个场景后，再按需读取 \`.codebuddy/skills/<技能ID>/SKILL.md\` 与相关 \`references/\`，避免一次性加载全部技能。
 
-**Skill 调用步骤**:
-1. 调用 \`read_file\` 读取 \`.codebuddy/skills/<技能ID>/SKILL.md\`
-2. 根据 SKILL.md 中的路由逻辑，读取 \`references/\` 下的相关文档
-3. 基于完整上下文执行用户任务
+## 已安装技能（按场景分组）
 
-## 已安装技能一览
-
-${table}
+${groupSections}
 
 ## ⚠️ 何时不需要加载技能
 

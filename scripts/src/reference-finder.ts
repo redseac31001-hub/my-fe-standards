@@ -10,6 +10,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ReferenceEntry, ReferenceFindResult } from './types';
+import { isDirectCliEntry } from './lib/cli-entry';
 
 const SOURCE_EXTENSIONS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
@@ -423,6 +424,6 @@ function main(): void {
   }
 }
 
-if (require.main === module) {
+if (isDirectCliEntry('reference-finder.js')) {
   main();
 }

@@ -39,10 +39,10 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.distributeItems = distributeItems;
-exports.copyRecursive = copyRecursive;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
-const fetcher_1 = require("./fetcher");
+const install_sync_1 = require("./install-sync");
+const remote_content_pack_1 = require("./remote-content-pack");
 /**
  * 通用文件分发：远程下载或本地复制，支持 README 生成和子目录预创建
  */
@@ -62,10 +62,14 @@ async function distributeItems(ctx, logger, targetDir, projectRoot, options) {
     for (const item of options.items) {
         const destPath = path.join(localDir, item.destFile);
         if (ctx.isRemote) {
-            const url = `${ctx.remoteBaseUrl}/${item.sourcePath}`;
             try {
-                const content = await (0, fetcher_1.fetchUrl)(ctx, logger, url);
-                fs.writeFileSync(destPath, content, 'utf-8');
+                const content = await (0, remote_content_pack_1.readRemoteTextAsset)(ctx, logger, item.sourcePath);
+                if (options.tracker) {
+                    (0, install_sync_1.writeManagedFile)(options.tracker, destPath, content);
+                }
+                else {
+                    fs.writeFileSync(destPath, content, 'utf-8');
+                }
                 distributed.push(item.destFile);
                 logger.verbose(`已下载 ${options.label}: ${item.destFile}`);
             }
@@ -80,7 +84,12 @@ async function distributeItems(ctx, logger, targetDir, projectRoot, options) {
                 continue;
             }
             try {
-                fs.copyFileSync(srcPath, destPath);
+                if (options.tracker) {
+                    (0, install_sync_1.copyManagedFile)(options.tracker, srcPath, destPath);
+                }
+                else {
+                    fs.copyFileSync(srcPath, destPath);
+                }
                 distributed.push(item.destFile);
                 logger.verbose(`已复制 ${options.label}: ${item.destFile}`);
             }
@@ -91,25 +100,12 @@ async function distributeItems(ctx, logger, targetDir, projectRoot, options) {
     }
     if (distributed.length > 0 && options.readme) {
         const readmePath = path.join(localDir, 'README.md');
-        fs.writeFileSync(readmePath, options.readme, 'utf-8');
+        if (options.tracker) {
+            (0, install_sync_1.writeManagedFile)(options.tracker, readmePath, options.readme);
+        }
+        else {
+            fs.writeFileSync(readmePath, options.readme, 'utf-8');
+        }
     }
     return distributed;
-}
-/**
- * 递归复制目录
- */
-function copyRecursive(src, dest) {
-    if (!fs.existsSync(src))
-        return;
-    const stat = fs.statSync(src);
-    if (stat.isDirectory()) {
-        if (!fs.existsSync(dest))
-            fs.mkdirSync(dest, { recursive: true });
-        fs.readdirSync(src).forEach(child => {
-            copyRecursive(path.join(src, child), path.join(dest, child));
-        });
-    }
-    else {
-        fs.copyFileSync(src, dest);
-    }
 }

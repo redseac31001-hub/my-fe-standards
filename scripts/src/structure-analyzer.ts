@@ -39,6 +39,7 @@ import {
   getReportAgeHours,
   getReportsPath,
 } from './report-manager';
+import { isDirectCliEntry } from './lib/cli-entry';
 
 // ============ 配置加载 ============
 
@@ -1027,6 +1028,6 @@ function main(): void {
 }
 
 // CLI 入口 - 仅当作为主模块运行时才执行
-if (require.main === module) {
+if (isDirectCliEntry('structure-analyzer.js')) {
   main();
 }

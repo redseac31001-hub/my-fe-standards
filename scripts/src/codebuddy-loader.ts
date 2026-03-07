@@ -24,6 +24,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import {
   Context,
   Manifest,
@@ -38,16 +39,47 @@ import {
   SubProject,
   WorkspaceInfo,
   WorkspaceIndex,
+  InstallManagedFile,
+  InstallState,
 } from './types';
 import { Logger, createLogger, logError } from './lib/logger';
 import { fetchUrl } from './lib/fetcher';
-import { DistributeItemsOptions, distributeItems, copyRecursive } from './lib/distributor';
+import { distributeItems } from './lib/distributor';
+import {
+  AGENT_CALL_FILES_TO_DISTRIBUTE,
+  COMMANDS_TO_DISTRIBUTE,
+  TASKBOOK_FILES_TO_DISTRIBUTE,
+  WORKFLOWS_TO_DISTRIBUTE,
+  getScriptsForProfile,
+  isOrchestratorProfile,
+} from './lib/distribution-profiles';
+import {
+  ManagedFileTracker,
+  cleanupStaleManagedFiles,
+  copyManagedFile,
+  createManagedFileTracker,
+  getManagedFiles,
+  listFilesRecursive,
+  readInstallState,
+  toProjectRelativePath,
+  writeManagedFile,
+} from './lib/install-sync';
+import {
+  buildDoctorChecks,
+  formatDoctorReport,
+  formatStatusReport,
+  inspectInstallState,
+  summarizeDoctorChecks,
+} from './lib/install-health';
+import { ensureRemoteContentPack, readRemoteTextAsset } from './lib/remote-content-pack';
 import { parseSkillMetadata, parseAgentMetadata } from './lib/metadata-parser';
 import {
   generateWorkflowsPrompt,
   generateTaskBooksPrompt,
   generateAgentCallsPrompt,
+  generateCommandsReadme,
   generateCommandsPrompt,
+  generateQuickActionGuide,
   generateScriptsReadme,
   generateScriptsPrompt,
   generateAgentsPrompt,
@@ -60,6 +92,7 @@ import {
 
 const SCRIPT_DIR: string = __dirname;
 const PROJECT_ROOT: string = path.resolve(SCRIPT_DIR, '../..');
+const PACKAGE_JSON_PATH: string = path.join(PROJECT_ROOT, 'package.json');
 const RULES_ROOT: string = path.join(PROJECT_ROOT, 'rules');
 const CONFIG_PATH: string = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
 const SKILLS_ROOT: string = path.join(PROJECT_ROOT, 'custom-skills');
@@ -68,6 +101,18 @@ const AGENTS_ROOT: string = path.join(PROJECT_ROOT, 'agents');
 const DEFAULT_TIMEOUT: number = 10000;
 const DEFAULT_THRESHOLD: number = 0.5;
 const DEFAULT_RULE_LEVEL: Context['ruleLevel'] = 'full';
+const DEFAULT_PROFILE: Context['profile'] = 'analysis';
+const INSTALL_STATE_SCHEMA_VERSION = '1.0.0';
+const COMMANDS = new Set(['install', 'status', 'doctor']);
+const INSTALL_PROFILES: Context['profile'][] = ['core', 'analysis', 'orchestrator', 'full'];
+
+type LoaderCommand = 'install' | 'status' | 'doctor';
+
+interface ParsedCliArgs {
+  command: LoaderCommand;
+  ctx: Readonly<Context>;
+  json: boolean;
+}
 
 // ============ 帮助信息 ============
 
@@ -78,16 +123,23 @@ function showHelp(): void {
 ╚══════════════════════════════════════════════════════════════════╝
 
 用法：
-  node codebuddy-loader.js [options]
+  node codebuddy-loader.js [command] [options]
+
+命令：
+  install              安装/同步 CodeBuddy 规则和运行时（默认）
+  status               显示当前项目的 CodeBuddy 安装状态
+  doctor               诊断当前项目的 CodeBuddy 安装问题
 
 选项：
   --help, -h           显示帮助信息
+  --json               status / doctor 输出 JSON
   --remote <URL>       从远程 URL 获取规则
   --task <type>        按任务类型筛选规则（渐进式披露）
                        类型: refactoring, debugging, testing, new-feature, code-review
   --threshold <n>      设置相关性阈值 (0-1, 默认: 0.5)
   --rule-level <lvl>   规则内容裁剪等级（基于 @level:summary/quick/full 分段标记，默认: full）
-  --enable-orchestrator 启用 B 路线编排脚本分发（task-executor、agent-call 协议等）
+  --profile <name>     分发档位: core | analysis | orchestrator | full（默认: analysis）
+  --enable-orchestrator 兼容旧参数，等价于旧版完整分发（即 --profile full）
   --no-workspace       禁用 workspace 多项目自动发现
   --verbose, -v        启用详细日志
   --timeout <ms>       设置网络请求超时（默认: 10000ms）
@@ -103,8 +155,20 @@ function showHelp(): void {
   # 加载所有规则（默认）
   node codebuddy-loader.js
 
+  # 查看当前项目安装状态
+  node codebuddy-loader.js status
+
+  # 诊断安装问题（JSON 输出）
+  node codebuddy-loader.js doctor --json
+
   # 仅加载重构相关规则
   node codebuddy-loader.js --task refactoring
+
+  # 只安装最小运行时
+  node codebuddy-loader.js --profile core
+
+  # 安装完整运行时
+  node codebuddy-loader.js --profile full
 
   # 从远程加载
   node codebuddy-loader.js --remote https://example.com/standards
@@ -154,6 +218,171 @@ function getPackageJson(logger: Logger, targetDir: string): PackageJson {
     logger.error(`解析 package.json 失败: ${(e as Error).message}`);
     return {};
   }
+}
+
+function getLoaderVersion(ctx: Readonly<Context>, logger: Logger): string {
+  if (ctx.remoteManifest?.version) {
+    return ctx.remoteManifest.version;
+  }
+
+  if (!fs.existsSync(PACKAGE_JSON_PATH)) {
+    logger.warn(`未找到 loader package.json: ${PACKAGE_JSON_PATH}`);
+    return '0.0.0';
+  }
+
+  try {
+    const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf-8')) as PackageJson;
+    return pkg.version || '0.0.0';
+  } catch (error) {
+    logger.warn(`读取 loader package.json 失败: ${(error as Error).message}`);
+    return '0.0.0';
+  }
+}
+
+function buildInstallState(params: {
+  ctx: Readonly<Context>;
+  logger: Logger;
+  targetDir: string;
+  outputPath: string;
+  workspaceIndexPath: string | null;
+  layer1RulesCount: number;
+  layer2IndexCount: number;
+  layer3IndexCount: number;
+  skillsCount: number;
+  agentsCount: number;
+  distributedScripts: string[];
+  distributedWorkflows: string[];
+  distributedTaskBooks: string[];
+  distributedAgentCalls: string[];
+  distributedCommands: string[];
+  managedFiles: InstallManagedFile[];
+  workspaceInfo: WorkspaceInfo;
+}): InstallState {
+  const {
+    ctx,
+    logger,
+    targetDir,
+    outputPath,
+    workspaceIndexPath,
+    layer1RulesCount,
+    layer2IndexCount,
+    layer3IndexCount,
+    skillsCount,
+    agentsCount,
+    distributedScripts,
+    distributedWorkflows,
+    distributedTaskBooks,
+    distributedAgentCalls,
+    distributedCommands,
+    managedFiles,
+    workspaceInfo,
+  } = params;
+
+  const version = getLoaderVersion(ctx, logger);
+  const installedAt = new Date().toISOString();
+  const profile: InstallState['profile'] = ctx.profile;
+  const mode: InstallState['mode'] = ctx.isRemote ? 'remote' : 'local';
+  const rulesFile = toProjectRelativePath(targetDir, outputPath);
+  const workspaceIndexFile = workspaceIndexPath
+    ? toProjectRelativePath(targetDir, workspaceIndexPath)
+    : null;
+  const normalizedManagedFiles = managedFiles
+    .map(file => ({ path: file.path, sha256: file.sha256, size: file.size }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  const stableManagedFiles = normalizedManagedFiles.filter(file => file.path !== rulesFile && file.path !== workspaceIndexFile);
+
+  const hashPayload = {
+    version,
+    mode,
+    profile,
+    enableOrchestrator: ctx.enableOrchestrator,
+    source: {
+      remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
+      manifestVersion: ctx.remoteManifest?.version || null,
+      contentPackFile: ctx.remoteContentPack?.file || null,
+      contentPackFormat: ctx.remoteContentPack?.format || null,
+      contentPackSha256: ctx.remoteContentPack?.sha256 || null,
+    },
+    options: {
+      taskType: ctx.taskType,
+      ruleLevel: ctx.ruleLevel,
+      relevanceThreshold: ctx.relevanceThreshold,
+      workspaceDiscovery: !ctx.disableWorkspace,
+    },
+    outputs: {
+      rulesFile,
+      workspaceIndexFile,
+    },
+    managedFiles: stableManagedFiles,
+    stats: {
+      layer1Rules: layer1RulesCount,
+      layer2Indexes: layer2IndexCount,
+      layer3Indexes: layer3IndexCount,
+      skills: skillsCount,
+      agents: agentsCount,
+      scripts: distributedScripts.slice().sort(),
+      workflows: distributedWorkflows.slice().sort(),
+      taskbooks: distributedTaskBooks.slice().sort(),
+      agentCalls: distributedAgentCalls.slice().sort(),
+      commands: distributedCommands.slice().sort(),
+      workspaceProjects: workspaceInfo.projects.map(project => project.relativePath).sort(),
+    },
+  };
+
+  const contentHash = createHash('sha256')
+    .update(JSON.stringify(hashPayload))
+    .digest('hex');
+
+  return {
+    schemaVersion: INSTALL_STATE_SCHEMA_VERSION,
+    version,
+    installedAt,
+    mode,
+    profile,
+    enableOrchestrator: ctx.enableOrchestrator,
+    contentHash,
+    source: {
+      remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
+      manifestVersion: ctx.remoteManifest?.version || null,
+      contentPackFile: ctx.remoteContentPack?.file || null,
+      contentPackFormat: ctx.remoteContentPack?.format || null,
+      contentPackSha256: ctx.remoteContentPack?.sha256 || null,
+    },
+    options: {
+      taskType: ctx.taskType,
+      ruleLevel: ctx.ruleLevel,
+      relevanceThreshold: ctx.relevanceThreshold,
+      workspaceDiscovery: !ctx.disableWorkspace,
+    },
+    outputs: {
+      rulesFile,
+      workspaceIndexFile,
+    },
+    managedFiles: normalizedManagedFiles,
+    stats: {
+      layer1Rules: layer1RulesCount,
+      layer2Indexes: layer2IndexCount,
+      layer3Indexes: layer3IndexCount,
+      skills: skillsCount,
+      agents: agentsCount,
+      scripts: distributedScripts.length,
+      workflows: distributedWorkflows.length,
+      taskbooks: distributedTaskBooks.length,
+      agentCalls: distributedAgentCalls.length,
+      commands: distributedCommands.length,
+      workspaceProjects: workspaceInfo.projects.length,
+    },
+  };
+}
+
+function writeInstallState(targetDir: string, installState: InstallState): string {
+  const installStatePath = path.join(targetDir, '.codebuddy', 'install.json');
+  const installStateDir = path.dirname(installStatePath);
+  if (!fs.existsSync(installStateDir)) {
+    fs.mkdirSync(installStateDir, { recursive: true });
+  }
+  fs.writeFileSync(installStatePath, JSON.stringify(installState, null, 2), 'utf-8');
+  return installStatePath;
 }
 
 function checkVueProfile(dependencies: Record<string, string>): VueProfile | null {
@@ -423,9 +652,8 @@ function discoverWorkspace(logger: Logger, targetDir: string): WorkspaceInfo {
 
 async function loadRuleFile(ctx: Readonly<Context>, logger: Logger, layerId: string, filePath: string): Promise<string> {
   if (ctx.isRemote) {
-    const fileUrl = `${ctx.remoteBaseUrl}/rules/${layerId}/${filePath}`;
     try {
-      return await fetchUrl(ctx, logger, fileUrl);
+      return await readRemoteTextAsset(ctx, logger, `rules/${layerId}/${filePath}`);
     } catch (e) {
       logger.warn(`远程规则加载失败: ${filePath}`);
       return '';
@@ -535,10 +763,12 @@ async function loadEntities<T>(
   ctx: Readonly<Context>,
   logger: Logger,
   sourcePath: string,
-  options: LoadEntitiesOptions<T>
+  options: LoadEntitiesOptions<T>,
+  tracker: ManagedFileTracker,
+  targetDir: string,
 ): Promise<T[]> {
   const entities: T[] = [];
-  const localDir = path.join(process.cwd(), options.targetSubDir);
+  const localDir = path.join(targetDir, options.targetSubDir);
 
   if (!fs.existsSync(localDir)) {
     fs.mkdirSync(localDir, { recursive: true });
@@ -550,17 +780,11 @@ async function loadEntities<T>(
     );
 
     for (const file of files) {
-      const fileUrl = `${ctx.remoteBaseUrl}/${file.path}`;
       try {
-        const content = await fetchUrl(ctx, logger, fileUrl);
+        const content = await readRemoteTextAsset(ctx, logger, file.path);
         const relativePath = file.path.replace(options.manifestPrefix, '');
         const localPath = path.join(localDir, relativePath);
-        const localDirPath = path.dirname(localPath);
-
-        if (!fs.existsSync(localDirPath)) {
-          fs.mkdirSync(localDirPath, { recursive: true });
-        }
-        fs.writeFileSync(localPath, content, 'utf-8');
+        writeManagedFile(tracker, localPath, content);
         logger.verbose(`已下载${options.label}文件: ${relativePath}`);
 
         if (file.path.endsWith(options.metadataFileName)) {
@@ -575,7 +799,12 @@ async function loadEntities<T>(
   } else {
     const sourceDir = path.join(PROJECT_ROOT, sourcePath);
     if (fs.existsSync(sourceDir)) {
-      copyRecursive(sourceDir, localDir);
+      const sourceFiles = listFilesRecursive(sourceDir);
+      for (const sourceFile of sourceFiles) {
+        const relativePath = path.relative(sourceDir, sourceFile);
+        const destinationPath = path.join(localDir, relativePath);
+        copyManagedFile(tracker, sourceFile, destinationPath);
+      }
 
       const entityDirs = fs.readdirSync(localDir).filter(f => {
         const fullPath = path.join(localDir, f);
@@ -598,172 +827,74 @@ async function loadEntities<T>(
 
 // ============ 技能系统 ============
 
-async function loadSkills(ctx: Readonly<Context>, logger: Logger, skillsPath: string): Promise<SkillMetadata[]> {
+async function loadSkills(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  skillsPath: string,
+  tracker: ManagedFileTracker,
+  targetDir: string,
+): Promise<SkillMetadata[]> {
   return loadEntities<SkillMetadata>(ctx, logger, skillsPath, {
     manifestPrefix: 'custom-skills/',
     targetSubDir: '.codebuddy/skills',
     metadataFileName: 'SKILL.md',
     parseMetadata: parseSkillMetadata,
     label: '技能',
-  });
+  }, tracker, targetDir);
 }
 
 // ============ Agent 系统 ============
 
-async function loadAgents(ctx: Readonly<Context>, logger: Logger, agentsPath: string): Promise<AgentMetadata[]> {
+async function loadAgents(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  agentsPath: string,
+  tracker: ManagedFileTracker,
+  targetDir: string,
+): Promise<AgentMetadata[]> {
   return loadEntities<AgentMetadata>(ctx, logger, agentsPath, {
     manifestPrefix: 'agents/',
     targetSubDir: '.codebuddy/agents',
     metadataFileName: 'AGENT.md',
     parseMetadata: parseAgentMetadata,
     label: 'Agent',
-  });
+  }, tracker, targetDir);
 }
 
 // ============ 脚本分发系统 ============
 
 /**
- * 核心脚本（A 路线必需，默认分发）
- */
-const CORE_SCRIPTS: Array<{ file: string; dependencies?: string[] }> = [
-  {
-    file: 'structure-analyzer.js',
-    dependencies: ['types/structure-analyzer.js', 'types/reports.js', 'report-manager.js']
-  },
-  {
-    file: 'module-mapper.js',
-    dependencies: ['types/module-mapper.js', 'types/reports.js', 'report-manager.js']
-  },
-  {
-    file: 'report-manager.js',
-    dependencies: ['types/reports.js']
-  },
-  {
-    file: 'rule-validator.js',
-  },
-  {
-    file: 'skill-validator.js',
-    dependencies: ['lib/frontmatter-utils.js']
-  },
-];
-
-/**
- * 可选脚本（B 路线，需要 --enable-orchestrator 启用）
- */
-const OPTIONAL_SCRIPTS: Array<{ file: string; dependencies?: string[] }> = [
-  {
-    file: 'agent-registry.js',
-    dependencies: ['lib/frontmatter-utils.js']
-  },
-  {
-    file: 'agent-call-manager.js',
-  },
-  {
-    file: 'task-orchestrator.js',
-  },
-  {
-    file: 'taskbook-manager.js',
-    dependencies: ['types/index.js']
-  },
-  {
-    file: 'task-executor.js',
-    dependencies: ['types/index.js', 'types/agent-runtime.js', 'taskbook-manager.js', 'context-collector.js', 'reference-finder.js', 'agent-runtime.js', 'result-aggregator.js']
-  },
-  {
-    file: 'agent-runtime.js',
-    dependencies: ['types/agent-runtime.js', 'types/index.js', 'lib/frontmatter-utils.js']
-  },
-  {
-    file: 'contract-validator.js',
-  },
-  {
-    file: 'reference-finder.js',
-    dependencies: ['types/index.js']
-  },
-  {
-    file: 'context-collector.js',
-    dependencies: ['types/index.js', 'reference-finder.js']
-  },
-];
-
-/**
- * 需要分发的命令文件列表
- */
-const COMMANDS_TO_DISTRIBUTE: Array<{ sourcePath: string; destFile: string }> = [
-  { sourcePath: '.claude/commands/task.md', destFile: 'task.md' },
-  { sourcePath: '.claude/commands/agent-call.md', destFile: 'agent-call.md' },
-];
-
-/**
- * 需要分发的 Workflow 文件
- *
- * 说明：Workflow 用于描述“步骤依赖 + 产物 + 质量闸门 + 策略”，可作为 Agent 引导，也可被未来的执行引擎强制执行。
- *
- * 分发目标目录：{project}/.codebuddy/workflows/
- */
-const WORKFLOWS_TO_DISTRIBUTE: Array<{ sourcePath: string; destFile: string }> = [
-  { sourcePath: 'workflows/schema/workflow.schema.json', destFile: 'workflow.schema.json' },
-  { sourcePath: 'workflows/templates/default.workflow.json', destFile: 'default.workflow.json' },
-];
-
-/**
- * 需要分发的 TaskBook 契约文件（JSON Schema）
- *
- * 分发目标目录：{project}/.codebuddy/taskbooks/
- */
-const TASKBOOK_FILES_TO_DISTRIBUTE: Array<{ sourcePath: string; destFile: string }> = [
-  { sourcePath: 'taskbooks/schema/taskbook.schema.json', destFile: 'taskbook.schema.json' },
-];
-
-/**
- * 需要分发的 Agent Call 契约（JSON Schema）
- *
- * 分发目标目录：{project}/.codebuddy/agent-calls/
- */
-const AGENT_CALL_FILES_TO_DISTRIBUTE: Array<{ sourcePath: string; destFile: string }> = [
-  { sourcePath: 'agent-calls/schema/agent-call.schema.json', destFile: 'agent-call.schema.json' },
-];
-
-/**
  * 分发可执行脚本到业务项目
  */
-async function distributeScripts(ctx: Readonly<Context>, logger: Logger, targetDir: string): Promise<string[]> {
+async function distributeScripts(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  targetDir: string,
+  tracker: ManagedFileTracker,
+): Promise<string[]> {
   const distributed: string[] = [];
   const localScriptsDir = path.join(targetDir, '.codebuddy/scripts');
 
-  // 根据 enableOrchestrator 决定分发范围
-  const scriptsToDistribute = ctx.enableOrchestrator
-    ? [...CORE_SCRIPTS, ...OPTIONAL_SCRIPTS]
-    : CORE_SCRIPTS;
+  const scriptsToDistribute = getScriptsForProfile(ctx.profile);
 
-  // 确保目录存在
   if (!fs.existsSync(localScriptsDir)) {
     fs.mkdirSync(localScriptsDir, { recursive: true });
   }
 
   if (ctx.isRemote) {
-    // 远程模式：从远程下载脚本及其依赖
     for (const scriptInfo of scriptsToDistribute) {
-      // 下载主脚本
-      const scriptUrl = `${ctx.remoteBaseUrl}/scripts/dist/${scriptInfo.file}`;
       try {
-        const content = await fetchUrl(ctx, logger, scriptUrl);
+        const content = await readRemoteTextAsset(ctx, logger, `scripts/dist/${scriptInfo.file}`);
         const destPath = path.join(localScriptsDir, scriptInfo.file);
-        fs.writeFileSync(destPath, content, 'utf-8');
+        writeManagedFile(tracker, destPath, content);
         distributed.push(scriptInfo.file);
         logger.verbose(`已下载脚本: ${scriptInfo.file}`);
 
-        // 下载依赖文件
         if (scriptInfo.dependencies) {
           for (const dep of scriptInfo.dependencies) {
-            const depUrl = `${ctx.remoteBaseUrl}/scripts/dist/${dep}`;
             try {
-              const depContent = await fetchUrl(ctx, logger, depUrl);
-              const depDir = path.dirname(path.join(localScriptsDir, dep));
-              if (!fs.existsSync(depDir)) {
-                fs.mkdirSync(depDir, { recursive: true });
-              }
-              fs.writeFileSync(path.join(localScriptsDir, dep), depContent, 'utf-8');
+              const depContent = await readRemoteTextAsset(ctx, logger, `scripts/dist/${dep}`);
+              writeManagedFile(tracker, path.join(localScriptsDir, dep), depContent);
               logger.verbose(`已下载依赖: ${dep}`);
             } catch (e) {
               logger.warn(`依赖下载失败: ${dep} - ${(e as Error).message}`);
@@ -775,26 +906,20 @@ async function distributeScripts(ctx: Readonly<Context>, logger: Logger, targetD
       }
     }
   } else {
-    // 本地模式：从本地复制脚本及其依赖
     const sourceDir = path.join(PROJECT_ROOT, 'scripts/dist');
     for (const scriptInfo of scriptsToDistribute) {
       const srcPath = path.join(sourceDir, scriptInfo.file);
       if (fs.existsSync(srcPath)) {
         const destPath = path.join(localScriptsDir, scriptInfo.file);
-        fs.copyFileSync(srcPath, destPath);
+        copyManagedFile(tracker, srcPath, destPath);
         distributed.push(scriptInfo.file);
         logger.verbose(`已复制脚本: ${scriptInfo.file}`);
 
-        // 复制依赖文件
         if (scriptInfo.dependencies) {
           for (const dep of scriptInfo.dependencies) {
             const depSrc = path.join(sourceDir, dep);
             if (fs.existsSync(depSrc)) {
-              const depDir = path.dirname(path.join(localScriptsDir, dep));
-              if (!fs.existsSync(depDir)) {
-                fs.mkdirSync(depDir, { recursive: true });
-              }
-              fs.copyFileSync(depSrc, path.join(localScriptsDir, dep));
+              copyManagedFile(tracker, depSrc, path.join(localScriptsDir, dep));
               logger.verbose(`已复制依赖: ${dep}`);
             }
           }
@@ -805,10 +930,9 @@ async function distributeScripts(ctx: Readonly<Context>, logger: Logger, targetD
     }
   }
 
-  // 生成脚本使用说明
   if (distributed.length > 0) {
     const readmePath = path.join(localScriptsDir, 'README.md');
-    fs.writeFileSync(readmePath, generateScriptsReadme(distributed), 'utf-8');
+    writeManagedFile(tracker, readmePath, generateScriptsReadme(distributed));
   }
 
   return distributed;
@@ -817,11 +941,17 @@ async function distributeScripts(ctx: Readonly<Context>, logger: Logger, targetD
 /**
  * 分发 Workflows 到业务项目
  */
-async function distributeWorkflows(ctx: Readonly<Context>, logger: Logger, targetDir: string): Promise<string[]> {
+async function distributeWorkflows(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  targetDir: string,
+  tracker: ManagedFileTracker,
+): Promise<string[]> {
   return distributeItems(ctx, logger, targetDir, PROJECT_ROOT, {
     targetSubDir: '.codebuddy/workflows',
     items: WORKFLOWS_TO_DISTRIBUTE,
     label: 'workflow',
+    tracker,
     readme: [
       '# Workflows', '',
       '本目录包含工作流规范（Workflow Spec）。', '',
@@ -835,11 +965,17 @@ async function distributeWorkflows(ctx: Readonly<Context>, logger: Logger, targe
 /**
  * 分发 TaskBooks 契约（Schema）到业务项目
  */
-async function distributeTaskBooks(ctx: Readonly<Context>, logger: Logger, targetDir: string): Promise<string[]> {
+async function distributeTaskBooks(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  targetDir: string,
+  tracker: ManagedFileTracker,
+): Promise<string[]> {
   return distributeItems(ctx, logger, targetDir, PROJECT_ROOT, {
     targetSubDir: '.codebuddy/taskbooks',
     items: TASKBOOK_FILES_TO_DISTRIBUTE,
     label: 'taskbook contract',
+    tracker,
     preCreateDirs: ['active', 'history'],
     readme: [
       '# TaskBooks', '',
@@ -855,11 +991,17 @@ async function distributeTaskBooks(ctx: Readonly<Context>, logger: Logger, targe
 /**
  * 分发 Agent Calls 契约（Schema）到业务项目
  */
-async function distributeAgentCalls(ctx: Readonly<Context>, logger: Logger, targetDir: string): Promise<string[]> {
+async function distributeAgentCalls(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  targetDir: string,
+  tracker: ManagedFileTracker,
+): Promise<string[]> {
   return distributeItems(ctx, logger, targetDir, PROJECT_ROOT, {
     targetSubDir: '.codebuddy/agent-calls',
     items: AGENT_CALL_FILES_TO_DISTRIBUTE,
     label: 'agent-call contract',
+    tracker,
     readme: [
       '# Agent Calls', '',
       '本目录用于 **Agent Call 文件协议**：prompt.md ⇄ result.json（可审计、可恢复）。', '',
@@ -873,11 +1015,18 @@ async function distributeAgentCalls(ctx: Readonly<Context>, logger: Logger, targ
   });
 }
 
-async function distributeCommands(ctx: Readonly<Context>, logger: Logger, targetDir: string): Promise<string[]> {
+async function distributeCommands(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  targetDir: string,
+  tracker: ManagedFileTracker,
+): Promise<string[]> {
   return distributeItems(ctx, logger, targetDir, PROJECT_ROOT, {
     targetSubDir: '.codebuddy/commands',
     items: COMMANDS_TO_DISTRIBUTE,
     label: '命令',
+    tracker,
+    readme: generateCommandsReadme(COMMANDS_TO_DISTRIBUTE.map(item => item.destFile)),
   });
 }
 
@@ -910,12 +1059,7 @@ function updateGitignore(logger: Logger, projectDir: string): void {
 
 // ============ 参数解析 ============
 
-function parseArgs(): Readonly<Context> {
-  const args = process.argv.slice(2);
-
-  if (args.includes('--help') || args.includes('-h')) {
-    showHelp();
-  }
+function parseContextArgs(args: string[]): Readonly<Context> {
 
   let isVerbose = false;
   let isRemote = false;
@@ -924,19 +1068,42 @@ function parseArgs(): Readonly<Context> {
   let relevanceThreshold = DEFAULT_THRESHOLD;
   let ruleLevel: Context['ruleLevel'] = DEFAULT_RULE_LEVEL;
   let requestTimeout = DEFAULT_TIMEOUT;
-  let enableOrchestrator = false;
+  let profile: Context['profile'] = DEFAULT_PROFILE;
   let disableWorkspace = false;
+  let profileExplicit = false;
 
   if (args.includes('--verbose') || args.includes('-v')) {
     isVerbose = true;
   }
 
-  if (args.includes('--enable-orchestrator')) {
-    enableOrchestrator = true;
-  }
-
   if (args.includes('--no-workspace')) {
     disableWorkspace = true;
+  }
+
+  const profileIndex = args.indexOf('--profile');
+  if (profileIndex !== -1) {
+    const value = (args[profileIndex + 1] || '').trim().toLowerCase();
+    if (!value || value.startsWith('-')) {
+      logError('--profile 需要 profile 名称参数');
+      process.exit(1);
+    }
+    if (!INSTALL_PROFILES.includes(value as Context['profile'])) {
+      logError(`--profile 仅支持 ${INSTALL_PROFILES.join('|')}，当前: ${value}`);
+      process.exit(1);
+    }
+    profile = value as Context['profile'];
+    profileExplicit = true;
+  }
+
+  const legacyEnableOrchestrator = args.includes('--enable-orchestrator');
+  if (legacyEnableOrchestrator) {
+    if (profileExplicit && !isOrchestratorProfile(profile)) {
+      logError('--enable-orchestrator 只能与 --profile orchestrator|full 一起使用');
+      process.exit(1);
+    }
+    if (!profileExplicit) {
+      profile = 'full';
+    }
   }
 
   const remoteIndex = args.indexOf('--remote');
@@ -998,37 +1165,134 @@ function parseArgs(): Readonly<Context> {
     isVerbose,
     remoteBaseUrl,
     remoteManifest: null,
+    remoteContentRoot: null,
+    remoteContentPack: null,
     requestTimeout,
     taskType,
     relevanceThreshold,
     ruleLevel,
-    enableOrchestrator,
+    profile,
+    enableOrchestrator: isOrchestratorProfile(profile),
     disableWorkspace,
   };
+}
+
+function parseCliArgs(): ParsedCliArgs {
+  const rawArgs = process.argv.slice(2);
+
+  if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+    showHelp();
+  }
+
+  let command: LoaderCommand = 'install';
+  let args = rawArgs;
+
+  if (rawArgs[0] && !rawArgs[0].startsWith('-')) {
+    const candidate = rawArgs[0].toLowerCase();
+    if (COMMANDS.has(candidate)) {
+      command = candidate as LoaderCommand;
+      args = rawArgs.slice(1);
+    } else {
+      logError(`未知命令: ${rawArgs[0]}`);
+      process.exit(1);
+    }
+  }
+
+  const json = args.includes('--json');
+  const filteredArgs = args.filter(arg => arg !== '--json');
+
+  return {
+    command,
+    ctx: parseContextArgs(filteredArgs),
+    json,
+  };
+}
+
+function runStatusCommand(targetDir: string, logger: Logger, json: boolean): number {
+  const installStatePath = path.join(targetDir, '.codebuddy', 'install.json');
+  const installStateExists = fs.existsSync(installStatePath);
+  const installState = readInstallState(targetDir, logger);
+  const inspection = inspectInstallState(targetDir, installState, installStateExists);
+
+  if (json) {
+    console.log(JSON.stringify({
+      ok: inspection.installState !== null,
+      inspection,
+    }, null, 2));
+  } else {
+    console.log(formatStatusReport(inspection));
+  }
+
+  return inspection.installState !== null ? 0 : 1;
+}
+
+function runDoctorCommand(targetDir: string, logger: Logger, json: boolean): number {
+  const installStatePath = path.join(targetDir, '.codebuddy', 'install.json');
+  const installStateExists = fs.existsSync(installStatePath);
+  const installState = readInstallState(targetDir, logger);
+  const inspection = inspectInstallState(targetDir, installState, installStateExists);
+  const checks = buildDoctorChecks(inspection);
+  const summary = summarizeDoctorChecks(checks);
+
+  if (json) {
+    console.log(JSON.stringify({
+      ok: summary.status !== 'fail',
+      summary,
+      inspection,
+      checks,
+    }, null, 2));
+  } else {
+    console.log(formatDoctorReport(inspection, checks, summary));
+  }
+
+  return summary.status === 'fail' ? 1 : 0;
 }
 
 // ============ 主函数 ============
 
 async function main(): Promise<void> {
-  const parsedCtx = parseArgs();
+  const parsedCli = parseCliArgs();
+  const parsedCtx = parsedCli.ctx;
   const logger = createLogger(parsedCtx);
+  const targetDir = process.cwd();
+
+  if (parsedCli.command === 'status') {
+    process.exit(runStatusCommand(targetDir, logger, parsedCli.json));
+  }
+
+  if (parsedCli.command === 'doctor') {
+    process.exit(runDoctorCommand(targetDir, logger, parsedCli.json));
+  }
 
   // loadConfig 可能返回 manifest，需要合并到 ctx
   const { config, manifest } = await loadConfig(parsedCtx, logger);
-  const ctx: Readonly<Context> = manifest
+  let ctx: Readonly<Context> = manifest
     ? { ...parsedCtx, remoteManifest: manifest }
     : parsedCtx;
 
+  if (ctx.isRemote && ctx.remoteManifest) {
+    const packResolution = await ensureRemoteContentPack(ctx, logger, targetDir);
+    ctx = {
+      ...ctx,
+      remoteContentRoot: packResolution.contentRoot,
+      remoteContentPack: packResolution.pack,
+    };
+  }
+
   logger.log('CodeBuddy 规则加载器 v2.0 (三层架构 + 技能系统)');
   logger.log(ctx.isRemote ? `模式: 远程 (${ctx.remoteBaseUrl})` : '模式: 本地');
-  if (ctx.enableOrchestrator) logger.log('编排模式: 完整（含 B 路线脚本和契约）');
-  if (ctx.ruleLevel !== 'full') logger.log(`规则裁剪: ${ctx.ruleLevel}（仅影响 Layer1 Eager 内容；rules_cache 仍保留 full）`);
+  logger.log(`安装档位: ${ctx.profile}`);
+  if (ctx.enableOrchestrator) logger.log('编排模式: 已启用（含 TaskBook / Agent Call / Workflow 契约）');
+  if (ctx.ruleLevel !== 'full') {
+    logger.log(`规则裁剪: ${ctx.ruleLevel}（Layer1 主入口使用 ${ctx.ruleLevel}；完整原文写入 .codebuddy/rules_cache/layer1_reference/）`);
+  }
 
   if (ctx.taskType) {
     logger.log(`任务筛选: ${ctx.taskType} (阈值: ${ctx.relevanceThreshold})`);
   }
 
-  const targetDir = process.cwd();
+  const previousInstallState = readInstallState(targetDir, logger);
+  const managedFileTracker = createManagedFileTracker(targetDir);
   logger.log(`目标项目: ${targetDir}`);
 
   // ============ Workspace 多项目发现 ============
@@ -1108,6 +1372,29 @@ updatedAt: ${updatedAt}
   }
 
   const layer1Rules = await loadLayerRules(ctx, logger, layers.base?.id || 'layer1_base', layer1Folders);
+  const layer1ReferenceIndex: RuleIndexItem[] = [];
+
+  if (ctx.ruleLevel !== 'full') {
+    const layer1FullRules = await loadLayerRules(
+      { ...ctx, ruleLevel: 'full' },
+      logger,
+      layers.base?.id || 'layer1_base',
+      layer1Folders,
+    );
+
+    for (const rule of layer1FullRules) {
+      const referencePath = `.codebuddy/rules_cache/layer1_reference/${rule.path}`.replace(/\\/g, '/');
+      writeManagedFile(managedFileTracker, path.join(targetDir, referencePath), rule.content);
+      layer1ReferenceIndex.push({
+        rule: rule.path.replace(/\.md$/, ''),
+        path: referencePath,
+      });
+    }
+
+    if (layer1ReferenceIndex.length > 0) {
+      logger.log(`已生成 ${layer1ReferenceIndex.length} 个 Layer 1 完整参考缓存`);
+    }
+  }
 
   finalContent += `## ${layers.base?.title || 'Layer 1: 基础规范'}\n\n`;
   finalContent += `> 这些是本项目必须遵守的核心规范\n\n`;
@@ -1139,7 +1426,7 @@ updatedAt: ${updatedAt}
         }
         const content = await loadRuleFile(ctx, logger, layers.business?.id || 'layer2_business', folder + '.md');
         if (content) {
-          fs.writeFileSync(path.join(cacheDir, folder + '.md'), content, 'utf-8');
+          writeManagedFile(managedFileTracker, path.join(cacheDir, folder + '.md'), content);
         }
       }
     }
@@ -1172,7 +1459,7 @@ updatedAt: ${updatedAt}
             }
             const content = await loadRuleFile(ctx, logger, layers.business?.id || 'layer2_business', folder + '.md');
             if (content) {
-              fs.writeFileSync(path.join(projectCacheDir, folder + '.md'), content, 'utf-8');
+              writeManagedFile(managedFileTracker, path.join(projectCacheDir, folder + '.md'), content);
             }
           }
         }
@@ -1205,16 +1492,23 @@ updatedAt: ${updatedAt}
     }
     const content = await loadRuleFile(ctx, logger, layers.action?.id || 'layer3_action', item + '.md');
     if (content) {
-      fs.writeFileSync(path.join(cacheDir, item + '.md'), content, 'utf-8');
+      writeManagedFile(managedFileTracker, path.join(cacheDir, item + '.md'), content);
     }
   }
 
   // ============ 生成规则索引表 ============
-  if (layer2Index.length > 0 || layer3Index.length > 0) {
+  if (layer1ReferenceIndex.length > 0 || layer2Index.length > 0 || layer3Index.length > 0) {
     finalContent += `## 📚 规则参考索引 (按需加载)\n\n`;
-    finalContent += `> 以下规则包含具体的技术栈实现细节，请按需读取\n\n`;
+    if (layer1ReferenceIndex.length > 0) {
+      finalContent += `> 当前主入口仅内嵌 Layer 1 的 ${ctx.ruleLevel} 内容；完整原文与 Layer 2/3 细节规则请按需读取\n\n`;
+    } else {
+      finalContent += `> 以下规则包含具体的技术栈实现细节，请按需读取\n\n`;
+    }
     finalContent += `| 规则名称 | 本地路径 | 说明 |\n|---------|---------|------|\n`;
 
+    for (const item of layer1ReferenceIndex) {
+      finalContent += `| ${item.rule} | \`${item.path}\` | Layer 1 完整参考 |\n`;
+    }
     for (const item of layer2Index) {
       finalContent += `| ${item.rule} | \`${item.path}\` | ${item.dep} 规范 |\n`;
     }
@@ -1225,6 +1519,7 @@ updatedAt: ${updatedAt}
   }
 
   // ============ Workspace: 生成索引文件和提示词 ============
+  let workspaceIndexPath: string | null = null;
   if (workspaceInfo.isWorkspace) {
     // 生成 workspace-index.json
     const workspaceIndex: WorkspaceIndex = {
@@ -1246,12 +1541,12 @@ updatedAt: ${updatedAt}
       })),
     };
 
-    const workspaceIndexPath = path.join(targetDir, '.codebuddy/workspace-index.json');
+    workspaceIndexPath = path.join(targetDir, '.codebuddy/workspace-index.json');
     const workspaceIndexDir = path.dirname(workspaceIndexPath);
     if (!fs.existsSync(workspaceIndexDir)) {
       fs.mkdirSync(workspaceIndexDir, { recursive: true });
     }
-    fs.writeFileSync(workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2), 'utf-8');
+    writeManagedFile(managedFileTracker, workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2));
     logger.log(`已生成 workspace-index.json (${workspaceInfo.projects.length} 个项目)`);
 
     // 注入 workspace 提示词
@@ -1260,18 +1555,20 @@ updatedAt: ${updatedAt}
 
   // ============ 规则激活提示词 ============
   finalContent += generateRuleActivationPrompt(config);
+  finalContent += generateQuickActionGuide();
 
   // ============ 技能系统 ============
+  let skills: SkillMetadata[] = [];
   if (skillsConfig?.enabled) {
     logger.log('加载技能系统...');
-    const skills = await loadSkills(ctx, logger, skillsConfig.path || 'custom-skills');
+    skills = await loadSkills(ctx, logger, skillsConfig.path || 'custom-skills', managedFileTracker, targetDir);
     logger.log(`已加载 ${skills.length} 个技能`);
     finalContent += generateSkillsPrompt(skills);
   }
 
   // ============ Agent 系统 ============
   logger.log('加载 Agent 系统...');
-  const agents = await loadAgents(ctx, logger, 'agents');
+  const agents = await loadAgents(ctx, logger, 'agents', managedFileTracker, targetDir);
   if (agents.length > 0) {
     logger.log(`已加载 ${agents.length} 个 Agents`);
     finalContent += generateAgentsPrompt(agents);
@@ -1279,54 +1576,54 @@ updatedAt: ${updatedAt}
 
   // ============ 脚本分发 ============
   logger.log('分发工具脚本...');
-  const distributedScripts = await distributeScripts(ctx, logger, targetDir);
+  const distributedScripts = await distributeScripts(ctx, logger, targetDir, managedFileTracker);
   if (distributedScripts.length > 0) {
     logger.log(`已分发 ${distributedScripts.length} 个脚本`);
     finalContent += generateScriptsPrompt(distributedScripts);
   }
 
-  // ============ Workflows 分发（B 路线，需 --enable-orchestrator） ============
+  // ============ Workflows 分发（orchestrator/full） ============
   let distributedWorkflows: string[] = [];
   if (ctx.enableOrchestrator) {
     logger.log('分发 Workflows...');
-    distributedWorkflows = await distributeWorkflows(ctx, logger, targetDir);
+    distributedWorkflows = await distributeWorkflows(ctx, logger, targetDir, managedFileTracker);
     if (distributedWorkflows.length > 0) {
       logger.log(`已分发 ${distributedWorkflows.length} 个工作流`);
       finalContent += generateWorkflowsPrompt(distributedWorkflows);
     }
   } else {
-    logger.verbose('跳过 Workflows 分发（默认模式，使用 --enable-orchestrator 启用）');
+    logger.verbose('跳过 Workflows 分发（当前 profile 不包含编排契约）');
   }
 
-  // ============ TaskBooks 契约分发（B 路线，需 --enable-orchestrator） ============
+  // ============ TaskBooks 契约分发（orchestrator/full） ============
   let distributedTaskBooks: string[] = [];
   if (ctx.enableOrchestrator) {
     logger.log('分发 TaskBook 契约...');
-    distributedTaskBooks = await distributeTaskBooks(ctx, logger, targetDir);
+    distributedTaskBooks = await distributeTaskBooks(ctx, logger, targetDir, managedFileTracker);
     if (distributedTaskBooks.length > 0) {
       logger.log(`已分发 ${distributedTaskBooks.length} 个 TaskBook 契约文件`);
       finalContent += generateTaskBooksPrompt(distributedTaskBooks);
     }
   } else {
-    logger.verbose('跳过 TaskBook 契约分发（默认模式，使用 --enable-orchestrator 启用）');
+    logger.verbose('跳过 TaskBook 契约分发（当前 profile 不包含编排契约）');
   }
 
-  // ============ Agent Calls 契约分发（B 路线，需 --enable-orchestrator） ============
+  // ============ Agent Calls 契约分发（orchestrator/full） ============
   let distributedAgentCalls: string[] = [];
   if (ctx.enableOrchestrator) {
     logger.log('分发 Agent Call 契约...');
-    distributedAgentCalls = await distributeAgentCalls(ctx, logger, targetDir);
+    distributedAgentCalls = await distributeAgentCalls(ctx, logger, targetDir, managedFileTracker);
     if (distributedAgentCalls.length > 0) {
       logger.log(`已分发 ${distributedAgentCalls.length} 个 Agent Call 契约文件`);
       finalContent += generateAgentCallsPrompt(distributedAgentCalls);
     }
   } else {
-    logger.verbose('跳过 Agent Call 契约分发（默认模式，使用 --enable-orchestrator 启用）');
+    logger.verbose('跳过 Agent Call 契约分发（当前 profile 不包含编排契约）');
   }
 
   // ============ 命令分发 ============
   logger.log('分发 Slash Commands...');
-  const distributedCommands = await distributeCommands(ctx, logger, targetDir);
+  const distributedCommands = await distributeCommands(ctx, logger, targetDir, managedFileTracker);
   if (distributedCommands.length > 0) {
     logger.log(`已分发 ${distributedCommands.length} 个命令`);
     finalContent += generateCommandsPrompt(distributedCommands);
@@ -1339,10 +1636,34 @@ updatedAt: ${updatedAt}
   }
 
   const outputPath = path.join(outputDir, output?.fileName || 'project-rules.md');
-  fs.writeFileSync(outputPath, finalContent, 'utf-8');
+  writeManagedFile(managedFileTracker, outputPath, finalContent);
 
   // 更新 .gitignore
   updateGitignore(logger, targetDir);
+
+  const removedManagedFiles = cleanupStaleManagedFiles(managedFileTracker, previousInstallState, logger);
+  const installState = buildInstallState({
+    ctx,
+    logger,
+    targetDir,
+    outputPath,
+    workspaceIndexPath,
+    layer1RulesCount: layer1Rules.length,
+    layer2IndexCount: layer2Index.length,
+    layer3IndexCount: layer3Index.length,
+    skillsCount: skills.length,
+    agentsCount: agents.length,
+    distributedScripts,
+    distributedWorkflows,
+    distributedTaskBooks,
+    distributedAgentCalls,
+    distributedCommands,
+    managedFiles: getManagedFiles(managedFileTracker),
+    workspaceInfo,
+  });
+  const installStatePath = writeInstallState(targetDir, installState);
+  logger.log(`已生成 install.json: ${installStatePath}`);
+  logger.log(`同步结果: 写入 ${managedFileTracker.summary.written}，复用 ${managedFileTracker.summary.unchanged}，清理 ${removedManagedFiles.length}`);
 
   logger.log('');
   logger.log('═══════════════════════════════════════════════════════════════════');

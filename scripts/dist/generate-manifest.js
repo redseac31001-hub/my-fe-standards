@@ -45,6 +45,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const crypto_1 = require("crypto");
+const distribution_profiles_1 = require("./lib/distribution-profiles");
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const RULES_ROOT = path.join(PROJECT_ROOT, 'rules');
 const SKILLS_ROOT = path.join(PROJECT_ROOT, 'custom-skills');
@@ -54,6 +56,7 @@ const TASKBOOKS_ROOT = path.join(PROJECT_ROOT, 'taskbooks');
 const CONFIG_PATH = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
 const OUTPUT_PATH = path.join(PROJECT_ROOT, 'manifest.json');
 const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, 'package.json');
+const PACKS_ROOT = path.join(PROJECT_ROOT, 'packs');
 function log(message) {
     console.log(`[Manifest] ${message}`);
 }
@@ -88,6 +91,64 @@ function scanDirectory(dir, basePath = '', extensions = ['.md']) {
         }
     }
     return files;
+}
+function computeSha256(content) {
+    return (0, crypto_1.createHash)('sha256').update(content, 'utf-8').digest('hex');
+}
+function toPosixPath(filePath) {
+    return filePath.replace(/\\/g, '/');
+}
+function buildContentPackEntries(relativePaths) {
+    const uniquePaths = Array.from(new Set(relativePaths.map(toPosixPath))).sort();
+    return uniquePaths.map(relativePath => {
+        const absolutePath = path.join(PROJECT_ROOT, relativePath);
+        const content = fs.readFileSync(absolutePath, 'utf-8');
+        return {
+            path: relativePath,
+            sha256: computeSha256(content),
+            content,
+        };
+    });
+}
+function getPackSourcePaths(profile, ruleFiles, skillFiles, agentFiles) {
+    const sourcePaths = [
+        ...ruleFiles.map(file => file.path),
+        ...skillFiles.map(file => file.path),
+        ...agentFiles.map(file => file.path),
+        ...distribution_profiles_1.COMMANDS_TO_DISTRIBUTE.map(item => item.sourcePath),
+        ...(0, distribution_profiles_1.getScriptsForProfile)(profile).map(item => `scripts/dist/${item.file}`),
+    ];
+    if ((0, distribution_profiles_1.isOrchestratorProfile)(profile)) {
+        sourcePaths.push(...distribution_profiles_1.WORKFLOWS_TO_DISTRIBUTE.map(item => item.sourcePath), ...distribution_profiles_1.TASKBOOK_FILES_TO_DISTRIBUTE.map(item => item.sourcePath), ...distribution_profiles_1.AGENT_CALL_FILES_TO_DISTRIBUTE.map(item => item.sourcePath));
+    }
+    return sourcePaths;
+}
+function buildContentPackManifest(profile, version, ruleFiles, skillFiles, agentFiles) {
+    if (!fs.existsSync(PACKS_ROOT)) {
+        fs.mkdirSync(PACKS_ROOT, { recursive: true });
+    }
+    const entries = buildContentPackEntries(getPackSourcePaths(profile, ruleFiles, skillFiles, agentFiles));
+    const pack = {
+        schemaVersion: '1.0.0',
+        version,
+        profile,
+        generatedAt: new Date().toISOString(),
+        entryCount: entries.length,
+        entries,
+    };
+    const serialized = JSON.stringify(pack, null, 2);
+    const file = `packs/content-pack-${profile}.json`;
+    const absolutePath = path.join(PROJECT_ROOT, file);
+    fs.writeFileSync(absolutePath, serialized, 'utf-8');
+    return {
+        profile,
+        file,
+        format: 'content-pack-json-v1',
+        sha256: computeSha256(serialized),
+        size: Buffer.byteLength(serialized, 'utf-8'),
+        entryCount: entries.length,
+        generatedAt: pack.generatedAt,
+    };
 }
 /**
  * 主函数
@@ -157,7 +218,16 @@ function main() {
         path: `taskbooks/${f.path}`,
     }));
     log(`  找到 ${taskbookFiles.length} 个 taskbook 文件`);
-    // 7. 构建 manifest
+    // 7. 生成远程 content packs（按 profile）
+    log('生成远程 content packs...');
+    const packs = {
+        core: buildContentPackManifest('core', manifestVersion, ruleFiles, skillFiles, agentFiles),
+        analysis: buildContentPackManifest('analysis', manifestVersion, ruleFiles, skillFiles, agentFiles),
+        orchestrator: buildContentPackManifest('orchestrator', manifestVersion, ruleFiles, skillFiles, agentFiles),
+        full: buildContentPackManifest('full', manifestVersion, ruleFiles, skillFiles, agentFiles),
+    };
+    log(`  已生成 ${Object.keys(packs).length} 个 content packs`);
+    // 8. 构建 manifest
     const manifest = {
         version: manifestVersion,
         generatedAt: new Date().toISOString(),
@@ -171,6 +241,7 @@ function main() {
             frontmatter: config.frontmatter || {},
         },
         files: [...ruleFiles, ...skillFiles, ...agentFiles, ...workflowFiles, ...taskbookFiles],
+        packs,
         stats: {
             totalFiles: ruleFiles.length + skillFiles.length + agentFiles.length + workflowFiles.length + taskbookFiles.length,
             ruleFiles: ruleFiles.length,
@@ -180,7 +251,7 @@ function main() {
             taskbookFiles: taskbookFiles.length,
         },
     };
-    // 8. 写入文件
+    // 9. 写入文件
     fs.writeFileSync(OUTPUT_PATH, JSON.stringify(manifest, null, 2), 'utf-8');
     log('');
     log('═══════════════════════════════════════════════════════════════════');
@@ -190,6 +261,7 @@ function main() {
     log(`   Agent文件: ${agentFiles.length} 个`);
     log(`   Workflow文件: ${workflowFiles.length} 个`);
     log(`   TaskBook文件: ${taskbookFiles.length} 个`);
+    log(`   Content Packs: ${Object.keys(packs).length} 个`);
     log(`   总计: ${manifest.stats.totalFiles} 个文件`);
     log('═══════════════════════════════════════════════════════════════════');
 }

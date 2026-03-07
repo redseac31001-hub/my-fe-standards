@@ -8,7 +8,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Context } from '../types';
 import { Logger } from './logger';
-import { fetchUrl } from './fetcher';
+import { ManagedFileTracker, copyManagedFile, writeManagedFile } from './install-sync';
+import { readRemoteTextAsset } from './remote-content-pack';
 
 export interface DistributeItemsOptions {
   targetSubDir: string;
@@ -16,6 +17,7 @@ export interface DistributeItemsOptions {
   label: string;
   readme?: string;
   preCreateDirs?: string[];
+  tracker?: ManagedFileTracker;
 }
 
 /**
@@ -46,10 +48,13 @@ export async function distributeItems(
     const destPath = path.join(localDir, item.destFile);
 
     if (ctx.isRemote) {
-      const url = `${ctx.remoteBaseUrl}/${item.sourcePath}`;
       try {
-        const content = await fetchUrl(ctx, logger, url);
-        fs.writeFileSync(destPath, content, 'utf-8');
+        const content = await readRemoteTextAsset(ctx, logger, item.sourcePath);
+        if (options.tracker) {
+          writeManagedFile(options.tracker, destPath, content);
+        } else {
+          fs.writeFileSync(destPath, content, 'utf-8');
+        }
         distributed.push(item.destFile);
         logger.verbose(`已下载 ${options.label}: ${item.destFile}`);
       } catch (e) {
@@ -62,7 +67,11 @@ export async function distributeItems(
         continue;
       }
       try {
-        fs.copyFileSync(srcPath, destPath);
+        if (options.tracker) {
+          copyManagedFile(options.tracker, srcPath, destPath);
+        } else {
+          fs.copyFileSync(srcPath, destPath);
+        }
         distributed.push(item.destFile);
         logger.verbose(`已复制 ${options.label}: ${item.destFile}`);
       } catch (e) {
@@ -73,24 +82,12 @@ export async function distributeItems(
 
   if (distributed.length > 0 && options.readme) {
     const readmePath = path.join(localDir, 'README.md');
-    fs.writeFileSync(readmePath, options.readme, 'utf-8');
+    if (options.tracker) {
+      writeManagedFile(options.tracker, readmePath, options.readme);
+    } else {
+      fs.writeFileSync(readmePath, options.readme, 'utf-8');
+    }
   }
 
   return distributed;
-}
-
-/**
- * 递归复制目录
- */
-export function copyRecursive(src: string, dest: string): void {
-  if (!fs.existsSync(src)) return;
-  const stat = fs.statSync(src);
-  if (stat.isDirectory()) {
-    if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-    fs.readdirSync(src).forEach(child => {
-      copyRecursive(path.join(src, child), path.join(dest, child));
-    });
-  } else {
-    fs.copyFileSync(src, dest);
-  }
 }

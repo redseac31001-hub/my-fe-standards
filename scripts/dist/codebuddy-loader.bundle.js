@@ -24,8 +24,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // scripts/src/codebuddy-loader.ts
-var fs2 = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
+var fs5 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
+var import_crypto3 = require("crypto");
 
 // scripts/src/lib/logger.ts
 function createLogger(ctx) {
@@ -68,11 +69,12 @@ function fetchUrl(ctx, logger, url, retries = 3) {
         reject(new Error(`HTTP ${res.statusCode}: Failed to fetch ${url}`));
         return;
       }
-      let data = "";
+      const chunks = [];
       res.on("data", (chunk) => {
-        data += chunk.toString();
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       });
       res.on("end", () => {
+        const data = Buffer.concat(chunks).toString("utf-8");
         logger.verbose(`Fetched ${data.length} bytes from ${url}`);
         resolve2(data);
       });
@@ -102,40 +104,297 @@ function fetchUrl(ctx, logger, url, retries = 3) {
 }
 
 // scripts/src/lib/distributor.ts
+var fs3 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
+
+// scripts/src/lib/install-sync.ts
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
+var import_crypto = require("crypto");
+function createManagedFileTracker(targetDir) {
+  return {
+    targetDir,
+    files: /* @__PURE__ */ new Map(),
+    summary: {
+      written: 0,
+      unchanged: 0,
+      removed: 0
+    }
+  };
+}
+function readInstallState(targetDir, logger) {
+  const installStatePath = path.join(targetDir, ".codebuddy", "install.json");
+  if (!fs.existsSync(installStatePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(installStatePath, "utf-8"));
+  } catch (error) {
+    logger?.warn(`\u8BFB\u53D6 install.json \u5931\u8D25: ${error.message}`);
+    return null;
+  }
+}
+function toProjectRelativePath(targetDir, absolutePath) {
+  return path.relative(targetDir, absolutePath).replace(/\\/g, "/");
+}
+function listFilesRecursive(rootDir) {
+  if (!fs.existsSync(rootDir)) {
+    return [];
+  }
+  const results = [];
+  const stack = [rootDir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    const entries = fs.readdirSync(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (entry.isFile()) {
+        results.push(fullPath);
+      }
+    }
+  }
+  return results.sort();
+}
+function copyManagedFile(tracker, sourcePath, destinationPath) {
+  const content = fs.readFileSync(sourcePath);
+  return writeManagedFile(tracker, destinationPath, content);
+}
+function writeManagedFile(tracker, destinationPath, content) {
+  const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf-8");
+  const relativePath = toProjectRelativePath(tracker.targetDir, destinationPath);
+  const record = {
+    path: relativePath,
+    sha256: (0, import_crypto.createHash)("sha256").update(buffer).digest("hex"),
+    size: buffer.length
+  };
+  let shouldWrite = true;
+  if (fs.existsSync(destinationPath)) {
+    const existing = fs.readFileSync(destinationPath);
+    const existingHash = (0, import_crypto.createHash)("sha256").update(existing).digest("hex");
+    shouldWrite = existingHash !== record.sha256;
+  }
+  if (shouldWrite) {
+    const destinationDir = path.dirname(destinationPath);
+    if (!fs.existsSync(destinationDir)) {
+      fs.mkdirSync(destinationDir, { recursive: true });
+    }
+    fs.writeFileSync(destinationPath, buffer);
+    tracker.summary.written += 1;
+  } else {
+    tracker.summary.unchanged += 1;
+  }
+  tracker.files.set(relativePath, record);
+  return shouldWrite;
+}
+function getManagedFiles(tracker) {
+  return Array.from(tracker.files.values()).sort((left, right) => left.path.localeCompare(right.path));
+}
+function cleanupStaleManagedFiles(tracker, previousInstallState, logger) {
+  if (!previousInstallState?.managedFiles?.length) {
+    return [];
+  }
+  const currentPaths = new Set(tracker.files.keys());
+  const removed = [];
+  for (const managedFile of previousInstallState.managedFiles) {
+    if (currentPaths.has(managedFile.path)) {
+      continue;
+    }
+    if (!managedFile.path.startsWith(".codebuddy/")) {
+      logger?.warn(`\u8DF3\u8FC7\u6E05\u7406\u975E .codebuddy \u7BA1\u7406\u6587\u4EF6: ${managedFile.path}`);
+      continue;
+    }
+    const absolutePath = path.join(tracker.targetDir, managedFile.path);
+    if (!fs.existsSync(absolutePath)) {
+      continue;
+    }
+    try {
+      const stat = fs.statSync(absolutePath);
+      if (!stat.isFile()) {
+        continue;
+      }
+      fs.chmodSync(absolutePath, 438);
+      fs.rmSync(absolutePath, { force: true });
+      pruneEmptyParents(tracker.targetDir, path.dirname(absolutePath));
+      tracker.summary.removed += 1;
+      removed.push(managedFile.path);
+    } catch (error) {
+      logger?.warn(`\u6E05\u7406\u9648\u65E7\u6587\u4EF6\u5931\u8D25: ${managedFile.path} - ${error.message}`);
+    }
+  }
+  return removed.sort();
+}
+function pruneEmptyParents(targetDir, startDir) {
+  const stopDir = path.join(targetDir, ".codebuddy");
+  let current = startDir;
+  while (current.startsWith(stopDir) && current !== stopDir) {
+    if (!fs.existsSync(current)) {
+      current = path.dirname(current);
+      continue;
+    }
+    const entries = fs.readdirSync(current);
+    if (entries.length > 0) {
+      break;
+    }
+    fs.rmdirSync(current);
+    current = path.dirname(current);
+  }
+}
+
+// scripts/src/lib/remote-content-pack.ts
+var fs2 = __toESM(require("fs"));
+var path2 = __toESM(require("path"));
+var import_crypto2 = require("crypto");
+var CONTENT_PACK_SCHEMA_VERSION = "1.0.0";
+function normalizeRelativePath(relativePath) {
+  const normalized = path2.posix.normalize(String(relativePath || "").replace(/\\/g, "/"));
+  if (!normalized || normalized === "." || normalized.startsWith("../") || normalized.includes("/../") || path2.posix.isAbsolute(normalized)) {
+    throw new Error(`invalid relative path: ${relativePath}`);
+  }
+  return normalized;
+}
+function ensureDirectoryForFile(filePath) {
+  const dir = path2.dirname(filePath);
+  if (!fs2.existsSync(dir)) {
+    fs2.mkdirSync(dir, { recursive: true });
+  }
+}
+function computeSha256(content) {
+  return (0, import_crypto2.createHash)("sha256").update(content, "utf-8").digest("hex");
+}
+function validateContentPack(pack, packMeta) {
+  if (!pack || typeof pack !== "object") {
+    throw new Error("content pack must be an object");
+  }
+  if (pack.schemaVersion !== CONTENT_PACK_SCHEMA_VERSION) {
+    throw new Error(`unsupported content pack schema: ${String(pack.schemaVersion)}`);
+  }
+  if (pack.profile !== packMeta.profile) {
+    throw new Error(`content pack profile mismatch: expected ${packMeta.profile}, got ${pack.profile}`);
+  }
+  if (!Array.isArray(pack.entries)) {
+    throw new Error("content pack entries must be an array");
+  }
+  if (pack.entryCount !== pack.entries.length) {
+    throw new Error(`content pack entryCount mismatch: expected ${pack.entryCount}, got ${pack.entries.length}`);
+  }
+}
+function buildContentRoot(targetDir, manifestVersion, packMeta) {
+  return path2.join(
+    targetDir,
+    ".codebuddy",
+    "cache",
+    "content-packs",
+    manifestVersion,
+    `${packMeta.profile}-${packMeta.sha256.slice(0, 12)}`,
+    "contents"
+  );
+}
+async function ensureRemoteContentPack(ctx, logger, targetDir) {
+  const packMeta = ctx.remoteManifest?.packs?.[ctx.profile] || null;
+  const manifestVersion = ctx.remoteManifest?.version || "0.0.0";
+  if (!ctx.isRemote || !packMeta) {
+    return { contentRoot: null, pack: null, usedCache: false };
+  }
+  const contentRoot = buildContentRoot(targetDir, manifestVersion, packMeta);
+  const markerPath = path2.join(path2.dirname(contentRoot), "pack-meta.json");
+  if (fs2.existsSync(contentRoot) && fs2.existsSync(markerPath)) {
+    logger.log(`\u8FDC\u7A0B\u5185\u5BB9\u5305: \u4F7F\u7528\u672C\u5730\u7F13\u5B58 ${packMeta.profile} (${packMeta.sha256.slice(0, 12)})`);
+    return { contentRoot, pack: packMeta, usedCache: true };
+  }
+  try {
+    const packUrl = `${ctx.remoteBaseUrl}/${packMeta.file}`;
+    logger.log(`\u8FDC\u7A0B\u5185\u5BB9\u5305: \u4E0B\u8F7D ${packMeta.profile} -> ${packUrl}`);
+    const packSource = await fetchUrl(ctx, logger, packUrl);
+    const actualSha = computeSha256(packSource);
+    if (actualSha !== packMeta.sha256) {
+      throw new Error(`content pack sha256 mismatch: expected ${packMeta.sha256}, got ${actualSha}`);
+    }
+    const pack = JSON.parse(packSource);
+    validateContentPack(pack, packMeta);
+    const packRoot = path2.dirname(contentRoot);
+    fs2.rmSync(packRoot, { recursive: true, force: true });
+    fs2.mkdirSync(contentRoot, { recursive: true });
+    for (const entry of pack.entries) {
+      const normalized = normalizeRelativePath(entry.path);
+      const destPath = path2.join(contentRoot, normalized);
+      ensureDirectoryForFile(destPath);
+      fs2.writeFileSync(destPath, entry.content, "utf-8");
+      const entrySha = computeSha256(entry.content);
+      if (entry.sha256 !== entrySha) {
+        throw new Error(`content pack entry sha256 mismatch: ${normalized}`);
+      }
+    }
+    fs2.writeFileSync(markerPath, JSON.stringify({
+      schemaVersion: CONTENT_PACK_SCHEMA_VERSION,
+      profile: packMeta.profile,
+      file: packMeta.file,
+      format: packMeta.format,
+      sha256: packMeta.sha256,
+      entryCount: packMeta.entryCount,
+      generatedAt: packMeta.generatedAt
+    }, null, 2), "utf-8");
+    logger.log(`\u8FDC\u7A0B\u5185\u5BB9\u5305: \u5DF2\u7F13\u5B58 ${packMeta.profile} (${pack.entryCount} files)`);
+    return { contentRoot, pack: packMeta, usedCache: false };
+  } catch (error) {
+    logger.warn(`\u8FDC\u7A0B\u5185\u5BB9\u5305\u4E0D\u53EF\u7528\uFF0C\u56DE\u9000\u9010\u6587\u4EF6\u62C9\u53D6: ${error.message}`);
+    return { contentRoot: null, pack: null, usedCache: false };
+  }
+}
+async function readRemoteTextAsset(ctx, logger, relativePath) {
+  const normalized = normalizeRelativePath(relativePath);
+  if (ctx.remoteContentRoot) {
+    const cachedPath = path2.join(ctx.remoteContentRoot, normalized);
+    if (fs2.existsSync(cachedPath)) {
+      return fs2.readFileSync(cachedPath, "utf-8");
+    }
+    logger.verbose(`\u8FDC\u7A0B\u5185\u5BB9\u5305\u672A\u547D\u4E2D: ${normalized}\uFF0C\u56DE\u9000\u9010\u6587\u4EF6\u62C9\u53D6`);
+  }
+  const url = `${ctx.remoteBaseUrl}/${normalized}`;
+  return fetchUrl(ctx, logger, url);
+}
+
+// scripts/src/lib/distributor.ts
 async function distributeItems(ctx, logger, targetDir, projectRoot, options) {
   const distributed = [];
-  const localDir = path.join(targetDir, options.targetSubDir);
-  if (!fs.existsSync(localDir)) {
-    fs.mkdirSync(localDir, { recursive: true });
+  const localDir = path3.join(targetDir, options.targetSubDir);
+  if (!fs3.existsSync(localDir)) {
+    fs3.mkdirSync(localDir, { recursive: true });
   }
   if (options.preCreateDirs) {
     for (const sub of options.preCreateDirs) {
-      const subPath = path.join(localDir, sub);
-      if (!fs.existsSync(subPath)) fs.mkdirSync(subPath, { recursive: true });
+      const subPath = path3.join(localDir, sub);
+      if (!fs3.existsSync(subPath)) fs3.mkdirSync(subPath, { recursive: true });
     }
   }
   for (const item of options.items) {
-    const destPath = path.join(localDir, item.destFile);
+    const destPath = path3.join(localDir, item.destFile);
     if (ctx.isRemote) {
-      const url = `${ctx.remoteBaseUrl}/${item.sourcePath}`;
       try {
-        const content = await fetchUrl(ctx, logger, url);
-        fs.writeFileSync(destPath, content, "utf-8");
+        const content = await readRemoteTextAsset(ctx, logger, item.sourcePath);
+        if (options.tracker) {
+          writeManagedFile(options.tracker, destPath, content);
+        } else {
+          fs3.writeFileSync(destPath, content, "utf-8");
+        }
         distributed.push(item.destFile);
         logger.verbose(`\u5DF2\u4E0B\u8F7D ${options.label}: ${item.destFile}`);
       } catch (e) {
         logger.warn(`${options.label} \u4E0B\u8F7D\u5931\u8D25: ${item.destFile} - ${e.message}`);
       }
     } else {
-      const srcPath = path.join(projectRoot, item.sourcePath);
-      if (!fs.existsSync(srcPath)) {
+      const srcPath = path3.join(projectRoot, item.sourcePath);
+      if (!fs3.existsSync(srcPath)) {
         logger.warn(`${options.label} \u6587\u4EF6\u4E0D\u5B58\u5728: ${srcPath}`);
         continue;
       }
       try {
-        fs.copyFileSync(srcPath, destPath);
+        if (options.tracker) {
+          copyManagedFile(options.tracker, srcPath, destPath);
+        } else {
+          fs3.copyFileSync(srcPath, destPath);
+        }
         distributed.push(item.destFile);
         logger.verbose(`\u5DF2\u590D\u5236 ${options.label}: ${item.destFile}`);
       } catch (e) {
@@ -144,22 +403,297 @@ async function distributeItems(ctx, logger, targetDir, projectRoot, options) {
     }
   }
   if (distributed.length > 0 && options.readme) {
-    const readmePath = path.join(localDir, "README.md");
-    fs.writeFileSync(readmePath, options.readme, "utf-8");
+    const readmePath = path3.join(localDir, "README.md");
+    if (options.tracker) {
+      writeManagedFile(options.tracker, readmePath, options.readme);
+    } else {
+      fs3.writeFileSync(readmePath, options.readme, "utf-8");
+    }
   }
   return distributed;
 }
-function copyRecursive(src, dest) {
-  if (!fs.existsSync(src)) return;
-  const stat = fs.statSync(src);
-  if (stat.isDirectory()) {
-    if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-    fs.readdirSync(src).forEach((child) => {
-      copyRecursive(path.join(src, child), path.join(dest, child));
-    });
-  } else {
-    fs.copyFileSync(src, dest);
+
+// scripts/src/lib/distribution-profiles.ts
+var CORE_SCRIPTS = [
+  { file: "rule-validator.js" },
+  { file: "skill-validator.js" }
+];
+var ANALYSIS_SCRIPTS = [
+  { file: "structure-analyzer.js" },
+  { file: "module-mapper.js" },
+  { file: "report-manager.js" }
+];
+var ORCHESTRATOR_SCRIPTS = [
+  { file: "agent-call-manager.js" },
+  { file: "task-orchestrator.js" },
+  { file: "taskbook-manager.js" },
+  { file: "task-executor.js" },
+  { file: "contract-validator.js" },
+  { file: "reference-finder.js" },
+  { file: "context-collector.js" }
+];
+var FULL_SCRIPTS = [
+  { file: "agent-registry.js" }
+];
+var COMMANDS_TO_DISTRIBUTE = [
+  { sourcePath: ".claude/commands/task.md", destFile: "task.md" },
+  { sourcePath: ".claude/commands/agent-call.md", destFile: "agent-call.md" }
+];
+var WORKFLOWS_TO_DISTRIBUTE = [
+  { sourcePath: "workflows/schema/workflow.schema.json", destFile: "workflow.schema.json" },
+  { sourcePath: "workflows/templates/default.workflow.json", destFile: "default.workflow.json" }
+];
+var TASKBOOK_FILES_TO_DISTRIBUTE = [
+  { sourcePath: "taskbooks/schema/taskbook.schema.json", destFile: "taskbook.schema.json" }
+];
+var AGENT_CALL_FILES_TO_DISTRIBUTE = [
+  { sourcePath: "agent-calls/schema/agent-call.schema.json", destFile: "agent-call.schema.json" }
+];
+function isOrchestratorProfile(profile) {
+  return profile === "orchestrator" || profile === "full";
+}
+function getScriptsForProfile(profile) {
+  const scripts = [...CORE_SCRIPTS];
+  if (profile !== "core") {
+    scripts.push(...ANALYSIS_SCRIPTS);
   }
+  if (isOrchestratorProfile(profile)) {
+    scripts.push(...ORCHESTRATOR_SCRIPTS);
+  }
+  if (profile === "full") {
+    scripts.push(...FULL_SCRIPTS);
+  }
+  return scripts;
+}
+
+// scripts/src/lib/install-health.ts
+var fs4 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
+var SUPPORTED_INSTALL_STATE_SCHEMAS = /* @__PURE__ */ new Set(["1.0.0"]);
+var STATIC_MANAGED_DIRS = [
+  ".codebuddy/agent-calls",
+  ".codebuddy/agents",
+  ".codebuddy/commands",
+  ".codebuddy/rules",
+  ".codebuddy/rules_cache",
+  ".codebuddy/scripts",
+  ".codebuddy/skills",
+  ".codebuddy/taskbooks",
+  ".codebuddy/workflows"
+];
+var PROFILE_RESIDUAL_ARTIFACTS = {
+  core: [
+    ".codebuddy/scripts/structure-analyzer.js",
+    ".codebuddy/scripts/module-mapper.js",
+    ".codebuddy/scripts/report-manager.js",
+    ".codebuddy/scripts/reference-finder.js",
+    ".codebuddy/scripts/context-collector.js",
+    ".codebuddy/scripts/contract-validator.js",
+    ".codebuddy/scripts/agent-call-manager.js",
+    ".codebuddy/scripts/task-orchestrator.js",
+    ".codebuddy/scripts/taskbook-manager.js",
+    ".codebuddy/scripts/task-executor.js",
+    ".codebuddy/scripts/agent-registry.js",
+    ".codebuddy/agent-calls/agent-call.schema.json",
+    ".codebuddy/agent-calls/README.md",
+    ".codebuddy/taskbooks/taskbook.schema.json",
+    ".codebuddy/taskbooks/README.md",
+    ".codebuddy/workflows/default.workflow.json",
+    ".codebuddy/workflows/workflow.schema.json",
+    ".codebuddy/workflows/README.md"
+  ],
+  analysis: [
+    ".codebuddy/scripts/contract-validator.js",
+    ".codebuddy/scripts/agent-call-manager.js",
+    ".codebuddy/scripts/task-orchestrator.js",
+    ".codebuddy/scripts/taskbook-manager.js",
+    ".codebuddy/scripts/task-executor.js",
+    ".codebuddy/scripts/agent-registry.js",
+    ".codebuddy/agent-calls/agent-call.schema.json",
+    ".codebuddy/agent-calls/README.md",
+    ".codebuddy/taskbooks/taskbook.schema.json",
+    ".codebuddy/taskbooks/README.md",
+    ".codebuddy/workflows/default.workflow.json",
+    ".codebuddy/workflows/workflow.schema.json",
+    ".codebuddy/workflows/README.md"
+  ],
+  orchestrator: [
+    ".codebuddy/scripts/agent-registry.js"
+  ],
+  full: []
+};
+var LEGACY_ORCHESTRATOR_ARTIFACTS = [
+  ".codebuddy/agent-calls/agent-call.schema.json",
+  ".codebuddy/agent-calls/README.md",
+  ".codebuddy/taskbooks/taskbook.schema.json",
+  ".codebuddy/taskbooks/README.md",
+  ".codebuddy/workflows/default.workflow.json",
+  ".codebuddy/workflows/workflow.schema.json",
+  ".codebuddy/workflows/README.md"
+];
+function inspectInstallState(targetDir, installState, installStateExists) {
+  const installStatePath = path4.join(targetDir, ".codebuddy", "install.json");
+  const rulesFilePath = installState?.outputs.rulesFile ? path4.join(targetDir, installState.outputs.rulesFile) : null;
+  const workspaceIndexPath = installState?.outputs.workspaceIndexFile ? path4.join(targetDir, installState.outputs.workspaceIndexFile) : null;
+  const managedFiles = installState?.managedFiles || [];
+  const managedFileSet = new Set(managedFiles.map((file) => file.path));
+  const missingManagedFiles = managedFiles.filter((file) => !fs4.existsSync(path4.join(targetDir, file.path))).map((file) => file.path).sort();
+  const unexpectedStaticFiles = managedFileSet.size > 0 ? STATIC_MANAGED_DIRS.flatMap((relativeRoot) => {
+    const absoluteRoot = path4.join(targetDir, relativeRoot);
+    return listFilesRecursive(absoluteRoot).map((filePath) => toProjectRelativePath(targetDir, filePath)).filter((filePath) => !managedFileSet.has(filePath));
+  }).sort() : [];
+  const expectedResiduals = installState ? PROFILE_RESIDUAL_ARTIFACTS[installState.profile] : [];
+  const unexpectedProfileFiles = expectedResiduals.filter((relativePath) => {
+    if (managedFileSet.has(relativePath)) return false;
+    return fs4.existsSync(path4.join(targetDir, relativePath));
+  });
+  return {
+    targetDir,
+    installStatePath,
+    installStateExists,
+    installState,
+    rulesFilePath,
+    rulesFileExists: rulesFilePath ? fs4.existsSync(rulesFilePath) : false,
+    workspaceIndexPath,
+    workspaceIndexExists: workspaceIndexPath ? fs4.existsSync(workspaceIndexPath) : false,
+    trackedManagedFileCount: managedFiles.length,
+    presentManagedFileCount: managedFiles.length - missingManagedFiles.length,
+    missingManagedFiles,
+    unexpectedStaticFiles,
+    unexpectedProfileFiles
+  };
+}
+function buildDoctorChecks(inspection) {
+  const checks = [];
+  const { installState } = inspection;
+  if (!inspection.installStateExists) {
+    checks.push({
+      id: "install-state-missing",
+      status: "fail",
+      message: "\u672A\u627E\u5230 .codebuddy/install.json\uFF0C\u8BF7\u5148\u6267\u884C loader \u5B89\u88C5\u3002"
+    });
+    return checks;
+  }
+  if (!installState) {
+    checks.push({
+      id: "install-state-invalid",
+      status: "fail",
+      message: "install.json \u5B58\u5728\uFF0C\u4F46\u65E0\u6CD5\u89E3\u6790\u3002"
+    });
+    return checks;
+  }
+  checks.push({
+    id: "install-state-schema",
+    status: SUPPORTED_INSTALL_STATE_SCHEMAS.has(installState.schemaVersion) ? "pass" : "warn",
+    message: SUPPORTED_INSTALL_STATE_SCHEMAS.has(installState.schemaVersion) ? `install.json schemaVersion=${installState.schemaVersion}` : `install.json schemaVersion=${installState.schemaVersion} \u4E0D\u5728\u5F53\u524D\u53D7\u652F\u6301\u5217\u8868\u4E2D`
+  });
+  checks.push({
+    id: "rules-file",
+    status: inspection.rulesFileExists ? "pass" : "fail",
+    message: inspection.rulesFileExists ? `\u89C4\u5219\u6587\u4EF6\u5B58\u5728: ${installState.outputs.rulesFile}` : `\u89C4\u5219\u6587\u4EF6\u7F3A\u5931: ${installState.outputs.rulesFile}`
+  });
+  if (installState.outputs.workspaceIndexFile) {
+    checks.push({
+      id: "workspace-index",
+      status: inspection.workspaceIndexExists ? "pass" : "fail",
+      message: inspection.workspaceIndexExists ? `workspace \u7D22\u5F15\u5B58\u5728: ${installState.outputs.workspaceIndexFile}` : `workspace \u7D22\u5F15\u7F3A\u5931: ${installState.outputs.workspaceIndexFile}`
+    });
+  }
+  checks.push({
+    id: "managed-files-tracked",
+    status: inspection.trackedManagedFileCount > 0 ? "pass" : "fail",
+    message: `tracked managed files: ${inspection.trackedManagedFileCount}`
+  });
+  checks.push({
+    id: "managed-files-missing",
+    status: inspection.missingManagedFiles.length === 0 ? "pass" : "fail",
+    message: inspection.missingManagedFiles.length === 0 ? "\u6240\u6709 managed files \u5747\u5B58\u5728" : `\u7F3A\u5931 ${inspection.missingManagedFiles.length} \u4E2A managed files`,
+    details: inspection.missingManagedFiles.slice(0, 10)
+  });
+  checks.push({
+    id: "unexpected-static-files",
+    status: inspection.unexpectedStaticFiles.length === 0 ? "pass" : "warn",
+    message: inspection.unexpectedStaticFiles.length === 0 ? "\u672A\u53D1\u73B0\u672A\u8DDF\u8E2A\u7684\u9759\u6001\u5206\u53D1\u6587\u4EF6" : `\u53D1\u73B0 ${inspection.unexpectedStaticFiles.length} \u4E2A\u672A\u8DDF\u8E2A\u7684\u9759\u6001\u5206\u53D1\u6587\u4EF6`,
+    details: inspection.unexpectedStaticFiles.slice(0, 10)
+  });
+  if (installState.profile !== "full") {
+    const legacyArtifactCount = LEGACY_ORCHESTRATOR_ARTIFACTS.filter((relativePath) => {
+      if (inspection.installState?.profile === "orchestrator" || inspection.installState?.profile === "full") {
+        return false;
+      }
+      return inspection.unexpectedProfileFiles.includes(relativePath);
+    }).length;
+    checks.push({
+      id: "profile-residual-cleanup",
+      status: inspection.unexpectedProfileFiles.length === 0 ? "pass" : "warn",
+      message: inspection.unexpectedProfileFiles.length === 0 ? `${installState.profile} profile \u672A\u53D1\u73B0\u8D8A\u754C\u6B8B\u7559\u6587\u4EF6` : `${installState.profile} profile \u4ECD\u5B58\u5728 ${inspection.unexpectedProfileFiles.length} \u4E2A\u8D8A\u754C\u6B8B\u7559\u6587\u4EF6` + (legacyArtifactCount > 0 ? `\uFF08\u5176\u4E2D ${legacyArtifactCount} \u4E2A\u4E3A\u7F16\u6392\u5951\u7EA6\u6B8B\u7559\uFF09` : ""),
+      details: inspection.unexpectedProfileFiles.slice(0, 10)
+    });
+  }
+  return checks;
+}
+function summarizeDoctorChecks(checks) {
+  let passCount = 0;
+  let warnCount = 0;
+  let failCount = 0;
+  for (const check of checks) {
+    if (check.status === "pass") passCount += 1;
+    if (check.status === "warn") warnCount += 1;
+    if (check.status === "fail") failCount += 1;
+  }
+  return {
+    status: failCount > 0 ? "fail" : warnCount > 0 ? "warn" : "pass",
+    passCount,
+    warnCount,
+    failCount
+  };
+}
+function formatStatusReport(inspection) {
+  if (!inspection.installState) {
+    return [
+      "CodeBuddy Status",
+      `Target: ${inspection.targetDir}`,
+      `Install File: ${inspection.installStatePath}`,
+      "Status: missing",
+      "Hint: \u5148\u6267\u884C loader \u5B89\u88C5\uFF0C\u4F8B\u5982 `npm run codebuddy` \u6216 `node scripts/dist/codebuddy-loader.js`\u3002"
+    ].join("\n");
+  }
+  const installState = inspection.installState;
+  return [
+    "CodeBuddy Status",
+    `Target: ${inspection.targetDir}`,
+    `Install File: ${inspection.installStatePath}`,
+    "Status: installed",
+    `Version: ${installState.version}`,
+    `Installed At: ${installState.installedAt}`,
+    `Mode: ${installState.mode}`,
+    `Profile: ${installState.profile}`,
+    `Orchestrator: ${installState.enableOrchestrator}`,
+    `Content Pack: ${installState.source.contentPackFile || "n/a"}${installState.source.contentPackSha256 ? ` (${installState.source.contentPackSha256.slice(0, 12)})` : ""}`,
+    `Content Hash: ${installState.contentHash}`,
+    `Rules File: ${installState.outputs.rulesFile} (${inspection.rulesFileExists ? "present" : "missing"})`,
+    `Workspace Index: ${installState.outputs.workspaceIndexFile || "n/a"}${installState.outputs.workspaceIndexFile ? ` (${inspection.workspaceIndexExists ? "present" : "missing"})` : ""}`,
+    `Managed Files: tracked=${inspection.trackedManagedFileCount}, present=${inspection.presentManagedFileCount}, missing=${inspection.missingManagedFiles.length}`,
+    `Stats: skills=${installState.stats.skills}, agents=${installState.stats.agents}, scripts=${installState.stats.scripts}, workflows=${installState.stats.workflows}, taskbooks=${installState.stats.taskbooks}, agentCalls=${installState.stats.agentCalls}, commands=${installState.stats.commands}`
+  ].join("\n");
+}
+function formatDoctorReport(inspection, checks, summary) {
+  const lines = [
+    "CodeBuddy Doctor",
+    `Target: ${inspection.targetDir}`,
+    `Overall: ${summary.status.toUpperCase()} (pass=${summary.passCount}, warn=${summary.warnCount}, fail=${summary.failCount})`,
+    ""
+  ];
+  for (const check of checks) {
+    const marker = check.status === "pass" ? "PASS" : check.status === "warn" ? "WARN" : "FAIL";
+    lines.push(`[${marker}] ${check.id}: ${check.message}`);
+    if (check.details && check.details.length > 0) {
+      for (const detail of check.details) {
+        lines.push(`  - ${detail}`);
+      }
+    }
+  }
+  return lines.join("\n");
 }
 
 // scripts/src/lib/frontmatter-utils.ts
@@ -436,19 +970,110 @@ function generateAgentCallsPrompt(files) {
 ${table}
 `;
 }
+function getCommandPromptEntry(cmd) {
+  const commandName = cmd.replace(/\.md$/, "");
+  const path6 = `.codebuddy/commands/${cmd}`;
+  if (cmd === "task.md") {
+    return {
+      command: "/task",
+      path: path6,
+      description: "\u7AEF\u5230\u7AEF\u8BA1\u5212\u4EFB\u52A1\u7F16\u6392",
+      example: "/task \u5B9E\u73B0\u7528\u6237\u767B\u5F55\u529F\u80FD"
+    };
+  }
+  if (cmd === "agent-call.md") {
+    return {
+      command: "/agent-call",
+      path: path6,
+      description: "\u6267\u884C Agent Call \u5E76\u5199\u56DE result.json",
+      example: "/agent-call req-20260204-xxxxxx"
+    };
+  }
+  return {
+    command: `/${commandName}`,
+    path: path6,
+    description: "-",
+    example: `/${commandName}`
+  };
+}
+function getScriptPromptEntry(script) {
+  const path6 = `.codebuddy/scripts/${script}`;
+  if (script === "structure-analyzer.js") {
+    return {
+      file: script,
+      path: path6,
+      description: "\u9879\u76EE\u7ED3\u6784\u5206\u6790\u5668",
+      usage: `node ${path6} .`
+    };
+  }
+  if (script === "module-mapper.js") {
+    return {
+      file: script,
+      path: path6,
+      description: "\u6A21\u5757\u56FE\u8C31\u5206\u6790\u5668",
+      usage: `node ${path6} .`
+    };
+  }
+  if (script === "report-manager.js") {
+    return {
+      file: script,
+      path: path6,
+      description: "\u62A5\u544A\u7BA1\u7406\u5668",
+      usage: `node ${path6} status`
+    };
+  }
+  if (script === "agent-call-manager.js") {
+    return {
+      file: script,
+      path: path6,
+      description: "Agent Call \u7BA1\u7406\u5668\uFF08list/show/validate\uFF09",
+      usage: `node ${path6} list`
+    };
+  }
+  if (script === "task-orchestrator.js") {
+    return {
+      file: script,
+      path: path6,
+      description: "\u4E00\u952E\u95ED\u73AF\u6267\u884C\u5668\uFF08\u521B\u5EFA/\u89C4\u5212/\u6267\u884C/\u9A8C\u6536\uFF09",
+      usage: `node ${path6} "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature`
+    };
+  }
+  if (script === "contract-validator.js") {
+    return {
+      file: script,
+      path: path6,
+      description: "\u5951\u7EA6\u6821\u9A8C\u5668\uFF08TaskBook/Workflow\uFF09",
+      usage: `node ${path6} --workflows --taskbooks`
+    };
+  }
+  return {
+    file: script,
+    path: path6,
+    description: "-",
+    usage: `node ${path6}`
+  };
+}
+function buildCommandsTable(commands) {
+  const entries = commands.map(getCommandPromptEntry).sort((a, b) => a.command.localeCompare(b.command));
+  let table = "| \u547D\u4EE4 | \u8DEF\u5F84 | \u8BF4\u660E | \u793A\u4F8B |\n|------|------|------|------|\n";
+  for (const entry of entries) {
+    table += `| \`${entry.command}\` | \`${entry.path}\` | ${entry.description} | \`${entry.example}\` |
+`;
+  }
+  return table;
+}
+function buildScriptsTable(scripts) {
+  const entries = scripts.map(getScriptPromptEntry).sort((a, b) => a.file.localeCompare(b.file));
+  let table = "| \u811A\u672C | \u8DEF\u5F84 | \u8BF4\u660E | \u7528\u6CD5 |\n|------|------|------|------|\n";
+  for (const entry of entries) {
+    table += `| \`${entry.file}\` | \`${entry.path}\` | ${entry.description} | \`${entry.usage}\` |
+`;
+  }
+  return table;
+}
 function generateCommandsPrompt(commands) {
   if (commands.length === 0) return "";
-  let table = "| \u547D\u4EE4 | \u8BF4\u660E | \u89E6\u53D1\u65B9\u5F0F |\n|------|------|----------|\n";
-  for (const cmd of commands) {
-    if (cmd === "task.md") {
-      table += `| \`/task\` | \u7AEF\u5230\u7AEF\u8BA1\u5212\u4EFB\u52A1\u7F16\u6392 | \`/task \u5B9E\u73B0\u7528\u6237\u767B\u5F55\u529F\u80FD\` \u6216 "\u5E2E\u6211\u5B9E\u73B0xxx" |
-`;
-    } else {
-      const cmdName = cmd.replace(".md", "");
-      table += `| \`/${cmdName}\` | - | \`/${cmdName}\` |
-`;
-    }
-  }
+  const table = buildCommandsTable(commands);
   return `
 # \u{1F4CB} Slash Commands \u7D22\u5F15
 
@@ -458,117 +1083,75 @@ function generateCommandsPrompt(commands) {
 
 ${table}
 
-## \u{1F680} /task \u547D\u4EE4\u4F7F\u7528\u6307\u5357
+\u4F18\u5148\u8BFB\u53D6\u77ED\u5165\u53E3\uFF1A\`.codebuddy/commands/README.md\`\u3002
 
-\`/task\` \u662F\u7AEF\u5230\u7AEF\u7684\u8BA1\u5212\u4EFB\u52A1\u7F16\u6392\u547D\u4EE4\uFF0C\u652F\u6301\uFF1A
-
-### \u89E6\u53D1\u65B9\u5F0F
-
-\`\`\`bash
-# Slash Command \u65B9\u5F0F
-/task \u5B9E\u73B0\u7528\u6237\u767B\u5F55\u529F\u80FD
-/task \u91CD\u6784\u8BA2\u5355\u5904\u7406\u6A21\u5757
-
-# \u5173\u952E\u8BCD\u81EA\u52A8\u89E6\u53D1
-\u5E2E\u6211\u5B9E\u73B0\u5546\u54C1\u641C\u7D22\u529F\u80FD
-\u5F00\u53D1\u7528\u6237\u4E2D\u5FC3\u6A21\u5757
-\u91CD\u6784\u8D2D\u7269\u8F66\u903B\u8F91
-\`\`\`
-
-### \u5DE5\u4F5C\u6D41\u7A0B
-
-\`\`\`
-\u610F\u56FE\u8BC6\u522B \u2192 \u4E0A\u4E0B\u6587\u6536\u96C6 \u2192 \u9700\u6C42\u5206\u89E3 \u2192 \u7528\u6237\u786E\u8BA4 \u2192 \u81EA\u52A8\u6267\u884C \u2192 \u53D8\u66F4\u8FFD\u8E2A \u2192 \u9A8C\u6536\u95ED\u73AF
-\`\`\`
-
-### \u6838\u5FC3\u7279\u6027
-
-- **\u5E76\u884C\u6267\u884C**: \u65E0\u4F9D\u8D56\u4EFB\u52A1\u81EA\u52A8\u5E76\u884C\uFF0C\u63D0\u5347\u6548\u7387
-- **\u53D8\u66F4\u8FFD\u8E2A**: \u5B9E\u65F6\u8BB0\u5F55\u504F\u79BB\u539F\u8BA1\u5212\u7684\u6539\u52A8\u53CA\u539F\u56E0
-- **\u963B\u585E\u5904\u7406**: \u9047\u5230\u963B\u585E\u6682\u505C\uFF0C\u7B49\u5F85\u7528\u6237\u4ECB\u5165
-- **\u9A8C\u6536\u95ED\u73AF**: \u751F\u6210\u9A8C\u6536\u62A5\u544A\uFF0C\u8BF7\u6C42\u6700\u7EC8\u786E\u8BA4
-- **\u4EFB\u52A1\u6301\u4E45\u5316**: TaskBook \u53EF\u6062\u590D\uFF0C\u652F\u6301\u4E2D\u65AD\u7EE7\u7EED
-
-### TaskBook \u5B58\u50A8
-
-\`\`\`
-.codebuddy/taskbooks/
-\u251C\u2500\u2500 active/      # \u8FDB\u884C\u4E2D\u7684\u4EFB\u52A1\u4E66
-\u2514\u2500\u2500 history/     # \u5DF2\u5B8C\u6210\u7684\u4EFB\u52A1\u4E66
-\`\`\`
-
-**\u8BE6\u7EC6\u4F7F\u7528\u8BF4\u660E**: \u8BF7\u8BFB\u53D6 \`.codebuddy/commands/task.md\`
+\u6309\u9700\u518D\u8BFB\u5177\u4F53\u547D\u4EE4\u6587\u4EF6\uFF1A
+- \u4EFB\u52A1\u95ED\u73AF\uFF1A\`.codebuddy/commands/task.md\`
+- Agent Call \u6587\u4EF6\u534F\u8BAE\uFF1A\`.codebuddy/commands/agent-call.md\`
 `;
 }
+function generateCommandsReadme(commands) {
+  const table = buildCommandsTable(commands);
+  return [
+    "# CodeBuddy Slash Commands",
+    "",
+    "> \u81EA\u52A8\u751F\u6210\uFF0C\u8BF7\u52FF\u624B\u52A8\u7F16\u8F91",
+    "",
+    "## \u5DF2\u5B89\u88C5\u547D\u4EE4",
+    "",
+    table.trimEnd(),
+    "",
+    "## \u5FEB\u901F\u5165\u53E3",
+    "",
+    "- \u4E1A\u52A1\u9700\u6C42\u3001\u91CD\u6784\u3001\u7F3A\u9677\u4FEE\u590D\uFF1A\u4F18\u5148\u4F7F\u7528 `/task`\uFF0C\u8BE6\u7EC6\u8BF4\u660E\u89C1 `task.md`\u3002",
+    "- \u9700\u8981\u6267\u884C `.codebuddy/agent-calls/*.prompt.md`\uFF1A\u4F7F\u7528 `/agent-call`\uFF0C\u8BE6\u7EC6\u8BF4\u660E\u89C1 `agent-call.md`\u3002",
+    "",
+    "## \u63A8\u8350\u9605\u8BFB\u987A\u5E8F",
+    "",
+    "1. \u5148\u770B\u672C README \u786E\u8BA4\u5165\u53E3\u3002",
+    "2. \u518D\u6309\u9700\u8BFB\u53D6\u5BF9\u5E94\u547D\u4EE4\u6587\u4EF6\uFF0C\u907F\u514D\u4E00\u6B21\u6027\u626B\u8BFB\u5168\u90E8\u8BF4\u660E\u3002"
+  ].join("\n");
+}
 function generateScriptsReadme(scripts) {
-  const lines = [
+  const table = buildScriptsTable(scripts);
+  return [
     "# CodeBuddy \u5DE5\u5177\u811A\u672C",
     "",
     "> \u81EA\u52A8\u751F\u6210\uFF0C\u8BF7\u52FF\u624B\u52A8\u7F16\u8F91",
     "",
     "## \u5DF2\u5B89\u88C5\u811A\u672C",
     "",
-    "| \u811A\u672C | \u8BF4\u660E | \u7528\u6CD5 |",
-    "|------|------|------|"
-  ];
-  for (const script of scripts) {
-    if (script === "structure-analyzer.js") {
-      lines.push(`| \`${script}\` | \u9879\u76EE\u7ED3\u6784\u5206\u6790\u5668 | \`node .codebuddy/scripts/${script} .\` |`);
-    } else if (script === "agent-call-manager.js") {
-      lines.push(`| \`${script}\` | Agent Call \u7BA1\u7406\u5668\uFF08list/show/validate\uFF09 | \`node .codebuddy/scripts/${script} list\` |`);
-    } else if (script === "task-orchestrator.js") {
-      lines.push(`| \`${script}\` | \u4E00\u952E\u95ED\u73AF\u6267\u884C\u5668\uFF08\u521B\u5EFA/\u89C4\u5212/\u6267\u884C/\u9A8C\u6536\uFF09 | \`node .codebuddy/scripts/${script} "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature\` |`);
-    } else if (script === "contract-validator.js") {
-      lines.push(`| \`${script}\` | \u5951\u7EA6\u6821\u9A8C\u5668\uFF08TaskBook/Workflow\uFF09| \`node .codebuddy/scripts/${script} --workflows --taskbooks\` |`);
-    } else {
-      lines.push(`| \`${script}\` | - | \`node .codebuddy/scripts/${script}\` |`);
-    }
-  }
-  lines.push("");
-  lines.push("## \u4F7F\u7528\u793A\u4F8B");
-  lines.push("");
-  lines.push("### \u9879\u76EE\u7ED3\u6784\u5206\u6790");
-  lines.push("");
-  lines.push("```bash");
-  lines.push("# \u5206\u6790\u5F53\u524D\u9879\u76EE");
-  lines.push("node .codebuddy/scripts/structure-analyzer.js .");
-  lines.push("");
-  lines.push("# \u8F93\u51FA JSON \u683C\u5F0F");
-  lines.push("node .codebuddy/scripts/structure-analyzer.js . --output json");
-  lines.push("");
-  lines.push("# \u5B8C\u6574\u6A21\u5F0F\uFF08\u542B\u76EE\u5F55\u6811\uFF09");
-  lines.push("node .codebuddy/scripts/structure-analyzer.js . --mode full");
-  lines.push("```");
-  lines.push("");
-  return lines.join("\n");
+    table.trimEnd(),
+    "",
+    "## \u5E38\u7528\u573A\u666F",
+    "",
+    "### \u7ED3\u6784\u5206\u6790",
+    "",
+    "```bash",
+    "node .codebuddy/scripts/structure-analyzer.js .",
+    "node .codebuddy/scripts/structure-analyzer.js . --output json",
+    "```",
+    "",
+    "### \u67E5\u770B\u5206\u6790\u62A5\u544A",
+    "",
+    "```bash",
+    "node .codebuddy/scripts/report-manager.js status",
+    'node .codebuddy/scripts/report-manager.js inspect --module "src/features/user"',
+    "```",
+    "",
+    "### \u7F16\u6392 / \u5951\u7EA6\u6821\u9A8C",
+    "",
+    "```bash",
+    "node .codebuddy/scripts/contract-validator.js --workflows --taskbooks",
+    'node .codebuddy/scripts/task-orchestrator.js "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature',
+    "```",
+    "",
+    "\u62A5\u544A\u9ED8\u8BA4\u5199\u5165 `.codebuddy/reports/`\uFF0C\u4F18\u5148\u590D\u7528\u5DF2\u6709\u5206\u6790\u7ED3\u679C\uFF0C\u518D\u51B3\u5B9A\u662F\u5426\u91CD\u8DD1\u811A\u672C\u3002"
+  ].join("\n");
 }
 function generateScriptsPrompt(scripts) {
   if (scripts.length === 0) return "";
-  let table = "| \u811A\u672C | \u8BF4\u660E | \u7528\u6CD5 |\n|------|------|------|\n";
-  for (const script of scripts) {
-    if (script === "structure-analyzer.js") {
-      table += `| \`${script}\` | \u9879\u76EE\u7ED3\u6784\u5206\u6790\u5668 | \`node .codebuddy/scripts/${script} .\` |
-`;
-    } else if (script === "module-mapper.js") {
-      table += `| \`${script}\` | \u6A21\u5757\u56FE\u8C31\u5206\u6790\u5668 | \`node .codebuddy/scripts/${script} .\` |
-`;
-    } else if (script === "report-manager.js") {
-      table += `| \`${script}\` | \u62A5\u544A\u7BA1\u7406\u5668 | \`node .codebuddy/scripts/${script} status\` |
-`;
-    } else if (script === "agent-call-manager.js") {
-      table += `| \`${script}\` | Agent Call \u7BA1\u7406\u5668\uFF08list/show/validate\uFF09 | \`node .codebuddy/scripts/${script} list\` |
-`;
-    } else if (script === "task-orchestrator.js") {
-      table += `| \`${script}\` | \u4E00\u952E\u95ED\u73AF\u6267\u884C\u5668\uFF08\u521B\u5EFA/\u89C4\u5212/\u6267\u884C/\u9A8C\u6536\uFF09 | \`node .codebuddy/scripts/${script} "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature\` |
-`;
-    } else if (script === "contract-validator.js") {
-      table += `| \`${script}\` | \u5951\u7EA6\u6821\u9A8C\u5668\uFF08TaskBook/Workflow\uFF09| \`node .codebuddy/scripts/${script} --workflows --taskbooks\` |
-`;
-    } else {
-      table += `| \`${script}\` | - | \`node .codebuddy/scripts/${script}\` |
-`;
-    }
-  }
+  const table = buildScriptsTable(scripts);
   return `
 # \u{1F527} \u5DE5\u5177\u811A\u672C\u7D22\u5F15 (Scripts Index)
 
@@ -578,156 +1161,205 @@ function generateScriptsPrompt(scripts) {
 
 ${table}
 
-## \u{1F680} \u811A\u672C\u8C03\u7528\u6307\u5357 (CodeBuddy)
+\u5E38\u7528\u793A\u4F8B\u4E0E\u8BF4\u660E\u89C1 \`.codebuddy/scripts/README.md\`\u3002
 
-\u5F53\u7528\u6237\u8BF7\u6C42\u6267\u884C\u7ED3\u6784\u5206\u6790\u3001\u5065\u5EB7\u5EA6\u68C0\u67E5\u7B49\u4EFB\u52A1\u65F6\uFF0C\u53EF\u4EE5\uFF1A
-
-1. **\u76F4\u63A5\u8C03\u7528\u811A\u672C**\uFF08\u63A8\u8350\uFF09:
-   \`\`\`bash
-   node .codebuddy/scripts/structure-analyzer.js .
-   \`\`\`
-
-2. **\u6216\u4F7F\u7528 MCP \u5DE5\u5177**\uFF08\u5982\u5DF2\u914D\u7F6E\uFF09:
-   \`\`\`
-   analyze_project_structure({ projectPath: "." })
-   \`\`\`
-
-## \u{1F4CA} \u62A5\u544A\u7CFB\u7EDF (Project Memory)
-
-\u5206\u6790\u7ED3\u679C\u81EA\u52A8\u4FDD\u5B58\u5230 \`.codebuddy/reports/\` \u76EE\u5F55\uFF1A
-
-\`\`\`
-.codebuddy/reports/
-\u251C\u2500\u2500 manifest.json                 # \u62A5\u544A\u7D22\u5F15
-\u251C\u2500\u2500 architecture/latest.json      # \u67B6\u6784\u5FEB\u7167
-\u251C\u2500\u2500 modules/latest.json           # \u6A21\u5757\u56FE\u8C31
-\u2514\u2500\u2500 health/timeline.json          # \u5065\u5EB7\u5EA6\u65F6\u95F4\u7EBF
-\`\`\`
-
-### \u62A5\u544A\u7BA1\u7406\u547D\u4EE4
-
-\`\`\`bash
-# \u67E5\u770B\u62A5\u544A\u72B6\u6001
-node .codebuddy/scripts/report-manager.js status
-
-# \u67E5\u8BE2\u6A21\u5757/\u6587\u4EF6\uFF08\u4E0A\u4E0B\u6E38/\u70ED\u70B9/\u8D8B\u52BF\uFF09
-node .codebuddy/scripts/report-manager.js inspect --module "src/features/user"
-node .codebuddy/scripts/report-manager.js inspect --file "src/features/user/index.ts"
-
-# \u70ED\u70B9\u6A21\u5757\u5217\u8868
-node .codebuddy/scripts/report-manager.js hotspots --top 10
-
-# \u5BFC\u51FA Markdown \u62A5\u544A
-node .codebuddy/scripts/report-manager.js export
-
-# \u6E05\u7406\u8FC7\u671F\u62A5\u544A
-node .codebuddy/scripts/report-manager.js cleanup
-\`\`\`
-
-### \u62A5\u544A\u590D\u7528
-
-\u5F53\u62A5\u544A\u5B58\u5728\u4E14 < 24\u5C0F\u65F6\u65F6\uFF0C\u53EF\u76F4\u63A5\u8BFB\u53D6 JSON \u6587\u4EF6\u800C\u65E0\u9700\u91CD\u65B0\u5206\u6790\uFF1A
-- \u67B6\u6784\u5FEB\u7167: \`.codebuddy/reports/architecture/latest.json\`
-- \u6A21\u5757\u56FE\u8C31: \`.codebuddy/reports/modules/latest.json\`
-
-## \u811A\u672C\u4E0E Skill/Agent \u7684\u5173\u7CFB
-
-| \u7EC4\u4EF6 | \u804C\u8D23 | \u4F4D\u7F6E |
-|------|------|------|
-| **\u811A\u672C** | \u5B9E\u9645\u6267\u884C\u903B\u8F91 | \`.codebuddy/scripts/\` |
-| **Skill** | \u77E5\u8BC6\u4E0A\u4E0B\u6587 | \`.codebuddy/skills/\` |
-| **Agent** | \u5DE5\u4F5C\u6D41\u5B9A\u4E49 | \`.codebuddy/agents/\` |
-| **Reports** | \u9879\u76EE\u8BB0\u5FC6 | \`.codebuddy/reports/\` |
-
-**\u8C03\u7528\u94FE**: Skill/Agent \u63D0\u4F9B\u77E5\u8BC6 \u2192 \u811A\u672C\u6267\u884C\u5206\u6790 \u2192 Reports \u6301\u4E45\u5316 \u2192 \u540E\u7EED\u4EFB\u52A1\u590D\u7528
+\u5206\u6790\u7C7B\u811A\u672C\u9ED8\u8BA4\u628A\u7ED3\u679C\u5199\u5165 \`.codebuddy/reports/\`\uFF0C\u4F18\u5148\u590D\u7528\u5DF2\u6709\u62A5\u544A\uFF0C\u518D\u51B3\u5B9A\u662F\u5426\u91CD\u8DD1\u3002
 `;
+}
+function generateQuickActionGuide() {
+  return `
+## \u26A1 \u5FEB\u901F\u884C\u52A8\u6307\u5F15
+
+| \u573A\u666F | \u4F18\u5148\u52A8\u4F5C | \u5165\u53E3 |
+|------|----------|------|
+| \u65B0\u529F\u80FD / \u91CD\u6784 / \u7F3A\u9677\u4FEE\u590D | \u8D70\u4EFB\u52A1\u95ED\u73AF\uFF0C\u4E0D\u8981\u624B\u5DE5\u8DF3\u6B65\u9AA4 | \`/task <\u9700\u6C42>\` |
+| \u9700\u8981\u7406\u89E3\u9879\u76EE\u7ED3\u6784 | \u5148\u505A\u7ED3\u6784\u5206\u6790\uFF0C\u518D\u8BFB\u76F8\u5173\u89C4\u5219/\u4EE3\u7801 | \`node .codebuddy/scripts/structure-analyzer.js .\` |
+| \u9700\u8981\u67E5\u770B\u5DF2\u6709\u5206\u6790\u7ED3\u679C | \u5148\u67E5\u62A5\u544A\u72B6\u6001\uFF0C\u907F\u514D\u91CD\u590D\u626B\u63CF | \`node .codebuddy/scripts/report-manager.js status\` |
+| \u9700\u8981\u6267\u884C\u5916\u90E8 Agent Call | \u8BFB\u53D6 prompt\uFF0C\u5199\u56DE result.json | \`/agent-call <requestId>\` |
+| \u9700\u8981\u6821\u9A8C TaskBook / Workflow \u5951\u7EA6 | \u5148\u8DD1\u5951\u7EA6\u6821\u9A8C | \`node .codebuddy/scripts/contract-validator.js --workflows --taskbooks\` |
+| \u9700\u8981\u7EC6\u8282\u89C4\u8303 | \u6309\u9700\u8BFB\u53D6\u7F13\u5B58\u89C4\u5219\uFF0C\u4E0D\u8981\u5168\u6587\u626B\u8BFB\u5168\u90E8\u89C4\u5219 | \`.codebuddy/rules_cache/\` |
+
+\u4F18\u5148\u8BFB\u77ED\u5165\u53E3\uFF1A\`.codebuddy/scripts/README.md\`\u3001\`.codebuddy/commands/README.md\`\u3001\`.codebuddy/rules_cache/\`\u3002
+`;
+}
+function truncateText(value, max = 48) {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1).trimEnd()}...`;
+}
+function summarizeRouteTriggers(triggers, maxItems = 3) {
+  const values = [...new Set((triggers || []).map((trigger) => trigger.trim()).filter(Boolean))];
+  if (values.length === 0) return "-";
+  const formatted = values.slice(0, maxItems).map((trigger) => `\`${trigger}\``).join(", ");
+  return values.length > maxItems ? `${formatted} +${values.length - maxItems}` : formatted;
+}
+function formatRouteIds(ids) {
+  return ids.map((id) => `\`${id}\``).join(", ");
+}
+function buildAgentHint(agent) {
+  const parts = [];
+  if (agent.relatedSkills && agent.relatedSkills.length > 0) {
+    parts.push(`skills ${agent.relatedSkills.length}`);
+  }
+  if (agent.relatedRules && agent.relatedRules.length > 0) {
+    parts.push(`rules ${agent.relatedRules.length}`);
+  }
+  if (agent.permissions.length > 0) {
+    parts.push(`tools ${Math.min(agent.permissions.length, 3)}+`);
+  }
+  return parts.length > 0 ? parts.join(" / ") : "-";
+}
+function classifyAgentRouteCategory(agent) {
+  const text = `${agent.id} ${agent.name} ${agent.description}`.toLowerCase();
+  if (/(orchestrator|planner|tdd|编排|规划|交付)/.test(text)) {
+    return "orchestration";
+  }
+  if (/(build|bug|fix|debug|investigator|profiler|修复|排查|诊断|构建|性能)/.test(text)) {
+    return "diagnosis";
+  }
+  if (/(review|security|structure|analyzer|审查|架构|安全)/.test(text)) {
+    return "review";
+  }
+  return "other";
+}
+function groupAgentsByScenario(agents) {
+  const groups = [
+    {
+      key: "orchestration",
+      title: "\u8BA1\u5212\u4E0E\u6267\u884C",
+      signal: "\u591A\u6587\u4EF6\u3001\u591A\u6B65\u9AA4\u3001\u9700\u8981\u89C4\u5212/\u5B9E\u73B0/\u9A8C\u6536\u95ED\u73AF",
+      items: []
+    },
+    {
+      key: "diagnosis",
+      title: "\u8BCA\u65AD\u4E0E\u4FEE\u590D",
+      signal: "\u6784\u5EFA\u5931\u8D25\u3001\u8FD0\u884C\u65F6\u62A5\u9519\u3001\u6839\u56E0\u6392\u67E5\u3001\u6027\u80FD\u5F02\u5E38",
+      items: []
+    },
+    {
+      key: "review",
+      title: "\u5206\u6790\u4E0E\u5BA1\u67E5",
+      signal: "\u7ED3\u6784\u5206\u6790\u3001\u4EE3\u7801\u5BA1\u67E5\u3001\u5B89\u5168\u68C0\u67E5\u3001\u4E13\u9879\u8BC4\u4F30",
+      items: []
+    },
+    {
+      key: "other",
+      title: "\u5176\u4ED6",
+      signal: "\u672A\u843D\u5165\u4EE5\u4E0A\u573A\u666F\u7684\u4E13\u7528 Agent",
+      items: []
+    }
+  ];
+  for (const agent of [...agents].sort((a, b) => a.id.localeCompare(b.id))) {
+    const group = groups.find((item) => item.key === classifyAgentRouteCategory(agent));
+    group?.items.push(agent);
+  }
+  return groups.filter((group) => group.items.length > 0);
+}
+function classifySkillRouteCategory(skill) {
+  const text = `${skill.id} ${skill.name} ${skill.description}`.toLowerCase();
+  if (/(structure|module|architecture)/.test(text)) {
+    return "architecture";
+  }
+  if (/(component|state|refactor|重构|store)/.test(text)) {
+    return "implementation";
+  }
+  if (/(review|testing|a11y|i18n|wcag|无障碍)/.test(text)) {
+    return "quality";
+  }
+  if (/(performance|build|render|bundle)/.test(text)) {
+    return "performance";
+  }
+  if (/(prd|ralph|skill-creator|requirements|spec)/.test(text)) {
+    return "workflow";
+  }
+  return "other";
+}
+function groupSkillsByScenario(skills) {
+  const groups = [
+    {
+      key: "architecture",
+      title: "\u67B6\u6784\u4E0E\u5206\u6790",
+      signal: "\u9879\u76EE\u7ED3\u6784\u3001\u76EE\u5F55\u6CBB\u7406\u3001\u6A21\u5757\u5173\u7CFB\u3001\u67B6\u6784\u5065\u5EB7\u5EA6",
+      items: []
+    },
+    {
+      key: "implementation",
+      title: "\u5B9E\u73B0\u4E0E\u91CD\u6784",
+      signal: "\u7EC4\u4EF6\u62C6\u5206\u3001\u72B6\u6001\u7BA1\u7406\u3001\u5177\u4F53\u4EE3\u7801\u6539\u9020",
+      items: []
+    },
+    {
+      key: "quality",
+      title: "\u8D28\u91CF\u4E0E\u4F53\u9A8C",
+      signal: "\u4EE3\u7801\u5BA1\u67E5\u3001\u6D4B\u8BD5\u3001\u56FD\u9645\u5316\u3001\u53EF\u8BBF\u95EE\u6027",
+      items: []
+    },
+    {
+      key: "performance",
+      title: "\u6027\u80FD\u4E0E\u6784\u5EFA",
+      signal: "\u6E32\u67D3\u6027\u80FD\u3001\u5305\u4F53\u79EF\u3001\u6784\u5EFA\u901F\u5EA6\u3001\u914D\u7F6E\u4F18\u5316",
+      items: []
+    },
+    {
+      key: "workflow",
+      title: "\u4EA7\u54C1\u4E0E\u6D41\u7A0B",
+      signal: "PRD\u3001\u683C\u5F0F\u8F6C\u6362\u3001\u6280\u80FD\u5B9A\u4E49\u4E0E\u7EF4\u62A4",
+      items: []
+    },
+    {
+      key: "other",
+      title: "\u5176\u4ED6",
+      signal: "\u672A\u843D\u5165\u4EE5\u4E0A\u573A\u666F\u7684\u4E13\u7528 Skill",
+      items: []
+    }
+  ];
+  for (const skill of [...skills].sort((a, b) => a.id.localeCompare(b.id))) {
+    const group = groups.find((item) => item.key === classifySkillRouteCategory(skill));
+    group?.items.push(skill);
+  }
+  return groups.filter((group) => group.items.length > 0);
 }
 function generateAgentsPrompt(agents) {
   if (agents.length === 0) return "";
-  let agentDetails = "";
-  for (const agent of agents) {
-    const triggerText = agent.triggers.join(", ");
-    agentDetails += `### ${agent.name} (\`${agent.id}\`)
+  const groups = groupAgentsByScenario(agents);
+  let routeTable = "| \u573A\u666F | \u5224\u65AD\u4FE1\u53F7 | \u4F18\u5148 Agent |\n|------|----------|------------|\n";
+  for (const group of groups) {
+    routeTable += `| ${group.title} | ${group.signal} | ${formatRouteIds(group.items.map((agent) => agent.id))} |
+`;
+  }
+  let groupSections = "";
+  for (const group of groups) {
+    let table = "| Agent | \u4F55\u65F6\u4F7F\u7528 | \u5165\u53E3\u63D0\u793A | \u8865\u5145 |\n|-------|----------|----------|------|\n";
+    for (const agent of group.items) {
+      table += `| \`${agent.id}\` | ${truncateText(agent.description)} | ${summarizeRouteTriggers(agent.triggers, 2)} | ${buildAgentHint(agent)} |
+`;
+    }
+    groupSections += `### ${group.title}
 
-`;
-    agentDetails += `- **\u63CF\u8FF0**: ${agent.description}
-`;
-    agentDetails += `- **\u89E6\u53D1\u8BCD**: ${triggerText}
-`;
-    if (agent.workflowSummary) {
-      agentDetails += `
-${agent.workflowSummary}
-`;
-    }
-    agentDetails += "\n";
-  }
-  let decisionNodes = "";
-  for (const agent of agents) {
-    if (agent.triggers.length === 0) continue;
-    const triggerList = agent.triggers.join("/");
-    decisionNodes += `\u251C\u2500 \u5305\u542B"${triggerList}"\uFF1F
-`;
-    decisionNodes += `\u2502  \u2514\u2500 YES \u2192 ${agent.id}\uFF08${agent.description}\uFF09
-\u2502
+${table}
 `;
   }
-  decisionNodes += `\u2514\u2500 \u4EE5\u4E0A\u5747\u4E0D\u5339\u914D\uFF1F
-`;
-  decisionNodes += `   \u2514\u2500 \u56DE\u9000\u5230\u3010\u7B2C\u4E09\u6B65\uFF1ASkill \u51B3\u7B56\u6811\u3011`;
-  const orchestratorKeywords = [];
-  for (const agent of agents) {
-    for (const t of agent.triggers) {
-      if (!t.startsWith("/") && !t.startsWith("plan ") && !t.startsWith("create ")) {
-        orchestratorKeywords.push(t);
-      }
-    }
-    if (agent.implicitTriggers) {
-      for (const it of agent.implicitTriggers) {
-        const cleaned = it.pattern.replace(/\.\*/g, "").replace(/[\\^$|?+()[\]{}]/g, "");
-        if (cleaned.length > 0) {
-          orchestratorKeywords.push(cleaned);
-        }
-      }
-    }
-  }
-  const uniqueKeywords = [...new Set(orchestratorKeywords)];
-  const keywordHints = uniqueKeywords.length > 0 ? uniqueKeywords.map((k) => `"${k}"`).join("/") : '"\u89C4\u5212/\u8BA1\u5212/\u5E2E\u6211\u5B9E\u73B0/\u5E2E\u6211\u89C4\u5212/\u5F00\u53D1"';
   return `
 # \u{1F916} Agent \u4E0E Skill \u7EDF\u4E00\u8C03\u5EA6\u6307\u5357
 
-\u672C\u89C4\u5219\u5E93\u652F\u6301 **Agent \u6267\u884C\u6A21\u5F0F** \u548C **Skill \u77E5\u8BC6\u6A21\u5F0F**\u3002\u6536\u5230\u7528\u6237\u8BF7\u6C42\u540E\uFF0C\u6309\u4EE5\u4E0B\u51B3\u7B56\u6811\u4ECE\u4E0A\u5230\u4E0B\u5224\u65AD\u3002
+\u672C\u89C4\u5219\u5E93\u652F\u6301 **Agent \u6267\u884C\u6A21\u5F0F** \u548C **Skill \u77E5\u8BC6\u6A21\u5F0F**\u3002\u4F18\u5148\u6309\u4EFB\u52A1\u89C4\u6A21\u5224\u65AD\uFF0C\u518D\u6309\u573A\u666F\u5206\u7C7B\u8DEF\u7531\u3002
 
 ## \u7B2C\u4E00\u6B65\uFF1A\u5224\u65AD\u4EFB\u52A1\u89C4\u6A21
 
-\`\`\`
-\u7528\u6237\u8BF7\u6C42
-\u2502
-\u251C\u2500 \u662F\u5426\u6D89\u53CA\u591A\u6587\u4EF6\u3001\u591A\u6B65\u9AA4\u3001\u9700\u8981\u89C4\u5212+\u5B9E\u73B0+\u5BA1\u67E5\uFF1F
-\u2502  \u2502  \u5224\u65AD\u4F9D\u636E\uFF1A
-\u2502  \u2502  - \u63D0\u5230"\u6574\u4E2A\u6A21\u5757/\u7CFB\u7EDF/\u529F\u80FD"\uFF08\u975E\u5355\u4E2A\u6587\u4EF6/\u7EC4\u4EF6\uFF09
-\u2502  \u2502  - \u5305\u542B ${keywordHints}
-\u2502  \u2502  - \u9700\u8981\u5148\u8BBE\u8BA1\u518D\u7F16\u7801\u518D\u6D4B\u8BD5
-\u2502  \u2502
-\u2502  \u251C\u2500 YES \u2192 \u8FDB\u5165\u3010\u7B2C\u4E8C\u6B65\uFF1AAgent \u51B3\u7B56\u6811\u3011
-\u2502  \u2514\u2500 NO\uFF08\u5355\u6587\u4EF6/\u5355\u7EC4\u4EF6/\u5355\u6B21\u64CD\u4F5C\uFF09\u2192 \u8FDB\u5165\u3010\u7B2C\u4E09\u6B65\uFF1ASkill \u51B3\u7B56\u6811\u3011
-\`\`\`
+| \u4EFB\u52A1\u89C4\u6A21 | \u5904\u7406\u65B9\u5F0F |
+|----------|----------|
+| \u591A\u6587\u4EF6\u3001\u591A\u6B65\u9AA4\u3001\u9700\u8981\u89C4\u5212/\u6267\u884C/\u9A8C\u6536 | \u8FDB\u5165\u3010\u7B2C\u4E8C\u6B65\uFF1AAgent \u5206\u7C7B\u8DEF\u7531\u3011 |
+| \u5355\u6587\u4EF6\u3001\u5355\u7EC4\u4EF6\u3001\u5355\u6B21\u5177\u4F53\u64CD\u4F5C | \u8FDB\u5165\u3010\u7B2C\u4E09\u6B65\uFF1ASkill \u5206\u7C7B\u8DEF\u7531\u3011 |
+| \u7EAF\u6982\u5FF5\u95EE\u7B54\u6216\u7B80\u5355\u8BED\u6CD5\u8BF4\u660E | \u4E0D\u52A0\u8F7D Agent/Skill\uFF0C\u76F4\u63A5\u57FA\u4E8E\u89C4\u5219\u56DE\u7B54 |
 
-## \u7B2C\u4E8C\u6B65\uFF1AAgent \u51B3\u7B56\u6811\uFF08\u591A\u6B65\u9AA4\u6D41\u7A0B\uFF09
+## \u7B2C\u4E8C\u6B65\uFF1AAgent \u5206\u7C7B\u8DEF\u7531\uFF08\u591A\u6B65\u9AA4\u6D41\u7A0B\uFF09
 
-\u547D\u4E2D\u5373\u505C\uFF0C\u4E0D\u518D\u7EE7\u7EED\u5339\u914D\uFF1A
+${routeTable}
 
-\`\`\`
-${decisionNodes}
-\`\`\`
+\u547D\u4E2D\u67D0\u4E2A\u573A\u666F\u540E\uFF0C\u518D\u6309\u9700\u8BFB\u53D6\u5BF9\u5E94 \`.codebuddy/agents/<agent-id>/AGENT.md\`\uFF0C\u4E0D\u8981\u5148\u628A\u6240\u6709 Agent \u5168\u6587\u626B\u4E00\u904D\u3002
 
-**Agent \u8C03\u7528\u6B65\u9AA4**:
-1. \u8C03\u7528 \`read_file\` \u8BFB\u53D6 \`.codebuddy/agents/<agent-id>/AGENT.md\`
-2. \u4E25\u683C\u6309 AGENT.md \u4E2D\u5B9A\u4E49\u7684\u6B65\u9AA4\u987A\u5E8F\u6267\u884C\uFF0C\u4E0D\u53EF\u8DF3\u8FC7
-3. \u5408\u5E76\u7ED3\u679C\u8F93\u51FA\u5B8C\u6574\u62A5\u544A
+## \u5DF2\u5B89\u88C5 Agents\uFF08\u6309\u573A\u666F\u5206\u7EC4\uFF09
 
-## \u5DF2\u5B89\u88C5 Agents \u8BE6\u60C5
-
-${agentDetails}
+${groupSections}
 
 ## Agent \u4E0E Skill \u7684\u533A\u522B
 
@@ -742,45 +1374,38 @@ ${agentDetails}
 }
 function generateSkillsPrompt(skills) {
   if (skills.length === 0) return "";
-  let table = "| Skill | ID | When to use | Hints |\n|-------|----|-------------|-------|\n";
-  for (const skill of skills) {
-    table += `| **${skill.name}** | \`${skill.id}\` | ${skill.description} | ${buildSkillHint(skill)} |
+  const groups = groupSkillsByScenario(skills);
+  let routeTable = "| \u573A\u666F | \u5224\u65AD\u4FE1\u53F7 | \u4F18\u5148 Skill |\n|------|----------|------------|\n";
+  for (const group of groups) {
+    routeTable += `| ${group.title} | ${group.signal} | ${formatRouteIds(group.items.map((skill) => skill.id))} |
 `;
   }
-  let decisionNodes = "";
-  for (const skill of skills) {
-    if (skill.triggers.length === 0) continue;
-    const triggerList = skill.triggers.join("/");
-    decisionNodes += `\u251C\u2500 \u5305\u542B"${triggerList}"\uFF1F
+  let groupSections = "";
+  for (const group of groups) {
+    let table = "| Skill | \u4F55\u65F6\u4F7F\u7528 | \u5165\u53E3\u63D0\u793A | Hints |\n|-------|----------|----------|-------|\n";
+    for (const skill of group.items) {
+      table += `| \`${skill.id}\` | ${truncateText(skill.description)} | ${summarizeRouteTriggers(skill.triggers, 2)} | ${buildSkillHint(skill)} |
 `;
-    decisionNodes += `\u2502  \u2514\u2500 YES \u2192 ${skill.id}\uFF08${skill.name}\uFF09
-\u2502
+    }
+    groupSections += `### ${group.title}
+
+${table}
 `;
   }
-  decisionNodes += `\u2514\u2500 \u4EE5\u4E0A\u5747\u4E0D\u5339\u914D\uFF1F
-`;
-  decisionNodes += `   \u2514\u2500 \u4E0D\u52A0\u8F7D\u6280\u80FD\uFF0C\u76F4\u63A5\u57FA\u4E8E\u89C4\u5219\u56DE\u7B54`;
   return `
-## \u7B2C\u4E09\u6B65\uFF1ASkill \u51B3\u7B56\u6811\uFF08\u5355\u6B21\u64CD\u4F5C\uFF09
+## \u7B2C\u4E09\u6B65\uFF1ASkill \u5206\u7C7B\u8DEF\u7531\uFF08\u5355\u6B21\u64CD\u4F5C\uFF09
 
 \u6280\u80FD\u6587\u4EF6\u5DF2\u4E0B\u8F7D\u81F3 \`.codebuddy/skills/\`\u3002
 
 > **Skill \u662F\u77E5\u8BC6\u6E90\uFF0C\u4E0D\u662F\u6267\u884C\u8005\u3002** \u5982\u679C\u4EFB\u52A1\u9700\u8981\u591A\u6B65\u9AA4\u81EA\u4E3B\u6D41\u7A0B\uFF0C\u8BF7\u56DE\u5230\u7B2C\u4E8C\u6B65\u4F7F\u7528 Agent\u3002
 
-\u547D\u4E2D\u5373\u505C\uFF0C\u4E0D\u518D\u7EE7\u7EED\u5339\u914D\uFF1A
+${routeTable}
 
-\`\`\`
-${decisionNodes}
-\`\`\`
+\u547D\u4E2D\u67D0\u4E2A\u573A\u666F\u540E\uFF0C\u518D\u6309\u9700\u8BFB\u53D6 \`.codebuddy/skills/<\u6280\u80FDID>/SKILL.md\` \u4E0E\u76F8\u5173 \`references/\`\uFF0C\u907F\u514D\u4E00\u6B21\u6027\u52A0\u8F7D\u5168\u90E8\u6280\u80FD\u3002
 
-**Skill \u8C03\u7528\u6B65\u9AA4**:
-1. \u8C03\u7528 \`read_file\` \u8BFB\u53D6 \`.codebuddy/skills/<\u6280\u80FDID>/SKILL.md\`
-2. \u6839\u636E SKILL.md \u4E2D\u7684\u8DEF\u7531\u903B\u8F91\uFF0C\u8BFB\u53D6 \`references/\` \u4E0B\u7684\u76F8\u5173\u6587\u6863
-3. \u57FA\u4E8E\u5B8C\u6574\u4E0A\u4E0B\u6587\u6267\u884C\u7528\u6237\u4EFB\u52A1
+## \u5DF2\u5B89\u88C5\u6280\u80FD\uFF08\u6309\u573A\u666F\u5206\u7EC4\uFF09
 
-## \u5DF2\u5B89\u88C5\u6280\u80FD\u4E00\u89C8
-
-${table}
+${groupSections}
 
 ## \u26A0\uFE0F \u4F55\u65F6\u4E0D\u9700\u8981\u52A0\u8F7D\u6280\u80FD
 
@@ -942,14 +1567,19 @@ ${routingExample}${mixWarning}
 
 // scripts/src/codebuddy-loader.ts
 var SCRIPT_DIR = __dirname;
-var PROJECT_ROOT = path2.resolve(SCRIPT_DIR, "../..");
-var RULES_ROOT = path2.join(PROJECT_ROOT, "rules");
-var CONFIG_PATH = path2.join(PROJECT_ROOT, "config", "loader-config.json");
-var SKILLS_ROOT = path2.join(PROJECT_ROOT, "custom-skills");
-var AGENTS_ROOT = path2.join(PROJECT_ROOT, "agents");
+var PROJECT_ROOT = path5.resolve(SCRIPT_DIR, "../..");
+var PACKAGE_JSON_PATH = path5.join(PROJECT_ROOT, "package.json");
+var RULES_ROOT = path5.join(PROJECT_ROOT, "rules");
+var CONFIG_PATH = path5.join(PROJECT_ROOT, "config", "loader-config.json");
+var SKILLS_ROOT = path5.join(PROJECT_ROOT, "custom-skills");
+var AGENTS_ROOT = path5.join(PROJECT_ROOT, "agents");
 var DEFAULT_TIMEOUT = 1e4;
 var DEFAULT_THRESHOLD = 0.5;
 var DEFAULT_RULE_LEVEL = "full";
+var DEFAULT_PROFILE = "analysis";
+var INSTALL_STATE_SCHEMA_VERSION = "1.0.0";
+var COMMANDS = /* @__PURE__ */ new Set(["install", "status", "doctor"]);
+var INSTALL_PROFILES = ["core", "analysis", "orchestrator", "full"];
 function showHelp() {
   console.log(`
 \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
@@ -957,16 +1587,23 @@ function showHelp() {
 \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D
 
 \u7528\u6CD5\uFF1A
-  node codebuddy-loader.js [options]
+  node codebuddy-loader.js [command] [options]
+
+\u547D\u4EE4\uFF1A
+  install              \u5B89\u88C5/\u540C\u6B65 CodeBuddy \u89C4\u5219\u548C\u8FD0\u884C\u65F6\uFF08\u9ED8\u8BA4\uFF09
+  status               \u663E\u793A\u5F53\u524D\u9879\u76EE\u7684 CodeBuddy \u5B89\u88C5\u72B6\u6001
+  doctor               \u8BCA\u65AD\u5F53\u524D\u9879\u76EE\u7684 CodeBuddy \u5B89\u88C5\u95EE\u9898
 
 \u9009\u9879\uFF1A
   --help, -h           \u663E\u793A\u5E2E\u52A9\u4FE1\u606F
+  --json               status / doctor \u8F93\u51FA JSON
   --remote <URL>       \u4ECE\u8FDC\u7A0B URL \u83B7\u53D6\u89C4\u5219
   --task <type>        \u6309\u4EFB\u52A1\u7C7B\u578B\u7B5B\u9009\u89C4\u5219\uFF08\u6E10\u8FDB\u5F0F\u62AB\u9732\uFF09
                        \u7C7B\u578B: refactoring, debugging, testing, new-feature, code-review
   --threshold <n>      \u8BBE\u7F6E\u76F8\u5173\u6027\u9608\u503C (0-1, \u9ED8\u8BA4: 0.5)
   --rule-level <lvl>   \u89C4\u5219\u5185\u5BB9\u88C1\u526A\u7B49\u7EA7\uFF08\u57FA\u4E8E @level:summary/quick/full \u5206\u6BB5\u6807\u8BB0\uFF0C\u9ED8\u8BA4: full\uFF09
-  --enable-orchestrator \u542F\u7528 B \u8DEF\u7EBF\u7F16\u6392\u811A\u672C\u5206\u53D1\uFF08task-executor\u3001agent-call \u534F\u8BAE\u7B49\uFF09
+  --profile <name>     \u5206\u53D1\u6863\u4F4D: core | analysis | orchestrator | full\uFF08\u9ED8\u8BA4: analysis\uFF09
+  --enable-orchestrator \u517C\u5BB9\u65E7\u53C2\u6570\uFF0C\u7B49\u4EF7\u4E8E\u65E7\u7248\u5B8C\u6574\u5206\u53D1\uFF08\u5373 --profile full\uFF09
   --no-workspace       \u7981\u7528 workspace \u591A\u9879\u76EE\u81EA\u52A8\u53D1\u73B0
   --verbose, -v        \u542F\u7528\u8BE6\u7EC6\u65E5\u5FD7
   --timeout <ms>       \u8BBE\u7F6E\u7F51\u7EDC\u8BF7\u6C42\u8D85\u65F6\uFF08\u9ED8\u8BA4: 10000ms\uFF09
@@ -982,8 +1619,20 @@ function showHelp() {
   # \u52A0\u8F7D\u6240\u6709\u89C4\u5219\uFF08\u9ED8\u8BA4\uFF09
   node codebuddy-loader.js
 
+  # \u67E5\u770B\u5F53\u524D\u9879\u76EE\u5B89\u88C5\u72B6\u6001
+  node codebuddy-loader.js status
+
+  # \u8BCA\u65AD\u5B89\u88C5\u95EE\u9898\uFF08JSON \u8F93\u51FA\uFF09
+  node codebuddy-loader.js doctor --json
+
   # \u4EC5\u52A0\u8F7D\u91CD\u6784\u76F8\u5173\u89C4\u5219
   node codebuddy-loader.js --task refactoring
+
+  # \u53EA\u5B89\u88C5\u6700\u5C0F\u8FD0\u884C\u65F6
+  node codebuddy-loader.js --profile core
+
+  # \u5B89\u88C5\u5B8C\u6574\u8FD0\u884C\u65F6
+  node codebuddy-loader.js --profile full
 
   # \u4ECE\u8FDC\u7A0B\u52A0\u8F7D
   node codebuddy-loader.js --remote https://example.com/standards
@@ -1007,26 +1656,158 @@ async function loadConfig(ctx, logger) {
       process.exit(1);
     }
   } else {
-    if (!fs2.existsSync(CONFIG_PATH)) {
+    if (!fs5.existsSync(CONFIG_PATH)) {
       logger.error(`\u914D\u7F6E\u6587\u4EF6\u4E0D\u5B58\u5728: ${CONFIG_PATH}`);
       process.exit(1);
     }
     logger.verbose(`\u52A0\u8F7D\u672C\u5730\u914D\u7F6E: ${CONFIG_PATH}`);
-    return { config: JSON.parse(fs2.readFileSync(CONFIG_PATH, "utf-8")), manifest: null };
+    return { config: JSON.parse(fs5.readFileSync(CONFIG_PATH, "utf-8")), manifest: null };
   }
 }
 function getPackageJson(logger, targetDir) {
-  const pkgPath = path2.join(targetDir, "package.json");
-  if (!fs2.existsSync(pkgPath)) {
+  const pkgPath = path5.join(targetDir, "package.json");
+  if (!fs5.existsSync(pkgPath)) {
     logger.warn(`\u672A\u627E\u5230 package.json: ${pkgPath}`);
     return {};
   }
   try {
-    return JSON.parse(fs2.readFileSync(pkgPath, "utf-8"));
+    return JSON.parse(fs5.readFileSync(pkgPath, "utf-8"));
   } catch (e) {
     logger.error(`\u89E3\u6790 package.json \u5931\u8D25: ${e.message}`);
     return {};
   }
+}
+function getLoaderVersion(ctx, logger) {
+  if (ctx.remoteManifest?.version) {
+    return ctx.remoteManifest.version;
+  }
+  if (!fs5.existsSync(PACKAGE_JSON_PATH)) {
+    logger.warn(`\u672A\u627E\u5230 loader package.json: ${PACKAGE_JSON_PATH}`);
+    return "0.0.0";
+  }
+  try {
+    const pkg = JSON.parse(fs5.readFileSync(PACKAGE_JSON_PATH, "utf-8"));
+    return pkg.version || "0.0.0";
+  } catch (error) {
+    logger.warn(`\u8BFB\u53D6 loader package.json \u5931\u8D25: ${error.message}`);
+    return "0.0.0";
+  }
+}
+function buildInstallState(params) {
+  const {
+    ctx,
+    logger,
+    targetDir,
+    outputPath,
+    workspaceIndexPath,
+    layer1RulesCount,
+    layer2IndexCount,
+    layer3IndexCount,
+    skillsCount,
+    agentsCount,
+    distributedScripts,
+    distributedWorkflows,
+    distributedTaskBooks,
+    distributedAgentCalls,
+    distributedCommands,
+    managedFiles,
+    workspaceInfo
+  } = params;
+  const version = getLoaderVersion(ctx, logger);
+  const installedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const profile = ctx.profile;
+  const mode = ctx.isRemote ? "remote" : "local";
+  const rulesFile = toProjectRelativePath(targetDir, outputPath);
+  const workspaceIndexFile = workspaceIndexPath ? toProjectRelativePath(targetDir, workspaceIndexPath) : null;
+  const normalizedManagedFiles = managedFiles.map((file) => ({ path: file.path, sha256: file.sha256, size: file.size })).sort((left, right) => left.path.localeCompare(right.path));
+  const stableManagedFiles = normalizedManagedFiles.filter((file) => file.path !== rulesFile && file.path !== workspaceIndexFile);
+  const hashPayload = {
+    version,
+    mode,
+    profile,
+    enableOrchestrator: ctx.enableOrchestrator,
+    source: {
+      remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
+      manifestVersion: ctx.remoteManifest?.version || null,
+      contentPackFile: ctx.remoteContentPack?.file || null,
+      contentPackFormat: ctx.remoteContentPack?.format || null,
+      contentPackSha256: ctx.remoteContentPack?.sha256 || null
+    },
+    options: {
+      taskType: ctx.taskType,
+      ruleLevel: ctx.ruleLevel,
+      relevanceThreshold: ctx.relevanceThreshold,
+      workspaceDiscovery: !ctx.disableWorkspace
+    },
+    outputs: {
+      rulesFile,
+      workspaceIndexFile
+    },
+    managedFiles: stableManagedFiles,
+    stats: {
+      layer1Rules: layer1RulesCount,
+      layer2Indexes: layer2IndexCount,
+      layer3Indexes: layer3IndexCount,
+      skills: skillsCount,
+      agents: agentsCount,
+      scripts: distributedScripts.slice().sort(),
+      workflows: distributedWorkflows.slice().sort(),
+      taskbooks: distributedTaskBooks.slice().sort(),
+      agentCalls: distributedAgentCalls.slice().sort(),
+      commands: distributedCommands.slice().sort(),
+      workspaceProjects: workspaceInfo.projects.map((project) => project.relativePath).sort()
+    }
+  };
+  const contentHash = (0, import_crypto3.createHash)("sha256").update(JSON.stringify(hashPayload)).digest("hex");
+  return {
+    schemaVersion: INSTALL_STATE_SCHEMA_VERSION,
+    version,
+    installedAt,
+    mode,
+    profile,
+    enableOrchestrator: ctx.enableOrchestrator,
+    contentHash,
+    source: {
+      remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
+      manifestVersion: ctx.remoteManifest?.version || null,
+      contentPackFile: ctx.remoteContentPack?.file || null,
+      contentPackFormat: ctx.remoteContentPack?.format || null,
+      contentPackSha256: ctx.remoteContentPack?.sha256 || null
+    },
+    options: {
+      taskType: ctx.taskType,
+      ruleLevel: ctx.ruleLevel,
+      relevanceThreshold: ctx.relevanceThreshold,
+      workspaceDiscovery: !ctx.disableWorkspace
+    },
+    outputs: {
+      rulesFile,
+      workspaceIndexFile
+    },
+    managedFiles: normalizedManagedFiles,
+    stats: {
+      layer1Rules: layer1RulesCount,
+      layer2Indexes: layer2IndexCount,
+      layer3Indexes: layer3IndexCount,
+      skills: skillsCount,
+      agents: agentsCount,
+      scripts: distributedScripts.length,
+      workflows: distributedWorkflows.length,
+      taskbooks: distributedTaskBooks.length,
+      agentCalls: distributedAgentCalls.length,
+      commands: distributedCommands.length,
+      workspaceProjects: workspaceInfo.projects.length
+    }
+  };
+}
+function writeInstallState(targetDir, installState) {
+  const installStatePath = path5.join(targetDir, ".codebuddy", "install.json");
+  const installStateDir = path5.dirname(installStatePath);
+  if (!fs5.existsSync(installStateDir)) {
+    fs5.mkdirSync(installStateDir, { recursive: true });
+  }
+  fs5.writeFileSync(installStatePath, JSON.stringify(installState, null, 2), "utf-8");
+  return installStatePath;
 }
 function checkVueProfile(dependencies) {
   const vueVersion = dependencies["vue"];
@@ -1110,21 +1891,21 @@ function discoverWorkspace(logger, targetDir) {
     if (projects.length >= MAX_SUB_PROJECTS) return;
     let realDir;
     try {
-      realDir = fs2.realpathSync(dir);
+      realDir = fs5.realpathSync(dir);
     } catch {
       return;
     }
     if (visited.has(realDir)) return;
     visited.add(realDir);
-    const relativePath = path2.relative(targetDir, dir).replace(/\\/g, "/") || ".";
+    const relativePath = path5.relative(targetDir, dir).replace(/\\/g, "/") || ".";
     let detected = false;
     for (const marker of PROJECT_MARKERS) {
-      const markerFile = marker.files.find((f) => fs2.existsSync(path2.join(dir, f)));
+      const markerFile = marker.files.find((f) => fs5.existsSync(path5.join(dir, f)));
       if (!markerFile) continue;
       let lang = marker.lang;
       if (marker.refinements) {
         for (const ref of marker.refinements) {
-          if (ref.files.some((f) => fs2.existsSync(path2.join(dir, f)))) {
+          if (ref.files.some((f) => fs5.existsSync(path5.join(dir, f)))) {
             lang = ref.lang;
             break;
           }
@@ -1132,10 +1913,10 @@ function discoverWorkspace(logger, targetDir) {
       }
       if (markerFile === "package.json") {
         try {
-          const pkgContent = JSON.parse(fs2.readFileSync(path2.join(dir, "package.json"), "utf-8"));
+          const pkgContent = JSON.parse(fs5.readFileSync(path5.join(dir, "package.json"), "utf-8"));
           const deps = { ...pkgContent.dependencies, ...pkgContent.devDependencies };
           projects.push({
-            name: pkgContent.name || path2.basename(dir),
+            name: pkgContent.name || path5.basename(dir),
             relativePath,
             absolutePath: dir,
             lang,
@@ -1147,11 +1928,11 @@ function discoverWorkspace(logger, targetDir) {
             uiLibLabels: detectUILibs(deps)
           });
         } catch {
-          logger.warn(`\u89E3\u6790 package.json \u5931\u8D25: ${path2.join(dir, "package.json")}`);
+          logger.warn(`\u89E3\u6790 package.json \u5931\u8D25: ${path5.join(dir, "package.json")}`);
         }
       } else {
         projects.push({
-          name: path2.basename(dir),
+          name: path5.basename(dir),
           relativePath,
           absolutePath: dir,
           lang,
@@ -1167,11 +1948,11 @@ function discoverWorkspace(logger, targetDir) {
     }
     if (!detected) {
       try {
-        const entries = fs2.readdirSync(dir);
+        const entries = fs5.readdirSync(dir);
         const hasCsproj = entries.some((e) => e.endsWith(".csproj") || e.endsWith(".sln"));
         if (hasCsproj) {
           projects.push({
-            name: path2.basename(dir),
+            name: path5.basename(dir),
             relativePath,
             absolutePath: dir,
             lang: "dotnet",
@@ -1189,15 +1970,15 @@ function discoverWorkspace(logger, targetDir) {
     if (depth < 2) {
       let entries;
       try {
-        entries = fs2.readdirSync(dir);
+        entries = fs5.readdirSync(dir);
       } catch {
         return;
       }
       for (const entry of entries) {
         if (entry.startsWith(".") || WORKSPACE_EXCLUDE_DIRS.has(entry)) continue;
-        const childPath = path2.join(dir, entry);
+        const childPath = path5.join(dir, entry);
         try {
-          const stat = fs2.statSync(childPath);
+          const stat = fs5.statSync(childPath);
           if (stat.isDirectory()) {
             scan(childPath, depth + 1);
           }
@@ -1227,17 +2008,16 @@ function discoverWorkspace(logger, targetDir) {
 }
 async function loadRuleFile(ctx, logger, layerId, filePath) {
   if (ctx.isRemote) {
-    const fileUrl = `${ctx.remoteBaseUrl}/rules/${layerId}/${filePath}`;
     try {
-      return await fetchUrl(ctx, logger, fileUrl);
+      return await readRemoteTextAsset(ctx, logger, `rules/${layerId}/${filePath}`);
     } catch (e) {
       logger.warn(`\u8FDC\u7A0B\u89C4\u5219\u52A0\u8F7D\u5931\u8D25: ${filePath}`);
       return "";
     }
   } else {
-    const fullPath = path2.join(RULES_ROOT, layerId, filePath);
-    if (fs2.existsSync(fullPath)) {
-      return fs2.readFileSync(fullPath, "utf-8");
+    const fullPath = path5.join(RULES_ROOT, layerId, filePath);
+    if (fs5.existsSync(fullPath)) {
+      return fs5.readFileSync(fullPath, "utf-8");
     }
     return "";
   }
@@ -1257,23 +2037,23 @@ async function loadLayerRules(ctx, logger, layerId, folders) {
         }
       }
     } else {
-      const folderPath = path2.join(RULES_ROOT, layerId, folder);
-      if (fs2.existsSync(folderPath)) {
-        const stat = fs2.statSync(folderPath);
+      const folderPath = path5.join(RULES_ROOT, layerId, folder);
+      if (fs5.existsSync(folderPath)) {
+        const stat = fs5.statSync(folderPath);
         if (stat.isDirectory()) {
-          const files = fs2.readdirSync(folderPath).filter((f) => f.endsWith(".md"));
+          const files = fs5.readdirSync(folderPath).filter((f) => f.endsWith(".md"));
           for (const file of files) {
-            const content = fs2.readFileSync(path2.join(folderPath, file), "utf-8");
+            const content = fs5.readFileSync(path5.join(folderPath, file), "utf-8");
             contents.push({ path: `${folder}/${file}`, content: filterRuleByLevel(content, ctx.ruleLevel) });
           }
         } else if (folderPath.endsWith(".md")) {
-          const content = fs2.readFileSync(folderPath, "utf-8");
+          const content = fs5.readFileSync(folderPath, "utf-8");
           contents.push({ path: folder, content: filterRuleByLevel(content, ctx.ruleLevel) });
         }
       }
-      const mdPath = path2.join(RULES_ROOT, layerId, folder + ".md");
-      if (fs2.existsSync(mdPath)) {
-        const content = fs2.readFileSync(mdPath, "utf-8");
+      const mdPath = path5.join(RULES_ROOT, layerId, folder + ".md");
+      if (fs5.existsSync(mdPath)) {
+        const content = fs5.readFileSync(mdPath, "utf-8");
         contents.push({ path: folder + ".md", content: filterRuleByLevel(content, ctx.ruleLevel) });
       }
     }
@@ -1306,27 +2086,22 @@ function filterRuleByLevel(content, level) {
   }
   return picked.join("").trimEnd() + "\n";
 }
-async function loadEntities(ctx, logger, sourcePath, options) {
+async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir) {
   const entities = [];
-  const localDir = path2.join(process.cwd(), options.targetSubDir);
-  if (!fs2.existsSync(localDir)) {
-    fs2.mkdirSync(localDir, { recursive: true });
+  const localDir = path5.join(targetDir, options.targetSubDir);
+  if (!fs5.existsSync(localDir)) {
+    fs5.mkdirSync(localDir, { recursive: true });
   }
   if (ctx.isRemote) {
     const files = ctx.remoteManifest.files.filter(
       (f) => f.path.startsWith(options.manifestPrefix) && f.path.endsWith(".md")
     );
     for (const file of files) {
-      const fileUrl = `${ctx.remoteBaseUrl}/${file.path}`;
       try {
-        const content = await fetchUrl(ctx, logger, fileUrl);
+        const content = await readRemoteTextAsset(ctx, logger, file.path);
         const relativePath = file.path.replace(options.manifestPrefix, "");
-        const localPath = path2.join(localDir, relativePath);
-        const localDirPath = path2.dirname(localPath);
-        if (!fs2.existsSync(localDirPath)) {
-          fs2.mkdirSync(localDirPath, { recursive: true });
-        }
-        fs2.writeFileSync(localPath, content, "utf-8");
+        const localPath = path5.join(localDir, relativePath);
+        writeManagedFile(tracker, localPath, content);
         logger.verbose(`\u5DF2\u4E0B\u8F7D${options.label}\u6587\u4EF6: ${relativePath}`);
         if (file.path.endsWith(options.metadataFileName)) {
           const entityId = relativePath.split("/")[0];
@@ -1338,17 +2113,22 @@ async function loadEntities(ctx, logger, sourcePath, options) {
       }
     }
   } else {
-    const sourceDir = path2.join(PROJECT_ROOT, sourcePath);
-    if (fs2.existsSync(sourceDir)) {
-      copyRecursive(sourceDir, localDir);
-      const entityDirs = fs2.readdirSync(localDir).filter((f) => {
-        const fullPath = path2.join(localDir, f);
-        return fs2.existsSync(fullPath) && fs2.statSync(fullPath).isDirectory();
+    const sourceDir = path5.join(PROJECT_ROOT, sourcePath);
+    if (fs5.existsSync(sourceDir)) {
+      const sourceFiles = listFilesRecursive(sourceDir);
+      for (const sourceFile of sourceFiles) {
+        const relativePath = path5.relative(sourceDir, sourceFile);
+        const destinationPath = path5.join(localDir, relativePath);
+        copyManagedFile(tracker, sourceFile, destinationPath);
+      }
+      const entityDirs = fs5.readdirSync(localDir).filter((f) => {
+        const fullPath = path5.join(localDir, f);
+        return fs5.existsSync(fullPath) && fs5.statSync(fullPath).isDirectory();
       });
       for (const entityId of entityDirs) {
-        const metadataFile = path2.join(localDir, entityId, options.metadataFileName);
-        if (fs2.existsSync(metadataFile)) {
-          const content = fs2.readFileSync(metadataFile, "utf-8");
+        const metadataFile = path5.join(localDir, entityId, options.metadataFileName);
+        if (fs5.existsSync(metadataFile)) {
+          const content = fs5.readFileSync(metadataFile, "utf-8");
           const metadata = options.parseMetadata(entityId, content);
           if (metadata) entities.push(metadata);
         }
@@ -1357,120 +2137,44 @@ async function loadEntities(ctx, logger, sourcePath, options) {
   }
   return entities;
 }
-async function loadSkills(ctx, logger, skillsPath) {
+async function loadSkills(ctx, logger, skillsPath, tracker, targetDir) {
   return loadEntities(ctx, logger, skillsPath, {
     manifestPrefix: "custom-skills/",
     targetSubDir: ".codebuddy/skills",
     metadataFileName: "SKILL.md",
     parseMetadata: parseSkillMetadata,
     label: "\u6280\u80FD"
-  });
+  }, tracker, targetDir);
 }
-async function loadAgents(ctx, logger, agentsPath) {
+async function loadAgents(ctx, logger, agentsPath, tracker, targetDir) {
   return loadEntities(ctx, logger, agentsPath, {
     manifestPrefix: "agents/",
     targetSubDir: ".codebuddy/agents",
     metadataFileName: "AGENT.md",
     parseMetadata: parseAgentMetadata,
     label: "Agent"
-  });
+  }, tracker, targetDir);
 }
-var CORE_SCRIPTS = [
-  {
-    file: "structure-analyzer.js",
-    dependencies: ["types/structure-analyzer.js", "types/reports.js", "report-manager.js"]
-  },
-  {
-    file: "module-mapper.js",
-    dependencies: ["types/module-mapper.js", "types/reports.js", "report-manager.js"]
-  },
-  {
-    file: "report-manager.js",
-    dependencies: ["types/reports.js"]
-  },
-  {
-    file: "rule-validator.js"
-  },
-  {
-    file: "skill-validator.js",
-    dependencies: ["lib/frontmatter-utils.js"]
-  }
-];
-var OPTIONAL_SCRIPTS = [
-  {
-    file: "agent-registry.js",
-    dependencies: ["lib/frontmatter-utils.js"]
-  },
-  {
-    file: "agent-call-manager.js"
-  },
-  {
-    file: "task-orchestrator.js"
-  },
-  {
-    file: "taskbook-manager.js",
-    dependencies: ["types/index.js"]
-  },
-  {
-    file: "task-executor.js",
-    dependencies: ["types/index.js", "types/agent-runtime.js", "taskbook-manager.js", "context-collector.js", "reference-finder.js", "agent-runtime.js", "result-aggregator.js"]
-  },
-  {
-    file: "agent-runtime.js",
-    dependencies: ["types/agent-runtime.js", "types/index.js", "lib/frontmatter-utils.js"]
-  },
-  {
-    file: "contract-validator.js"
-  },
-  {
-    file: "reference-finder.js",
-    dependencies: ["types/index.js"]
-  },
-  {
-    file: "context-collector.js",
-    dependencies: ["types/index.js", "reference-finder.js"]
-  }
-];
-var COMMANDS_TO_DISTRIBUTE = [
-  { sourcePath: ".claude/commands/task.md", destFile: "task.md" },
-  { sourcePath: ".claude/commands/agent-call.md", destFile: "agent-call.md" }
-];
-var WORKFLOWS_TO_DISTRIBUTE = [
-  { sourcePath: "workflows/schema/workflow.schema.json", destFile: "workflow.schema.json" },
-  { sourcePath: "workflows/templates/default.workflow.json", destFile: "default.workflow.json" }
-];
-var TASKBOOK_FILES_TO_DISTRIBUTE = [
-  { sourcePath: "taskbooks/schema/taskbook.schema.json", destFile: "taskbook.schema.json" }
-];
-var AGENT_CALL_FILES_TO_DISTRIBUTE = [
-  { sourcePath: "agent-calls/schema/agent-call.schema.json", destFile: "agent-call.schema.json" }
-];
-async function distributeScripts(ctx, logger, targetDir) {
+async function distributeScripts(ctx, logger, targetDir, tracker) {
   const distributed = [];
-  const localScriptsDir = path2.join(targetDir, ".codebuddy/scripts");
-  const scriptsToDistribute = ctx.enableOrchestrator ? [...CORE_SCRIPTS, ...OPTIONAL_SCRIPTS] : CORE_SCRIPTS;
-  if (!fs2.existsSync(localScriptsDir)) {
-    fs2.mkdirSync(localScriptsDir, { recursive: true });
+  const localScriptsDir = path5.join(targetDir, ".codebuddy/scripts");
+  const scriptsToDistribute = getScriptsForProfile(ctx.profile);
+  if (!fs5.existsSync(localScriptsDir)) {
+    fs5.mkdirSync(localScriptsDir, { recursive: true });
   }
   if (ctx.isRemote) {
     for (const scriptInfo of scriptsToDistribute) {
-      const scriptUrl = `${ctx.remoteBaseUrl}/scripts/dist/${scriptInfo.file}`;
       try {
-        const content = await fetchUrl(ctx, logger, scriptUrl);
-        const destPath = path2.join(localScriptsDir, scriptInfo.file);
-        fs2.writeFileSync(destPath, content, "utf-8");
+        const content = await readRemoteTextAsset(ctx, logger, `scripts/dist/${scriptInfo.file}`);
+        const destPath = path5.join(localScriptsDir, scriptInfo.file);
+        writeManagedFile(tracker, destPath, content);
         distributed.push(scriptInfo.file);
         logger.verbose(`\u5DF2\u4E0B\u8F7D\u811A\u672C: ${scriptInfo.file}`);
         if (scriptInfo.dependencies) {
           for (const dep of scriptInfo.dependencies) {
-            const depUrl = `${ctx.remoteBaseUrl}/scripts/dist/${dep}`;
             try {
-              const depContent = await fetchUrl(ctx, logger, depUrl);
-              const depDir = path2.dirname(path2.join(localScriptsDir, dep));
-              if (!fs2.existsSync(depDir)) {
-                fs2.mkdirSync(depDir, { recursive: true });
-              }
-              fs2.writeFileSync(path2.join(localScriptsDir, dep), depContent, "utf-8");
+              const depContent = await readRemoteTextAsset(ctx, logger, `scripts/dist/${dep}`);
+              writeManagedFile(tracker, path5.join(localScriptsDir, dep), depContent);
               logger.verbose(`\u5DF2\u4E0B\u8F7D\u4F9D\u8D56: ${dep}`);
             } catch (e) {
               logger.warn(`\u4F9D\u8D56\u4E0B\u8F7D\u5931\u8D25: ${dep} - ${e.message}`);
@@ -1482,23 +2186,19 @@ async function distributeScripts(ctx, logger, targetDir) {
       }
     }
   } else {
-    const sourceDir = path2.join(PROJECT_ROOT, "scripts/dist");
+    const sourceDir = path5.join(PROJECT_ROOT, "scripts/dist");
     for (const scriptInfo of scriptsToDistribute) {
-      const srcPath = path2.join(sourceDir, scriptInfo.file);
-      if (fs2.existsSync(srcPath)) {
-        const destPath = path2.join(localScriptsDir, scriptInfo.file);
-        fs2.copyFileSync(srcPath, destPath);
+      const srcPath = path5.join(sourceDir, scriptInfo.file);
+      if (fs5.existsSync(srcPath)) {
+        const destPath = path5.join(localScriptsDir, scriptInfo.file);
+        copyManagedFile(tracker, srcPath, destPath);
         distributed.push(scriptInfo.file);
         logger.verbose(`\u5DF2\u590D\u5236\u811A\u672C: ${scriptInfo.file}`);
         if (scriptInfo.dependencies) {
           for (const dep of scriptInfo.dependencies) {
-            const depSrc = path2.join(sourceDir, dep);
-            if (fs2.existsSync(depSrc)) {
-              const depDir = path2.dirname(path2.join(localScriptsDir, dep));
-              if (!fs2.existsSync(depDir)) {
-                fs2.mkdirSync(depDir, { recursive: true });
-              }
-              fs2.copyFileSync(depSrc, path2.join(localScriptsDir, dep));
+            const depSrc = path5.join(sourceDir, dep);
+            if (fs5.existsSync(depSrc)) {
+              copyManagedFile(tracker, depSrc, path5.join(localScriptsDir, dep));
               logger.verbose(`\u5DF2\u590D\u5236\u4F9D\u8D56: ${dep}`);
             }
           }
@@ -1509,16 +2209,17 @@ async function distributeScripts(ctx, logger, targetDir) {
     }
   }
   if (distributed.length > 0) {
-    const readmePath = path2.join(localScriptsDir, "README.md");
-    fs2.writeFileSync(readmePath, generateScriptsReadme(distributed), "utf-8");
+    const readmePath = path5.join(localScriptsDir, "README.md");
+    writeManagedFile(tracker, readmePath, generateScriptsReadme(distributed));
   }
   return distributed;
 }
-async function distributeWorkflows(ctx, logger, targetDir) {
+async function distributeWorkflows(ctx, logger, targetDir, tracker) {
   return distributeItems(ctx, logger, targetDir, PROJECT_ROOT, {
     targetSubDir: ".codebuddy/workflows",
     items: WORKFLOWS_TO_DISTRIBUTE,
     label: "workflow",
+    tracker,
     readme: [
       "# Workflows",
       "",
@@ -1532,11 +2233,12 @@ async function distributeWorkflows(ctx, logger, targetDir) {
     ].join("\n")
   });
 }
-async function distributeTaskBooks(ctx, logger, targetDir) {
+async function distributeTaskBooks(ctx, logger, targetDir, tracker) {
   return distributeItems(ctx, logger, targetDir, PROJECT_ROOT, {
     targetSubDir: ".codebuddy/taskbooks",
     items: TASKBOOK_FILES_TO_DISTRIBUTE,
     label: "taskbook contract",
+    tracker,
     preCreateDirs: ["active", "history"],
     readme: [
       "# TaskBooks",
@@ -1552,11 +2254,12 @@ async function distributeTaskBooks(ctx, logger, targetDir) {
     ].join("\n")
   });
 }
-async function distributeAgentCalls(ctx, logger, targetDir) {
+async function distributeAgentCalls(ctx, logger, targetDir, tracker) {
   return distributeItems(ctx, logger, targetDir, PROJECT_ROOT, {
     targetSubDir: ".codebuddy/agent-calls",
     items: AGENT_CALL_FILES_TO_DISTRIBUTE,
     label: "agent-call contract",
+    tracker,
     readme: [
       "# Agent Calls",
       "",
@@ -1574,20 +2277,22 @@ async function distributeAgentCalls(ctx, logger, targetDir) {
     ].join("\n")
   });
 }
-async function distributeCommands(ctx, logger, targetDir) {
+async function distributeCommands(ctx, logger, targetDir, tracker) {
   return distributeItems(ctx, logger, targetDir, PROJECT_ROOT, {
     targetSubDir: ".codebuddy/commands",
     items: COMMANDS_TO_DISTRIBUTE,
-    label: "\u547D\u4EE4"
+    label: "\u547D\u4EE4",
+    tracker,
+    readme: generateCommandsReadme(COMMANDS_TO_DISTRIBUTE.map((item) => item.destFile))
   });
 }
 function updateGitignore(logger, projectDir) {
-  const gitignorePath = path2.join(projectDir, ".gitignore");
+  const gitignorePath = path5.join(projectDir, ".gitignore");
   const entry = ".codebuddy/";
   try {
     let content = "";
-    if (fs2.existsSync(gitignorePath)) {
-      content = fs2.readFileSync(gitignorePath, "utf-8");
+    if (fs5.existsSync(gitignorePath)) {
+      content = fs5.readFileSync(gitignorePath, "utf-8");
       if (content.includes(entry)) {
         return;
       }
@@ -1599,17 +2304,13 @@ function updateGitignore(logger, projectDir) {
 # CodeBuddy \u751F\u6210\u6587\u4EF6
 ${entry}
 `;
-    fs2.writeFileSync(gitignorePath, content, "utf-8");
+    fs5.writeFileSync(gitignorePath, content, "utf-8");
     logger.verbose("\u5DF2\u66F4\u65B0 .gitignore");
   } catch (error) {
     logger.warn(`\u66F4\u65B0 .gitignore \u5931\u8D25: ${error.message}`);
   }
 }
-function parseArgs() {
-  const args = process.argv.slice(2);
-  if (args.includes("--help") || args.includes("-h")) {
-    showHelp();
-  }
+function parseContextArgs(args) {
   let isVerbose = false;
   let isRemote = false;
   let remoteBaseUrl = "";
@@ -1617,16 +2318,38 @@ function parseArgs() {
   let relevanceThreshold = DEFAULT_THRESHOLD;
   let ruleLevel = DEFAULT_RULE_LEVEL;
   let requestTimeout = DEFAULT_TIMEOUT;
-  let enableOrchestrator = false;
+  let profile = DEFAULT_PROFILE;
   let disableWorkspace = false;
+  let profileExplicit = false;
   if (args.includes("--verbose") || args.includes("-v")) {
     isVerbose = true;
   }
-  if (args.includes("--enable-orchestrator")) {
-    enableOrchestrator = true;
-  }
   if (args.includes("--no-workspace")) {
     disableWorkspace = true;
+  }
+  const profileIndex = args.indexOf("--profile");
+  if (profileIndex !== -1) {
+    const value = (args[profileIndex + 1] || "").trim().toLowerCase();
+    if (!value || value.startsWith("-")) {
+      logError("--profile \u9700\u8981 profile \u540D\u79F0\u53C2\u6570");
+      process.exit(1);
+    }
+    if (!INSTALL_PROFILES.includes(value)) {
+      logError(`--profile \u4EC5\u652F\u6301 ${INSTALL_PROFILES.join("|")}\uFF0C\u5F53\u524D: ${value}`);
+      process.exit(1);
+    }
+    profile = value;
+    profileExplicit = true;
+  }
+  const legacyEnableOrchestrator = args.includes("--enable-orchestrator");
+  if (legacyEnableOrchestrator) {
+    if (profileExplicit && !isOrchestratorProfile(profile)) {
+      logError("--enable-orchestrator \u53EA\u80FD\u4E0E --profile orchestrator|full \u4E00\u8D77\u4F7F\u7528");
+      process.exit(1);
+    }
+    if (!profileExplicit) {
+      profile = "full";
+    }
   }
   const remoteIndex = args.indexOf("--remote");
   if (remoteIndex !== -1) {
@@ -1682,27 +2405,109 @@ function parseArgs() {
     isVerbose,
     remoteBaseUrl,
     remoteManifest: null,
+    remoteContentRoot: null,
+    remoteContentPack: null,
     requestTimeout,
     taskType,
     relevanceThreshold,
     ruleLevel,
-    enableOrchestrator,
+    profile,
+    enableOrchestrator: isOrchestratorProfile(profile),
     disableWorkspace
   };
 }
+function parseCliArgs() {
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
+    showHelp();
+  }
+  let command = "install";
+  let args = rawArgs;
+  if (rawArgs[0] && !rawArgs[0].startsWith("-")) {
+    const candidate = rawArgs[0].toLowerCase();
+    if (COMMANDS.has(candidate)) {
+      command = candidate;
+      args = rawArgs.slice(1);
+    } else {
+      logError(`\u672A\u77E5\u547D\u4EE4: ${rawArgs[0]}`);
+      process.exit(1);
+    }
+  }
+  const json = args.includes("--json");
+  const filteredArgs = args.filter((arg) => arg !== "--json");
+  return {
+    command,
+    ctx: parseContextArgs(filteredArgs),
+    json
+  };
+}
+function runStatusCommand(targetDir, logger, json) {
+  const installStatePath = path5.join(targetDir, ".codebuddy", "install.json");
+  const installStateExists = fs5.existsSync(installStatePath);
+  const installState = readInstallState(targetDir, logger);
+  const inspection = inspectInstallState(targetDir, installState, installStateExists);
+  if (json) {
+    console.log(JSON.stringify({
+      ok: inspection.installState !== null,
+      inspection
+    }, null, 2));
+  } else {
+    console.log(formatStatusReport(inspection));
+  }
+  return inspection.installState !== null ? 0 : 1;
+}
+function runDoctorCommand(targetDir, logger, json) {
+  const installStatePath = path5.join(targetDir, ".codebuddy", "install.json");
+  const installStateExists = fs5.existsSync(installStatePath);
+  const installState = readInstallState(targetDir, logger);
+  const inspection = inspectInstallState(targetDir, installState, installStateExists);
+  const checks = buildDoctorChecks(inspection);
+  const summary = summarizeDoctorChecks(checks);
+  if (json) {
+    console.log(JSON.stringify({
+      ok: summary.status !== "fail",
+      summary,
+      inspection,
+      checks
+    }, null, 2));
+  } else {
+    console.log(formatDoctorReport(inspection, checks, summary));
+  }
+  return summary.status === "fail" ? 1 : 0;
+}
 async function main() {
-  const parsedCtx = parseArgs();
+  const parsedCli = parseCliArgs();
+  const parsedCtx = parsedCli.ctx;
   const logger = createLogger(parsedCtx);
+  const targetDir = process.cwd();
+  if (parsedCli.command === "status") {
+    process.exit(runStatusCommand(targetDir, logger, parsedCli.json));
+  }
+  if (parsedCli.command === "doctor") {
+    process.exit(runDoctorCommand(targetDir, logger, parsedCli.json));
+  }
   const { config, manifest } = await loadConfig(parsedCtx, logger);
-  const ctx = manifest ? { ...parsedCtx, remoteManifest: manifest } : parsedCtx;
+  let ctx = manifest ? { ...parsedCtx, remoteManifest: manifest } : parsedCtx;
+  if (ctx.isRemote && ctx.remoteManifest) {
+    const packResolution = await ensureRemoteContentPack(ctx, logger, targetDir);
+    ctx = {
+      ...ctx,
+      remoteContentRoot: packResolution.contentRoot,
+      remoteContentPack: packResolution.pack
+    };
+  }
   logger.log("CodeBuddy \u89C4\u5219\u52A0\u8F7D\u5668 v2.0 (\u4E09\u5C42\u67B6\u6784 + \u6280\u80FD\u7CFB\u7EDF)");
   logger.log(ctx.isRemote ? `\u6A21\u5F0F: \u8FDC\u7A0B (${ctx.remoteBaseUrl})` : "\u6A21\u5F0F: \u672C\u5730");
-  if (ctx.enableOrchestrator) logger.log("\u7F16\u6392\u6A21\u5F0F: \u5B8C\u6574\uFF08\u542B B \u8DEF\u7EBF\u811A\u672C\u548C\u5951\u7EA6\uFF09");
-  if (ctx.ruleLevel !== "full") logger.log(`\u89C4\u5219\u88C1\u526A: ${ctx.ruleLevel}\uFF08\u4EC5\u5F71\u54CD Layer1 Eager \u5185\u5BB9\uFF1Brules_cache \u4ECD\u4FDD\u7559 full\uFF09`);
+  logger.log(`\u5B89\u88C5\u6863\u4F4D: ${ctx.profile}`);
+  if (ctx.enableOrchestrator) logger.log("\u7F16\u6392\u6A21\u5F0F: \u5DF2\u542F\u7528\uFF08\u542B TaskBook / Agent Call / Workflow \u5951\u7EA6\uFF09");
+  if (ctx.ruleLevel !== "full") {
+    logger.log(`\u89C4\u5219\u88C1\u526A: ${ctx.ruleLevel}\uFF08Layer1 \u4E3B\u5165\u53E3\u4F7F\u7528 ${ctx.ruleLevel}\uFF1B\u5B8C\u6574\u539F\u6587\u5199\u5165 .codebuddy/rules_cache/layer1_reference/\uFF09`);
+  }
   if (ctx.taskType) {
     logger.log(`\u4EFB\u52A1\u7B5B\u9009: ${ctx.taskType} (\u9608\u503C: ${ctx.relevanceThreshold})`);
   }
-  const targetDir = process.cwd();
+  const previousInstallState = readInstallState(targetDir, logger);
+  const managedFileTracker = createManagedFileTracker(targetDir);
   logger.log(`\u76EE\u6807\u9879\u76EE: ${targetDir}`);
   const workspaceInfo = ctx.disableWorkspace ? { isWorkspace: false, rootDir: targetDir, projects: [], discoveredAt: (/* @__PURE__ */ new Date()).toISOString() } : discoverWorkspace(logger, targetDir);
   if (ctx.disableWorkspace) {
@@ -1761,6 +2566,26 @@ updatedAt: ${updatedAt}
     }
   }
   const layer1Rules = await loadLayerRules(ctx, logger, layers.base?.id || "layer1_base", layer1Folders);
+  const layer1ReferenceIndex = [];
+  if (ctx.ruleLevel !== "full") {
+    const layer1FullRules = await loadLayerRules(
+      { ...ctx, ruleLevel: "full" },
+      logger,
+      layers.base?.id || "layer1_base",
+      layer1Folders
+    );
+    for (const rule of layer1FullRules) {
+      const referencePath = `.codebuddy/rules_cache/layer1_reference/${rule.path}`.replace(/\\/g, "/");
+      writeManagedFile(managedFileTracker, path5.join(targetDir, referencePath), rule.content);
+      layer1ReferenceIndex.push({
+        rule: rule.path.replace(/\.md$/, ""),
+        path: referencePath
+      });
+    }
+    if (layer1ReferenceIndex.length > 0) {
+      logger.log(`\u5DF2\u751F\u6210 ${layer1ReferenceIndex.length} \u4E2A Layer 1 \u5B8C\u6574\u53C2\u8003\u7F13\u5B58`);
+    }
+  }
   finalContent += `## ${layers.base?.title || "Layer 1: \u57FA\u7840\u89C4\u8303"}
 
 `;
@@ -1787,13 +2612,13 @@ ${rule.content}
           rule: folder,
           path: `.codebuddy/rules_cache/layer2_business/${folder}.md`
         });
-        const cacheDir = path2.join(targetDir, ".codebuddy/rules_cache/layer2_business");
-        if (!fs2.existsSync(cacheDir)) {
-          fs2.mkdirSync(cacheDir, { recursive: true });
+        const cacheDir = path5.join(targetDir, ".codebuddy/rules_cache/layer2_business");
+        if (!fs5.existsSync(cacheDir)) {
+          fs5.mkdirSync(cacheDir, { recursive: true });
         }
         const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", folder + ".md");
         if (content) {
-          fs2.writeFileSync(path2.join(cacheDir, folder + ".md"), content, "utf-8");
+          writeManagedFile(managedFileTracker, path5.join(cacheDir, folder + ".md"), content);
         }
       }
     }
@@ -1811,16 +2636,16 @@ ${rule.content}
               rule: folder,
               path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${folder}.md`
             });
-            const projectCacheDir = path2.join(
+            const projectCacheDir = path5.join(
               targetDir,
               `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`
             );
-            if (!fs2.existsSync(projectCacheDir)) {
-              fs2.mkdirSync(projectCacheDir, { recursive: true });
+            if (!fs5.existsSync(projectCacheDir)) {
+              fs5.mkdirSync(projectCacheDir, { recursive: true });
             }
             const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", folder + ".md");
             if (content) {
-              fs2.writeFileSync(path2.join(projectCacheDir, folder + ".md"), content, "utf-8");
+              writeManagedFile(managedFileTracker, path5.join(projectCacheDir, folder + ".md"), content);
             }
           }
         }
@@ -1839,25 +2664,35 @@ ${rule.content}
       rule: item,
       path: `.codebuddy/rules_cache/layer3_action/${item}.md`
     });
-    const cacheDir = path2.join(targetDir, ".codebuddy/rules_cache/layer3_action");
-    if (!fs2.existsSync(cacheDir)) {
-      fs2.mkdirSync(cacheDir, { recursive: true });
+    const cacheDir = path5.join(targetDir, ".codebuddy/rules_cache/layer3_action");
+    if (!fs5.existsSync(cacheDir)) {
+      fs5.mkdirSync(cacheDir, { recursive: true });
     }
     const content = await loadRuleFile(ctx, logger, layers.action?.id || "layer3_action", item + ".md");
     if (content) {
-      fs2.writeFileSync(path2.join(cacheDir, item + ".md"), content, "utf-8");
+      writeManagedFile(managedFileTracker, path5.join(cacheDir, item + ".md"), content);
     }
   }
-  if (layer2Index.length > 0 || layer3Index.length > 0) {
+  if (layer1ReferenceIndex.length > 0 || layer2Index.length > 0 || layer3Index.length > 0) {
     finalContent += `## \u{1F4DA} \u89C4\u5219\u53C2\u8003\u7D22\u5F15 (\u6309\u9700\u52A0\u8F7D)
 
 `;
-    finalContent += `> \u4EE5\u4E0B\u89C4\u5219\u5305\u542B\u5177\u4F53\u7684\u6280\u672F\u6808\u5B9E\u73B0\u7EC6\u8282\uFF0C\u8BF7\u6309\u9700\u8BFB\u53D6
+    if (layer1ReferenceIndex.length > 0) {
+      finalContent += `> \u5F53\u524D\u4E3B\u5165\u53E3\u4EC5\u5185\u5D4C Layer 1 \u7684 ${ctx.ruleLevel} \u5185\u5BB9\uFF1B\u5B8C\u6574\u539F\u6587\u4E0E Layer 2/3 \u7EC6\u8282\u89C4\u5219\u8BF7\u6309\u9700\u8BFB\u53D6
 
 `;
+    } else {
+      finalContent += `> \u4EE5\u4E0B\u89C4\u5219\u5305\u542B\u5177\u4F53\u7684\u6280\u672F\u6808\u5B9E\u73B0\u7EC6\u8282\uFF0C\u8BF7\u6309\u9700\u8BFB\u53D6
+
+`;
+    }
     finalContent += `| \u89C4\u5219\u540D\u79F0 | \u672C\u5730\u8DEF\u5F84 | \u8BF4\u660E |
 |---------|---------|------|
 `;
+    for (const item of layer1ReferenceIndex) {
+      finalContent += `| ${item.rule} | \`${item.path}\` | Layer 1 \u5B8C\u6574\u53C2\u8003 |
+`;
+    }
     for (const item of layer2Index) {
       finalContent += `| ${item.rule} | \`${item.path}\` | ${item.dep} \u89C4\u8303 |
 `;
@@ -1868,6 +2703,7 @@ ${rule.content}
     }
     finalContent += "\n";
   }
+  let workspaceIndexPath = null;
   if (workspaceInfo.isWorkspace) {
     const workspaceIndex = {
       version: "1.0.0",
@@ -1885,30 +2721,32 @@ ${rule.content}
         matchedRules: p.matchedLayer2Rules.map((r) => r.rule)
       }))
     };
-    const workspaceIndexPath = path2.join(targetDir, ".codebuddy/workspace-index.json");
-    const workspaceIndexDir = path2.dirname(workspaceIndexPath);
-    if (!fs2.existsSync(workspaceIndexDir)) {
-      fs2.mkdirSync(workspaceIndexDir, { recursive: true });
+    workspaceIndexPath = path5.join(targetDir, ".codebuddy/workspace-index.json");
+    const workspaceIndexDir = path5.dirname(workspaceIndexPath);
+    if (!fs5.existsSync(workspaceIndexDir)) {
+      fs5.mkdirSync(workspaceIndexDir, { recursive: true });
     }
-    fs2.writeFileSync(workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2), "utf-8");
+    writeManagedFile(managedFileTracker, workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2));
     logger.log(`\u5DF2\u751F\u6210 workspace-index.json (${workspaceInfo.projects.length} \u4E2A\u9879\u76EE)`);
     finalContent += generateWorkspacePrompt(workspaceInfo);
   }
   finalContent += generateRuleActivationPrompt(config);
+  finalContent += generateQuickActionGuide();
+  let skills = [];
   if (skillsConfig?.enabled) {
     logger.log("\u52A0\u8F7D\u6280\u80FD\u7CFB\u7EDF...");
-    const skills = await loadSkills(ctx, logger, skillsConfig.path || "custom-skills");
+    skills = await loadSkills(ctx, logger, skillsConfig.path || "custom-skills", managedFileTracker, targetDir);
     logger.log(`\u5DF2\u52A0\u8F7D ${skills.length} \u4E2A\u6280\u80FD`);
     finalContent += generateSkillsPrompt(skills);
   }
   logger.log("\u52A0\u8F7D Agent \u7CFB\u7EDF...");
-  const agents = await loadAgents(ctx, logger, "agents");
+  const agents = await loadAgents(ctx, logger, "agents", managedFileTracker, targetDir);
   if (agents.length > 0) {
     logger.log(`\u5DF2\u52A0\u8F7D ${agents.length} \u4E2A Agents`);
     finalContent += generateAgentsPrompt(agents);
   }
   logger.log("\u5206\u53D1\u5DE5\u5177\u811A\u672C...");
-  const distributedScripts = await distributeScripts(ctx, logger, targetDir);
+  const distributedScripts = await distributeScripts(ctx, logger, targetDir, managedFileTracker);
   if (distributedScripts.length > 0) {
     logger.log(`\u5DF2\u5206\u53D1 ${distributedScripts.length} \u4E2A\u811A\u672C`);
     finalContent += generateScriptsPrompt(distributedScripts);
@@ -1916,49 +2754,72 @@ ${rule.content}
   let distributedWorkflows = [];
   if (ctx.enableOrchestrator) {
     logger.log("\u5206\u53D1 Workflows...");
-    distributedWorkflows = await distributeWorkflows(ctx, logger, targetDir);
+    distributedWorkflows = await distributeWorkflows(ctx, logger, targetDir, managedFileTracker);
     if (distributedWorkflows.length > 0) {
       logger.log(`\u5DF2\u5206\u53D1 ${distributedWorkflows.length} \u4E2A\u5DE5\u4F5C\u6D41`);
       finalContent += generateWorkflowsPrompt(distributedWorkflows);
     }
   } else {
-    logger.verbose("\u8DF3\u8FC7 Workflows \u5206\u53D1\uFF08\u9ED8\u8BA4\u6A21\u5F0F\uFF0C\u4F7F\u7528 --enable-orchestrator \u542F\u7528\uFF09");
+    logger.verbose("\u8DF3\u8FC7 Workflows \u5206\u53D1\uFF08\u5F53\u524D profile \u4E0D\u5305\u542B\u7F16\u6392\u5951\u7EA6\uFF09");
   }
   let distributedTaskBooks = [];
   if (ctx.enableOrchestrator) {
     logger.log("\u5206\u53D1 TaskBook \u5951\u7EA6...");
-    distributedTaskBooks = await distributeTaskBooks(ctx, logger, targetDir);
+    distributedTaskBooks = await distributeTaskBooks(ctx, logger, targetDir, managedFileTracker);
     if (distributedTaskBooks.length > 0) {
       logger.log(`\u5DF2\u5206\u53D1 ${distributedTaskBooks.length} \u4E2A TaskBook \u5951\u7EA6\u6587\u4EF6`);
       finalContent += generateTaskBooksPrompt(distributedTaskBooks);
     }
   } else {
-    logger.verbose("\u8DF3\u8FC7 TaskBook \u5951\u7EA6\u5206\u53D1\uFF08\u9ED8\u8BA4\u6A21\u5F0F\uFF0C\u4F7F\u7528 --enable-orchestrator \u542F\u7528\uFF09");
+    logger.verbose("\u8DF3\u8FC7 TaskBook \u5951\u7EA6\u5206\u53D1\uFF08\u5F53\u524D profile \u4E0D\u5305\u542B\u7F16\u6392\u5951\u7EA6\uFF09");
   }
   let distributedAgentCalls = [];
   if (ctx.enableOrchestrator) {
     logger.log("\u5206\u53D1 Agent Call \u5951\u7EA6...");
-    distributedAgentCalls = await distributeAgentCalls(ctx, logger, targetDir);
+    distributedAgentCalls = await distributeAgentCalls(ctx, logger, targetDir, managedFileTracker);
     if (distributedAgentCalls.length > 0) {
       logger.log(`\u5DF2\u5206\u53D1 ${distributedAgentCalls.length} \u4E2A Agent Call \u5951\u7EA6\u6587\u4EF6`);
       finalContent += generateAgentCallsPrompt(distributedAgentCalls);
     }
   } else {
-    logger.verbose("\u8DF3\u8FC7 Agent Call \u5951\u7EA6\u5206\u53D1\uFF08\u9ED8\u8BA4\u6A21\u5F0F\uFF0C\u4F7F\u7528 --enable-orchestrator \u542F\u7528\uFF09");
+    logger.verbose("\u8DF3\u8FC7 Agent Call \u5951\u7EA6\u5206\u53D1\uFF08\u5F53\u524D profile \u4E0D\u5305\u542B\u7F16\u6392\u5951\u7EA6\uFF09");
   }
   logger.log("\u5206\u53D1 Slash Commands...");
-  const distributedCommands = await distributeCommands(ctx, logger, targetDir);
+  const distributedCommands = await distributeCommands(ctx, logger, targetDir, managedFileTracker);
   if (distributedCommands.length > 0) {
     logger.log(`\u5DF2\u5206\u53D1 ${distributedCommands.length} \u4E2A\u547D\u4EE4`);
     finalContent += generateCommandsPrompt(distributedCommands);
   }
-  const outputDir = path2.join(targetDir, output?.dirName || ".codebuddy/rules");
-  if (!fs2.existsSync(outputDir)) {
-    fs2.mkdirSync(outputDir, { recursive: true });
+  const outputDir = path5.join(targetDir, output?.dirName || ".codebuddy/rules");
+  if (!fs5.existsSync(outputDir)) {
+    fs5.mkdirSync(outputDir, { recursive: true });
   }
-  const outputPath = path2.join(outputDir, output?.fileName || "project-rules.md");
-  fs2.writeFileSync(outputPath, finalContent, "utf-8");
+  const outputPath = path5.join(outputDir, output?.fileName || "project-rules.md");
+  writeManagedFile(managedFileTracker, outputPath, finalContent);
   updateGitignore(logger, targetDir);
+  const removedManagedFiles = cleanupStaleManagedFiles(managedFileTracker, previousInstallState, logger);
+  const installState = buildInstallState({
+    ctx,
+    logger,
+    targetDir,
+    outputPath,
+    workspaceIndexPath,
+    layer1RulesCount: layer1Rules.length,
+    layer2IndexCount: layer2Index.length,
+    layer3IndexCount: layer3Index.length,
+    skillsCount: skills.length,
+    agentsCount: agents.length,
+    distributedScripts,
+    distributedWorkflows,
+    distributedTaskBooks,
+    distributedAgentCalls,
+    distributedCommands,
+    managedFiles: getManagedFiles(managedFileTracker),
+    workspaceInfo
+  });
+  const installStatePath = writeInstallState(targetDir, installState);
+  logger.log(`\u5DF2\u751F\u6210 install.json: ${installStatePath}`);
+  logger.log(`\u540C\u6B65\u7ED3\u679C: \u5199\u5165 ${managedFileTracker.summary.written}\uFF0C\u590D\u7528 ${managedFileTracker.summary.unchanged}\uFF0C\u6E05\u7406 ${removedManagedFiles.length}`);
   logger.log("");
   logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   logger.log(`\u2705 \u6210\u529F! \u89C4\u5219\u6587\u4EF6\u5DF2\u5199\u5165: ${outputPath}`);

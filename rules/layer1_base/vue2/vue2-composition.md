@@ -3,6 +3,35 @@
 > Tags: #Vue2 #CompositionAPI #TypeScript
 > Priority: High
 
+<!-- @level:summary -->
+## Summary (摘要)
+
+在 Vue 2 + `@vue/composition-api` 项目中，组件必须通过 `defineComponent` 定义，复用逻辑应沉淀到 composables，并在 `setup()` 中显式返回模板依赖的数据和方法。避免长期混用 Options API，也不要引入 Vue 3 专属的 `<script setup>`。
+
+---
+
+<!-- @level:quick -->
+## Quick Reference (快速参考)
+
+### 核心规则
+
+| 场景 | 规则 |
+|------|------|
+| 组件定义 | 必须使用 `defineComponent` |
+| 逻辑复用 | 状态和副作用沉淀到 `use*` composables |
+| 模板暴露 | 模板用到的数据和方法必须从 `setup()` 返回 |
+| 迁移过渡 | Options API 混用只作为短期过渡方案 |
+| 语法边界 | 不要默认使用 Vue 3 的 `<script setup>` |
+
+### 推荐做法
+
+- 先把复杂逻辑抽到 composables，再逐步减少 `data/methods/watch` 混用。
+- 结合 TypeScript 为 `props`、`ref` 和返回值补足类型。
+- 把这套写法当成迁移到 Vue 3 的过渡层，而不是再造一套长期双轨规范。
+
+---
+
+<!-- @level:full -->
 ## 1. Context
 适用于引入了 `@vue/composition-api` 的 Vue 2 项目。旨在让现有项目享受 Vue 3 的逻辑复用优势，同时保持对 Vue 2 的兼容性。
 

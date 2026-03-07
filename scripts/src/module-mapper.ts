@@ -39,6 +39,7 @@ import {
   getReportAgeHours,
   getReportsPath,
 } from './report-manager';
+import { isDirectCliEntry } from './lib/cli-entry';
 
 // ============ 业务识别函数 ============
 
@@ -1257,6 +1258,6 @@ function main(): void {
 }
 
 // CLI 入口 - 仅当作为主模块运行时才执行
-if (require.main === module) {
+if (isDirectCliEntry('module-mapper.js')) {
   main();
 }

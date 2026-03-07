@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import { isDirectCliEntry } from './lib/cli-entry';
 
 type ParsedCli = {
   command: string | null;
@@ -1015,6 +1016,6 @@ function main(): void {
   }
 }
 
-if (require.main === module) {
+if (isDirectCliEntry('agent-call-manager.js')) {
   main();
 }
