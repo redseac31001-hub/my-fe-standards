@@ -14,14 +14,14 @@ date: 2026-02-07
 - 2026-02-04 已验证通过：`npm run build` + `node test/run-tests.js`（含 `task-orchestrator --watch` + `agent-call-manager serve /orchestrate` E2E + validators）
 - 2026-02-07 已验证通过：`npm run build` + `node test/run-tests.js`（Workflow v2.0.0 七步闭环 + 3 个新 Agent + Prompt 模板体系）
 - 2026-02-02 MCP Server 已对齐 CLI：新增 `taskbook_report` / `taskbook_unblock`
-- 2026-02-02 TaskBook 并发协作 SOP 已落地：`docs/taskbook-collaboration-sop.md`（含可选强制模式 `CODEBUDDY_TASKBOOK_REQUIRE_IF_REV=1` / `--require-if-rev`）
+- 2026-02-02 TaskBook 并发协作 SOP 已落地：`docs/guides/taskbook-collaboration-sop.md`（含可选强制模式 `CODEBUDDY_TASKBOOK_REQUIRE_IF_REV=1` / `--require-if-rev`）
 - 2026-02-02 Reports 查询入口已落地：`report-manager.js inspect/hotspots` + MCP `reports_inspect/reports_hotspots`
 - 2026-02-02 质量门禁 gates 已扩大：lint/typecheck/security/perf（`default.workflow.json@1.3.0`，默认 optional；证据落盘到 `.codebuddy/reports/gates/<taskBookId>/...`，并在验收报告 `gates[].evidencePath` 汇总）
 - 接手前先看：
   - `PROJECT.md`：能力清单/架构图谱（权威概览）
   - `README.md`：快速入口与命令
-  - `docs/workflows-guide.md`：Workflow Spec 与闭环执行方式
-  - `docs/e2e-validation-playbook.md`：业务项目端到端验收脚本（remote 加载 → 闭环）
+  - `docs/guides/workflows-guide.md`：Workflow Spec 与闭环执行方式
+  - `docs/guides/e2e-validation-playbook.md`：业务项目端到端验收脚本（remote 加载 → 闭环）
 
 > Codex 不会继承你同事的对话上下文，所以“进度”必须落在仓库文件里（本文 + PROJECT/README）。
 
@@ -72,13 +72,13 @@ git checkout wip/2026-02-01-handoff
 - 工作流契约（可被工具/模型复用）：`workflows/templates/default.workflow.json`
 - 编译后可分发的脚本（业务项目 remote 会用到）：`scripts/dist/`
 - 集成验证（保证别人接手不跑偏）：`test/run-tests.js`
-- 验收/恢复操作的命令（可人工介入后继续闭环）：`docs/workflows-guide.md`
+- 验收/恢复操作的命令（可人工介入后继续闭环）：`docs/guides/workflows-guide.md`
 
 ## 5) 下一步建议（Backlog，按优先级）
 
 P0（团队接力/协作体验）
 - ✅（2026-02-02）MCP Server 已补齐 `taskbook_report` / `taskbook_unblock`（与 CLI 对齐）
-- ✅（2026-02-02）已梳理“多人并发改同一 TaskBook”协作约定：强制 `--if-rev` / claim 规则 / 冲突处理 SOP（见 `docs/taskbook-collaboration-sop.md`）
+- ✅（2026-02-02）已梳理“多人并发改同一 TaskBook”协作约定：强制 `--if-rev` / claim 规则 / 冲突处理 SOP（见 `docs/guides/taskbook-collaboration-sop.md`）
 - ✅（2026-02-03）MVP：planner 生成 TaskBook 任务（`taskbook-manager plan/apply-plan`，文件协议 `.codebuddy/agent-calls/`）
 - ✅（2026-02-03）MVP：MANUAL_REQUIRED 自动生成 agent-call（`task-executor` 生成 prompt，写回 result.json 后自动 apply 回写 `actualWork` 并继续）
 - ✅（2026-02-03）Task 执行按优先级调度：`critical > high > medium > low`（依赖满足前提下）
@@ -97,13 +97,13 @@ P2（质量门禁扩大）
 
 P3（可选远程接力/跨机器写回）
 - ✅（2026-02-04）agent-call-manager serve：HTTP 写回 result.json + 查询 TaskBooks + 远程触发/继续一键闭环（`/orchestrate`）
-- ✅（2026-02-04）文档：补充“远程写回/远程 orchestrate”的使用说明与安全边界（`docs/agent-call-remote.md`）
+- ✅（2026-02-04）文档：补充“远程写回/远程 orchestrate”的使用说明与安全边界（`docs/guides/agent-call-remote.md`）
 
 P4（下一阶段：Agent Runtime 工程化）
 - ✅（2026-02-04）Agent Registry：扫描 `AGENT.md` 元数据，输出可消费 JSON（list/show）
 - ✅（2026-02-04）Registry 接入 agent-call：prompt header 对齐（agentVersion/taskBookRevision）+ 缺失降级提示
 - ✅（2026-02-04）E2E：覆盖 registry 行为与错误路径（`test/run-tests.js`）
-- ✅（2026-02-04）文档：沉淀“CLI 核心 + Prompt 扩展 + 文件协议桥接”的最佳实践与远程边界（见 `README.md` / `docs/fancy-floating-dolphin.md`）
+- ✅（2026-02-04）文档：沉淀“CLI 核心 + Prompt 扩展 + 文件协议桥接”的最佳实践与远程边界（见 `README.md` / `ARCHITECTURE.md`）
 
 P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-02-04）新增 `rule-validator` / `skill-validator`（可在业务项目直接运行，默认非阻塞；JSON 输出可消费）

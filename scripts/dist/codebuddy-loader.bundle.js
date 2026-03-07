@@ -2209,6 +2209,13 @@ async function distributeScripts(ctx, logger, targetDir, tracker) {
     }
   }
   if (distributed.length > 0) {
+    const scriptsPackageJsonPath = path5.join(localScriptsDir, "package.json");
+    writeManagedFile(
+      tracker,
+      scriptsPackageJsonPath,
+      `${JSON.stringify({ type: "commonjs" }, null, 2)}
+`
+    );
     const readmePath = path5.join(localScriptsDir, "README.md");
     writeManagedFile(tracker, readmePath, generateScriptsReadme(distributed));
   }

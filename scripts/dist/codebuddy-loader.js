@@ -772,6 +772,8 @@ async function distributeScripts(ctx, logger, targetDir, tracker) {
         }
     }
     if (distributed.length > 0) {
+        const scriptsPackageJsonPath = path.join(localScriptsDir, 'package.json');
+        (0, install_sync_1.writeManagedFile)(tracker, scriptsPackageJsonPath, `${JSON.stringify({ type: 'commonjs' }, null, 2)}\n`);
         const readmePath = path.join(localScriptsDir, 'README.md');
         (0, install_sync_1.writeManagedFile)(tracker, readmePath, (0, prompt_builder_1.generateScriptsReadme)(distributed));
     }

@@ -776,9 +776,16 @@ function runRemoteContentPackSmoke() {
  */
 function runTestCase(testCase) {
   const projectDir = prepareProjectSandbox(testCase.dir);
+  if (testCase.dir === 'vue3-project') {
+    const packageJsonPath = path.join(projectDir, 'package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    packageJson.type = 'module';
+    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2), 'utf-8');
+  }
   const outputDir = path.join(projectDir, '.codebuddy', 'rules');
   const outputFile = path.join(outputDir, 'project-rules.md');
   const scriptsDir = path.join(projectDir, '.codebuddy', 'scripts');
+  const scriptsPackageFile = path.join(scriptsDir, 'package.json');
   const contractValidatorFile = path.join(scriptsDir, 'contract-validator.js');
   const ruleValidatorFile = path.join(scriptsDir, 'rule-validator.js');
   const skillValidatorFile = path.join(scriptsDir, 'skill-validator.js');
@@ -818,6 +825,17 @@ function runTestCase(testCase) {
       return false;
     }
     logSuccess('闂傚倷娴囬褍顫濋敃鍌︾稏濠㈣埖鍔栭崑銈夋煛閸モ晛小闁绘帒锕ョ换娑㈠幢濡纰嶉梺鍝勵儎缁舵岸寮婚悢鐓庣闁逛即娼у▓顓犵磽?scripts: contract-validator.js');
+
+    if (!fs.existsSync(scriptsPackageFile)) {
+      logError(`scripts package.json missing: ${scriptsPackageFile}`);
+      return false;
+    }
+    const scriptsPackage = JSON.parse(fs.readFileSync(scriptsPackageFile, 'utf-8'));
+    if (scriptsPackage.type !== 'commonjs') {
+      logError(`scripts package.json type must be commonjs: ${scriptsPackageFile}`);
+      return false;
+    }
+    logSuccess('scripts package.json passed');
 
     if (!fs.existsSync(ruleValidatorFile)) {
       logError(`rule-validator 闂傚倸鍊搁崐鐑芥嚄閸洖鍌ㄧ憸鏃堝箖濞差亜惟鐟滃秹寮搁崼鈶╁亾楠炲灝鍔氶柟閿嬪灴閹虫捇宕稿Δ浣哄幗濠德板€愰崑鎾绘煟濡も偓缁绘﹢宕洪姀銈呯睄闁稿本顨呮禍鐐殽閻愯尙浠㈤柛鏃€宀搁弻鐔兼惞椤愩垹顫掑Δ鐘靛仦椤ㄥ﹪骞冮埡鍐＜婵☆垳鍘ч獮? ${ruleValidatorFile}`);

@@ -1,7 +1,8 @@
 # MY-FE-STANDARDS 项目架构图谱
 
-> 版本: 3.2.0 | 更新日期: 2026-03-05
-> 本文档记录项目的完整架构和已具备的功能能力，每完成新能力需同步更新。
+> Role: capability and structure source of truth
+> Updated: 2026-03-07
+> Use `README.md` for entry and `ROADMAP.md` for execution status.
 
 ---
 
@@ -83,13 +84,6 @@ my-fe-standards/
 │   ├── security-reviewer/     # 安全审查 Agent
 │   ├── performance-profiler/  # 性能分析 Agent
 │   └── structure-analyzer/    # 结构分析 Agent (v2.1.0)
-│
-├── ai-forum/                   # AI 协作论坛
-│   ├── PROJECT_CHARTER.md     # 项目宪章
-│   ├── EXECUTION_PRINCIPLES.md # 执行原则
-│   ├── RULES.md               # 讨论规则
-│   ├── plans/                 # 实施计划
-│   └── threads/               # 讨论帖
 │
 ├── config/                     # 配置文件
 │   └── loader-config.json     # 加载器配置
@@ -206,11 +200,6 @@ my-fe-standards/
 | | codebuddy_set_workdir | `mcp-server/src/index.ts` | 设置默认项目工作目录 |
 | | taskbook_* | `mcp-server/src/index.ts` | TaskBook CRUD/协作（JSON 输出） |
 | | workflow_run | `mcp-server/src/index.ts` | Workflow 驱动执行 TaskBook（含 gates） |
-| **协作系统** | | | |
-| | AI 论坛 | `ai-forum/` | 多模型协作讨论 |
-| | 项目宪章 | `ai-forum/PROJECT_CHARTER.md` | 项目目标定义 |
-| | 执行原则 | `ai-forum/EXECUTION_PRINCIPLES.md` | AI 执行规范 |
-
 ### 🔄 开发中能力
 
 | 能力名称 | 计划编号 | 状态 | 说明 |
@@ -303,4 +292,4 @@ await mcp.call("get_skills", { name: "frontend-code-review" });
 
 ---
 
-*本文档是项目能力的唯一真理源，与 `ai-forum/plans/` 目录下的计划文件保持同步。*
+*本文档是项目能力的唯一真理源，并与 `ROADMAP.md`、`ARCHITECTURE.md` 保持同步。*

@@ -180,7 +180,7 @@ node .codebuddy/scripts/task-executor.js <taskBookId>
 
 当多人/多 Agent 同时修改同一个 TaskBook 时，请按并发协作 SOP 执行（避免 silent overwrite）：
 
-- `docs/taskbook-collaboration-sop.md`
+- `docs/guides/taskbook-collaboration-sop.md`
 
 要点：
 - 先 `show` 获取 `revision`，所有写操作都带 `--if-rev` / `ifRevision`

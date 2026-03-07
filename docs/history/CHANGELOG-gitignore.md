@@ -100,28 +100,24 @@ node codebuddy-loader.js --verbose  # 应输出 "skipping update"
 
 ### 新增文档
 
-1. **docs/auto-gitignore-feature.md**
+1. **docs/history/auto-gitignore-feature.md**
    - 功能说明
    - 使用示例
    - 技术实现
    - 常见问题
    - 最佳实践
 
-2. **docs/rules-cache-explanation.md**
+2. **docs/reference/rules-cache-explanation.md**
    - rules_cache 功能说明
    - 工作原理
    - 目录结构
    - AI 使用流程
 
-3. **docs/remote-fetch-test-report.md**
+3. **docs/history/remote-fetch-test-report.md**
    - 远程拉取功能测试报告
    - 测试结果
    - 性能指标
 
-4. **docs/project-review-report.md**
-   - 项目进度与功能审查报告
-   - 综合评分 8.0/10
-   - 改进建议
 
 ---
 
@@ -173,9 +169,8 @@ git commit -m "feat: 添加新功能"
 ## 相关链接
 
 - [功能详细说明](./auto-gitignore-feature.md)
-- [rules_cache 说明](./rules-cache-explanation.md)
+- [rules_cache 说明](../reference/rules-cache-explanation.md)
 - [远程拉取测试报告](./remote-fetch-test-report.md)
-- [项目审查报告](./project-review-report.md)
 
 ---
 

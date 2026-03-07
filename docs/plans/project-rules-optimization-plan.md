@@ -61,8 +61,7 @@ date: 2026-03-07
 
 ### 涉及文件
 
-- `giggly-moseying-pancake.md`
-- `docs/project-rules-optimization-plan.md`
+- `docs/plans/project-rules-optimization-plan.md`
 
 ### 完成标准
 

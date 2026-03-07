@@ -190,10 +190,10 @@ npm run remote
 
 ## 7. 配套文档
 
-- 接入细节：`docs/business-project-guide.md`
-- 远程模式：`docs/remote-usage-guide.md`
-- 端到端验收：`docs/e2e-validation-playbook.md`
-- Workflow 说明：`docs/workflows-guide.md`
-- Worker 自动执行：`docs/worker-executor.md`
-- 执行指标：`docs/execution-metrics.md`
-- TaskBook 并发协作：`docs/taskbook-collaboration-sop.md`
+- 接入细节：`docs/guides/business-project-guide.md`
+- 远程模式：`docs/guides/remote-usage-guide.md`
+- 端到端验收：`docs/guides/e2e-validation-playbook.md`
+- Workflow 说明：`docs/guides/workflows-guide.md`
+- Worker 自动执行：`docs/reference/worker-executor.md`
+- 执行指标：`docs/reference/execution-metrics.md`
+- TaskBook 并发协作：`docs/guides/taskbook-collaboration-sop.md`

@@ -6,6 +6,8 @@
 
 ## Related Documents
 
+- Entry: [README.md](./README.md)
+- Capability source: [PROJECT.md](./PROJECT.md)
 - Architecture: [ARCHITECTURE.md](./ARCHITECTURE.md)
 
 ## How To Use This File
@@ -121,7 +123,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
   - Start with the lowest-risk path first.
   - Do not bundle skill, agent, or rule content files; bundle runtime scripts only.
   - Preserve existing user-facing script entry names unless there is a strong reason to change them.
-  - Inventory baseline is recorded in `docs/loader-script-inventory.md`.
+  - Inventory baseline is recorded in `docs/reference/loader-script-inventory.md`.
 
 #### P1 Execution Breakdown
 
@@ -313,7 +315,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 - Regression now covers:
     - automatic worker success path
     - existing `MANUAL_REQUIRED -> agent-call -> resume` fallback path
-  - Usage details live in [docs/worker-executor.md](./docs/worker-executor.md).
+  - Usage details live in [docs/reference/worker-executor.md](./docs/reference/worker-executor.md).
   - Weak-model/strong-model routing is intentionally deferred; the current execution path stays on a single worker tier.
 
 ### P8. Model Router
@@ -360,7 +362,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
   - Execution metrics now write to `.codebuddy/reports/metrics/execution-events.jsonl` and `.codebuddy/reports/metrics/latest-summary.json`.
   - Current hook points cover task start/success/block/failure, `agent-call` creation, and `agent-call` resume success.
   - Regression now validates both the `worker-executor` path and the `agent-call -> resume` path.
-  - Usage details live in [docs/execution-metrics.md](./docs/execution-metrics.md).
+  - Usage details live in [docs/reference/execution-metrics.md](./docs/reference/execution-metrics.md).
 
 ## Recommended Execution Order
 
@@ -384,7 +386,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 
 - 2026-03-06: Initial roadmap created.
 - 2026-03-06: Converted roadmap from static plan into a living status document with update rules and per-task tracking fields.
-- 2026-03-06: Completed P1.1 script inventory and recorded stable CLI entry points in `docs/loader-script-inventory.md`.
+- 2026-03-06: Completed P1.1 script inventory and recorded stable CLI entry points in `docs/reference/loader-script-inventory.md`.
 - 2026-03-06: Completed P1.3 by bundling validator entrypoints individually and removing validator-only `frontmatter-utils` distribution dependencies from the loader.
 - 2026-03-06: Completed P1.4 by bundling analysis entrypoints individually, switching bundled CLI guards to basename checks, and reducing default distributed scripts to 6 files.
 - 2026-03-06: Completed P1.5/P1.6/P1.7 by bundling orchestrator entrypoints individually, removing internal runtime helper files from business-project distribution, and passing full end-to-end regression.
