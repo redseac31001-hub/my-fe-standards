@@ -60,7 +60,7 @@ def validate_skill(skill_path):
     if metadata is not None:
         if not isinstance(metadata, dict):
             return False, "metadata must be a mapping if provided"
-        allowed_metadata_properties = {"triggers", "tools", "related"}
+        allowed_metadata_properties = {"triggers", "tools", "related", "languages", "frameworks", "roles", "scenarios", "workspace_scope"}
         unexpected_metadata_keys = set(metadata.keys()) - allowed_metadata_properties
         if unexpected_metadata_keys:
             return False, (

@@ -227,22 +227,21 @@ Failing tests compound:
 
 **Fix failures immediately before proceeding.**
 
-## Integration with Claude's Todo Feature
+## Integration with Task Tracking
 
-When using Claude for multi-file testing:
+When the host supports a plan, todo, or taskbook feature:
 
-1. **Ask Claude to create a todo list** before starting
-1. **Request one file at a time** or ensure Claude processes incrementally
-1. **Verify each test passes** before asking for the next
-1. **Mark todos complete** as you progress
+1. **Create a short task list** before starting multi-file testing
+1. **Keep only one file in progress** at a time
+1. **Verify each test passes** before moving to the next file
+1. **Update task status immediately** when a file passes or becomes blocked
 
 Example prompt:
 
 ```
 Test all components in `path/to/directory/`.
-First, analyze the directory and create a todo list ordered by complexity.
-Then, process ONE file at a time, waiting for my confirmation that tests pass
-before proceeding to the next.
+First, analyze the directory and create a task list ordered by complexity.
+Then, process ONE file at a time and verify each file before proceeding.
 ```
 
 ## Summary Checklist

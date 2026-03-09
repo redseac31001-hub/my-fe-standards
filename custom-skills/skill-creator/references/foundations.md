@@ -31,7 +31,16 @@ skill-name/
 - `description`
 - `metadata`（可选）
 
-把宿主相关提示，例如 `triggers`、`tools`、`related`，放到 `metadata` 下，而不是继续扩展新的顶层字段。
+把宿主相关提示放到 `metadata` 下，而不是继续扩展新的顶层字段。当前推荐字段：
+
+- `triggers`
+- `tools`
+- `related`
+- `languages`
+- `frameworks`
+- `roles`
+- `scenarios`
+- `workspace_scope`
 
 ## What Not To Add
 

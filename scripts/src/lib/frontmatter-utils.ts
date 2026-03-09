@@ -64,9 +64,9 @@ export function splitFrontmatterDocument(md: string): FrontmatterDocument {
   };
 }
 
-export function extractYamlScalar(frontmatter: string, key: string): string | undefined {
+export function extractYamlScalar(frontmatter: string, key: string, indent = 0): string | undefined {
   const normalized = normalizeNewlines(frontmatter);
-  const pattern = new RegExp(`^${escapeRegex(key)}:\\s*(.+)$`, 'm');
+  const pattern = new RegExp(`^${escapeRegex(indentPrefix(indent))}${escapeRegex(key)}:\\s*(.+)$`, 'm');
   const match = normalized.match(pattern);
   if (!match) return undefined;
   return stripWrappingQuotes(match[1]);

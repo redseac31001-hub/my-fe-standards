@@ -4,6 +4,17 @@ description: "Trigger when the user requests a review of frontend files (e.g., `
 metadata:
   triggers:
     - "审查代码/代码质量/code review"
+  frameworks:
+    - react
+    - vue
+    - vue2
+    - vue3
+  roles:
+    - frontend
+    - fullstack
+  scenarios:
+    - code-review
+    - quality
 ---
 
 # Frontend Code Review

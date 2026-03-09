@@ -4,6 +4,17 @@ description: Pinia/Vuex 状态管理重构与测试技能。触发条件：Store
 metadata:
   triggers:
     - "状态管理/Vuex/Pinia/Store"
+  frameworks:
+    - vue
+    - vue2
+    - vue3
+  roles:
+    - frontend
+    - fullstack
+  scenarios:
+    - state-management
+    - migration
+    - testing
 ---
 
 # State Management Skill

@@ -4,6 +4,17 @@ description: Refactor high-complexity React or Vue components. Use when complexi
 metadata:
   triggers:
     - "重构/拆分组件/提取 Hook/组件优化"
+  frameworks:
+    - react
+    - vue
+    - vue2
+    - vue3
+  roles:
+    - frontend
+    - fullstack
+  scenarios:
+    - refactoring
+    - component-design
 ---
 
 # Component Refactoring Skill

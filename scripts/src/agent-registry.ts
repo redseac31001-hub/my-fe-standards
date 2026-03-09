@@ -2,7 +2,8 @@
  * Agent Registry (shared frontmatter parser)
  *
  * Scan Agent definitions under:
- * - .codebuddy/agents/<agentId>/AGENT.md (preferred in business projects)
+ * - install.json 记录的 active agents root（preferred in business projects）
+ * - .codebuddy/agents/<agentId>/AGENT.md (legacy fallback)
  * - agents/<agentId>/AGENT.md (fallback for this repo/dev)
  *
  * Output a consumable JSON registry for discovery and validation.
@@ -16,6 +17,7 @@ import {
   parseFrontmatterBlock,
   parseYamlList,
 } from './lib/frontmatter-utils';
+import { getProjectAgentRootCandidatePaths } from './lib/install-roots';
 
 type ParsedCli = {
   command: string | null;
@@ -45,11 +47,6 @@ type AgentRegistryEntry = {
   };
   sourcePath: string; // project-relative, posix
 };
-
-const DEFAULT_AGENT_DIR_CANDIDATES = [
-  path.join(process.cwd(), '.codebuddy', 'agents'),
-  path.join(process.cwd(), 'agents'),
-];
 
 function toPosixPath(p: string): string {
   return p.replace(/\\/g, '/');
@@ -113,7 +110,7 @@ Agent Registry - Agent 定义扫描与注册表输出
   show <agentId>               查看单个 Agent
 
 选项:
-  --dir, --root <path>         扫描目录（默认优先 .codebuddy/agents，其次 agents）
+  --dir, --root <path>         扫描目录（默认优先 install.json 记录的 active agents root，其次 .codebuddy/agents，再次 agents）
   --json                       输出 JSON
   --strict                     list 时若存在解析错误则 exit=1
   --help, -h                   显示帮助
@@ -199,13 +196,19 @@ function resolveAgentsRootDir(dirFlag: unknown): { ok: true; rootDir: string } |
     return { ok: true, rootDir: abs };
   }
 
-  for (const cand of DEFAULT_AGENT_DIR_CANDIDATES) {
+  for (const cand of getProjectAgentRootCandidatePaths(process.cwd())) {
     if (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) {
       return { ok: true, rootDir: cand };
     }
   }
 
-  return { ok: false, issue: { level: 'error', message: 'agents dir not found: expected .codebuddy/agents or agents (run codebuddy-loader first)' } };
+  return {
+    ok: false,
+    issue: {
+      level: 'error',
+      message: 'agents dir not found: expected install.json active agents root, .codebuddy/agents or agents (run codebuddy-loader first)',
+    },
+  };
 }
 
 function scanAgents(rootDirAbs: string): { agents: AgentRegistryEntry[]; issues: RegistryIssue[] } {

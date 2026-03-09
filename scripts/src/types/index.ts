@@ -99,6 +99,14 @@ export interface LayerConfig {
 }
 
 export interface BusinessLayerConfig extends LayerConfig {
+  /**
+   * Layer2 selector -> rule file names.
+   * Supported selector forms:
+   * - `dependency:<package>` / plain `<package>` (backward compatible)
+   * - `stack:<tag>`
+   * - `lang:<language>`
+   * - `kind:<project-kind>`
+   */
   dependencies?: Record<string, string[]>;
 }
 
@@ -140,9 +148,11 @@ export interface Context {
   isRemote: boolean;
   isVerbose: boolean;
   remoteBaseUrl: string;
+  remoteBearerToken: string | null;
   remoteManifest: Manifest | null;
   remoteContentRoot: string | null;
   remoteContentPack: ManifestContentPack | null;
+  strictRemotePack: boolean;
   requestTimeout: number;
   taskType: string | null;
   relevanceThreshold: number;
@@ -153,6 +163,12 @@ export interface Context {
   enableOrchestrator: boolean;
   /** --no-workspace 时为 true，禁用 workspace 多项目发现 */
   disableWorkspace?: boolean;
+  /** Workspace 分发范围：共享安装或定向项目安装 */
+  workspaceScope: WorkspaceScope;
+  /** project-targeted 模式下的目标项目选择器 */
+  targetProject: string | null;
+  /** 可选岗位过滤 */
+  targetRole: SkillRole | null;
 }
 
 /**
@@ -192,6 +208,11 @@ export interface SkillMetadata {
   triggers: string[];
   tools?: string[];
   related?: string[];
+  languages?: ProjectLang[];
+  frameworks?: string[];
+  roles?: SkillRole[];
+  scenarios?: string[];
+  workspaceScope?: SkillWorkspaceScope;
 }
 
 // ============ Agent 系统类型 ============
@@ -239,6 +260,9 @@ export interface AgentDefinition {
 export interface PackageJson {
   name?: string;
   version?: string;
+  type?: string;
+  scripts?: Record<string, string>;
+  workspaces?: string[] | { packages?: string[] };
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 }
@@ -274,12 +298,20 @@ export interface InstallState {
   options: {
     taskType: string | null;
     ruleLevel: 'summary' | 'quick' | 'full';
+    strictRemotePack: boolean;
     relevanceThreshold: number;
     workspaceDiscovery: boolean;
+    workspaceScope: WorkspaceScope;
+    targetProject: string | null;
+    targetRole: SkillRole | null;
   };
   outputs: {
     rulesFile: string;
     workspaceIndexFile: string | null;
+    skillsRootDir?: string | null;
+    skillsSnapshotRetention?: number | null;
+    agentsRootDir?: string | null;
+    agentsSnapshotRetention?: number | null;
   };
   managedFiles: InstallManagedFile[];
   stats: {
@@ -623,6 +655,20 @@ export interface AcceptanceReport {
  * 项目语言类型
  */
 export type ProjectLang = 'typescript' | 'javascript' | 'java' | 'python' | 'go' | 'rust' | 'dotnet' | 'unknown';
+export type ProjectKind = 'frontend' | 'backend' | 'fullstack' | 'library' | 'unknown';
+
+export type WorkspaceScope = 'workspace-union' | 'project-targeted';
+
+export type SkillWorkspaceScope = WorkspaceScope | 'both';
+
+export type SkillRole =
+  | 'frontend'
+  | 'backend'
+  | 'fullstack'
+  | 'qa'
+  | 'architect'
+  | 'product'
+  | 'devops';
 
 /**
  * 单个子项目描述
@@ -648,6 +694,10 @@ export interface SubProject {
   frameworkLabel: string;
   /** UI 库标签列表，如 ["ant-design-vue", "vant"] */
   uiLibLabels: string[];
+  /** 项目形态，用于多岗位/多技术栈路由 */
+  projectKind: ProjectKind;
+  /** 归一化后的技术栈标签，用于 skill/agent 过滤 */
+  stackTags: string[];
 }
 
 /**
@@ -662,6 +712,12 @@ export interface WorkspaceInfo {
   projects: SubProject[];
   /** 发现时间戳 */
   discoveredAt: string;
+  /** 当前安装使用的 workspace 分发范围 */
+  scope: WorkspaceScope;
+  /** 当前锁定的项目（project-targeted 时） */
+  selectedProject: string | null;
+  /** 原始发现到的总项目数 */
+  totalProjectCount: number;
 }
 
 /**
@@ -672,12 +728,17 @@ export interface WorkspaceIndex {
   generatedAt: string;
   rootDir: string;
   projectCount: number;
+  totalProjectCount: number;
+  scope: WorkspaceScope;
+  selectedProject: string | null;
   projects: Array<{
     name: string;
     relativePath: string;
     lang: ProjectLang;
     frameworkLabel: string;
     uiLibLabels: string[];
+    projectKind: ProjectKind;
+    stackTags: string[];
     vueVersion: number | null;
     layer2CachePath: string;
     matchedRules: string[];

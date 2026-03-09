@@ -1,6 +1,6 @@
 {
   "name": "my-fe-standards",
-  "version": "2.0.0",
+  "version": "3.3.0",
   "description": "AI 辅助开发平台 - 前端架构师规则库 + Ralph 自主编码系统",
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -16,6 +16,8 @@
     "build:bundle": "npm run build:bundle:loader && npm run build:bundle:validators && npm run build:bundle:analysis && npm run build:bundle:orchestrator",
     "build:manifest": "node scripts/dist/generate-manifest.js",
     "build": "npm run build:scripts && npm run build:bundle && npm run build:manifest",
+    "build:release:collect": "node scripts/dist/build-release.js",
+    "build:release": "npm run build && npm run build:release:collect",
     "codebuddy": "node scripts/dist/codebuddy-loader.js",
     "codebuddy:install": "node scripts/dist/codebuddy-loader.js",
     "serve": "node scripts/dist/simple-server.js",

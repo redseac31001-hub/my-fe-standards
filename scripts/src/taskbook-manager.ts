@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { isDirectCliEntry } from './lib/cli-entry';
+import { listAgentDefinitionCandidatePaths } from './lib/install-roots';
 import {
   TaskBook,
   TaskBookStatus,
@@ -1420,10 +1421,7 @@ function readTextFileIfExists(filePath: string): string | null {
 }
 
 function loadPlannerAgentDefinition(projectRoot: string): { path: string; content: string } | null {
-  const candidates = [
-    path.join(projectRoot, '.codebuddy', 'agents', 'planner', 'AGENT.md'),
-    path.join(projectRoot, 'agents', 'planner', 'AGENT.md'),
-  ];
+  const candidates = listAgentDefinitionCandidatePaths(projectRoot, 'planner');
   for (const p of candidates) {
     const content = readTextFileIfExists(p);
     if (content) return { path: p, content };
@@ -1862,8 +1860,10 @@ function main(): void {
 
         const agentDef = loadPlannerAgentDefinition(process.cwd());
         if (!agentDef) {
-          console.error('错误: planner AGENT.md 未找到（需要 .codebuddy/agents/planner/AGENT.md 或 agents/planner/AGENT.md）');
-          console.error('提示: 先在目标项目执行 codebuddy-loader 生成 .codebuddy/agents/，再重试。');
+          const candidates = listAgentDefinitionCandidatePaths(process.cwd(), 'planner')
+            .map(filePath => path.relative(process.cwd(), filePath).replace(/\\/g, '/'));
+          console.error(`错误: planner AGENT.md 未找到（期望 ${candidates.join(' 或 ')}）`);
+          console.error('提示: 先在目标项目执行 codebuddy-loader，确保 install.json 指向的 active agents root 已生成。');
           process.exit(1);
         }
         const prompt = buildPlannerPrompt({

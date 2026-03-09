@@ -1,5 +1,7 @@
 # Custom Skills 使用指南
 
+> Legacy note: 当前准确的技能清单与维护约定请优先参考 `custom-skills/skills-index.md`。本文件保留早期代表性样例与长篇说明，不再作为唯一总览入口。
+
 本文档列出了 `custom-skills` 文件夹下的所有自定义技能，并提供详细的使用说明。
 
 ---

@@ -4,6 +4,12 @@ description: Guide for creating or refactoring skills that extend Codex with reu
 metadata:
   triggers:
     - "创建技能/新技能/skill"
+  roles:
+    - architect
+    - fullstack
+  scenarios:
+    - skill-design
+    - skill-refactoring
 ---
 
 # Skill Creator

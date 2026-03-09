@@ -4,6 +4,19 @@ description: 国际化与可访问性技能，涵盖 vue-i18n 配置、WCAG 合�
 metadata:
   triggers:
     - "国际化/i18n/无障碍/a11y/ARIA"
+  frameworks:
+    - react
+    - vue
+    - vue2
+    - vue3
+  roles:
+    - frontend
+    - fullstack
+    - qa
+  scenarios:
+    - i18n
+    - a11y
+    - localization
 ---
 
 # i18n & Accessibility Skill

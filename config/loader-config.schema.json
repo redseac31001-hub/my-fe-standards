@@ -57,7 +57,7 @@
             },
             "dependencies": {
               "type": "object",
-              "description": "依赖映射：npm包名 -> 规则文件夹名数组",
+              "description": "Layer2 选择器映射：支持 plain npm 包名（兼容旧配置）以及 dependency:/stack:/lang:/kind: 选择器",
               "additionalProperties": {
                 "type": "array",
                 "items": {

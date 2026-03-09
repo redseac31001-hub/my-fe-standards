@@ -3,7 +3,7 @@
  *
  * Validate Skill folders for basic correctness:
  * - Supports repo mode: ./custom-skills
- * - Supports project mode: ./.codebuddy/skills (after codebuddy-loader)
+ * - Supports project mode: active skills root from ./.codebuddy/install.json (after codebuddy-loader)
  */
 
 import * as fs from 'fs';
@@ -86,7 +86,7 @@ Skill Validator - Skills 基础校验
   check                        校验 skills（默认）
 
 选项:
-  --dir, --root <path>         skills 目录（默认: ./custom-skills 或 ./.codebuddy/skills 自动探测）
+  --dir, --root <path>         skills 目录（默认: ./custom-skills 或 install.json 记录的 active skills root 自动探测）
   --json                       输出 JSON
   --strict                     存在 error 时 exit=1（默认也是如此；保留该开关便于对齐其它脚本）
   --help, -h                   显示帮助
@@ -101,8 +101,40 @@ function readText(filePath: string): { ok: true; data: string } | { ok: false; e
   }
 }
 
+function detectInstalledSkillsDir(cwd: string): string | null {
+  const installStatePath = path.join(cwd, '.codebuddy', 'install.json');
+  if (!fs.existsSync(installStatePath)) {
+    return null;
+  }
+
+  try {
+    const installState = JSON.parse(fs.readFileSync(installStatePath, 'utf-8')) as {
+      outputs?: { skillsRootDir?: string | null };
+      stats?: { skills?: number };
+    };
+    const skillsRootDir = installState.outputs?.skillsRootDir
+      || ((installState.stats?.skills || 0) > 0 ? '.codebuddy/skills' : null);
+    if (!skillsRootDir) {
+      return null;
+    }
+    const absolutePath = path.resolve(cwd, skillsRootDir);
+    if (fs.existsSync(absolutePath) && fs.statSync(absolutePath).isDirectory()) {
+      return absolutePath;
+    }
+  } catch {
+    // ignore invalid install state
+  }
+
+  return null;
+}
+
 function detectDefaultSkillsDir(cwd: string): string | null {
-  const candidates = [path.join(cwd, 'custom-skills'), path.join(cwd, '.codebuddy', 'skills')];
+  const installedSkillsDir = detectInstalledSkillsDir(cwd);
+  const candidates = [
+    path.join(cwd, 'custom-skills'),
+    installedSkillsDir,
+    path.join(cwd, '.codebuddy', 'skills'),
+  ].filter((value): value is string => Boolean(value));
   for (const c of candidates) {
     try {
       if (fs.existsSync(c) && fs.statSync(c).isDirectory()) return c;
@@ -200,7 +232,7 @@ function validateSkillDir(skillId: string, skillDir: string): { issues: Issue[];
   const metadataBlock = extractYamlSection(frontmatter, 'metadata');
   if (metadataBlock) {
     const metadataKeys = listYamlKeys(metadataBlock, 2);
-    const allowedMetadataKeys = new Set(['triggers', 'tools', 'related']);
+    const allowedMetadataKeys = new Set(['triggers', 'tools', 'related', 'languages', 'frameworks', 'roles', 'scenarios', 'workspace_scope']);
     for (const key of metadataKeys) {
       if (!allowedMetadataKeys.has(key)) {
         issues.push({
@@ -265,7 +297,7 @@ function main(): void {
   const skillsDir = dirFlag ? path.resolve(process.cwd(), dirFlag) : detectDefaultSkillsDir(process.cwd());
 
   if (!skillsDir) {
-    const msg = '未找到 skills 目录（期望 ./custom-skills 或 ./.codebuddy/skills）。请使用 --dir 指定。';
+    const msg = '未找到 skills 目录（期望 ./custom-skills 或 install.json 记录的 active skills root）。请使用 --dir 指定。';
     if (json) {
       console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
     } else {

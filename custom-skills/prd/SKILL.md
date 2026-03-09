@@ -4,6 +4,14 @@ description: "Generate a Product Requirements Document (PRD) for a new feature. 
 metadata:
   triggers:
     - "PRD/需求文档/产品文档"
+  roles:
+    - product
+    - architect
+    - fullstack
+  scenarios:
+    - planning
+    - requirements
+    - documentation
 ---
 
 # PRD Skill

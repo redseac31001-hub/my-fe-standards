@@ -4,6 +4,19 @@ description: 前端性能优化技能，涵盖渲染优化、虚拟滚动、懒�
 metadata:
   triggers:
     - "性能优化/懒加载/虚拟滚动/首屏"
+  frameworks:
+    - react
+    - vue
+    - vue2
+    - vue3
+    - nextjs
+  roles:
+    - frontend
+    - fullstack
+  scenarios:
+    - performance
+    - rendering
+    - loading
 ---
 
 # Performance Optimization Skill

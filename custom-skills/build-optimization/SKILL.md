@@ -4,6 +4,20 @@ description: 构建优化技能，涵盖 Vite/Webpack 配置优化、构建缓�
 metadata:
   triggers:
     - "构建优化/Webpack/Vite/打包/分包"
+  frameworks:
+    - react
+    - vue
+    - vite
+    - webpack
+    - nextjs
+  roles:
+    - frontend
+    - fullstack
+    - devops
+  scenarios:
+    - build
+    - ci
+    - bundle
 ---
 
 # Build Optimization Skill

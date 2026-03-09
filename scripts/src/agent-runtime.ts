@@ -31,6 +31,7 @@ import {
     parseYamlList,
     splitFrontmatterDocument,
 } from './lib/frontmatter-utils';
+import { getProjectSkillRootCandidatePaths } from './lib/install-roots';
 
 // ============ 日志工具 ============
 
@@ -539,7 +540,7 @@ export class AgentRuntime {
      * 加载 Agent 声明的 Skills 内容
      *
      * 从 permissions.skills 中解析 skill 名称，
-     * 依次在 .codebuddy/custom-skills/ 和 custom-skills/ 中查找 SKILL.md
+     * 优先读取 install.json 记录的 active skills root，其次回退到 legacy/custom-skills 目录
      */
     private loadDeclaredSkills(metadata: AgentFrontmatter): Record<string, string> {
         const skills: Record<string, string> = {};
@@ -549,11 +550,8 @@ export class AgentRuntime {
         const root = this.config.projectRoot;
 
         for (const skillName of perms.skills) {
-            // 搜索顺序：.codebuddy/custom-skills/ → custom-skills/
-            const candidates = [
-                path.join(root, '.codebuddy', 'custom-skills', skillName, 'SKILL.md'),
-                path.join(root, 'custom-skills', skillName, 'SKILL.md'),
-            ];
+            const candidates = getProjectSkillRootCandidatePaths(root)
+                .map(skillRoot => path.join(skillRoot, skillName, 'SKILL.md'));
 
             let found = false;
             for (const candidate of candidates) {

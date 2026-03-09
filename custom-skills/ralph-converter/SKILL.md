@@ -4,6 +4,12 @@ description: "Convert PRDs to prd.json format for the Ralph autonomous agent sys
 metadata:
   triggers:
     - "Ralph/转换/迁移"
+  roles:
+    - product
+    - architect
+  scenarios:
+    - conversion
+    - planning
 ---
 
 # Ralph PRD Converter

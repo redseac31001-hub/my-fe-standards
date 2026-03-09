@@ -11,6 +11,15 @@ metadata:
     - "项目地图"
     - "有哪些模块"
     - "module"
+  roles:
+    - architect
+    - frontend
+    - backend
+    - fullstack
+  scenarios:
+    - architecture
+    - dependency-analysis
+  workspace_scope: both
   tools:
     - script:.codebuddy/scripts/module-mapper.js
   related:

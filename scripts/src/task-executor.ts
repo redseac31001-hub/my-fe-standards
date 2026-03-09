@@ -22,6 +22,11 @@ import { collectContext, formatContextAsMarkdown } from './context-collector';
 import { AgentRuntime, createAgentRuntime } from './agent-runtime';
 import { AgentContext, AgentTaskSnapshot } from './types/agent-runtime';
 import { aggregateAndPersist } from './result-aggregator';
+import {
+  getProjectAgentRootCandidates,
+  listAgentDefinitionCandidatePaths,
+  listAgentPromptCandidatePaths,
+} from './lib/install-roots';
 import { WorkerExecutor, createConfiguredWorkerExecutor } from './lib/worker-executor';
 import {
   classifyBlockedReason,
@@ -611,7 +616,7 @@ export class TaskExecutor {
 
     const agentDef = loadAgentDefinition(process.cwd(), agentId);
     const agentDefMissingNote = !agentDef
-      ? `\n\n[agent-call] agent definition missing: expected .codebuddy/agents/${agentId}/AGENT.md (or agents/${agentId}/AGENT.md).`
+      ? `\n\n[agent-call] agent definition missing: expected ${listAgentDefinitionCandidatePaths(process.cwd(), agentId).map(filePath => path.relative(process.cwd(), filePath).replace(/\\/g, '/')).join(' or ')}.`
       : '';
 
     // 获取 AgentRuntime 渲染的 prompt（如果可用）
@@ -1618,10 +1623,7 @@ function extractAgentVersion(agentMarkdown: string): string | undefined {
 }
 
 function loadAgentDefinition(projectRoot: string, agentId: string): { path: string; content: string } | null {
-  const candidates = [
-    path.join(projectRoot, '.codebuddy', 'agents', agentId, 'AGENT.md'),
-    path.join(projectRoot, 'agents', agentId, 'AGENT.md'),
-  ];
+  const candidates = listAgentDefinitionCandidatePaths(projectRoot, agentId);
   for (const p of candidates) {
     const content = readTextFileIfExists(p);
     if (content) return { path: p, content };
@@ -1660,10 +1662,7 @@ function loadAgentPromptTemplate(projectRoot: string, agentId: string, taskType:
   const fileName = agentPrompts[taskType];
   if (!fileName) return null;
 
-  const candidates = [
-    path.join(projectRoot, '.codebuddy', 'agents', agentId, 'prompts', fileName),
-    path.join(projectRoot, 'agents', agentId, 'prompts', fileName),
-  ];
+  const candidates = listAgentPromptCandidatePaths(projectRoot, agentId, fileName);
 
   for (const p of candidates) {
     const content = readTextFileIfExists(p);
@@ -2547,26 +2546,27 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
 
 /**
  * 创建默认的 AgentRuntime 实例
- * 优先使用 .codebuddy/agents/，其次使用 agents/（规则库内置）
+ * 优先使用 install.json 记录的 active agents root，其次回退到 legacy `.codebuddy/agents/` 和内置 `agents/`
  */
 function createDefaultRuntime(): AgentRuntime | undefined {
   const cwd = process.cwd();
-  const localAgentsDir = path.join(cwd, '.codebuddy/agents');
-  const builtinAgentsDir = path.join(cwd, 'agents');
+  const existingCandidateRoots = getProjectAgentRootCandidates(cwd)
+    .map(relativeRoot => ({
+      relativeRoot,
+      absoluteRoot: path.join(cwd, relativeRoot),
+    }))
+    .filter(candidate => fs.existsSync(candidate.absoluteRoot) && fs.statSync(candidate.absoluteRoot).isDirectory());
 
-  // 检测是否存在 Agent 定义目录
-  const hasLocal = fs.existsSync(localAgentsDir);
-  const hasBuiltin = fs.existsSync(builtinAgentsDir);
-
-  if (!hasLocal && !hasBuiltin) {
+  if (existingCandidateRoots.length === 0) {
     return undefined;
   }
 
   try {
+    const [primaryRoot, fallbackRoot] = existingCandidateRoots;
     const runtime = createAgentRuntime({
       projectRoot: cwd,
-      agentsDir: hasLocal ? '.codebuddy/agents' : 'agents',
-      fallbackAgentsDir: hasLocal && hasBuiltin ? 'agents' : undefined,
+      agentsDir: primaryRoot.relativeRoot,
+      fallbackAgentsDir: fallbackRoot?.relativeRoot,
       verbose: false,
     });
     runtime.loadAll();

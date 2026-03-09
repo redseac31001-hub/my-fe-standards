@@ -9,17 +9,40 @@ import * as http from 'http';
 import { Context } from '../types';
 import { Logger } from './logger';
 
+function buildRequestHeaders(ctx: Readonly<Context>, url: string): Record<string, string> {
+  if (!ctx.remoteBearerToken || !ctx.remoteBaseUrl) {
+    return {};
+  }
+
+  try {
+    const remoteOrigin = new URL(ctx.remoteBaseUrl).origin;
+    const requestOrigin = new URL(url).origin;
+    if (remoteOrigin !== requestOrigin) {
+      return {};
+    }
+  } catch {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${ctx.remoteBearerToken}`,
+  };
+}
+
 export function fetchUrl(ctx: Readonly<Context>, logger: Logger, url: string, retries: number = 3): Promise<string> {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
+    const headers = buildRequestHeaders(ctx, url);
 
     logger.verbose(`Fetching: ${url} (Retries left: ${retries})`);
 
-    const request = client.get(url, (res) => {
+    const request = client.get(url, { headers }, (res) => {
       // 处理重定向
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        logger.verbose(`Redirecting to: ${res.headers.location}`);
-        fetchUrl(ctx, logger, res.headers.location, retries).then(resolve).catch(reject);
+        const redirectUrl = new URL(res.headers.location, url).toString();
+        res.resume();
+        logger.verbose(`Redirecting to: ${redirectUrl}`);
+        fetchUrl(ctx, logger, redirectUrl, retries).then(resolve).catch(reject);
         return;
       }
 

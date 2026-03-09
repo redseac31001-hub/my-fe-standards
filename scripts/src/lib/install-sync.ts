@@ -115,6 +115,9 @@ export function getManagedFiles(tracker: ManagedFileTracker): InstallManagedFile
 export function cleanupStaleManagedFiles(
   tracker: ManagedFileTracker,
   previousInstallState: InstallState | null,
+  options?: {
+    preservePrefixes?: string[];
+  },
   logger?: Logger,
 ): string[] {
   if (!previousInstallState?.managedFiles?.length) {
@@ -122,10 +125,15 @@ export function cleanupStaleManagedFiles(
   }
 
   const currentPaths = new Set(tracker.files.keys());
+  const preservePrefixes = (options?.preservePrefixes || []).map(prefix => prefix.replace(/\\/g, '/'));
   const removed: string[] = [];
 
   for (const managedFile of previousInstallState.managedFiles) {
     if (currentPaths.has(managedFile.path)) {
+      continue;
+    }
+
+    if (preservePrefixes.some(prefix => managedFile.path.startsWith(prefix))) {
       continue;
     }
 
@@ -140,13 +148,9 @@ export function cleanupStaleManagedFiles(
     }
 
     try {
-      const stat = fs.statSync(absolutePath);
-      if (!stat.isFile()) {
+      if (!removeManagedPath(tracker.targetDir, absolutePath)) {
         continue;
       }
-      fs.chmodSync(absolutePath, 0o666);
-      fs.rmSync(absolutePath, { force: true });
-      pruneEmptyParents(tracker.targetDir, path.dirname(absolutePath));
       tracker.summary.removed += 1;
       removed.push(managedFile.path);
     } catch (error) {
@@ -155,6 +159,48 @@ export function cleanupStaleManagedFiles(
   }
 
   return removed.sort();
+}
+
+export function removeManagedPath(targetDir: string, absolutePath: string): boolean {
+  if (!fs.existsSync(absolutePath)) {
+    return false;
+  }
+
+  ensureWritableRecursive(absolutePath);
+  fs.rmSync(absolutePath, {
+    recursive: true,
+    force: true,
+    maxRetries: 3,
+    retryDelay: 50,
+  });
+
+  if (fs.existsSync(absolutePath)) {
+    return false;
+  }
+
+  pruneEmptyParents(targetDir, path.dirname(absolutePath));
+  return true;
+}
+
+function ensureWritableRecursive(targetPath: string): void {
+  if (!fs.existsSync(targetPath)) {
+    return;
+  }
+
+  const stat = fs.lstatSync(targetPath);
+  if (stat.isDirectory()) {
+    for (const entry of fs.readdirSync(targetPath)) {
+      ensureWritableRecursive(path.join(targetPath, entry));
+    }
+    try {
+      fs.chmodSync(targetPath, 0o777);
+    } catch {}
+    return;
+  }
+
+  try {
+    fs.chmodSync(targetPath, 0o666);
+  } catch {}
 }
 
 function pruneEmptyParents(targetDir: string, startDir: string): void {

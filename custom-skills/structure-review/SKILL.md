@@ -9,6 +9,15 @@ metadata:
     - "项目组织"
     - "structure"
     - "directory"
+  roles:
+    - architect
+    - frontend
+    - backend
+    - fullstack
+  scenarios:
+    - architecture
+    - structure-analysis
+  workspace_scope: both
   tools:
     - script:.codebuddy/scripts/structure-analyzer.js
     - mcp:analyze_project_structure

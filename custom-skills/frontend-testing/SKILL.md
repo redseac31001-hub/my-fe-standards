@@ -4,6 +4,18 @@ description: Generate tests for frontend components (React/Vue). Supports Vitest
 metadata:
   triggers:
     - "写测试/测试用例/Mock/断言"
+  frameworks:
+    - react
+    - vue
+    - vue2
+    - vue3
+  roles:
+    - frontend
+    - fullstack
+    - qa
+  scenarios:
+    - testing
+    - coverage
 ---
 
 # Frontend Testing Skill

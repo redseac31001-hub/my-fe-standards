@@ -26,10 +26,25 @@
             "title": "Layer 2: 业务规范",
             "dependencies": {
                 "ant-design-vue": ["antdv"],
-                "vant": ["vant"]
+                "vant": ["vant"],
+                "kind:backend": ["backend-service"],
+                "stack:nodeservice": ["node-backend"],
+                "stack:nestjs": ["node-backend"],
+                "stack:express": ["node-backend"],
+                "stack:fastify": ["node-backend"],
+                "stack:koa": ["node-backend"],
+                "stack:hono": ["node-backend"],
+                "stack:springboot": ["java-backend"],
+                "stack:quarkus": ["java-backend"],
+                "stack:micronaut": ["java-backend"],
+                "stack:jakartarest": ["java-backend"],
+                "stack:axum": ["rust-backend"],
+                "stack:actixweb": ["rust-backend"],
+                "stack:rocket": ["rust-backend"],
+                "stack:tonic": ["rust-backend"]
             },
             "loadMode": "lazy",
-            "_comment": "key=npm包名, value=对应要加载的规则文件夹名数组"
+            "_comment": "key 支持 npm 包名（向后兼容）或 selector（dependency:/stack:/lang:/kind:），value=对应要加载的规则文件夹名数组"
         },
         "action": {
             "id": "layer3_action",
