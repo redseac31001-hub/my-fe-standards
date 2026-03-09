@@ -129,8 +129,9 @@ timer = setTimeout(() => {
   return JSON.parse(res.stdout);
 }
 
-function startStaticFileServer(rootDir) {
+function startStaticFileServer(rootDir, options = {}) {
   const host = '127.0.0.1';
+  const bearerToken = String(options.bearerToken || '');
   const script = `
 const http = require('http');
 const fs = require('fs');
@@ -139,6 +140,7 @@ const path = require('path');
 const rootDir = process.env.STATIC_ROOT;
 const host = process.env.STATIC_HOST || '127.0.0.1';
 const port = Number(process.env.STATIC_PORT || '0');
+const expectedBearerToken = process.env.STATIC_BEARER_TOKEN || '';
 
 if (!rootDir || !port) {
   console.error('missing root/port');
@@ -151,6 +153,15 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ ok: true }));
     return;
+  }
+
+  if (expectedBearerToken) {
+    const authorization = String((req && req.headers && req.headers.authorization) || '');
+    if (authorization !== \`Bearer \${expectedBearerToken}\`) {
+      res.writeHead(401);
+      res.end('unauthorized');
+      return;
+    }
   }
 
   const normalized = path.posix.normalize(decodeURIComponent(rawPath)).replace(/^\\/+/, '');
@@ -193,6 +204,7 @@ server.listen(port, host, () => {
         STATIC_ROOT: rootDir,
         STATIC_HOST: host,
         STATIC_PORT: String(port),
+        STATIC_BEARER_TOKEN: bearerToken,
       },
     });
 
@@ -221,7 +233,7 @@ server.listen(port, host, () => {
       continue;
     }
 
-    return { proc, baseUrl };
+    return { proc, baseUrl, token: bearerToken || null };
   }
 
   throw new Error('failed to start static file server');
@@ -574,11 +586,15 @@ function createRemotePacklessRoot(profile = 'analysis') {
   return rootDir;
 }
 
-function runLoaderInProject(projectDir, args = []) {
+function runLoaderInProject(projectDir, args = [], options = {}) {
   const result = spawnSync(process.execPath, [RULE_LOADER_PATH, ...args], {
     cwd: projectDir,
     stdio: 'pipe',
     encoding: 'utf-8',
+    env: {
+      ...process.env,
+      ...(options.env || {}),
+    },
   });
   if (result.status !== 0) {
     throw buildExecError(`node "${RULE_LOADER_PATH}" ${args.join(' ')}`.trim(), result);
@@ -647,6 +663,9 @@ function runProfileMatrixSmoke() {
     installState = readInstallState(projectDir);
     if (installState.profile !== 'full' || installState.enableOrchestrator !== true) {
       throw new Error(`full profile installState 闂傚倷娴囬褏鈧稈鏅犻、娆撳冀椤撶偟鐛ラ梺鍝勭▉閸樿偐澹曡ぐ鎺撶厵闂傚倸顕崝宥夋煕? ${JSON.stringify(installState)}`);
+    }
+    if (!installState.outputs || !installState.outputs.agentsRootDir) {
+      throw new Error(`full profile installState 缺少 active agents root: ${JSON.stringify(installState.outputs)}`);
     }
     assertFilePresence(projectDir, '.codebuddy/scripts/agent-registry.js', true, 'full profile');
     const fullStatus = statusJson();
@@ -720,6 +739,392 @@ function runProfileMatrixSmoke() {
   }
 }
 
+function runMultiStackWorkspaceSmoke() {
+  log(`\n${colors.bold}Multi-stack Workspace Detection${colors.reset}`);
+
+  try {
+    const workspaceDir = path.join(
+      TEST_RUNTIME_DIR,
+      `multi-stack-workspace-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+    );
+
+    fs.mkdirSync(path.join(workspaceDir, 'apps', 'api'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'apps', 'worker-lite', 'src', 'routes'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'apps', 'web'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'services', 'billing'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'crates', 'worker'), { recursive: true });
+
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'api', 'package.json'), JSON.stringify({
+      name: '@tests/api',
+      type: 'module',
+      dependencies: {
+        '@nestjs/core': '^10.0.0',
+        '@nestjs/common': '^10.0.0',
+      },
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'api', 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext' },
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'api', 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n', 'utf-8');
+
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'package.json'), JSON.stringify({
+      name: '@tests/worker-lite',
+      type: 'module',
+      scripts: {
+        dev: 'tsx src/server.ts',
+        start: 'node dist/server.js',
+      },
+      dependencies: {
+        zod: '^3.23.0',
+      },
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext' },
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'package-lock.json'), JSON.stringify({
+      name: '@tests/worker-lite',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {},
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'src', 'server.ts'), `
+import { createServer } from 'node:http';
+
+createServer((_req, res) => {
+  res.statusCode = 200;
+  res.end('ok');
+}).listen(process.env.PORT || 3100);
+`.trim(), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'src', 'routes', 'health.ts'), `
+export function registerHealthRoute() {
+  return '/health';
+}
+`.trim(), 'utf-8');
+
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'web', 'package.json'), JSON.stringify({
+      name: '@tests/web',
+      dependencies: {
+        vue: '^3.4.0',
+      },
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'web', 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext' },
+    }, null, 2), 'utf-8');
+
+    fs.writeFileSync(path.join(workspaceDir, 'services', 'billing', 'pom.xml'), `
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>billing-service</artifactId>
+  <version>1.0.0</version>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+  </dependencies>
+</project>
+`.trim(), 'utf-8');
+
+    fs.writeFileSync(path.join(workspaceDir, 'crates', 'worker', 'Cargo.toml'), `
+[package]
+name = "worker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+`.trim(), 'utf-8');
+
+    runLoaderInProject(workspaceDir, ['--profile', 'full', '--role', 'backend']);
+
+    const workspaceIndex = JSON.parse(fs.readFileSync(
+      path.join(workspaceDir, '.codebuddy', 'workspace-index.json'),
+      'utf-8'
+    ));
+    const projectMap = new Map(workspaceIndex.projects.map(project => [project.relativePath, project]));
+
+    const nodeProject = projectMap.get('apps/api');
+    if (!nodeProject) {
+      throw new Error('workspace-index missing apps/api');
+    }
+    if (nodeProject.projectKind !== 'backend') {
+      throw new Error(`apps/api projectKind mismatch: ${nodeProject.projectKind}`);
+    }
+    for (const tag of ['typescript', 'nestjs', 'nodejs', 'pnpm']) {
+      if (!nodeProject.stackTags.includes(tag)) {
+        throw new Error(`apps/api missing stack tag: ${tag}`);
+      }
+    }
+    for (const rule of ['backend-service', 'node-backend']) {
+      if (!nodeProject.matchedRules.includes(rule)) {
+        throw new Error(`apps/api missing matched Layer2 rule: ${rule}`);
+      }
+    }
+
+    const javaProject = projectMap.get('services/billing');
+    if (!javaProject) {
+      throw new Error('workspace-index missing services/billing');
+    }
+    if (javaProject.projectKind !== 'backend') {
+      throw new Error(`services/billing projectKind mismatch: ${javaProject.projectKind}`);
+    }
+    for (const tag of ['java', 'maven', 'springboot', 'spring', 'jpa']) {
+      if (!javaProject.stackTags.includes(tag)) {
+        throw new Error(`services/billing missing stack tag: ${tag}`);
+      }
+    }
+    for (const rule of ['backend-service', 'java-backend']) {
+      if (!javaProject.matchedRules.includes(rule)) {
+        throw new Error(`services/billing missing matched Layer2 rule: ${rule}`);
+      }
+    }
+
+    const rustProject = projectMap.get('crates/worker');
+    if (!rustProject) {
+      throw new Error('workspace-index missing crates/worker');
+    }
+    if (rustProject.projectKind !== 'backend') {
+      throw new Error(`crates/worker projectKind mismatch: ${rustProject.projectKind}`);
+    }
+    for (const tag of ['rust', 'cargo', 'axum', 'tokio', 'serde']) {
+      if (!rustProject.stackTags.includes(tag)) {
+        throw new Error(`crates/worker missing stack tag: ${tag}`);
+      }
+    }
+    for (const rule of ['backend-service', 'rust-backend']) {
+      if (!rustProject.matchedRules.includes(rule)) {
+        throw new Error(`crates/worker missing matched Layer2 rule: ${rule}`);
+      }
+    }
+
+    const genericNodeProject = projectMap.get('apps/worker-lite');
+    if (!genericNodeProject) {
+      throw new Error('workspace-index missing apps/worker-lite');
+    }
+    if (genericNodeProject.projectKind !== 'backend') {
+      throw new Error(`apps/worker-lite projectKind mismatch: ${genericNodeProject.projectKind}`);
+    }
+    for (const tag of ['typescript', 'nodejs', 'nodeservice', 'npm']) {
+      if (!genericNodeProject.stackTags.includes(tag)) {
+        throw new Error(`apps/worker-lite missing stack tag: ${tag}`);
+      }
+    }
+    for (const rule of ['backend-service', 'node-backend']) {
+      if (!genericNodeProject.matchedRules.includes(rule)) {
+        throw new Error(`apps/worker-lite missing matched Layer2 rule: ${rule}`);
+      }
+    }
+
+    const rulesContent = fs.readFileSync(
+      path.join(workspaceDir, '.codebuddy', 'rules', 'project-rules.md'),
+      'utf-8'
+    );
+    if (!rulesContent.includes('backend-code-review') || !rulesContent.includes('backend-testing')) {
+      throw new Error('backend skills were not activated for backend workspace');
+    }
+    if (rulesContent.includes('frontend-code-review')) {
+      throw new Error('frontend skills should not be activated under --role backend');
+    }
+
+    const installState = readInstallState(workspaceDir);
+    const skillsRootDir = installState.outputs && installState.outputs.skillsRootDir;
+    if (!skillsRootDir) {
+      throw new Error('multi-stack workspace missing active skills root');
+    }
+    for (const relativePath of [
+      path.join(skillsRootDir, 'backend-code-review', 'references', 'java-frameworks.md'),
+      path.join(skillsRootDir, 'backend-testing', 'references', 'rust-frameworks.md'),
+    ]) {
+      if (!fs.existsSync(path.join(workspaceDir, relativePath))) {
+        throw new Error(`missing installed framework reference: ${relativePath}`);
+      }
+    }
+    for (const relativePath of [
+      path.join('.codebuddy', 'rules_cache', 'projects', 'apps/api', 'layer2_business', 'node-backend.md'),
+      path.join('.codebuddy', 'rules_cache', 'projects', 'apps/worker-lite', 'layer2_business', 'node-backend.md'),
+      path.join('.codebuddy', 'rules_cache', 'projects', 'services/billing', 'layer2_business', 'java-backend.md'),
+      path.join('.codebuddy', 'rules_cache', 'projects', 'crates/worker', 'layer2_business', 'rust-backend.md'),
+    ]) {
+      if (!fs.existsSync(path.join(workspaceDir, relativePath))) {
+        throw new Error(`missing installed Layer2 rule cache: ${relativePath}`);
+      }
+    }
+
+    logSuccess('multi-stack workspace detection passed');
+    return true;
+  } catch (e) {
+    logError(`multi-stack workspace detection failed: ${e.message}`);
+    return false;
+  }
+}
+
+function runProjectTargetedWorkspaceSmoke() {
+  log(`\n${colors.bold}Project-targeted Workspace Scope${colors.reset}`);
+
+  try {
+    const workspaceDir = path.join(
+      TEST_RUNTIME_DIR,
+      `project-targeted-workspace-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+    );
+
+    fs.mkdirSync(path.join(workspaceDir, 'apps', 'web'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'apps', 'worker-lite', 'src', 'routes'), { recursive: true });
+
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'web', 'package.json'), JSON.stringify({
+      name: '@tests/web',
+      dependencies: {
+        vue: '^3.4.0',
+      },
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'web', 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext' },
+    }, null, 2), 'utf-8');
+
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'package.json'), JSON.stringify({
+      name: '@tests/worker-lite',
+      type: 'module',
+      scripts: {
+        dev: 'tsx src/server.ts',
+        start: 'node dist/server.js',
+      },
+      dependencies: {
+        zod: '^3.23.0',
+      },
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext' },
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'package-lock.json'), JSON.stringify({
+      name: '@tests/worker-lite',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {},
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'src', 'server.ts'), `
+import { createServer } from 'node:http';
+
+createServer((_req, res) => {
+  res.statusCode = 200;
+  res.end('ok');
+}).listen(process.env.PORT || 3200);
+`.trim(), 'utf-8');
+    fs.writeFileSync(path.join(workspaceDir, 'apps', 'worker-lite', 'src', 'routes', 'health.ts'), `
+export function healthRoute() {
+  return '/health';
+}
+`.trim(), 'utf-8');
+
+    runLoaderInProject(workspaceDir, [
+      '--profile', 'analysis',
+      '--role', 'backend',
+      '--workspace-scope', 'project-targeted',
+      '--project', 'apps/worker-lite',
+    ]);
+
+    const workspaceIndex = JSON.parse(fs.readFileSync(
+      path.join(workspaceDir, '.codebuddy', 'workspace-index.json'),
+      'utf-8'
+    ));
+    if (workspaceIndex.scope !== 'project-targeted') {
+      throw new Error(`workspace scope mismatch: ${workspaceIndex.scope}`);
+    }
+    if (workspaceIndex.selectedProject !== 'apps/worker-lite') {
+      throw new Error(`selectedProject mismatch: ${workspaceIndex.selectedProject}`);
+    }
+    if (workspaceIndex.totalProjectCount !== 2) {
+      throw new Error(`totalProjectCount mismatch: ${workspaceIndex.totalProjectCount}`);
+    }
+    if (!Array.isArray(workspaceIndex.projects) || workspaceIndex.projects.length !== 1) {
+      throw new Error(`project-targeted workspace should contain exactly one active project: ${JSON.stringify(workspaceIndex.projects)}`);
+    }
+
+    const selectedProject = workspaceIndex.projects[0];
+    if (selectedProject.relativePath !== 'apps/worker-lite') {
+      throw new Error(`active project mismatch: ${selectedProject.relativePath}`);
+    }
+    for (const rule of ['backend-service', 'node-backend']) {
+      if (!selectedProject.matchedRules.includes(rule)) {
+        throw new Error(`project-targeted worker-lite missing matched Layer2 rule: ${rule}`);
+      }
+    }
+
+    const installState = readInstallState(workspaceDir);
+    if (!installState || !installState.options) {
+      throw new Error('project-targeted workspace missing installState');
+    }
+    if (installState.options.workspaceScope !== 'project-targeted') {
+      throw new Error(`installState workspaceScope mismatch: ${installState.options.workspaceScope}`);
+    }
+    if (installState.options.targetProject !== 'apps/worker-lite') {
+      throw new Error(`installState targetProject mismatch: ${installState.options.targetProject}`);
+    }
+    if (installState.options.targetRole !== 'backend') {
+      throw new Error(`installState targetRole mismatch: ${installState.options.targetRole}`);
+    }
+
+    const rulesContent = fs.readFileSync(
+      path.join(workspaceDir, '.codebuddy', 'rules', 'project-rules.md'),
+      'utf-8'
+    );
+    if (!rulesContent.includes('backend-code-review') || !rulesContent.includes('backend-testing')) {
+      throw new Error('project-targeted backend workspace missing backend skills');
+    }
+    if (rulesContent.includes('frontend-code-review')) {
+      throw new Error('project-targeted backend workspace should not activate frontend skills');
+    }
+
+    const skillsRootDir = installState.outputs && installState.outputs.skillsRootDir;
+    if (!skillsRootDir) {
+      throw new Error('project-targeted workspace missing active skills root');
+    }
+    for (const relativePath of [
+      path.join(skillsRootDir, 'backend-code-review', 'references', 'node-service.md'),
+      path.join(skillsRootDir, 'backend-testing', 'references', 'node-testing.md'),
+    ]) {
+      if (!fs.existsSync(path.join(workspaceDir, relativePath))) {
+        throw new Error(`missing project-targeted Node backend reference: ${relativePath}`);
+      }
+    }
+
+    if (!fs.existsSync(path.join(
+      workspaceDir,
+      '.codebuddy',
+      'rules_cache',
+      'projects',
+      'apps',
+      'worker-lite',
+      'layer2_business',
+      'node-backend.md'
+    ))) {
+      throw new Error('project-targeted workspace missing targeted node-backend cache');
+    }
+
+    if (fs.existsSync(path.join(
+      workspaceDir,
+      '.codebuddy',
+      'rules_cache',
+      'projects',
+      'apps',
+      'web'
+    ))) {
+      throw new Error('project-targeted workspace should not materialize non-target project caches');
+    }
+
+    logSuccess('project-targeted workspace scope passed');
+    return true;
+  } catch (e) {
+    logError(`project-targeted workspace scope failed: ${e.message}`);
+    return false;
+  }
+}
+
 function runRemoteContentPackSmoke() {
   log(`\n${colors.bold}濠电姷鏁告慨鐑藉极閹间礁纾婚柣鎰▕閻掕姤绻涢崱妯绘儎闁轰礁瀚伴弻娑㈩敃閻樻彃濮曢梺? Remote Content Pack${colors.reset}`);
 
@@ -748,6 +1153,29 @@ function runRemoteContentPackSmoke() {
       try { packedServer.proc.kill(); } catch {}
     }
 
+    const authProjectDir = prepareProjectSandbox('vue3-project');
+    const authRoot = createRemotePackOnlyRoot('analysis');
+    const authToken = `static-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const authServer = startStaticFileServer(authRoot, { bearerToken: authToken });
+    try {
+      runLoaderInProject(
+        authProjectDir,
+        ['--remote', authServer.baseUrl, '--pack-only', '--remote-bearer-token', authToken],
+        { env: { CODEBUDDY_REMOTE_BEARER_TOKEN: 'wrong-token-should-not-win' } },
+      );
+      const installState = readInstallState(authProjectDir);
+      if (!installState.source.contentPackFile) {
+        throw new Error('remote auth install should use content pack');
+      }
+      if (installState.options.strictRemotePack !== true) {
+        throw new Error('remote auth installState should record strict pack mode');
+      }
+      assertFilePresence(authProjectDir, '.codebuddy/rules/project-rules.md', true, 'remote auth pack-only');
+      logSuccess('remote auth pack-only install passed');
+    } finally {
+      try { authServer.proc.kill(); } catch {}
+    }
+
     const fallbackProjectDir = prepareProjectSandbox('vue3-project');
     const fallbackRoot = createRemotePacklessRoot('analysis');
     const fallbackServer = startStaticFileServer(fallbackRoot);
@@ -762,6 +1190,28 @@ function runRemoteContentPackSmoke() {
       logSuccess('remote file-by-file fallback passed');
     } finally {
       try { fallbackServer.proc.kill(); } catch {}
+    }
+
+    const strictProjectDir = prepareProjectSandbox('vue3-project');
+    const strictRoot = createRemotePacklessRoot('analysis');
+    const strictServer = startStaticFileServer(strictRoot);
+    try {
+      let failed = false;
+      try {
+        runLoaderInProject(strictProjectDir, ['--remote', strictServer.baseUrl, '--pack-only']);
+      } catch (error) {
+        failed = true;
+        const message = String(error && error.message ? error.message : error);
+        if (!message.includes('pack-only mode requires manifest.packs.analysis')) {
+          throw new Error(`strict pack-only failure mismatch: ${message}`);
+        }
+      }
+      if (!failed) {
+        throw new Error('pack-only should fail when remote source has no content pack');
+      }
+      logSuccess('remote pack-only enforcement passed');
+    } finally {
+      try { strictServer.proc.kill(); } catch {}
     }
 
     return true;
@@ -1037,8 +1487,10 @@ function runTestCase(testCase) {
 
     if (PYTHON_RUNNER) {
       try {
-        const skillScriptsDir = path.join(projectDir, '.codebuddy', 'skills', 'skill-creator', 'scripts');
-        const targetSkillDir = path.join(projectDir, '.codebuddy', 'skills', 'frontend-testing');
+        const installState = readInstallState(projectDir);
+        const skillsRootDir = (installState.outputs && installState.outputs.skillsRootDir) || '.codebuddy/skills';
+        const skillScriptsDir = path.join(projectDir, skillsRootDir, 'skill-creator', 'scripts');
+        const targetSkillDir = path.join(projectDir, skillsRootDir, 'frontend-testing');
         const distDir = path.join(projectDir, '.codebuddy', 'tmp-skill-dist');
         const quickValidateScript = path.join(skillScriptsDir, 'quick_validate.py');
         const packageScript = path.join(skillScriptsDir, 'package_skill.py');
@@ -1811,6 +2263,12 @@ ${colors.bold}CodeBuddy Loader Test Suite${colors.reset}`);
   }
 
   if (runProfileMatrixSmoke()) passed++;
+  else failed++;
+
+  if (runMultiStackWorkspaceSmoke()) passed++;
+  else failed++;
+
+  if (runProjectTargetedWorkspaceSmoke()) passed++;
   else failed++;
 
   if (runRemoteContentPackSmoke()) passed++;
