@@ -34,8 +34,8 @@ __export(taskbook_manager_exports, {
   taskBookManager: () => taskBookManager
 });
 module.exports = __toCommonJS(taskbook_manager_exports);
-var fs = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
+var fs2 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
 
 // scripts/src/lib/cli-entry.ts
 var path = __toESM(require("path"));
@@ -45,6 +45,66 @@ function isDirectCliEntry(expectedFileNames) {
   const actual = path.basename(argvPath).toLowerCase();
   const expected = Array.isArray(expectedFileNames) ? expectedFileNames : [expectedFileNames];
   return expected.some((name) => actual === name.toLowerCase());
+}
+
+// scripts/src/lib/install-roots.ts
+var path3 = __toESM(require("path"));
+
+// scripts/src/lib/install-sync.ts
+var fs = __toESM(require("fs"));
+var path2 = __toESM(require("path"));
+function readInstallState(targetDir, logger) {
+  const installStatePath = path2.join(targetDir, ".codebuddy", "install.json");
+  if (!fs.existsSync(installStatePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(installStatePath, "utf-8"));
+  } catch (error) {
+    logger?.warn(`\u8BFB\u53D6 install.json \u5931\u8D25: ${error.message}`);
+    return null;
+  }
+}
+
+// scripts/src/lib/install-roots.ts
+function normalizeRelativeRoot(relativeRoot) {
+  if (typeof relativeRoot !== "string") return null;
+  const normalized = relativeRoot.trim().replace(/\\/g, "/");
+  return normalized ? normalized : null;
+}
+function dedupeRelativeRoots(relativeRoots) {
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const relativeRoot of relativeRoots) {
+    const normalized = normalizeRelativeRoot(relativeRoot);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+function resolveInstalledAgentsRootDir(installState) {
+  if (!installState) return null;
+  return normalizeRelativeRoot(installState.outputs.agentsRootDir) || (installState.stats.agents > 0 ? ".codebuddy/agents" : null);
+}
+function getProjectInstallState(projectRoot) {
+  return readInstallState(projectRoot);
+}
+function getProjectAgentRootCandidates(projectRoot, installState) {
+  const resolvedInstallState = typeof installState === "undefined" ? getProjectInstallState(projectRoot) : installState;
+  return dedupeRelativeRoots([
+    resolveInstalledAgentsRootDir(resolvedInstallState),
+    ".codebuddy/agents",
+    "agents"
+  ]);
+}
+function getProjectAgentRootCandidatePaths(projectRoot, installState) {
+  return getProjectAgentRootCandidates(projectRoot, installState).map((relativeRoot) => path3.join(projectRoot, relativeRoot));
+}
+function listAgentDefinitionCandidatePaths(projectRoot, agentId, installState) {
+  return getProjectAgentRootCandidatePaths(projectRoot, installState).map((rootDir) => path3.join(rootDir, agentId, "AGENT.md"));
 }
 
 // scripts/src/taskbook-manager.ts
@@ -79,8 +139,8 @@ function now() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function ensureDir(dirPath) {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
+  if (!fs2.existsSync(dirPath)) {
+    fs2.mkdirSync(dirPath, { recursive: true });
   }
 }
 var TaskBookManager = class {
@@ -91,28 +151,28 @@ var TaskBookManager = class {
    * 获取活跃任务书目录
    */
   getActiveDir() {
-    return path2.join(this.baseDir, TASKBOOK_BASE_DIR, ACTIVE_DIR);
+    return path4.join(this.baseDir, TASKBOOK_BASE_DIR, ACTIVE_DIR);
   }
   /**
    * 获取历史任务书目录
    */
   getHistoryDir() {
-    return path2.join(this.baseDir, TASKBOOK_BASE_DIR, HISTORY_DIR);
+    return path4.join(this.baseDir, TASKBOOK_BASE_DIR, HISTORY_DIR);
   }
   /**
    * 获取上下文快照目录
    */
   getContextSnapshotsDir() {
-    return path2.join(this.baseDir, CONTEXT_SNAPSHOTS_DIR);
+    return path4.join(this.baseDir, CONTEXT_SNAPSHOTS_DIR);
   }
   /**
    * 创建新的 TaskBook
    */
   getLocksDir() {
-    return path2.join(this.baseDir, LOCKS_DIR);
+    return path4.join(this.baseDir, LOCKS_DIR);
   }
   getLockPath(taskBookId) {
-    return path2.join(this.getLocksDir(), `${taskBookId}.lock`);
+    return path4.join(this.getLocksDir(), `${taskBookId}.lock`);
   }
   normalize(taskBook) {
     if (typeof taskBook.revision !== "number") {
@@ -139,26 +199,26 @@ var TaskBookManager = class {
   }
   withTaskBookLock(taskBookId, fn, opts) {
     const lockPath = this.getLockPath(taskBookId);
-    ensureDir(path2.dirname(lockPath));
+    ensureDir(path4.dirname(lockPath));
     const startedAt = Date.now();
     const timeoutMs = opts?.timeoutMs ?? LOCK_TIMEOUT_MS;
     while (true) {
       try {
-        const fd = fs.openSync(lockPath, "wx");
+        const fd = fs2.openSync(lockPath, "wx");
         try {
           const payload = { pid: process.pid, createdAt: now(), taskBookId };
-          fs.writeFileSync(fd, JSON.stringify(payload, null, 2), "utf-8");
+          fs2.writeFileSync(fd, JSON.stringify(payload, null, 2), "utf-8");
         } catch {
         }
         try {
           return fn();
         } finally {
           try {
-            fs.closeSync(fd);
+            fs2.closeSync(fd);
           } catch {
           }
           try {
-            fs.unlinkSync(lockPath);
+            fs2.unlinkSync(lockPath);
           } catch {
           }
         }
@@ -168,11 +228,11 @@ var TaskBookManager = class {
           throw error;
         }
         try {
-          const stat = fs.statSync(lockPath);
+          const stat = fs2.statSync(lockPath);
           const ageMs = Date.now() - stat.mtimeMs;
           if (ageMs > LOCK_STALE_MS) {
             try {
-              fs.unlinkSync(lockPath);
+              fs2.unlinkSync(lockPath);
               continue;
             } catch {
             }
@@ -182,7 +242,7 @@ var TaskBookManager = class {
         if (Date.now() - startedAt > timeoutMs) {
           let lockInfo = "";
           try {
-            lockInfo = fs.readFileSync(lockPath, "utf-8").slice(0, 2e3);
+            lockInfo = fs2.readFileSync(lockPath, "utf-8").slice(0, 2e3);
           } catch {
           }
           const details = lockInfo ? `
@@ -222,22 +282,22 @@ ${lockInfo}` : "";
   save(taskBook) {
     const dir = taskBook.status === "completed" || taskBook.status === "aborted" ? this.getHistoryDir() : this.getActiveDir();
     ensureDir(dir);
-    const filePath = path2.join(dir, `${taskBook.id}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(taskBook, null, 2), "utf-8");
+    const filePath = path4.join(dir, `${taskBook.id}.json`);
+    fs2.writeFileSync(filePath, JSON.stringify(taskBook, null, 2), "utf-8");
   }
   /**
    * 读取 TaskBook
    */
   load(id) {
-    let filePath = path2.join(this.getActiveDir(), `${id}.json`);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, "utf-8");
+    let filePath = path4.join(this.getActiveDir(), `${id}.json`);
+    if (fs2.existsSync(filePath)) {
+      const content = fs2.readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(content);
       return this.normalize(parsed);
     }
-    filePath = path2.join(this.getHistoryDir(), `${id}.json`);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, "utf-8");
+    filePath = path4.join(this.getHistoryDir(), `${id}.json`);
+    if (fs2.existsSync(filePath)) {
+      const content = fs2.readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(content);
       return this.normalize(parsed);
     }
@@ -248,12 +308,12 @@ ${lockInfo}` : "";
    */
   listActive() {
     const dir = this.getActiveDir();
-    if (!fs.existsSync(dir)) {
+    if (!fs2.existsSync(dir)) {
       return [];
     }
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+    const files = fs2.readdirSync(dir).filter((f) => f.endsWith(".json"));
     return files.map((f) => {
-      const content = fs.readFileSync(path2.join(dir, f), "utf-8");
+      const content = fs2.readFileSync(path4.join(dir, f), "utf-8");
       const parsed = JSON.parse(content);
       return this.normalize(parsed);
     });
@@ -282,9 +342,9 @@ ${lockInfo}` : "";
         after: { status }
       });
       if (status === "completed" || status === "aborted") {
-        const activeFilePath = path2.join(this.getActiveDir(), `${id}.json`);
-        if (fs.existsSync(activeFilePath)) {
-          fs.unlinkSync(activeFilePath);
+        const activeFilePath = path4.join(this.getActiveDir(), `${id}.json`);
+        if (fs2.existsSync(activeFilePath)) {
+          fs2.unlinkSync(activeFilePath);
         }
       }
       this.touch(taskBook);
@@ -956,12 +1016,12 @@ ${text}` : text;
       this.touch(updated);
       this.save(updated);
     });
-    const reportsDir = path2.join(this.baseDir, ".codebuddy", "reports");
-    if (!fs.existsSync(reportsDir)) {
-      fs.mkdirSync(reportsDir, { recursive: true });
+    const reportsDir = path4.join(this.baseDir, ".codebuddy", "reports");
+    if (!fs2.existsSync(reportsDir)) {
+      fs2.mkdirSync(reportsDir, { recursive: true });
     }
-    const reportPath = path2.join(reportsDir, `final-${taskBookId}.json`);
-    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), "utf-8");
+    const reportPath = path4.join(reportsDir, `final-${taskBookId}.json`);
+    fs2.writeFileSync(reportPath, JSON.stringify(report, null, 2), "utf-8");
   }
 };
 var taskBookManager = new TaskBookManager();
@@ -1152,14 +1212,11 @@ function generateRequestId() {
   return `req-${ts}-${rnd}`;
 }
 function readTextFileIfExists(filePath) {
-  if (!fs.existsSync(filePath)) return null;
-  return fs.readFileSync(filePath, "utf-8");
+  if (!fs2.existsSync(filePath)) return null;
+  return fs2.readFileSync(filePath, "utf-8");
 }
 function loadPlannerAgentDefinition(projectRoot) {
-  const candidates = [
-    path2.join(projectRoot, ".codebuddy", "agents", "planner", "AGENT.md"),
-    path2.join(projectRoot, "agents", "planner", "AGENT.md")
-  ];
+  const candidates = listAgentDefinitionCandidatePaths(projectRoot, "planner");
   for (const p of candidates) {
     const content = readTextFileIfExists(p);
     if (content) return { path: p, content };
@@ -1513,10 +1570,10 @@ function main() {
           process.exit(1);
         }
         if (write) {
-          const outDir = path2.join(process.cwd(), ".codebuddy", "reports", "taskbooks");
+          const outDir = path4.join(process.cwd(), ".codebuddy", "reports", "taskbooks");
           ensureDir(outDir);
-          const outPath = out ? path2.resolve(process.cwd(), out) : path2.join(outDir, `${taskBookId}.acceptance.json`);
-          fs.writeFileSync(outPath, JSON.stringify(report, null, 2), "utf-8");
+          const outPath = out ? path4.resolve(process.cwd(), out) : path4.join(outDir, `${taskBookId}.acceptance.json`);
+          fs2.writeFileSync(outPath, JSON.stringify(report, null, 2), "utf-8");
           if (!json) console.log(`[TaskBook] \u5DF2\u751F\u6210\u9A8C\u6536\u62A5\u544A: ${outPath}`);
         }
         if (json || !write) {
@@ -1536,14 +1593,15 @@ function main() {
           process.exit(1);
         }
         const requestId = flagAsString(parsed.flags, "request-id") ?? generateRequestId();
-        const agentCallsDir = path2.join(process.cwd(), AGENT_CALLS_DIR);
+        const agentCallsDir = path4.join(process.cwd(), AGENT_CALLS_DIR);
         ensureDir(agentCallsDir);
-        const promptPath = path2.join(agentCallsDir, `${requestId}.prompt.md`);
-        const resultPath = path2.join(agentCallsDir, `${requestId}.result.json`);
+        const promptPath = path4.join(agentCallsDir, `${requestId}.prompt.md`);
+        const resultPath = path4.join(agentCallsDir, `${requestId}.result.json`);
         const agentDef = loadPlannerAgentDefinition(process.cwd());
         if (!agentDef) {
-          console.error("\u9519\u8BEF: planner AGENT.md \u672A\u627E\u5230\uFF08\u9700\u8981 .codebuddy/agents/planner/AGENT.md \u6216 agents/planner/AGENT.md\uFF09");
-          console.error("\u63D0\u793A: \u5148\u5728\u76EE\u6807\u9879\u76EE\u6267\u884C codebuddy-loader \u751F\u6210 .codebuddy/agents/\uFF0C\u518D\u91CD\u8BD5\u3002");
+          const candidates = listAgentDefinitionCandidatePaths(process.cwd(), "planner").map((filePath) => path4.relative(process.cwd(), filePath).replace(/\\/g, "/"));
+          console.error(`\u9519\u8BEF: planner AGENT.md \u672A\u627E\u5230\uFF08\u671F\u671B ${candidates.join(" \u6216 ")}\uFF09`);
+          console.error("\u63D0\u793A: \u5148\u5728\u76EE\u6807\u9879\u76EE\u6267\u884C codebuddy-loader\uFF0C\u786E\u4FDD install.json \u6307\u5411\u7684 active agents root \u5DF2\u751F\u6210\u3002");
           process.exit(1);
         }
         const prompt = buildPlannerPrompt({
@@ -1555,7 +1613,7 @@ function main() {
           promptPath,
           resultPath
         });
-        fs.writeFileSync(promptPath, prompt, "utf-8");
+        fs2.writeFileSync(promptPath, prompt, "utf-8");
         const payload = {
           requestId,
           agentId: "planner",
@@ -1583,15 +1641,15 @@ function main() {
           console.error("\u9519\u8BEF: apply-plan \u9700\u8981 <taskBookId> <requestId>");
           process.exit(1);
         }
-        const agentCallsDir = path2.join(process.cwd(), AGENT_CALLS_DIR);
-        const resultPath = path2.join(agentCallsDir, `${requestId}.result.json`);
-        if (!fs.existsSync(resultPath)) {
+        const agentCallsDir = path4.join(process.cwd(), AGENT_CALLS_DIR);
+        const resultPath = path4.join(agentCallsDir, `${requestId}.result.json`);
+        if (!fs2.existsSync(resultPath)) {
           console.error(`\u9519\u8BEF: result.json \u4E0D\u5B58\u5728: ${resultPath}`);
           process.exit(1);
         }
         let result;
         try {
-          result = parseAgentCallResult(fs.readFileSync(resultPath, "utf-8"));
+          result = parseAgentCallResult(fs2.readFileSync(resultPath, "utf-8"));
         } catch (error) {
           console.error(error instanceof Error ? error.message : String(error));
           process.exit(1);

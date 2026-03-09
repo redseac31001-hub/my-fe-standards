@@ -55,9 +55,9 @@ function splitFrontmatterDocument(md) {
         endIndex: parsed.endIndex,
     };
 }
-function extractYamlScalar(frontmatter, key) {
+function extractYamlScalar(frontmatter, key, indent = 0) {
     const normalized = normalizeNewlines(frontmatter);
-    const pattern = new RegExp(`^${escapeRegex(key)}:\\s*(.+)$`, 'm');
+    const pattern = new RegExp(`^${escapeRegex(indentPrefix(indent))}${escapeRegex(key)}:\\s*(.+)$`, 'm');
     const match = normalized.match(pattern);
     if (!match)
         return undefined;

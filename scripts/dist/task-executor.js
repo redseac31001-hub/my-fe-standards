@@ -34,8 +34,8 @@ __export(task_executor_exports, {
   createTaskExecutor: () => createTaskExecutor
 });
 module.exports = __toCommonJS(task_executor_exports);
-var fs7 = __toESM(require("fs"));
-var path8 = __toESM(require("path"));
+var fs8 = __toESM(require("fs"));
+var path10 = __toESM(require("path"));
 var import_child_process3 = require("child_process");
 var import_crypto = require("crypto");
 
@@ -50,8 +50,89 @@ function isDirectCliEntry(expectedFileNames) {
 }
 
 // scripts/src/taskbook-manager.ts
+var fs2 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
+
+// scripts/src/lib/install-roots.ts
+var path3 = __toESM(require("path"));
+
+// scripts/src/lib/install-sync.ts
 var fs = __toESM(require("fs"));
 var path2 = __toESM(require("path"));
+function readInstallState(targetDir, logger) {
+  const installStatePath = path2.join(targetDir, ".codebuddy", "install.json");
+  if (!fs.existsSync(installStatePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(installStatePath, "utf-8"));
+  } catch (error) {
+    logger?.warn(`\u8BFB\u53D6 install.json \u5931\u8D25: ${error.message}`);
+    return null;
+  }
+}
+
+// scripts/src/lib/install-roots.ts
+function normalizeRelativeRoot(relativeRoot) {
+  if (typeof relativeRoot !== "string") return null;
+  const normalized = relativeRoot.trim().replace(/\\/g, "/");
+  return normalized ? normalized : null;
+}
+function dedupeRelativeRoots(relativeRoots) {
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const relativeRoot of relativeRoots) {
+    const normalized = normalizeRelativeRoot(relativeRoot);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+function resolveInstalledSkillsRootDir(installState) {
+  if (!installState) return null;
+  return normalizeRelativeRoot(installState.outputs.skillsRootDir) || (installState.stats.skills > 0 ? ".codebuddy/skills" : null);
+}
+function resolveInstalledAgentsRootDir(installState) {
+  if (!installState) return null;
+  return normalizeRelativeRoot(installState.outputs.agentsRootDir) || (installState.stats.agents > 0 ? ".codebuddy/agents" : null);
+}
+function getProjectInstallState(projectRoot) {
+  return readInstallState(projectRoot);
+}
+function getProjectAgentRootCandidates(projectRoot, installState) {
+  const resolvedInstallState = typeof installState === "undefined" ? getProjectInstallState(projectRoot) : installState;
+  return dedupeRelativeRoots([
+    resolveInstalledAgentsRootDir(resolvedInstallState),
+    ".codebuddy/agents",
+    "agents"
+  ]);
+}
+function getProjectSkillRootCandidates(projectRoot, installState) {
+  const resolvedInstallState = typeof installState === "undefined" ? getProjectInstallState(projectRoot) : installState;
+  return dedupeRelativeRoots([
+    resolveInstalledSkillsRootDir(resolvedInstallState),
+    ".codebuddy/skills",
+    ".codebuddy/custom-skills",
+    "custom-skills"
+  ]);
+}
+function getProjectAgentRootCandidatePaths(projectRoot, installState) {
+  return getProjectAgentRootCandidates(projectRoot, installState).map((relativeRoot) => path3.join(projectRoot, relativeRoot));
+}
+function getProjectSkillRootCandidatePaths(projectRoot, installState) {
+  return getProjectSkillRootCandidates(projectRoot, installState).map((relativeRoot) => path3.join(projectRoot, relativeRoot));
+}
+function listAgentDefinitionCandidatePaths(projectRoot, agentId, installState) {
+  return getProjectAgentRootCandidatePaths(projectRoot, installState).map((rootDir) => path3.join(rootDir, agentId, "AGENT.md"));
+}
+function listAgentPromptCandidatePaths(projectRoot, agentId, promptFileName, installState) {
+  return getProjectAgentRootCandidatePaths(projectRoot, installState).map((rootDir) => path3.join(rootDir, agentId, "prompts", promptFileName));
+}
+
+// scripts/src/taskbook-manager.ts
 var TASKBOOK_BASE_DIR = ".codebuddy/taskbooks";
 var ACTIVE_DIR = "active";
 var HISTORY_DIR = "history";
@@ -83,8 +164,8 @@ function now() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function ensureDir(dirPath) {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
+  if (!fs2.existsSync(dirPath)) {
+    fs2.mkdirSync(dirPath, { recursive: true });
   }
 }
 var TaskBookManager = class {
@@ -95,28 +176,28 @@ var TaskBookManager = class {
    * 获取活跃任务书目录
    */
   getActiveDir() {
-    return path2.join(this.baseDir, TASKBOOK_BASE_DIR, ACTIVE_DIR);
+    return path4.join(this.baseDir, TASKBOOK_BASE_DIR, ACTIVE_DIR);
   }
   /**
    * 获取历史任务书目录
    */
   getHistoryDir() {
-    return path2.join(this.baseDir, TASKBOOK_BASE_DIR, HISTORY_DIR);
+    return path4.join(this.baseDir, TASKBOOK_BASE_DIR, HISTORY_DIR);
   }
   /**
    * 获取上下文快照目录
    */
   getContextSnapshotsDir() {
-    return path2.join(this.baseDir, CONTEXT_SNAPSHOTS_DIR);
+    return path4.join(this.baseDir, CONTEXT_SNAPSHOTS_DIR);
   }
   /**
    * 创建新的 TaskBook
    */
   getLocksDir() {
-    return path2.join(this.baseDir, LOCKS_DIR);
+    return path4.join(this.baseDir, LOCKS_DIR);
   }
   getLockPath(taskBookId) {
-    return path2.join(this.getLocksDir(), `${taskBookId}.lock`);
+    return path4.join(this.getLocksDir(), `${taskBookId}.lock`);
   }
   normalize(taskBook) {
     if (typeof taskBook.revision !== "number") {
@@ -143,26 +224,26 @@ var TaskBookManager = class {
   }
   withTaskBookLock(taskBookId, fn, opts) {
     const lockPath = this.getLockPath(taskBookId);
-    ensureDir(path2.dirname(lockPath));
+    ensureDir(path4.dirname(lockPath));
     const startedAt = Date.now();
     const timeoutMs = opts?.timeoutMs ?? LOCK_TIMEOUT_MS;
     while (true) {
       try {
-        const fd = fs.openSync(lockPath, "wx");
+        const fd = fs2.openSync(lockPath, "wx");
         try {
           const payload = { pid: process.pid, createdAt: now(), taskBookId };
-          fs.writeFileSync(fd, JSON.stringify(payload, null, 2), "utf-8");
+          fs2.writeFileSync(fd, JSON.stringify(payload, null, 2), "utf-8");
         } catch {
         }
         try {
           return fn();
         } finally {
           try {
-            fs.closeSync(fd);
+            fs2.closeSync(fd);
           } catch {
           }
           try {
-            fs.unlinkSync(lockPath);
+            fs2.unlinkSync(lockPath);
           } catch {
           }
         }
@@ -172,11 +253,11 @@ var TaskBookManager = class {
           throw error;
         }
         try {
-          const stat = fs.statSync(lockPath);
+          const stat = fs2.statSync(lockPath);
           const ageMs = Date.now() - stat.mtimeMs;
           if (ageMs > LOCK_STALE_MS) {
             try {
-              fs.unlinkSync(lockPath);
+              fs2.unlinkSync(lockPath);
               continue;
             } catch {
             }
@@ -186,7 +267,7 @@ var TaskBookManager = class {
         if (Date.now() - startedAt > timeoutMs) {
           let lockInfo = "";
           try {
-            lockInfo = fs.readFileSync(lockPath, "utf-8").slice(0, 2e3);
+            lockInfo = fs2.readFileSync(lockPath, "utf-8").slice(0, 2e3);
           } catch {
           }
           const details = lockInfo ? `
@@ -226,22 +307,22 @@ ${lockInfo}` : "";
   save(taskBook) {
     const dir = taskBook.status === "completed" || taskBook.status === "aborted" ? this.getHistoryDir() : this.getActiveDir();
     ensureDir(dir);
-    const filePath = path2.join(dir, `${taskBook.id}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(taskBook, null, 2), "utf-8");
+    const filePath = path4.join(dir, `${taskBook.id}.json`);
+    fs2.writeFileSync(filePath, JSON.stringify(taskBook, null, 2), "utf-8");
   }
   /**
    * 读取 TaskBook
    */
   load(id) {
-    let filePath = path2.join(this.getActiveDir(), `${id}.json`);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, "utf-8");
+    let filePath = path4.join(this.getActiveDir(), `${id}.json`);
+    if (fs2.existsSync(filePath)) {
+      const content = fs2.readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(content);
       return this.normalize(parsed);
     }
-    filePath = path2.join(this.getHistoryDir(), `${id}.json`);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, "utf-8");
+    filePath = path4.join(this.getHistoryDir(), `${id}.json`);
+    if (fs2.existsSync(filePath)) {
+      const content = fs2.readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(content);
       return this.normalize(parsed);
     }
@@ -252,12 +333,12 @@ ${lockInfo}` : "";
    */
   listActive() {
     const dir = this.getActiveDir();
-    if (!fs.existsSync(dir)) {
+    if (!fs2.existsSync(dir)) {
       return [];
     }
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+    const files = fs2.readdirSync(dir).filter((f) => f.endsWith(".json"));
     return files.map((f) => {
-      const content = fs.readFileSync(path2.join(dir, f), "utf-8");
+      const content = fs2.readFileSync(path4.join(dir, f), "utf-8");
       const parsed = JSON.parse(content);
       return this.normalize(parsed);
     });
@@ -286,9 +367,9 @@ ${lockInfo}` : "";
         after: { status }
       });
       if (status === "completed" || status === "aborted") {
-        const activeFilePath = path2.join(this.getActiveDir(), `${id}.json`);
-        if (fs.existsSync(activeFilePath)) {
-          fs.unlinkSync(activeFilePath);
+        const activeFilePath = path4.join(this.getActiveDir(), `${id}.json`);
+        if (fs2.existsSync(activeFilePath)) {
+          fs2.unlinkSync(activeFilePath);
         }
       }
       this.touch(taskBook);
@@ -960,12 +1041,12 @@ ${text}` : text;
       this.touch(updated);
       this.save(updated);
     });
-    const reportsDir = path2.join(this.baseDir, ".codebuddy", "reports");
-    if (!fs.existsSync(reportsDir)) {
-      fs.mkdirSync(reportsDir, { recursive: true });
+    const reportsDir = path4.join(this.baseDir, ".codebuddy", "reports");
+    if (!fs2.existsSync(reportsDir)) {
+      fs2.mkdirSync(reportsDir, { recursive: true });
     }
-    const reportPath = path2.join(reportsDir, `final-${taskBookId}.json`);
-    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), "utf-8");
+    const reportPath = path4.join(reportsDir, `final-${taskBookId}.json`);
+    fs2.writeFileSync(reportPath, JSON.stringify(report, null, 2), "utf-8");
   }
 };
 var taskBookManager = new TaskBookManager();
@@ -1156,14 +1237,11 @@ function generateRequestId() {
   return `req-${ts}-${rnd}`;
 }
 function readTextFileIfExists(filePath) {
-  if (!fs.existsSync(filePath)) return null;
-  return fs.readFileSync(filePath, "utf-8");
+  if (!fs2.existsSync(filePath)) return null;
+  return fs2.readFileSync(filePath, "utf-8");
 }
 function loadPlannerAgentDefinition(projectRoot) {
-  const candidates = [
-    path2.join(projectRoot, ".codebuddy", "agents", "planner", "AGENT.md"),
-    path2.join(projectRoot, "agents", "planner", "AGENT.md")
-  ];
+  const candidates = listAgentDefinitionCandidatePaths(projectRoot, "planner");
   for (const p of candidates) {
     const content = readTextFileIfExists(p);
     if (content) return { path: p, content };
@@ -1517,10 +1595,10 @@ function main() {
           process.exit(1);
         }
         if (write) {
-          const outDir = path2.join(process.cwd(), ".codebuddy", "reports", "taskbooks");
+          const outDir = path4.join(process.cwd(), ".codebuddy", "reports", "taskbooks");
           ensureDir(outDir);
-          const outPath = out ? path2.resolve(process.cwd(), out) : path2.join(outDir, `${taskBookId}.acceptance.json`);
-          fs.writeFileSync(outPath, JSON.stringify(report, null, 2), "utf-8");
+          const outPath = out ? path4.resolve(process.cwd(), out) : path4.join(outDir, `${taskBookId}.acceptance.json`);
+          fs2.writeFileSync(outPath, JSON.stringify(report, null, 2), "utf-8");
           if (!json) console.log(`[TaskBook] \u5DF2\u751F\u6210\u9A8C\u6536\u62A5\u544A: ${outPath}`);
         }
         if (json || !write) {
@@ -1540,14 +1618,15 @@ function main() {
           process.exit(1);
         }
         const requestId = flagAsString(parsed.flags, "request-id") ?? generateRequestId();
-        const agentCallsDir = path2.join(process.cwd(), AGENT_CALLS_DIR);
+        const agentCallsDir = path4.join(process.cwd(), AGENT_CALLS_DIR);
         ensureDir(agentCallsDir);
-        const promptPath = path2.join(agentCallsDir, `${requestId}.prompt.md`);
-        const resultPath = path2.join(agentCallsDir, `${requestId}.result.json`);
+        const promptPath = path4.join(agentCallsDir, `${requestId}.prompt.md`);
+        const resultPath = path4.join(agentCallsDir, `${requestId}.result.json`);
         const agentDef = loadPlannerAgentDefinition(process.cwd());
         if (!agentDef) {
-          console.error("\u9519\u8BEF: planner AGENT.md \u672A\u627E\u5230\uFF08\u9700\u8981 .codebuddy/agents/planner/AGENT.md \u6216 agents/planner/AGENT.md\uFF09");
-          console.error("\u63D0\u793A: \u5148\u5728\u76EE\u6807\u9879\u76EE\u6267\u884C codebuddy-loader \u751F\u6210 .codebuddy/agents/\uFF0C\u518D\u91CD\u8BD5\u3002");
+          const candidates = listAgentDefinitionCandidatePaths(process.cwd(), "planner").map((filePath) => path4.relative(process.cwd(), filePath).replace(/\\/g, "/"));
+          console.error(`\u9519\u8BEF: planner AGENT.md \u672A\u627E\u5230\uFF08\u671F\u671B ${candidates.join(" \u6216 ")}\uFF09`);
+          console.error("\u63D0\u793A: \u5148\u5728\u76EE\u6807\u9879\u76EE\u6267\u884C codebuddy-loader\uFF0C\u786E\u4FDD install.json \u6307\u5411\u7684 active agents root \u5DF2\u751F\u6210\u3002");
           process.exit(1);
         }
         const prompt = buildPlannerPrompt({
@@ -1559,7 +1638,7 @@ function main() {
           promptPath,
           resultPath
         });
-        fs.writeFileSync(promptPath, prompt, "utf-8");
+        fs2.writeFileSync(promptPath, prompt, "utf-8");
         const payload = {
           requestId,
           agentId: "planner",
@@ -1587,15 +1666,15 @@ function main() {
           console.error("\u9519\u8BEF: apply-plan \u9700\u8981 <taskBookId> <requestId>");
           process.exit(1);
         }
-        const agentCallsDir = path2.join(process.cwd(), AGENT_CALLS_DIR);
-        const resultPath = path2.join(agentCallsDir, `${requestId}.result.json`);
-        if (!fs.existsSync(resultPath)) {
+        const agentCallsDir = path4.join(process.cwd(), AGENT_CALLS_DIR);
+        const resultPath = path4.join(agentCallsDir, `${requestId}.result.json`);
+        if (!fs2.existsSync(resultPath)) {
           console.error(`\u9519\u8BEF: result.json \u4E0D\u5B58\u5728: ${resultPath}`);
           process.exit(1);
         }
         let result;
         try {
-          result = parseAgentCallResult(fs.readFileSync(resultPath, "utf-8"));
+          result = parseAgentCallResult(fs2.readFileSync(resultPath, "utf-8"));
         } catch (error) {
           console.error(error instanceof Error ? error.message : String(error));
           process.exit(1);
@@ -1856,13 +1935,13 @@ if (isDirectCliEntry("taskbook-manager.js")) {
 }
 
 // scripts/src/context-collector.ts
-var fs3 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
+var fs4 = __toESM(require("fs"));
+var path6 = __toESM(require("path"));
 var import_child_process = require("child_process");
 
 // scripts/src/reference-finder.ts
-var fs2 = __toESM(require("fs"));
-var path3 = __toESM(require("path"));
+var fs3 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
 var SOURCE_EXTENSIONS = /* @__PURE__ */ new Set([
   ".ts",
   ".tsx",
@@ -1890,7 +1969,7 @@ function collectSourceFiles(dir, collected, depth = 0) {
   if (depth > 15 || collected.length >= MAX_FILES_SCAN) return;
   let entries;
   try {
-    entries = fs2.readdirSync(dir, { withFileTypes: true });
+    entries = fs3.readdirSync(dir, { withFileTypes: true });
   } catch {
     return;
   }
@@ -1898,15 +1977,15 @@ function collectSourceFiles(dir, collected, depth = 0) {
     if (collected.length >= MAX_FILES_SCAN) break;
     if (entry.isDirectory()) {
       if (IGNORE_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
-      collectSourceFiles(path3.join(dir, entry.name), collected, depth + 1);
+      collectSourceFiles(path5.join(dir, entry.name), collected, depth + 1);
       continue;
     }
     if (!entry.isFile()) continue;
-    const ext = path3.extname(entry.name).toLowerCase();
+    const ext = path5.extname(entry.name).toLowerCase();
     if (!SOURCE_EXTENSIONS.has(ext)) continue;
-    const fullPath = path3.join(dir, entry.name);
+    const fullPath = path5.join(dir, entry.name);
     try {
-      const stat = fs2.statSync(fullPath);
+      const stat = fs3.statSync(fullPath);
       if (stat.size > MAX_FILE_SIZE) continue;
     } catch {
       continue;
@@ -1915,7 +1994,7 @@ function collectSourceFiles(dir, collected, depth = 0) {
   }
 }
 function buildImportPatterns(targetPath, projectRoot) {
-  const rel = path3.relative(projectRoot, targetPath).replace(/\\/g, "/");
+  const rel = path5.relative(projectRoot, targetPath).replace(/\\/g, "/");
   const withoutExt = rel.replace(/\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte)$/, "");
   const withoutIndex = withoutExt.replace(/\/index$/, "");
   const patterns = /* @__PURE__ */ new Set();
@@ -1925,7 +2004,7 @@ function buildImportPatterns(targetPath, projectRoot) {
     patterns.add(withoutExt.slice(4));
     patterns.add(withoutIndex.slice(4));
   }
-  const baseName = path3.basename(withoutExt);
+  const baseName = path5.basename(withoutExt);
   patterns.add(baseName);
   return Array.from(patterns).filter((p) => p.length > 0);
 }
@@ -1934,12 +2013,12 @@ function buildSymbolPattern(symbol) {
   return new RegExp(`\\b${escaped}\\b`, "g");
 }
 function searchFileForReferences(filePath, importPatterns, symbolPattern, targetAbsPath) {
-  if (targetAbsPath && path3.resolve(filePath) === path3.resolve(targetAbsPath)) {
+  if (targetAbsPath && path5.resolve(filePath) === path5.resolve(targetAbsPath)) {
     return [];
   }
   let content;
   try {
-    content = fs2.readFileSync(filePath, "utf-8");
+    content = fs3.readFileSync(filePath, "utf-8");
   } catch {
     return [];
   }
@@ -1986,7 +2065,7 @@ function findReferences(target, projectRoot, options) {
   const maxResults = options?.maxResults ?? 100;
   const sourceFiles = [];
   collectSourceFiles(projectRoot, sourceFiles);
-  const targetAbsPath = fs2.existsSync(path3.resolve(projectRoot, target)) ? path3.resolve(projectRoot, target) : null;
+  const targetAbsPath = fs3.existsSync(path5.resolve(projectRoot, target)) ? path5.resolve(projectRoot, target) : null;
   const importPatterns = [];
   if (targetAbsPath) {
     const patterns = buildImportPatterns(targetAbsPath, projectRoot);
@@ -2026,8 +2105,8 @@ function findReferences(target, projectRoot, options) {
 }
 function findRelatedTests(targetPath, projectRoot) {
   const results = [];
-  const rel = path3.relative(projectRoot, targetPath).replace(/\\/g, "/");
-  const parsed = path3.parse(rel);
+  const rel = path5.relative(projectRoot, targetPath).replace(/\\/g, "/");
+  const parsed = path5.parse(rel);
   const baseName = parsed.name;
   const exactPatterns = [
     `${baseName}.spec.ts`,
@@ -2040,36 +2119,36 @@ function findRelatedTests(targetPath, projectRoot) {
     `${baseName}.test.jsx`
   ];
   const testDirs = [
-    path3.dirname(path3.join(projectRoot, rel)),
+    path5.dirname(path5.join(projectRoot, rel)),
     // 同目录
-    path3.join(projectRoot, "__tests__"),
+    path5.join(projectRoot, "__tests__"),
     // 根 __tests__
-    path3.join(projectRoot, "test"),
+    path5.join(projectRoot, "test"),
     // 根 test
-    path3.join(projectRoot, "tests"),
+    path5.join(projectRoot, "tests"),
     // 根 tests
-    path3.join(projectRoot, "src", "__tests__"),
+    path5.join(projectRoot, "src", "__tests__"),
     // src/__tests__
-    path3.join(path3.dirname(path3.join(projectRoot, rel)), "__tests__")
+    path5.join(path5.dirname(path5.join(projectRoot, rel)), "__tests__")
     // 同级 __tests__
   ];
   const seen = /* @__PURE__ */ new Set();
   for (const dir of testDirs) {
-    if (!fs2.existsSync(dir)) continue;
+    if (!fs3.existsSync(dir)) continue;
     let entries;
     try {
-      entries = fs2.readdirSync(dir);
+      entries = fs3.readdirSync(dir);
     } catch {
       continue;
     }
     for (const entry of entries) {
-      const fullPath = path3.join(dir, entry);
-      const normalized = path3.resolve(fullPath);
+      const fullPath = path5.join(dir, entry);
+      const normalized = path5.resolve(fullPath);
       if (seen.has(normalized)) continue;
       if (exactPatterns.includes(entry)) {
         seen.add(normalized);
         results.push({
-          testPath: path3.relative(projectRoot, fullPath).replace(/\\/g, "/"),
+          testPath: path5.relative(projectRoot, fullPath).replace(/\\/g, "/"),
           sourcePath: rel,
           confidence: "exact"
         });
@@ -2078,7 +2157,7 @@ function findRelatedTests(targetPath, projectRoot) {
       if ((entry.includes(".spec.") || entry.includes(".test.")) && entry.includes(baseName)) {
         seen.add(normalized);
         results.push({
-          testPath: path3.relative(projectRoot, fullPath).replace(/\\/g, "/"),
+          testPath: path5.relative(projectRoot, fullPath).replace(/\\/g, "/"),
           sourcePath: rel,
           confidence: "pattern"
         });
@@ -2086,18 +2165,18 @@ function findRelatedTests(targetPath, projectRoot) {
     }
   }
   if (results.length === 0) {
-    const sourceDir = path3.dirname(path3.join(projectRoot, rel));
-    if (fs2.existsSync(sourceDir)) {
+    const sourceDir = path5.dirname(path5.join(projectRoot, rel));
+    if (fs3.existsSync(sourceDir)) {
       try {
-        const entries = fs2.readdirSync(sourceDir);
+        const entries = fs3.readdirSync(sourceDir);
         for (const entry of entries) {
           if (entry.includes(".spec.") || entry.includes(".test.")) {
-            const fullPath = path3.join(sourceDir, entry);
-            const normalized = path3.resolve(fullPath);
+            const fullPath = path5.join(sourceDir, entry);
+            const normalized = path5.resolve(fullPath);
             if (seen.has(normalized)) continue;
             seen.add(normalized);
             results.push({
-              testPath: path3.relative(projectRoot, fullPath).replace(/\\/g, "/"),
+              testPath: path5.relative(projectRoot, fullPath).replace(/\\/g, "/"),
               sourcePath: rel,
               confidence: "directory"
             });
@@ -2170,7 +2249,7 @@ function main2() {
   if (jsonOutput) {
     const output = { ...result };
     if (findTests) {
-      const absTarget = fs2.existsSync(path3.resolve(projectRoot, target)) ? path3.resolve(projectRoot, target) : null;
+      const absTarget = fs3.existsSync(path5.resolve(projectRoot, target)) ? path5.resolve(projectRoot, target) : null;
       if (absTarget) {
         output.relatedTests = findRelatedTests(absTarget, projectRoot);
       }
@@ -2183,12 +2262,12 @@ function main2() {
     console.log(`\u627E\u5230 ${result.references.length} \u5904\u5F15\u7528:
 `);
     for (const ref of result.references) {
-      const relPath = path3.relative(projectRoot, ref.filePath).replace(/\\/g, "/");
+      const relPath = path5.relative(projectRoot, ref.filePath).replace(/\\/g, "/");
       console.log(`  ${relPath}:${ref.line} [${ref.kind}]`);
       console.log(`    ${ref.matchText}`);
     }
     if (findTests) {
-      const absTarget = fs2.existsSync(path3.resolve(projectRoot, target)) ? path3.resolve(projectRoot, target) : null;
+      const absTarget = fs3.existsSync(path5.resolve(projectRoot, target)) ? path5.resolve(projectRoot, target) : null;
       if (absTarget) {
         const tests = findRelatedTests(absTarget, projectRoot);
         if (tests.length > 0) {
@@ -2238,11 +2317,11 @@ function extractTargetFiles(task) {
   return files;
 }
 function readFileContent(filePath, projectRoot, maxLines) {
-  const absPath = path4.isAbsolute(filePath) ? filePath : path4.resolve(projectRoot, filePath);
-  if (!fs3.existsSync(absPath)) return null;
+  const absPath = path6.isAbsolute(filePath) ? filePath : path6.resolve(projectRoot, filePath);
+  if (!fs4.existsSync(absPath)) return null;
   let content;
   try {
-    content = fs3.readFileSync(absPath, "utf-8");
+    content = fs4.readFileSync(absPath, "utf-8");
   } catch {
     return null;
   }
@@ -2258,7 +2337,7 @@ function readFileContent(filePath, projectRoot, maxLines) {
 
 ... (\u622A\u65AD\uFF0C\u8D85\u8FC7 ${MAX_FILE_CONTENT_CHARS} \u5B57\u7B26\u9650\u5236)`;
   }
-  const relPath = path4.relative(projectRoot, absPath).replace(/\\/g, "/");
+  const relPath = path6.relative(projectRoot, absPath).replace(/\\/g, "/");
   return { path: relPath, content, lines: totalLines };
 }
 function getGitHistory(targetFiles, projectRoot, maxCommits) {
@@ -2358,8 +2437,8 @@ function collectContext(task, projectRoot, options) {
     const seen = /* @__PURE__ */ new Set();
     for (const file of targetFiles) {
       if (Date.now() - start > COLLECT_TIMEOUT_MS) break;
-      const absPath = path4.isAbsolute(file) ? file : path4.resolve(projectRoot, file);
-      if (!fs3.existsSync(absPath)) continue;
+      const absPath = path6.isAbsolute(file) ? file : path6.resolve(projectRoot, file);
+      if (!fs4.existsSync(absPath)) continue;
       const tests = findRelatedTests(absPath, projectRoot);
       for (const t of tests) {
         if (!seen.has(t.testPath)) {
@@ -2384,7 +2463,7 @@ function formatContextAsMarkdown(ctx) {
   if (ctx.targetFiles.length > 0) {
     sections.push("## Context: \u76EE\u6807\u6587\u4EF6\u5185\u5BB9");
     for (const file of ctx.targetFiles) {
-      const ext = path4.extname(file.path).slice(1) || "text";
+      const ext = path6.extname(file.path).slice(1) || "text";
       sections.push(`### ${file.path} (${file.lines} \u884C)`);
       sections.push("```" + ext);
       sections.push(file.content);
@@ -2534,8 +2613,8 @@ if (isDirectCliEntry("context-collector.js")) {
 }
 
 // scripts/src/agent-runtime.ts
-var fs4 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
+var fs5 = __toESM(require("fs"));
+var path7 = __toESM(require("path"));
 
 // scripts/src/lib/frontmatter-utils.ts
 function normalizeNewlines(text) {
@@ -2586,9 +2665,9 @@ function splitFrontmatterDocument(md) {
     endIndex: parsed.endIndex
   };
 }
-function extractYamlScalar(frontmatter, key) {
+function extractYamlScalar(frontmatter, key, indent = 0) {
   const normalized = normalizeNewlines(frontmatter);
-  const pattern = new RegExp(`^${escapeRegex(key)}:\\s*(.+)$`, "m");
+  const pattern = new RegExp(`^${escapeRegex(indentPrefix(indent))}${escapeRegex(key)}:\\s*(.+)$`, "m");
   const match = normalized.match(pattern);
   if (!match) return void 0;
   return stripWrappingQuotes(match[1]);
@@ -2737,19 +2816,19 @@ var AgentRuntime = class {
   loadAll() {
     if (this.loaded) return;
     const searchDirs = [
-      path5.join(this.config.projectRoot, this.config.agentsDir || "agents")
+      path7.join(this.config.projectRoot, this.config.agentsDir || "agents")
     ];
     if (this.config.fallbackAgentsDir) {
-      searchDirs.push(path5.join(this.config.projectRoot, this.config.fallbackAgentsDir));
+      searchDirs.push(path7.join(this.config.projectRoot, this.config.fallbackAgentsDir));
     }
     for (const dir of searchDirs) {
-      if (!fs4.existsSync(dir)) {
+      if (!fs5.existsSync(dir)) {
         rtDebug(`Agent \u76EE\u5F55\u4E0D\u5B58\u5728\uFF0C\u8DF3\u8FC7: ${dir}`);
         continue;
       }
-      const entries = fs4.readdirSync(dir).filter((name) => {
-        const fullPath = path5.join(dir, name);
-        return fs4.existsSync(fullPath) && fs4.statSync(fullPath).isDirectory();
+      const entries = fs5.readdirSync(dir).filter((name) => {
+        const fullPath = path7.join(dir, name);
+        return fs5.existsSync(fullPath) && fs5.statSync(fullPath).isDirectory();
       });
       for (const agentId of entries) {
         if (this.registry.has(agentId)) {
@@ -2771,15 +2850,15 @@ var AgentRuntime = class {
    */
   loadAgent(agentId, baseDir) {
     const dirs = baseDir ? [baseDir] : [
-      path5.join(this.config.projectRoot, this.config.agentsDir || "agents"),
-      ...this.config.fallbackAgentsDir ? [path5.join(this.config.projectRoot, this.config.fallbackAgentsDir)] : []
+      path7.join(this.config.projectRoot, this.config.agentsDir || "agents"),
+      ...this.config.fallbackAgentsDir ? [path7.join(this.config.projectRoot, this.config.fallbackAgentsDir)] : []
     ];
     for (const dir of dirs) {
-      const agentDir = path5.join(dir, agentId);
-      const agentMdPath = path5.join(agentDir, "AGENT.md");
-      if (!fs4.existsSync(agentMdPath)) continue;
+      const agentDir = path7.join(dir, agentId);
+      const agentMdPath = path7.join(agentDir, "AGENT.md");
+      if (!fs5.existsSync(agentMdPath)) continue;
       try {
-        const content = fs4.readFileSync(agentMdPath, "utf-8");
+        const content = fs5.readFileSync(agentMdPath, "utf-8");
         const parsedDocument = splitFrontmatterDocument(content);
         let metadata;
         let body;
@@ -2810,12 +2889,12 @@ var AgentRuntime = class {
           rtDebug(`Agent '${agentId}' \u4F7F\u7528 legacy YAML metadata \u56DE\u9000\u8DEF\u5F84`);
         }
         const prompts = {};
-        const promptsDir = path5.join(agentDir, "prompts");
-        if (fs4.existsSync(promptsDir) && fs4.statSync(promptsDir).isDirectory()) {
-          const promptFiles = fs4.readdirSync(promptsDir).filter((f) => f.endsWith(".md"));
+        const promptsDir = path7.join(agentDir, "prompts");
+        if (fs5.existsSync(promptsDir) && fs5.statSync(promptsDir).isDirectory()) {
+          const promptFiles = fs5.readdirSync(promptsDir).filter((f) => f.endsWith(".md"));
           for (const file of promptFiles) {
-            const name = path5.basename(file, ".md");
-            prompts[name] = fs4.readFileSync(path5.join(promptsDir, file), "utf-8");
+            const name = path7.basename(file, ".md");
+            prompts[name] = fs5.readFileSync(path7.join(promptsDir, file), "utf-8");
           }
         }
         const skills = this.loadDeclaredSkills(metadata);
@@ -3055,7 +3134,7 @@ ${f.content}
    * 加载 Agent 声明的 Skills 内容
    *
    * 从 permissions.skills 中解析 skill 名称，
-   * 依次在 .codebuddy/custom-skills/ 和 custom-skills/ 中查找 SKILL.md
+   * 优先读取 install.json 记录的 active skills root，其次回退到 legacy/custom-skills 目录
    */
   loadDeclaredSkills(metadata) {
     const skills = {};
@@ -3063,15 +3142,12 @@ ${f.content}
     if (!perms || Array.isArray(perms) || !perms.skills) return skills;
     const root = this.config.projectRoot;
     for (const skillName of perms.skills) {
-      const candidates = [
-        path5.join(root, ".codebuddy", "custom-skills", skillName, "SKILL.md"),
-        path5.join(root, "custom-skills", skillName, "SKILL.md")
-      ];
+      const candidates = getProjectSkillRootCandidatePaths(root).map((skillRoot) => path7.join(skillRoot, skillName, "SKILL.md"));
       let found = false;
       for (const candidate of candidates) {
-        if (fs4.existsSync(candidate)) {
+        if (fs5.existsSync(candidate)) {
           try {
-            skills[skillName] = fs4.readFileSync(candidate, "utf-8");
+            skills[skillName] = fs5.readFileSync(candidate, "utf-8");
             rtDebug(`\u5DF2\u52A0\u8F7D Skill: ${skillName} (${candidate})`);
             found = true;
             break;
@@ -3099,14 +3175,14 @@ ${f.content}
       if (!Array.isArray(ruleNames)) continue;
       for (const ruleName of ruleNames) {
         const key = `${layer}/${ruleName}`;
-        const dirPath = path5.join(root, "rules", layer, ruleName);
-        const filePath = path5.join(root, "rules", layer, `${ruleName}.md`);
-        if (fs4.existsSync(dirPath) && fs4.statSync(dirPath).isDirectory()) {
+        const dirPath = path7.join(root, "rules", layer, ruleName);
+        const filePath = path7.join(root, "rules", layer, `${ruleName}.md`);
+        if (fs5.existsSync(dirPath) && fs5.statSync(dirPath).isDirectory()) {
           try {
-            const mdFiles = fs4.readdirSync(dirPath).filter((f) => f.endsWith(".md")).sort();
+            const mdFiles = fs5.readdirSync(dirPath).filter((f) => f.endsWith(".md")).sort();
             if (mdFiles.length > 0) {
               const combined = mdFiles.map((f) => {
-                const content = fs4.readFileSync(path5.join(dirPath, f), "utf-8");
+                const content = fs5.readFileSync(path7.join(dirPath, f), "utf-8");
                 return `<!-- ${f} -->
 ${content}`;
               }).join("\n\n");
@@ -3115,9 +3191,9 @@ ${content}`;
             }
           } catch {
           }
-        } else if (fs4.existsSync(filePath)) {
+        } else if (fs5.existsSync(filePath)) {
           try {
-            rules[key] = fs4.readFileSync(filePath, "utf-8");
+            rules[key] = fs5.readFileSync(filePath, "utf-8");
             rtDebug(`\u5DF2\u52A0\u8F7D Rule: ${key}`);
           } catch {
           }
@@ -3137,8 +3213,8 @@ function createAgentRuntime(config) {
 }
 
 // scripts/src/result-aggregator.ts
-var fs5 = __toESM(require("fs"));
-var path6 = __toESM(require("path"));
+var fs6 = __toESM(require("fs"));
+var path8 = __toESM(require("path"));
 var AGENT_CALLS_DIR2 = ".codebuddy/agent-calls";
 function extractAgentCallRequestIds(taskBook) {
   const seen = /* @__PURE__ */ new Set();
@@ -3158,9 +3234,9 @@ function extractAgentCallRequestIds(taskBook) {
   return results;
 }
 function readAgentCallResult(projectRoot, requestId) {
-  const resultPath = path6.join(projectRoot, AGENT_CALLS_DIR2, `${requestId}.result.json`);
+  const resultPath = path8.join(projectRoot, AGENT_CALLS_DIR2, `${requestId}.result.json`);
   try {
-    const raw = fs5.readFileSync(resultPath, "utf-8");
+    const raw = fs6.readFileSync(resultPath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -3442,12 +3518,12 @@ function truncateMessage(message, maxLength = 500) {
 }
 
 // scripts/src/lib/execution-metrics.ts
-var fs6 = __toESM(require("fs"));
-var path7 = __toESM(require("path"));
+var fs7 = __toESM(require("fs"));
+var path9 = __toESM(require("path"));
 var METRICS_SCHEMA_VERSION = "1.0.0";
-var METRICS_DIR = path7.join(process.cwd(), ".codebuddy", "reports", "metrics");
-var EVENTS_FILE = path7.join(METRICS_DIR, "execution-events.jsonl");
-var SUMMARY_FILE = path7.join(METRICS_DIR, "latest-summary.json");
+var METRICS_DIR = path9.join(process.cwd(), ".codebuddy", "reports", "metrics");
+var EVENTS_FILE = path9.join(METRICS_DIR, "execution-events.jsonl");
+var SUMMARY_FILE = path9.join(METRICS_DIR, "latest-summary.json");
 function recordExecutionMetric(input) {
   ensureMetricsDir();
   const event = {
@@ -3455,22 +3531,22 @@ function recordExecutionMetric(input) {
     schemaVersion: METRICS_SCHEMA_VERSION,
     recordedAt: input.recordedAt || (/* @__PURE__ */ new Date()).toISOString()
   };
-  fs6.appendFileSync(EVENTS_FILE, `${JSON.stringify(event)}
+  fs7.appendFileSync(EVENTS_FILE, `${JSON.stringify(event)}
 `, "utf-8");
   const summary = loadExecutionMetricsSummary();
   applyEvent(summary, event);
   summary.generatedAt = event.recordedAt;
   summary.lastEventAt = event.recordedAt;
-  fs6.writeFileSync(SUMMARY_FILE, JSON.stringify(summary, null, 2), "utf-8");
+  fs7.writeFileSync(SUMMARY_FILE, JSON.stringify(summary, null, 2), "utf-8");
   return event;
 }
 function loadExecutionMetricsSummary(projectRoot = process.cwd()) {
-  const summaryPath = path7.join(projectRoot, ".codebuddy", "reports", "metrics", "latest-summary.json");
-  if (!fs6.existsSync(summaryPath)) {
+  const summaryPath = path9.join(projectRoot, ".codebuddy", "reports", "metrics", "latest-summary.json");
+  if (!fs7.existsSync(summaryPath)) {
     return createEmptySummary(projectRoot);
   }
   try {
-    const parsed = JSON.parse(fs6.readFileSync(summaryPath, "utf-8"));
+    const parsed = JSON.parse(fs7.readFileSync(summaryPath, "utf-8"));
     return normalizeSummary(parsed, projectRoot);
   } catch {
     return createEmptySummary(projectRoot);
@@ -3518,7 +3594,7 @@ function computeDurationMs(startedAt, completedAt) {
   return end - start;
 }
 function ensureMetricsDir() {
-  fs6.mkdirSync(METRICS_DIR, { recursive: true });
+  fs7.mkdirSync(METRICS_DIR, { recursive: true });
 }
 function createEmptySummary(projectRoot) {
   return {
@@ -4025,13 +4101,13 @@ var TaskExecutor = class {
     const requestId = computeAgentCallRequestId(taskBookId, task.id);
     const promptPath = toPosixPath(`${AGENT_CALLS_DIR3}/${requestId}.prompt.md`);
     const resultPath = toPosixPath(`${AGENT_CALLS_DIR3}/${requestId}.result.json`);
-    const promptAbsPath = path8.join(process.cwd(), promptPath);
-    const resultAbsPath = path8.join(process.cwd(), resultPath);
-    ensureDir2(path8.dirname(promptAbsPath));
+    const promptAbsPath = path10.join(process.cwd(), promptPath);
+    const resultAbsPath = path10.join(process.cwd(), resultPath);
+    ensureDir2(path10.dirname(promptAbsPath));
     let agentId = selectManualAgentId(task);
-    if (fs7.existsSync(promptAbsPath)) {
+    if (fs8.existsSync(promptAbsPath)) {
       try {
-        const existing = fs7.readFileSync(promptAbsPath, "utf-8");
+        const existing = fs8.readFileSync(promptAbsPath, "utf-8");
         const parsedAgentId = tryExtractAgentIdFromPrompt(existing);
         if (parsedAgentId) agentId = parsedAgentId;
       } catch {
@@ -4050,9 +4126,9 @@ var TaskExecutor = class {
     const agentDef = loadAgentDefinition(process.cwd(), agentId);
     const agentDefMissingNote = !agentDef ? `
 
-[agent-call] agent definition missing: expected .codebuddy/agents/${agentId}/AGENT.md (or agents/${agentId}/AGENT.md).` : "";
+[agent-call] agent definition missing: expected ${listAgentDefinitionCandidatePaths(process.cwd(), agentId).map((filePath) => path10.relative(process.cwd(), filePath).replace(/\\/g, "/")).join(" or ")}.` : "";
     const runtimePrompt = this.lastRenderedPrompt;
-    if (!fs7.existsSync(promptAbsPath)) {
+    if (!fs8.existsSync(promptAbsPath)) {
       const tb = this.manager.load(taskBookId);
       if (!tb) throw new Error(`TaskBook not found: ${taskBookId}`);
       const enrichedManualReason = `${manualReason}${agentDefMissingNote}`;
@@ -4067,7 +4143,7 @@ var TaskExecutor = class {
         resultPath: meta.resultPath,
         runtimePrompt: runtimePrompt ?? void 0
       });
-      fs7.writeFileSync(promptAbsPath, prompt, "utf-8");
+      fs8.writeFileSync(promptAbsPath, prompt, "utf-8");
       this.manager.logChange(taskBookId, task.id, "modified", `agent-call created: ${requestId}`, void 0, {
         event: "agent-call",
         action: "created",
@@ -4092,7 +4168,7 @@ var TaskExecutor = class {
         blockedReason: truncateMetricText(manualReason)
       });
     }
-    if (!fs7.existsSync(resultAbsPath)) {
+    if (!fs8.existsSync(resultAbsPath)) {
     }
     return buildAgentCallBlockedReason(`${manualReason}${agentDefMissingNote}`, meta);
   }
@@ -4104,11 +4180,11 @@ var TaskExecutor = class {
       if (allowedTaskIds && !allowedTaskIds.has(task.id)) continue;
       const meta = extractAgentCallMeta(task.blockedReason);
       if (!meta) continue;
-      const resultAbsPath = path8.join(process.cwd(), meta.resultPath);
-      if (!fs7.existsSync(resultAbsPath)) continue;
+      const resultAbsPath = path10.join(process.cwd(), meta.resultPath);
+      if (!fs8.existsSync(resultAbsPath)) continue;
       let result;
       try {
-        result = parseAgentCallResult2(fs7.readFileSync(resultAbsPath, "utf-8"));
+        result = parseAgentCallResult2(fs8.readFileSync(resultAbsPath, "utf-8"));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.log(`[AgentCall] \u89E3\u6790\u5931\u8D25: ${meta.requestId} ${msg}`);
@@ -4274,16 +4350,16 @@ var TaskExecutor = class {
       task: taskSnapshot,
       projectRoot: process.cwd()
     };
-    const archReport = path8.join(process.cwd(), ".codebuddy/reports/architecture/latest.json");
-    const modulesReport = path8.join(process.cwd(), ".codebuddy/reports/modules/latest.json");
-    if (fs7.existsSync(archReport) || fs7.existsSync(modulesReport)) {
+    const archReport = path10.join(process.cwd(), ".codebuddy/reports/architecture/latest.json");
+    const modulesReport = path10.join(process.cwd(), ".codebuddy/reports/modules/latest.json");
+    if (fs8.existsSync(archReport) || fs8.existsSync(modulesReport)) {
       context.reports = {};
       try {
-        if (fs7.existsSync(archReport)) {
-          context.reports.architecture = JSON.parse(fs7.readFileSync(archReport, "utf-8"));
+        if (fs8.existsSync(archReport)) {
+          context.reports.architecture = JSON.parse(fs8.readFileSync(archReport, "utf-8"));
         }
-        if (fs7.existsSync(modulesReport)) {
-          context.reports.modules = JSON.parse(fs7.readFileSync(modulesReport, "utf-8"));
+        if (fs8.existsSync(modulesReport)) {
+          context.reports.modules = JSON.parse(fs8.readFileSync(modulesReport, "utf-8"));
         }
       } catch {
       }
@@ -4291,10 +4367,10 @@ var TaskExecutor = class {
     if (task.scope?.files && task.scope.files.length > 0) {
       context.relatedFiles = [];
       for (const filePath of task.scope.files.slice(0, 10)) {
-        const absPath = path8.resolve(process.cwd(), filePath);
-        if (fs7.existsSync(absPath)) {
+        const absPath = path10.resolve(process.cwd(), filePath);
+        if (fs8.existsSync(absPath)) {
           try {
-            const content = fs7.readFileSync(absPath, "utf-8");
+            const content = fs8.readFileSync(absPath, "utf-8");
             if (content.length <= 5e4) {
               context.relatedFiles.push({ path: filePath, content });
             }
@@ -4310,17 +4386,17 @@ var TaskExecutor = class {
    */
   async executeAnalysisTask(task) {
     console.log(`[TaskExecutor] \u6267\u884C\u5206\u6790\u4EFB\u52A1: ${task.title}`);
-    const moduleMapper = path8.join(process.cwd(), ".codebuddy/scripts/module-mapper.js");
-    const structureAnalyzer = path8.join(process.cwd(), ".codebuddy/scripts/structure-analyzer.js");
+    const moduleMapper = path10.join(process.cwd(), ".codebuddy/scripts/module-mapper.js");
+    const structureAnalyzer = path10.join(process.cwd(), ".codebuddy/scripts/structure-analyzer.js");
     const ran = [];
-    if (fs7.existsSync(moduleMapper)) {
+    if (fs8.existsSync(moduleMapper)) {
       const result = runNodeScript(moduleMapper, [".", "--mode", "summary", "--output", "json"]);
       if (!result.ok) {
         throw new Error(`\u5206\u6790\u5931\u8D25(module-mapper): ${result.stderr || result.stdout}`);
       }
       ran.push("module-mapper");
     }
-    if (fs7.existsSync(structureAnalyzer)) {
+    if (fs8.existsSync(structureAnalyzer)) {
       const result = runNodeScript(structureAnalyzer, [".", "--mode", "summary", "--output", "json"]);
       if (!result.ok) {
         throw new Error(`\u5206\u6790\u5931\u8D25(structure-analyzer): ${result.stderr || result.stdout}`);
@@ -4485,7 +4561,7 @@ Task Executor - Workflow \u9A71\u52A8\u7684\u4EFB\u52A1\u6267\u884C\u5668
 `);
 }
 function loadWorkflowSpec(workflowPath) {
-  const raw = fs7.readFileSync(workflowPath, "utf-8");
+  const raw = fs8.readFileSync(workflowPath, "utf-8");
   const parsed = JSON.parse(raw);
   if (!parsed || typeof parsed !== "object") {
     throw new Error("workflow \u6587\u4EF6\u4E0D\u662F\u6709\u6548\u7684 JSON \u5BF9\u8C61");
@@ -4826,8 +4902,8 @@ function parseAgentTaskOutput(output) {
   return { actualWork: actualWork.trim() };
 }
 function readTextFileIfExists2(filePath) {
-  if (!fs7.existsSync(filePath)) return null;
-  return fs7.readFileSync(filePath, "utf-8");
+  if (!fs8.existsSync(filePath)) return null;
+  return fs8.readFileSync(filePath, "utf-8");
 }
 function extractAgentVersion2(agentMarkdown) {
   const fm = agentMarkdown.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
@@ -4846,10 +4922,7 @@ function extractAgentVersion2(agentMarkdown) {
   return void 0;
 }
 function loadAgentDefinition(projectRoot, agentId) {
-  const candidates = [
-    path8.join(projectRoot, ".codebuddy", "agents", agentId, "AGENT.md"),
-    path8.join(projectRoot, "agents", agentId, "AGENT.md")
-  ];
+  const candidates = listAgentDefinitionCandidatePaths(projectRoot, agentId);
   for (const p of candidates) {
     const content = readTextFileIfExists2(p);
     if (content) return { path: p, content };
@@ -4874,10 +4947,7 @@ function loadAgentPromptTemplate(projectRoot, agentId, taskType) {
   if (!agentPrompts) return null;
   const fileName = agentPrompts[taskType];
   if (!fileName) return null;
-  const candidates = [
-    path8.join(projectRoot, ".codebuddy", "agents", agentId, "prompts", fileName),
-    path8.join(projectRoot, "agents", agentId, "prompts", fileName)
-  ];
+  const candidates = listAgentPromptCandidatePaths(projectRoot, agentId, fileName);
   for (const p of candidates) {
     const content = readTextFileIfExists2(p);
     if (content) return content;
@@ -4990,10 +5060,10 @@ function buildManualTaskPrompt(args) {
   ].join("\n");
 }
 function readPackageJsonScripts() {
-  const pkgPath = path8.join(process.cwd(), "package.json");
-  if (!fs7.existsSync(pkgPath)) return null;
+  const pkgPath = path10.join(process.cwd(), "package.json");
+  if (!fs8.existsSync(pkgPath)) return null;
   try {
-    const raw = fs7.readFileSync(pkgPath, "utf-8");
+    const raw = fs8.readFileSync(pkgPath, "utf-8");
     const parsed = JSON.parse(raw);
     const scripts = parsed?.scripts;
     if (typeof scripts !== "object" || scripts === null || Array.isArray(scripts)) return {};
@@ -5009,12 +5079,12 @@ function readPackageJsonScripts() {
 function writeGateEvidence(taskBookId, stepId, gateId, payload) {
   try {
     const safeTaskBookId = sanitizeForFilename(taskBookId);
-    const outDir = path8.join(process.cwd(), ".codebuddy", "reports", "gates", safeTaskBookId);
+    const outDir = path10.join(process.cwd(), ".codebuddy", "reports", "gates", safeTaskBookId);
     ensureDir2(outDir);
     const fileName = `${safeTimestampForFilename()}.${sanitizeForFilename(stepId)}.${sanitizeForFilename(gateId)}.json`;
-    const absPath = path8.join(outDir, fileName);
-    fs7.writeFileSync(absPath, JSON.stringify(payload, null, 2), "utf-8");
-    return toPosixPath(path8.relative(process.cwd(), absPath));
+    const absPath = path10.join(outDir, fileName);
+    fs8.writeFileSync(absPath, JSON.stringify(payload, null, 2), "utf-8");
+    return toPosixPath(path10.relative(process.cwd(), absPath));
   } catch {
     return void 0;
   }
@@ -5305,8 +5375,8 @@ async function runCheckGatesForStep(spec, step, taskBookId, manager, approved, g
   return { ok: true, gateResults: results };
 }
 function ensureDir2(dirPath) {
-  if (!fs7.existsSync(dirPath)) {
-    fs7.mkdirSync(dirPath, { recursive: true });
+  if (!fs8.existsSync(dirPath)) {
+    fs8.mkdirSync(dirPath, { recursive: true });
   }
 }
 function runNodeScript(scriptPath, args) {
@@ -5348,8 +5418,8 @@ async function runWorkflow(taskBookId, options) {
   if (taskBook.status !== "confirmed" && taskBook.status !== "executing") {
     throw new Error(`TaskBook \u5FC5\u987B\u662F confirmed/executing \u624D\u80FD\u6267\u884C\u3002\u5F53\u524D\u72B6\u6001: ${taskBook.status}`);
   }
-  const workflowPath = options.workflowPath ?? path8.join(process.cwd(), ".codebuddy/workflows/default.workflow.json");
-  if (!fs7.existsSync(workflowPath)) {
+  const workflowPath = options.workflowPath ?? path10.join(process.cwd(), ".codebuddy/workflows/default.workflow.json");
+  if (!fs8.existsSync(workflowPath)) {
     throw new Error(`workflow \u6587\u4EF6\u4E0D\u5B58\u5728: ${workflowPath}`);
   }
   const spec = loadWorkflowSpec(workflowPath);
@@ -5377,13 +5447,13 @@ async function runWorkflow(taskBookId, options) {
       continue;
     }
     if (step.type === "analyze_project") {
-      const moduleMapper = path8.join(process.cwd(), ".codebuddy/scripts/module-mapper.js");
-      const structureAnalyzer = path8.join(process.cwd(), ".codebuddy/scripts/structure-analyzer.js");
-      if (fs7.existsSync(moduleMapper)) {
+      const moduleMapper = path10.join(process.cwd(), ".codebuddy/scripts/module-mapper.js");
+      const structureAnalyzer = path10.join(process.cwd(), ".codebuddy/scripts/structure-analyzer.js");
+      if (fs8.existsSync(moduleMapper)) {
         const r = runNodeScript(moduleMapper, [".", "--mode", "summary", "--output", "json"]);
         if (!r.ok) throw new Error(`module-mapper \u6267\u884C\u5931\u8D25: ${r.stderr || r.stdout}`);
       }
-      if (fs7.existsSync(structureAnalyzer)) {
+      if (fs8.existsSync(structureAnalyzer)) {
         const r = runNodeScript(structureAnalyzer, [".", "--mode", "summary", "--output", "json"]);
         if (!r.ok) throw new Error(`structure-analyzer \u6267\u884C\u5931\u8D25: ${r.stderr || r.stdout}`);
       }
@@ -5617,10 +5687,10 @@ async function runWorkflow(taskBookId, options) {
       }
       const report = manager.generateAcceptanceReport(taskBookId);
       if (report) {
-        const outDir = path8.join(process.cwd(), ".codebuddy/reports/taskbooks");
+        const outDir = path10.join(process.cwd(), ".codebuddy/reports/taskbooks");
         ensureDir2(outDir);
-        const outPath = path8.join(outDir, `${taskBookId}.acceptance.json`);
-        fs7.writeFileSync(outPath, JSON.stringify(report, null, 2), "utf-8");
+        const outPath = path10.join(outDir, `${taskBookId}.acceptance.json`);
+        fs8.writeFileSync(outPath, JSON.stringify(report, null, 2), "utf-8");
         console.log(`[Workflow] \u2705 \u5DF2\u751F\u6210\u9A8C\u6536\u62A5\u544A: .codebuddy/reports/taskbooks/${taskBookId}.acceptance.json`);
       }
       manager.updateStatus(taskBookId, "completed");
@@ -5634,18 +5704,19 @@ async function runWorkflow(taskBookId, options) {
 }
 function createDefaultRuntime() {
   const cwd = process.cwd();
-  const localAgentsDir = path8.join(cwd, ".codebuddy/agents");
-  const builtinAgentsDir = path8.join(cwd, "agents");
-  const hasLocal = fs7.existsSync(localAgentsDir);
-  const hasBuiltin = fs7.existsSync(builtinAgentsDir);
-  if (!hasLocal && !hasBuiltin) {
+  const existingCandidateRoots = getProjectAgentRootCandidates(cwd).map((relativeRoot) => ({
+    relativeRoot,
+    absoluteRoot: path10.join(cwd, relativeRoot)
+  })).filter((candidate) => fs8.existsSync(candidate.absoluteRoot) && fs8.statSync(candidate.absoluteRoot).isDirectory());
+  if (existingCandidateRoots.length === 0) {
     return void 0;
   }
   try {
+    const [primaryRoot, fallbackRoot] = existingCandidateRoots;
     const runtime = createAgentRuntime({
       projectRoot: cwd,
-      agentsDir: hasLocal ? ".codebuddy/agents" : "agents",
-      fallbackAgentsDir: hasLocal && hasBuiltin ? "agents" : void 0,
+      agentsDir: primaryRoot.relativeRoot,
+      fallbackAgentsDir: fallbackRoot?.relativeRoot,
       verbose: false
     });
     runtime.loadAll();

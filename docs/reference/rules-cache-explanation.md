@@ -28,7 +28,7 @@
 ```
 
 说明：
-- `layer2_business/` 是否生成文件，取决于业务项目是否命中对应依赖（例如 `ant-design-vue`、`vant`）
+- `layer2_business/` 是否生成文件，取决于业务项目是否命中对应 Layer2 selector（例如依赖 `ant-design-vue`、`vant`，或 `kind:backend`、`stack:springboot`）
 - `layer3_action/` 会根据配置的默认清单写入缓存
 
 ## 三、在 project-rules.md 中如何引用
@@ -39,6 +39,7 @@
 | 规则名称 | 本地路径 | 说明 |
 |---------|---------|------|
 | antdv | `.codebuddy/rules_cache/layer2_business/antdv.md` | 业务规范 |
+| backend-service | `.codebuddy/rules_cache/layer2_business/backend-service.md` | 通用后端规范 |
 | refactoring | `.codebuddy/rules_cache/layer3_action/refactoring.md` | 任务检查清单 |
 ```
 
@@ -52,4 +53,3 @@
 rm -rf .codebuddy/rules_cache
 node codebuddy-loader.js --remote https://your-server.com/standards
 ```
-

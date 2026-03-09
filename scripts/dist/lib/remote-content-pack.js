@@ -80,7 +80,13 @@ async function ensureRemoteContentPack(ctx, logger, targetDir) {
     var _a, _b, _c;
     const packMeta = ((_b = (_a = ctx.remoteManifest) === null || _a === void 0 ? void 0 : _a.packs) === null || _b === void 0 ? void 0 : _b[ctx.profile]) || null;
     const manifestVersion = ((_c = ctx.remoteManifest) === null || _c === void 0 ? void 0 : _c.version) || '0.0.0';
-    if (!ctx.isRemote || !packMeta) {
+    if (!ctx.isRemote) {
+        return { contentRoot: null, pack: null, usedCache: false };
+    }
+    if (!packMeta) {
+        if (ctx.strictRemotePack) {
+            throw new Error(`pack-only mode requires manifest.packs.${ctx.profile}`);
+        }
         return { contentRoot: null, pack: null, usedCache: false };
     }
     const contentRoot = buildContentRoot(targetDir, manifestVersion, packMeta);
@@ -125,6 +131,9 @@ async function ensureRemoteContentPack(ctx, logger, targetDir) {
         return { contentRoot, pack: packMeta, usedCache: false };
     }
     catch (error) {
+        if (ctx.strictRemotePack) {
+            throw new Error(`pack-only mode requires a valid ${ctx.profile} content pack: ${error.message}`);
+        }
         logger.warn(`远程内容包不可用，回退逐文件拉取: ${error.message}`);
         return { contentRoot: null, pack: null, usedCache: false };
     }
@@ -136,7 +145,13 @@ async function readRemoteTextAsset(ctx, logger, relativePath) {
         if (fs.existsSync(cachedPath)) {
             return fs.readFileSync(cachedPath, 'utf-8');
         }
+        if (ctx.strictRemotePack) {
+            throw new Error(`pack-only mode blocked raw fallback for ${normalized}`);
+        }
         logger.verbose(`远程内容包未命中: ${normalized}，回退逐文件拉取`);
+    }
+    if (ctx.strictRemotePack) {
+        throw new Error(`pack-only mode requires cached asset: ${normalized}`);
     }
     const url = `${ctx.remoteBaseUrl}/${normalized}`;
     return (0, fetcher_1.fetchUrl)(ctx, logger, url);

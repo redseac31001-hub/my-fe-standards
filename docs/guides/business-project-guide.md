@@ -138,8 +138,8 @@ your-project/
 | 主规则文件生成 | `.codebuddy/rules/project-rules.md` 存在且非空 | `ls -la .codebuddy/rules/project-rules.md` |
 | Layer1 规范嵌入 | project-rules.md 包含 clean-code、architecture、strict-types 内容 | 搜索 `Layer 1: 基础规范` |
 | Layer3 索引完整 | 索引表包含 6 项规则（含 context-management） | 搜索 `规则参考索引` |
-| Agent 系统加载 | 9 个 Agent 目录均存在 | `ls .codebuddy/agents/` |
-| 技能系统加载 | 12 个技能目录均存在 | `ls .codebuddy/skills/` |
+| Agent 系统加载 | 当前激活 Agent root 已写入 `install.json` 且 Agent 表可见 | `node .codebuddy/scripts/codebuddy-loader.js status --json` |
+| 技能系统加载 | 当前激活技能已写入 `install.json` 且 rules 中技能表可见 | `node .codebuddy/scripts/codebuddy-loader.js status --json` |
 | 脚本分发完成 | scripts/ 下有 5 个核心脚本 | `ls .codebuddy/scripts/*.js` |
 | .gitignore 更新 | 包含 `.codebuddy/` 条目 | `grep codebuddy .gitignore` |
 | Vue 版本检测 | 正确识别 Vue 2/3（如适用） | 查看加载日志 |
@@ -174,6 +174,10 @@ your-project/
 | TypeScript | Layer1 strict-types 规范 | 始终加载 |
 | Ant Design Vue | Layer2 antdv 规范 | package.json 中 ant-design-vue |
 | Vant | Layer2 vant 规范 | package.json 中 vant |
+| Backend Service | Layer2 backend-service 规范 | 命中 `kind:backend` |
+| Node Backend | Layer2 node-backend 规范 | 命中 `stack:nestjs/express/fastify/koa/hono` |
+| Java Backend | Layer2 java-backend 规范 | 命中 `stack:springboot/quarkus/micronaut/jakartarest` |
+| Rust Backend | Layer2 rust-backend 规范 | 命中 `stack:axum/actixweb/rocket/tonic` |
 
 ---
 
@@ -188,8 +192,7 @@ your-project/
 test -f .codebuddy/rules/project-rules.md && echo "PASS: 主规则文件存在" || echo "FAIL: 主规则文件不存在"
 
 # ✅ 检查 2: Agent 数量（期望 9 个）
-AGENT_COUNT=$(ls -d .codebuddy/agents/*/ 2>/dev/null | wc -l)
-echo "Agent 数量: $AGENT_COUNT (期望 9)"
+node .codebuddy/scripts/codebuddy-loader.js status --json
 
 # ✅ 检查 3: 核心脚本存在
 for script in structure-analyzer.js module-mapper.js report-manager.js; do
@@ -201,7 +204,7 @@ L3_COUNT=$(ls .codebuddy/rules_cache/layer3_action/*.md 2>/dev/null | wc -l)
 echo "Layer3 规则: $L3_COUNT (期望 6)"
 
 # ✅ 检查 5: bug-investigator Agent 存在
-test -f .codebuddy/agents/bug-investigator/AGENT.md && echo "PASS: bug-investigator 已安装" || echo "FAIL: bug-investigator 缺失"
+node .codebuddy/scripts/agent-registry.js show bug-investigator --json && echo "PASS: bug-investigator 已安装" || echo "FAIL: bug-investigator 缺失"
 
 # ✅ 检查 6: context-management 规则存在
 test -f .codebuddy/rules_cache/layer3_action/context-management.md && echo "PASS: context-management 已安装" || echo "FAIL: context-management 缺失"
@@ -305,6 +308,7 @@ cat package.json | grep vue
 # 确认 package.json 中包含 UI 库依赖
 # ant-design-vue → 加载 antdv 规范
 # vant → 加载 vant 规范
+# backend stack selector → 加载 backend-service / 对应语言规则
 cat package.json | grep -E "ant-design-vue|vant"
 ```
 
@@ -406,8 +410,8 @@ cp .codebuddy/rules/project-rules.md .claude/rules/fe-standards.md
 
 | 组件 | 当前版本 | 说明 |
 |------|---------|------|
-| 规则库 | 2.0.0 | 三层架构 + 技能系统 + Agent 系统 |
-| 加载器 | 2.0 | 支持本地/远程/任务筛选/规则裁剪 |
+| 规则库 | 3.3.0 | 三层架构 + 技能系统 + Agent 系统 + 私有化发布能力 |
+| 加载器 | 3.3.0 | 支持本地/远程、profile、规则裁剪、content pack、pack-only |
 | Agent 数量 | 9 | 含 bug-investigator（新增） |
 | Skill 数量 | 12 | 前端开发专业技能库 |
 | Layer3 规则 | 6 | 含 context-management（新增） |

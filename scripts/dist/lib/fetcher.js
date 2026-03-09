@@ -41,15 +41,36 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.fetchUrl = fetchUrl;
 const https = __importStar(require("https"));
 const http = __importStar(require("http"));
+function buildRequestHeaders(ctx, url) {
+    if (!ctx.remoteBearerToken || !ctx.remoteBaseUrl) {
+        return {};
+    }
+    try {
+        const remoteOrigin = new URL(ctx.remoteBaseUrl).origin;
+        const requestOrigin = new URL(url).origin;
+        if (remoteOrigin !== requestOrigin) {
+            return {};
+        }
+    }
+    catch (_a) {
+        return {};
+    }
+    return {
+        Authorization: `Bearer ${ctx.remoteBearerToken}`,
+    };
+}
 function fetchUrl(ctx, logger, url, retries = 3) {
     return new Promise((resolve, reject) => {
         const client = url.startsWith('https') ? https : http;
+        const headers = buildRequestHeaders(ctx, url);
         logger.verbose(`Fetching: ${url} (Retries left: ${retries})`);
-        const request = client.get(url, (res) => {
+        const request = client.get(url, { headers }, (res) => {
             // 处理重定向
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                logger.verbose(`Redirecting to: ${res.headers.location}`);
-                fetchUrl(ctx, logger, res.headers.location, retries).then(resolve).catch(reject);
+                const redirectUrl = new URL(res.headers.location, url).toString();
+                res.resume();
+                logger.verbose(`Redirecting to: ${redirectUrl}`);
+                fetchUrl(ctx, logger, redirectUrl, retries).then(resolve).catch(reject);
                 return;
             }
             if (res.statusCode !== 200) {

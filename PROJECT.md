@@ -40,7 +40,7 @@
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐        │
 │  │   Rules 规则层   │    │  Skills 技能层  │    │  Agents 代理层  │        │
 │  │                 │    │                 │    │                 │        │
-│  │  Layer1: 基础   │    │  10 个技能      │    │  8 个 Agent     │        │
+│  │  Layer1: 基础   │    │  14 个技能      │    │  8 个 Agent     │        │
 │  │  Layer2: 业务   │    │  (详见下方)     │    │  (详见下方)     │        │
 │  │  Layer3: 行为   │    │                 │    │                 │        │
 │  └─────────────────┘    └─────────────────┘    └─────────────────┘        │
@@ -89,6 +89,8 @@ my-fe-standards/
 │   └── loader-config.json     # 加载器配置
 │
 ├── custom-skills/              # 技能系统
+│   ├── backend-code-review/   # 后端代码审查技能
+│   ├── backend-testing/       # 后端测试技能
 │   ├── frontend-code-review/  # 代码审查技能
 │   ├── component-refactoring/ # 组件重构技能
 │   ├── frontend-testing/      # 前端测试技能
@@ -96,6 +98,8 @@ my-fe-standards/
 │   ├── performance-optimization/ # 性能优化技能
 │   ├── build-optimization/    # 构建优化技能
 │   ├── i18n-a11y/            # 国际化/无障碍技能
+│   ├── module-mapping/        # 模块图谱技能
+│   ├── structure-review/      # 结构审查技能
 │   ├── prd/                   # PRD 分析技能
 │   ├── ralph-converter/       # Ralph 转换技能
 │   └── skill-creator/         # 技能创建器
@@ -163,12 +167,16 @@ my-fe-standards/
 | | 行为规范 | `rules/layer3_action/` | 测试、调试规范 |
 | **Skills 技能** | | | |
 | | 代码审查 | `custom-skills/frontend-code-review/` | 业务逻辑、代码质量、性能审查 |
+| | 后端代码审查 | `custom-skills/backend-code-review/` | Node/Java/Rust 服务与 API 审查 |
+| | 后端测试 | `custom-skills/backend-testing/` | Node/Java/Rust 单测、集成测试、API 测试 |
 | | 组件重构 | `custom-skills/component-refactoring/` | 复杂度分析、组件拆分、Hook 提取 |
 | | 前端测试 | `custom-skills/frontend-testing/` | Vue 2/3 测试、异步测试、Mock |
 | | 状态管理 | `custom-skills/state-management/` | Vuex/Pinia 状态管理 |
 | | 性能优化 | `custom-skills/performance-optimization/` | 前端性能优化 |
 | | 构建优化 | `custom-skills/build-optimization/` | Webpack/Vite 构建优化 |
 | | 国际化/无障碍 | `custom-skills/i18n-a11y/` | i18n 和 a11y 支持 |
+| | 模块图谱 | `custom-skills/module-mapping/` | 模块边界识别、依赖图谱、热点分析 |
+| | 结构审查 | `custom-skills/structure-review/` | 目录结构审查、健康度评分、重构建议 |
 | | PRD 分析 | `custom-skills/prd/` | PRD 文档分析 |
 | | Ralph 转换 | `custom-skills/ralph-converter/` | Ralph 格式转换 |
 | | 技能创建 | `custom-skills/skill-creator/` | 创建新技能 |
@@ -267,6 +275,7 @@ await mcp.call("get_skills", { name: "frontend-code-review" });
 
 | 日期 | 版本 | 更新内容 |
 |------|------|----------|
+| 2026-03-07 | 3.3.0 | 新增私有化发布产物收集（`build:release`）、远程 Bearer Token、`--pack-only` 严格模式与对应安装/发布文档 |
 | 2026-03-05 | 3.2.0 | Workspace 多语言项目识别（JS/TS/Java/Go/Python/Rust/.NET）；新增 `@project` 快捷项目定位约定；提示词和索引表增加语言列 |
 | 2026-02-07 | 3.0.0 | Workflow v2.0.0 七步闭环；新增 tdd-driver/code-reviewer/build-fix Agent + Prompt 模板体系；TaskType 扩展为 10 种；task-executor Agent 路由 + prompt 注入 |
 | 2026-01-30 | 2.3.0 | 新增整洁代码核心原则 (Clean Code)；code-quality 加入 Layer1 基础规则；更新评分系统 |

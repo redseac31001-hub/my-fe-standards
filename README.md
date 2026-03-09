@@ -53,9 +53,11 @@ node test/run-tests.js
 
 ```bash
 npm run build
+npm run build:release
 npm run codebuddy
 npm run remote
 npm run remote:full
+node scripts/dist/codebuddy-loader.js --workspace-scope project-targeted --project mcp-server --role backend
 node scripts/dist/skill-validator.js check
 node test/run-tests.js
 ```
@@ -85,12 +87,14 @@ my-fe-standards/
 - [业务项目使用指南](./docs/guides/business-project-guide.md)
 - [业务项目试点方案](./docs/guides/business-pilot-plan.md)
 - [交接说明](./docs/guides/HANDOFF.md)
+- [私有化发布与业务安装指南](./docs/guides/private-deployment-guide.md)
 - [远程接入指南](./docs/guides/remote-usage-guide.md)
 - [E2E 验证方案](./docs/guides/e2e-validation-playbook.md)
 - [Workflow 使用指南](./docs/guides/workflows-guide.md)
 - [Agent Call 远程写回](./docs/guides/agent-call-remote.md)
 - [TaskBook 并发协作 SOP](./docs/guides/taskbook-collaboration-sop.md)
-- [技能系统说明](./custom-skills/custom-skills-guide.md)
+- [Skills 索引](./custom-skills/skills-index.md)
+- [技能系统说明（legacy）](./custom-skills/custom-skills-guide.md)
 
 ## 当前状态
 

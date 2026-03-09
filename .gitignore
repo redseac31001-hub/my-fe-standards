@@ -14,6 +14,7 @@ pnpm-debug.log*
 # 注意: scripts/dist/ 需要提交，不要忽略
 /dist/
 /build/
+/release/
 *.local
 
 # =========================

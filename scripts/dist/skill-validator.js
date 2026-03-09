@@ -62,9 +62,9 @@ function parseFrontmatterBlock(md) {
   }
   return { ok: true, frontmatter: match[1], endIndex: match[0].length };
 }
-function extractYamlScalar(frontmatter, key) {
+function extractYamlScalar(frontmatter, key, indent = 0) {
   const normalized = normalizeNewlines(frontmatter);
-  const pattern = new RegExp(`^${escapeRegex(key)}:\\s*(.+)$`, "m");
+  const pattern = new RegExp(`^${escapeRegex(indentPrefix(indent))}${escapeRegex(key)}:\\s*(.+)$`, "m");
   const match = normalized.match(pattern);
   if (!match) return void 0;
   return stripWrappingQuotes(match[1]);
@@ -171,7 +171,7 @@ Skill Validator - Skills \u57FA\u7840\u6821\u9A8C
   check                        \u6821\u9A8C skills\uFF08\u9ED8\u8BA4\uFF09
 
 \u9009\u9879:
-  --dir, --root <path>         skills \u76EE\u5F55\uFF08\u9ED8\u8BA4: ./custom-skills \u6216 ./.codebuddy/skills \u81EA\u52A8\u63A2\u6D4B\uFF09
+  --dir, --root <path>         skills \u76EE\u5F55\uFF08\u9ED8\u8BA4: ./custom-skills \u6216 install.json \u8BB0\u5F55\u7684 active skills root \u81EA\u52A8\u63A2\u6D4B\uFF09
   --json                       \u8F93\u51FA JSON
   --strict                     \u5B58\u5728 error \u65F6 exit=1\uFF08\u9ED8\u8BA4\u4E5F\u662F\u5982\u6B64\uFF1B\u4FDD\u7559\u8BE5\u5F00\u5173\u4FBF\u4E8E\u5BF9\u9F50\u5176\u5B83\u811A\u672C\uFF09
   --help, -h                   \u663E\u793A\u5E2E\u52A9
@@ -184,8 +184,32 @@ function readText(filePath) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
+function detectInstalledSkillsDir(cwd) {
+  const installStatePath = path.join(cwd, ".codebuddy", "install.json");
+  if (!fs.existsSync(installStatePath)) {
+    return null;
+  }
+  try {
+    const installState = JSON.parse(fs.readFileSync(installStatePath, "utf-8"));
+    const skillsRootDir = installState.outputs?.skillsRootDir || ((installState.stats?.skills || 0) > 0 ? ".codebuddy/skills" : null);
+    if (!skillsRootDir) {
+      return null;
+    }
+    const absolutePath = path.resolve(cwd, skillsRootDir);
+    if (fs.existsSync(absolutePath) && fs.statSync(absolutePath).isDirectory()) {
+      return absolutePath;
+    }
+  } catch {
+  }
+  return null;
+}
 function detectDefaultSkillsDir(cwd) {
-  const candidates = [path.join(cwd, "custom-skills"), path.join(cwd, ".codebuddy", "skills")];
+  const installedSkillsDir = detectInstalledSkillsDir(cwd);
+  const candidates = [
+    path.join(cwd, "custom-skills"),
+    installedSkillsDir,
+    path.join(cwd, ".codebuddy", "skills")
+  ].filter((value) => Boolean(value));
   for (const c of candidates) {
     try {
       if (fs.existsSync(c) && fs.statSync(c).isDirectory()) return c;
@@ -267,7 +291,7 @@ function validateSkillDir(skillId, skillDir) {
   const metadataBlock = extractYamlSection(frontmatter, "metadata");
   if (metadataBlock) {
     const metadataKeys = listYamlKeys(metadataBlock, 2);
-    const allowedMetadataKeys = /* @__PURE__ */ new Set(["triggers", "tools", "related"]);
+    const allowedMetadataKeys = /* @__PURE__ */ new Set(["triggers", "tools", "related", "languages", "frameworks", "roles", "scenarios", "workspace_scope"]);
     for (const key of metadataKeys) {
       if (!allowedMetadataKeys.has(key)) {
         issues.push({
@@ -320,7 +344,7 @@ function main() {
   const dirFlag = typeof parsed.flags.dir === "string" ? parsed.flags.dir : null;
   const skillsDir = dirFlag ? path.resolve(process.cwd(), dirFlag) : detectDefaultSkillsDir(process.cwd());
   if (!skillsDir) {
-    const msg = "\u672A\u627E\u5230 skills \u76EE\u5F55\uFF08\u671F\u671B ./custom-skills \u6216 ./.codebuddy/skills\uFF09\u3002\u8BF7\u4F7F\u7528 --dir \u6307\u5B9A\u3002";
+    const msg = "\u672A\u627E\u5230 skills \u76EE\u5F55\uFF08\u671F\u671B ./custom-skills \u6216 install.json \u8BB0\u5F55\u7684 active skills root\uFF09\u3002\u8BF7\u4F7F\u7528 --dir \u6307\u5B9A\u3002";
     if (json) {
       console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
     } else {

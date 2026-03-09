@@ -31,10 +31,21 @@ function buildSkillHint(skill) {
     const parts = [];
     const tools = summarizeHintItems(skill.tools);
     const related = summarizeHintItems(skill.related);
+    const languages = summarizeHintItems(skill.languages);
+    const frameworks = summarizeHintItems(skill.frameworks);
+    const roles = summarizeHintItems(skill.roles);
     if (tools)
         parts.push(`tools: ${tools}`);
     if (related)
         parts.push(`related: ${related}`);
+    if (languages)
+        parts.push(`langs: ${languages}`);
+    if (frameworks)
+        parts.push(`stacks: ${frameworks}`);
+    if (roles)
+        parts.push(`roles: ${roles}`);
+    if (skill.workspaceScope && skill.workspaceScope !== 'both')
+        parts.push(`scope: ${skill.workspaceScope}`);
     return parts.length > 0 ? parts.join('; ') : '-';
 }
 function generateWorkflowsPrompt(workflows) {
@@ -466,7 +477,7 @@ function groupSkillsByScenario(skills) {
     }
     return groups.filter(group => group.items.length > 0);
 }
-function generateAgentsPrompt(agents) {
+function generateAgentsPrompt(agents, agentsRootDir = '.codebuddy/agents') {
     if (agents.length === 0)
         return '';
     const groups = groupAgentsByScenario(agents);
@@ -499,7 +510,11 @@ function generateAgentsPrompt(agents) {
 
 ${routeTable}
 
-命中某个场景后，再按需读取对应 \`.codebuddy/agents/<agent-id>/AGENT.md\`，不要先把所有 Agent 全文扫一遍。
+Agent 文件已下载至 \`${agentsRootDir}/\`。
+
+> **以当前规则文件中的 Agent 表和 \`.codebuddy/install.json\` 为准。** 若目录中同时存在历史 snapshot，请只读取这里列出的 active root。
+
+命中某个场景后，再按需读取对应 \`${agentsRootDir}/<agent-id>/AGENT.md\`，不要先把所有 Agent 全文扫一遍。
 
 ## 已安装 Agents（按场景分组）
 
@@ -516,7 +531,7 @@ ${groupSections}
 | **输出** | 完整交付物（代码+测试+报告） | 知识引导下的单次操作 |
 `;
 }
-function generateSkillsPrompt(skills) {
+function generateSkillsPrompt(skills, skillsRootDir = '.codebuddy/skills') {
     if (skills.length === 0)
         return '';
     const groups = groupSkillsByScenario(skills);
@@ -535,13 +550,15 @@ function generateSkillsPrompt(skills) {
     return `
 ## 第三步：Skill 分类路由（单次操作）
 
-技能文件已下载至 \`.codebuddy/skills/\`。
+技能文件已下载至 \`${skillsRootDir}/\`。
+
+> **以当前规则文件中的技能表和 \`.codebuddy/install.json\` 为准。** 若目录中同时存在历史 snapshot，请只读取这里列出的 active root。
 
 > **Skill 是知识源，不是执行者。** 如果任务需要多步骤自主流程，请回到第二步使用 Agent。
 
 ${routeTable}
 
-命中某个场景后，再按需读取 \`.codebuddy/skills/<技能ID>/SKILL.md\` 与相关 \`references/\`，避免一次性加载全部技能。
+命中某个场景后，再按需读取 \`${skillsRootDir}/<技能ID>/SKILL.md\` 与相关 \`references/\`，避免一次性加载全部技能。
 
 ## 已安装技能（按场景分组）
 
@@ -576,9 +593,12 @@ ${table}
 }
 function generateWorkspacePrompt(workspaceInfo) {
     var _a;
-    if (!workspaceInfo.isWorkspace || workspaceInfo.projects.length <= 1)
+    if (workspaceInfo.totalProjectCount <= 1)
         return '';
     const { projects } = workspaceInfo;
+    const scopeNote = workspaceInfo.scope === 'project-targeted' && workspaceInfo.selectedProject
+        ? `当前以 \`project-targeted\` 模式锁定 \`${workspaceInfo.selectedProject}\`（workspace 总计 ${workspaceInfo.totalProjectCount} 个项目）。`
+        : `当前以 \`workspace-union\` 模式聚合 ${workspaceInfo.totalProjectCount} 个项目。`;
     // 项目索引表
     let indexTable = '| 项目名称 | 路径前缀 | 语言 | 框架 | UI 库 | Vue 版本 | 规则缓存路径 |\n';
     indexTable += '|---------|---------|------|------|-------|---------|-------------|\n';
@@ -651,6 +671,8 @@ function generateWorkspacePrompt(workspaceInfo) {
 # 🏢 Workspace 多项目路由
 
 本目录为 **Workspace 模式**，包含 ${projects.length} 个子项目。编辑文件时必须先判断所属项目，再应用对应规则。
+
+> ${scopeNote}
 
 ## 🎯 快捷项目定位
 

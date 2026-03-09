@@ -16,6 +16,7 @@
 - [Business Project Guide](./guides/business-project-guide.md)
 - [Business Pilot Plan](./guides/business-pilot-plan.md)
 - [Handoff](./guides/HANDOFF.md)
+- [Private Deployment Guide](./guides/private-deployment-guide.md)
 - [Remote Usage Guide](./guides/remote-usage-guide.md)
 - [E2E Validation Playbook](./guides/e2e-validation-playbook.md)
 - [Workflows Guide](./guides/workflows-guide.md)

@@ -51,6 +51,7 @@ exports.createAgentRuntime = createAgentRuntime;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const frontmatter_utils_1 = require("./lib/frontmatter-utils");
+const install_roots_1 = require("./lib/install-roots");
 // ============ 日志工具 ============
 let _verbose = false;
 function rtLog(message) {
@@ -494,7 +495,7 @@ class AgentRuntime {
      * 加载 Agent 声明的 Skills 内容
      *
      * 从 permissions.skills 中解析 skill 名称，
-     * 依次在 .codebuddy/custom-skills/ 和 custom-skills/ 中查找 SKILL.md
+     * 优先读取 install.json 记录的 active skills root，其次回退到 legacy/custom-skills 目录
      */
     loadDeclaredSkills(metadata) {
         const skills = {};
@@ -503,11 +504,8 @@ class AgentRuntime {
             return skills;
         const root = this.config.projectRoot;
         for (const skillName of perms.skills) {
-            // 搜索顺序：.codebuddy/custom-skills/ → custom-skills/
-            const candidates = [
-                path.join(root, '.codebuddy', 'custom-skills', skillName, 'SKILL.md'),
-                path.join(root, 'custom-skills', skillName, 'SKILL.md'),
-            ];
+            const candidates = (0, install_roots_1.getProjectSkillRootCandidatePaths)(root)
+                .map(skillRoot => path.join(skillRoot, skillName, 'SKILL.md'));
             let found = false;
             for (const candidate of candidates) {
                 if (fs.existsSync(candidate)) {

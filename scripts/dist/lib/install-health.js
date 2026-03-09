@@ -40,19 +40,9 @@ exports.formatStatusReport = formatStatusReport;
 exports.formatDoctorReport = formatDoctorReport;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const install_roots_1 = require("./install-roots");
 const install_sync_1 = require("./install-sync");
-const SUPPORTED_INSTALL_STATE_SCHEMAS = new Set(['1.0.0']);
-const STATIC_MANAGED_DIRS = [
-    '.codebuddy/agent-calls',
-    '.codebuddy/agents',
-    '.codebuddy/commands',
-    '.codebuddy/rules',
-    '.codebuddy/rules_cache',
-    '.codebuddy/scripts',
-    '.codebuddy/skills',
-    '.codebuddy/taskbooks',
-    '.codebuddy/workflows',
-];
+const SUPPORTED_INSTALL_STATE_SCHEMAS = new Set(['1.0.0', '1.1.0', '1.2.0']);
 const PROFILE_RESIDUAL_ARTIFACTS = {
     core: [
         '.codebuddy/scripts/structure-analyzer.js',
@@ -103,6 +93,26 @@ const LEGACY_ORCHESTRATOR_ARTIFACTS = [
     '.codebuddy/workflows/workflow.schema.json',
     '.codebuddy/workflows/README.md',
 ];
+function resolveManagedRoots(installState) {
+    const roots = [
+        '.codebuddy/agent-calls',
+        '.codebuddy/commands',
+        '.codebuddy/rules',
+        '.codebuddy/rules_cache',
+        '.codebuddy/scripts',
+        '.codebuddy/taskbooks',
+        '.codebuddy/workflows',
+    ];
+    const agentsRootDir = (0, install_roots_1.resolveInstalledAgentsRootDir)(installState);
+    if (agentsRootDir) {
+        roots.push(agentsRootDir);
+    }
+    const skillsRootDir = (0, install_roots_1.resolveInstalledSkillsRootDir)(installState);
+    if (skillsRootDir) {
+        roots.push(skillsRootDir);
+    }
+    return roots;
+}
 function inspectInstallState(targetDir, installState, installStateExists) {
     const installStatePath = path.join(targetDir, '.codebuddy', 'install.json');
     const rulesFilePath = (installState === null || installState === void 0 ? void 0 : installState.outputs.rulesFile)
@@ -111,6 +121,14 @@ function inspectInstallState(targetDir, installState, installStateExists) {
     const workspaceIndexPath = (installState === null || installState === void 0 ? void 0 : installState.outputs.workspaceIndexFile)
         ? path.join(targetDir, installState.outputs.workspaceIndexFile)
         : null;
+    const agentsRootDir = (0, install_roots_1.resolveInstalledAgentsRootDir)(installState);
+    const agentsRootPath = agentsRootDir
+        ? path.join(targetDir, agentsRootDir)
+        : null;
+    const skillsRootDir = (0, install_roots_1.resolveInstalledSkillsRootDir)(installState);
+    const skillsRootPath = skillsRootDir
+        ? path.join(targetDir, skillsRootDir)
+        : null;
     const managedFiles = (installState === null || installState === void 0 ? void 0 : installState.managedFiles) || [];
     const managedFileSet = new Set(managedFiles.map(file => file.path));
     const missingManagedFiles = managedFiles
@@ -118,7 +136,7 @@ function inspectInstallState(targetDir, installState, installStateExists) {
         .map(file => file.path)
         .sort();
     const unexpectedStaticFiles = managedFileSet.size > 0
-        ? STATIC_MANAGED_DIRS.flatMap(relativeRoot => {
+        ? resolveManagedRoots(installState).flatMap(relativeRoot => {
             const absoluteRoot = path.join(targetDir, relativeRoot);
             return (0, install_sync_1.listFilesRecursive)(absoluteRoot)
                 .map(filePath => (0, install_sync_1.toProjectRelativePath)(targetDir, filePath))
@@ -140,6 +158,10 @@ function inspectInstallState(targetDir, installState, installStateExists) {
         rulesFileExists: rulesFilePath ? fs.existsSync(rulesFilePath) : false,
         workspaceIndexPath,
         workspaceIndexExists: workspaceIndexPath ? fs.existsSync(workspaceIndexPath) : false,
+        agentsRootPath,
+        agentsRootExists: agentsRootPath ? fs.existsSync(agentsRootPath) : false,
+        skillsRootPath,
+        skillsRootExists: skillsRootPath ? fs.existsSync(skillsRootPath) : false,
         trackedManagedFileCount: managedFiles.length,
         presentManagedFileCount: managedFiles.length - missingManagedFiles.length,
         missingManagedFiles,
@@ -187,6 +209,26 @@ function buildDoctorChecks(inspection) {
             message: inspection.workspaceIndexExists
                 ? `workspace 索引存在: ${installState.outputs.workspaceIndexFile}`
                 : `workspace 索引缺失: ${installState.outputs.workspaceIndexFile}`,
+        });
+    }
+    const agentsRootDir = (0, install_roots_1.resolveInstalledAgentsRootDir)(installState);
+    if (agentsRootDir) {
+        checks.push({
+            id: 'agents-root',
+            status: inspection.agentsRootExists ? 'pass' : 'fail',
+            message: inspection.agentsRootExists
+                ? `agents 根存在: ${agentsRootDir}`
+                : `agents 根缺失: ${agentsRootDir}`,
+        });
+    }
+    const skillsRootDir = (0, install_roots_1.resolveInstalledSkillsRootDir)(installState);
+    if (skillsRootDir) {
+        checks.push({
+            id: 'skills-root',
+            status: inspection.skillsRootExists ? 'pass' : 'fail',
+            message: inspection.skillsRootExists
+                ? `skills 根存在: ${skillsRootDir}`
+                : `skills 根缺失: ${skillsRootDir}`,
         });
     }
     checks.push({
@@ -250,6 +292,7 @@ function summarizeDoctorChecks(checks) {
     };
 }
 function formatStatusReport(inspection) {
+    var _a, _b;
     if (!inspection.installState) {
         return [
             'CodeBuddy Status',
@@ -270,10 +313,15 @@ function formatStatusReport(inspection) {
         `Mode: ${installState.mode}`,
         `Profile: ${installState.profile}`,
         `Orchestrator: ${installState.enableOrchestrator}`,
+        `Pack Mode: ${installState.options.strictRemotePack ? 'strict' : 'fallback-allowed'}`,
         `Content Pack: ${installState.source.contentPackFile || 'n/a'}${installState.source.contentPackSha256 ? ` (${installState.source.contentPackSha256.slice(0, 12)})` : ''}`,
         `Content Hash: ${installState.contentHash}`,
         `Rules File: ${installState.outputs.rulesFile} (${inspection.rulesFileExists ? 'present' : 'missing'})`,
         `Workspace Index: ${installState.outputs.workspaceIndexFile || 'n/a'}${installState.outputs.workspaceIndexFile ? ` (${inspection.workspaceIndexExists ? 'present' : 'missing'})` : ''}`,
+        `Agents Root: ${(0, install_roots_1.resolveInstalledAgentsRootDir)(installState) || 'n/a'}${(0, install_roots_1.resolveInstalledAgentsRootDir)(installState) ? ` (${inspection.agentsRootExists ? 'present' : 'missing'})` : ''}`,
+        `Agents Snapshot Retention: ${(_a = (0, install_roots_1.resolveInstalledAgentsSnapshotRetention)(installState)) !== null && _a !== void 0 ? _a : 'n/a'}`,
+        `Skills Root: ${(0, install_roots_1.resolveInstalledSkillsRootDir)(installState) || 'n/a'}${(0, install_roots_1.resolveInstalledSkillsRootDir)(installState) ? ` (${inspection.skillsRootExists ? 'present' : 'missing'})` : ''}`,
+        `Skills Snapshot Retention: ${(_b = (0, install_roots_1.resolveInstalledSkillsSnapshotRetention)(installState)) !== null && _b !== void 0 ? _b : 'n/a'}`,
         `Managed Files: tracked=${inspection.trackedManagedFileCount}, present=${inspection.presentManagedFileCount}, missing=${inspection.missingManagedFiles.length}`,
         `Stats: skills=${installState.stats.skills}, agents=${installState.stats.agents}, scripts=${installState.stats.scripts}, workflows=${installState.stats.workflows}, taskbooks=${installState.stats.taskbooks}, agentCalls=${installState.stats.agentCalls}, commands=${installState.stats.commands}`,
     ].join('\n');

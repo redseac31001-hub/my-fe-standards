@@ -46,14 +46,34 @@ function logError(message) {
 // scripts/src/lib/fetcher.ts
 var https = __toESM(require("https"));
 var http = __toESM(require("http"));
+function buildRequestHeaders(ctx, url) {
+  if (!ctx.remoteBearerToken || !ctx.remoteBaseUrl) {
+    return {};
+  }
+  try {
+    const remoteOrigin = new URL(ctx.remoteBaseUrl).origin;
+    const requestOrigin = new URL(url).origin;
+    if (remoteOrigin !== requestOrigin) {
+      return {};
+    }
+  } catch {
+    return {};
+  }
+  return {
+    Authorization: `Bearer ${ctx.remoteBearerToken}`
+  };
+}
 function fetchUrl(ctx, logger, url, retries = 3) {
   return new Promise((resolve2, reject) => {
     const client = url.startsWith("https") ? https : http;
+    const headers = buildRequestHeaders(ctx, url);
     logger.verbose(`Fetching: ${url} (Retries left: ${retries})`);
-    const request = client.get(url, (res) => {
+    const request = client.get(url, { headers }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        logger.verbose(`Redirecting to: ${res.headers.location}`);
-        fetchUrl(ctx, logger, res.headers.location, retries).then(resolve2).catch(reject);
+        const redirectUrl = new URL(res.headers.location, url).toString();
+        res.resume();
+        logger.verbose(`Redirecting to: ${redirectUrl}`);
+        fetchUrl(ctx, logger, redirectUrl, retries).then(resolve2).catch(reject);
         return;
       }
       if (res.statusCode !== 200) {
@@ -191,14 +211,18 @@ function writeManagedFile(tracker, destinationPath, content) {
 function getManagedFiles(tracker) {
   return Array.from(tracker.files.values()).sort((left, right) => left.path.localeCompare(right.path));
 }
-function cleanupStaleManagedFiles(tracker, previousInstallState, logger) {
+function cleanupStaleManagedFiles(tracker, previousInstallState, options, logger) {
   if (!previousInstallState?.managedFiles?.length) {
     return [];
   }
   const currentPaths = new Set(tracker.files.keys());
+  const preservePrefixes = (options?.preservePrefixes || []).map((prefix) => prefix.replace(/\\/g, "/"));
   const removed = [];
   for (const managedFile of previousInstallState.managedFiles) {
     if (currentPaths.has(managedFile.path)) {
+      continue;
+    }
+    if (preservePrefixes.some((prefix) => managedFile.path.startsWith(prefix))) {
       continue;
     }
     if (!managedFile.path.startsWith(".codebuddy/")) {
@@ -210,13 +234,9 @@ function cleanupStaleManagedFiles(tracker, previousInstallState, logger) {
       continue;
     }
     try {
-      const stat = fs.statSync(absolutePath);
-      if (!stat.isFile()) {
+      if (!removeManagedPath(tracker.targetDir, absolutePath)) {
         continue;
       }
-      fs.chmodSync(absolutePath, 438);
-      fs.rmSync(absolutePath, { force: true });
-      pruneEmptyParents(tracker.targetDir, path.dirname(absolutePath));
       tracker.summary.removed += 1;
       removed.push(managedFile.path);
     } catch (error) {
@@ -224,6 +244,43 @@ function cleanupStaleManagedFiles(tracker, previousInstallState, logger) {
     }
   }
   return removed.sort();
+}
+function removeManagedPath(targetDir, absolutePath) {
+  if (!fs.existsSync(absolutePath)) {
+    return false;
+  }
+  ensureWritableRecursive(absolutePath);
+  fs.rmSync(absolutePath, {
+    recursive: true,
+    force: true,
+    maxRetries: 3,
+    retryDelay: 50
+  });
+  if (fs.existsSync(absolutePath)) {
+    return false;
+  }
+  pruneEmptyParents(targetDir, path.dirname(absolutePath));
+  return true;
+}
+function ensureWritableRecursive(targetPath) {
+  if (!fs.existsSync(targetPath)) {
+    return;
+  }
+  const stat = fs.lstatSync(targetPath);
+  if (stat.isDirectory()) {
+    for (const entry of fs.readdirSync(targetPath)) {
+      ensureWritableRecursive(path.join(targetPath, entry));
+    }
+    try {
+      fs.chmodSync(targetPath, 511);
+    } catch {
+    }
+    return;
+  }
+  try {
+    fs.chmodSync(targetPath, 438);
+  } catch {
+  }
 }
 function pruneEmptyParents(targetDir, startDir) {
   const stopDir = path.join(targetDir, ".codebuddy");
@@ -294,7 +351,13 @@ function buildContentRoot(targetDir, manifestVersion, packMeta) {
 async function ensureRemoteContentPack(ctx, logger, targetDir) {
   const packMeta = ctx.remoteManifest?.packs?.[ctx.profile] || null;
   const manifestVersion = ctx.remoteManifest?.version || "0.0.0";
-  if (!ctx.isRemote || !packMeta) {
+  if (!ctx.isRemote) {
+    return { contentRoot: null, pack: null, usedCache: false };
+  }
+  if (!packMeta) {
+    if (ctx.strictRemotePack) {
+      throw new Error(`pack-only mode requires manifest.packs.${ctx.profile}`);
+    }
     return { contentRoot: null, pack: null, usedCache: false };
   }
   const contentRoot = buildContentRoot(targetDir, manifestVersion, packMeta);
@@ -338,6 +401,9 @@ async function ensureRemoteContentPack(ctx, logger, targetDir) {
     logger.log(`\u8FDC\u7A0B\u5185\u5BB9\u5305: \u5DF2\u7F13\u5B58 ${packMeta.profile} (${pack.entryCount} files)`);
     return { contentRoot, pack: packMeta, usedCache: false };
   } catch (error) {
+    if (ctx.strictRemotePack) {
+      throw new Error(`pack-only mode requires a valid ${ctx.profile} content pack: ${error.message}`);
+    }
     logger.warn(`\u8FDC\u7A0B\u5185\u5BB9\u5305\u4E0D\u53EF\u7528\uFF0C\u56DE\u9000\u9010\u6587\u4EF6\u62C9\u53D6: ${error.message}`);
     return { contentRoot: null, pack: null, usedCache: false };
   }
@@ -349,7 +415,13 @@ async function readRemoteTextAsset(ctx, logger, relativePath) {
     if (fs2.existsSync(cachedPath)) {
       return fs2.readFileSync(cachedPath, "utf-8");
     }
+    if (ctx.strictRemotePack) {
+      throw new Error(`pack-only mode blocked raw fallback for ${normalized}`);
+    }
     logger.verbose(`\u8FDC\u7A0B\u5185\u5BB9\u5305\u672A\u547D\u4E2D: ${normalized}\uFF0C\u56DE\u9000\u9010\u6587\u4EF6\u62C9\u53D6`);
+  }
+  if (ctx.strictRemotePack) {
+    throw new Error(`pack-only mode requires cached asset: ${normalized}`);
   }
   const url = `${ctx.remoteBaseUrl}/${normalized}`;
   return fetchUrl(ctx, logger, url);
@@ -469,18 +541,38 @@ function getScriptsForProfile(profile) {
 // scripts/src/lib/install-health.ts
 var fs4 = __toESM(require("fs"));
 var path4 = __toESM(require("path"));
-var SUPPORTED_INSTALL_STATE_SCHEMAS = /* @__PURE__ */ new Set(["1.0.0"]);
-var STATIC_MANAGED_DIRS = [
-  ".codebuddy/agent-calls",
-  ".codebuddy/agents",
-  ".codebuddy/commands",
-  ".codebuddy/rules",
-  ".codebuddy/rules_cache",
-  ".codebuddy/scripts",
-  ".codebuddy/skills",
-  ".codebuddy/taskbooks",
-  ".codebuddy/workflows"
-];
+
+// scripts/src/lib/install-roots.ts
+function normalizeRelativeRoot(relativeRoot) {
+  if (typeof relativeRoot !== "string") return null;
+  const normalized = relativeRoot.trim().replace(/\\/g, "/");
+  return normalized ? normalized : null;
+}
+function resolveInstalledSkillsRootDir(installState) {
+  if (!installState) return null;
+  return normalizeRelativeRoot(installState.outputs.skillsRootDir) || (installState.stats.skills > 0 ? ".codebuddy/skills" : null);
+}
+function resolveInstalledSkillsSnapshotRetention(installState) {
+  if (!installState) return null;
+  if (typeof installState.outputs.skillsSnapshotRetention === "number") {
+    return installState.outputs.skillsSnapshotRetention;
+  }
+  return resolveInstalledSkillsRootDir(installState) ? 3 : null;
+}
+function resolveInstalledAgentsRootDir(installState) {
+  if (!installState) return null;
+  return normalizeRelativeRoot(installState.outputs.agentsRootDir) || (installState.stats.agents > 0 ? ".codebuddy/agents" : null);
+}
+function resolveInstalledAgentsSnapshotRetention(installState) {
+  if (!installState) return null;
+  if (typeof installState.outputs.agentsSnapshotRetention === "number") {
+    return installState.outputs.agentsSnapshotRetention;
+  }
+  return resolveInstalledAgentsRootDir(installState) ? 3 : null;
+}
+
+// scripts/src/lib/install-health.ts
+var SUPPORTED_INSTALL_STATE_SCHEMAS = /* @__PURE__ */ new Set(["1.0.0", "1.1.0", "1.2.0"]);
 var PROFILE_RESIDUAL_ARTIFACTS = {
   core: [
     ".codebuddy/scripts/structure-analyzer.js",
@@ -531,14 +623,38 @@ var LEGACY_ORCHESTRATOR_ARTIFACTS = [
   ".codebuddy/workflows/workflow.schema.json",
   ".codebuddy/workflows/README.md"
 ];
+function resolveManagedRoots(installState) {
+  const roots = [
+    ".codebuddy/agent-calls",
+    ".codebuddy/commands",
+    ".codebuddy/rules",
+    ".codebuddy/rules_cache",
+    ".codebuddy/scripts",
+    ".codebuddy/taskbooks",
+    ".codebuddy/workflows"
+  ];
+  const agentsRootDir = resolveInstalledAgentsRootDir(installState);
+  if (agentsRootDir) {
+    roots.push(agentsRootDir);
+  }
+  const skillsRootDir = resolveInstalledSkillsRootDir(installState);
+  if (skillsRootDir) {
+    roots.push(skillsRootDir);
+  }
+  return roots;
+}
 function inspectInstallState(targetDir, installState, installStateExists) {
   const installStatePath = path4.join(targetDir, ".codebuddy", "install.json");
   const rulesFilePath = installState?.outputs.rulesFile ? path4.join(targetDir, installState.outputs.rulesFile) : null;
   const workspaceIndexPath = installState?.outputs.workspaceIndexFile ? path4.join(targetDir, installState.outputs.workspaceIndexFile) : null;
+  const agentsRootDir = resolveInstalledAgentsRootDir(installState);
+  const agentsRootPath = agentsRootDir ? path4.join(targetDir, agentsRootDir) : null;
+  const skillsRootDir = resolveInstalledSkillsRootDir(installState);
+  const skillsRootPath = skillsRootDir ? path4.join(targetDir, skillsRootDir) : null;
   const managedFiles = installState?.managedFiles || [];
   const managedFileSet = new Set(managedFiles.map((file) => file.path));
   const missingManagedFiles = managedFiles.filter((file) => !fs4.existsSync(path4.join(targetDir, file.path))).map((file) => file.path).sort();
-  const unexpectedStaticFiles = managedFileSet.size > 0 ? STATIC_MANAGED_DIRS.flatMap((relativeRoot) => {
+  const unexpectedStaticFiles = managedFileSet.size > 0 ? resolveManagedRoots(installState).flatMap((relativeRoot) => {
     const absoluteRoot = path4.join(targetDir, relativeRoot);
     return listFilesRecursive(absoluteRoot).map((filePath) => toProjectRelativePath(targetDir, filePath)).filter((filePath) => !managedFileSet.has(filePath));
   }).sort() : [];
@@ -556,6 +672,10 @@ function inspectInstallState(targetDir, installState, installStateExists) {
     rulesFileExists: rulesFilePath ? fs4.existsSync(rulesFilePath) : false,
     workspaceIndexPath,
     workspaceIndexExists: workspaceIndexPath ? fs4.existsSync(workspaceIndexPath) : false,
+    agentsRootPath,
+    agentsRootExists: agentsRootPath ? fs4.existsSync(agentsRootPath) : false,
+    skillsRootPath,
+    skillsRootExists: skillsRootPath ? fs4.existsSync(skillsRootPath) : false,
     trackedManagedFileCount: managedFiles.length,
     presentManagedFileCount: managedFiles.length - missingManagedFiles.length,
     missingManagedFiles,
@@ -597,6 +717,22 @@ function buildDoctorChecks(inspection) {
       id: "workspace-index",
       status: inspection.workspaceIndexExists ? "pass" : "fail",
       message: inspection.workspaceIndexExists ? `workspace \u7D22\u5F15\u5B58\u5728: ${installState.outputs.workspaceIndexFile}` : `workspace \u7D22\u5F15\u7F3A\u5931: ${installState.outputs.workspaceIndexFile}`
+    });
+  }
+  const agentsRootDir = resolveInstalledAgentsRootDir(installState);
+  if (agentsRootDir) {
+    checks.push({
+      id: "agents-root",
+      status: inspection.agentsRootExists ? "pass" : "fail",
+      message: inspection.agentsRootExists ? `agents \u6839\u5B58\u5728: ${agentsRootDir}` : `agents \u6839\u7F3A\u5931: ${agentsRootDir}`
+    });
+  }
+  const skillsRootDir = resolveInstalledSkillsRootDir(installState);
+  if (skillsRootDir) {
+    checks.push({
+      id: "skills-root",
+      status: inspection.skillsRootExists ? "pass" : "fail",
+      message: inspection.skillsRootExists ? `skills \u6839\u5B58\u5728: ${skillsRootDir}` : `skills \u6839\u7F3A\u5931: ${skillsRootDir}`
     });
   }
   checks.push({
@@ -669,10 +805,15 @@ function formatStatusReport(inspection) {
     `Mode: ${installState.mode}`,
     `Profile: ${installState.profile}`,
     `Orchestrator: ${installState.enableOrchestrator}`,
+    `Pack Mode: ${installState.options.strictRemotePack ? "strict" : "fallback-allowed"}`,
     `Content Pack: ${installState.source.contentPackFile || "n/a"}${installState.source.contentPackSha256 ? ` (${installState.source.contentPackSha256.slice(0, 12)})` : ""}`,
     `Content Hash: ${installState.contentHash}`,
     `Rules File: ${installState.outputs.rulesFile} (${inspection.rulesFileExists ? "present" : "missing"})`,
     `Workspace Index: ${installState.outputs.workspaceIndexFile || "n/a"}${installState.outputs.workspaceIndexFile ? ` (${inspection.workspaceIndexExists ? "present" : "missing"})` : ""}`,
+    `Agents Root: ${resolveInstalledAgentsRootDir(installState) || "n/a"}${resolveInstalledAgentsRootDir(installState) ? ` (${inspection.agentsRootExists ? "present" : "missing"})` : ""}`,
+    `Agents Snapshot Retention: ${resolveInstalledAgentsSnapshotRetention(installState) ?? "n/a"}`,
+    `Skills Root: ${resolveInstalledSkillsRootDir(installState) || "n/a"}${resolveInstalledSkillsRootDir(installState) ? ` (${inspection.skillsRootExists ? "present" : "missing"})` : ""}`,
+    `Skills Snapshot Retention: ${resolveInstalledSkillsSnapshotRetention(installState) ?? "n/a"}`,
     `Managed Files: tracked=${inspection.trackedManagedFileCount}, present=${inspection.presentManagedFileCount}, missing=${inspection.missingManagedFiles.length}`,
     `Stats: skills=${installState.stats.skills}, agents=${installState.stats.agents}, scripts=${installState.stats.scripts}, workflows=${installState.stats.workflows}, taskbooks=${installState.stats.taskbooks}, agentCalls=${installState.stats.agentCalls}, commands=${installState.stats.commands}`
   ].join("\n");
@@ -732,9 +873,9 @@ function parseFrontmatterBlock(md) {
   }
   return { ok: true, frontmatter: match[1], endIndex: match[0].length };
 }
-function extractYamlScalar(frontmatter, key) {
+function extractYamlScalar(frontmatter, key, indent = 0) {
   const normalized = normalizeNewlines(frontmatter);
-  const pattern = new RegExp(`^${escapeRegex(key)}:\\s*(.+)$`, "m");
+  const pattern = new RegExp(`^${escapeRegex(indentPrefix(indent))}${escapeRegex(key)}:\\s*(.+)$`, "m");
   const match = normalized.match(pattern);
   if (!match) return void 0;
   return stripWrappingQuotes(match[1]);
@@ -818,6 +959,46 @@ function parseYamlList(frontmatter, key, indent = 0) {
 }
 
 // scripts/src/lib/metadata-parser.ts
+var SKILL_ROLE_SET = /* @__PURE__ */ new Set([
+  "frontend",
+  "backend",
+  "fullstack",
+  "qa",
+  "architect",
+  "product",
+  "devops"
+]);
+var PROJECT_LANG_SET = /* @__PURE__ */ new Set([
+  "typescript",
+  "javascript",
+  "java",
+  "python",
+  "go",
+  "rust",
+  "dotnet",
+  "unknown"
+]);
+var SKILL_WORKSPACE_SCOPE_SET = /* @__PURE__ */ new Set([
+  "workspace-union",
+  "project-targeted",
+  "both"
+]);
+function normalizeSkillRole(value) {
+  const normalized = value.trim().toLowerCase();
+  return SKILL_ROLE_SET.has(normalized) ? normalized : null;
+}
+function normalizeProjectLang(value) {
+  const normalized = value.trim().toLowerCase();
+  return PROJECT_LANG_SET.has(normalized) ? normalized : null;
+}
+function normalizeWorkspaceScope(value) {
+  const normalized = value.trim().toLowerCase();
+  return SKILL_WORKSPACE_SCOPE_SET.has(normalized) ? normalized : null;
+}
+function normalizeStringList(values) {
+  const normalized = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  return normalized.length > 0 ? normalized : void 0;
+}
 function parseSkillMetadata(skillId, content) {
   const fm = parseFrontmatterBlock(content);
   if (!fm.ok) return null;
@@ -835,13 +1016,28 @@ function parseSkillMetadata(skillId, content) {
   const metadataRelated = metadataBlock ? parseYamlList(metadataBlock, "related", 2) : [];
   const legacyRelated = parseYamlList(frontmatter, "related");
   const related = metadataRelated.length > 0 ? metadataRelated : legacyRelated;
+  const metadataLanguages = metadataBlock ? parseYamlList(metadataBlock, "languages", 2) : [];
+  const languages = metadataLanguages.map(normalizeProjectLang).filter((value) => value !== null);
+  const metadataFrameworks = metadataBlock ? parseYamlList(metadataBlock, "frameworks", 2) : [];
+  const frameworks = normalizeStringList(metadataFrameworks);
+  const metadataRoles = metadataBlock ? parseYamlList(metadataBlock, "roles", 2) : [];
+  const roles = metadataRoles.map(normalizeSkillRole).filter((value) => value !== null);
+  const metadataScenarios = metadataBlock ? parseYamlList(metadataBlock, "scenarios", 2) : [];
+  const scenarios = normalizeStringList(metadataScenarios);
+  const workspaceScopeRaw = metadataBlock ? extractYamlScalar(metadataBlock, "workspace_scope", 2) : void 0;
+  const workspaceScope = workspaceScopeRaw ? normalizeWorkspaceScope(workspaceScopeRaw) ?? void 0 : void 0;
   return {
     id: skillId,
     name,
     description,
     triggers,
     tools,
-    related
+    related,
+    languages: languages.length > 0 ? languages : void 0,
+    frameworks,
+    roles: roles.length > 0 ? roles : void 0,
+    scenarios,
+    workspaceScope
   };
 }
 function parseAgentMetadata(agentId, content) {
@@ -896,8 +1092,15 @@ function buildSkillHint(skill) {
   const parts = [];
   const tools = summarizeHintItems(skill.tools);
   const related = summarizeHintItems(skill.related);
+  const languages = summarizeHintItems(skill.languages);
+  const frameworks = summarizeHintItems(skill.frameworks);
+  const roles = summarizeHintItems(skill.roles);
   if (tools) parts.push(`tools: ${tools}`);
   if (related) parts.push(`related: ${related}`);
+  if (languages) parts.push(`langs: ${languages}`);
+  if (frameworks) parts.push(`stacks: ${frameworks}`);
+  if (roles) parts.push(`roles: ${roles}`);
+  if (skill.workspaceScope && skill.workspaceScope !== "both") parts.push(`scope: ${skill.workspaceScope}`);
   return parts.length > 0 ? parts.join("; ") : "-";
 }
 function generateWorkflowsPrompt(workflows) {
@@ -1318,7 +1521,7 @@ function groupSkillsByScenario(skills) {
   }
   return groups.filter((group) => group.items.length > 0);
 }
-function generateAgentsPrompt(agents) {
+function generateAgentsPrompt(agents, agentsRootDir = ".codebuddy/agents") {
   if (agents.length === 0) return "";
   const groups = groupAgentsByScenario(agents);
   let routeTable = "| \u573A\u666F | \u5224\u65AD\u4FE1\u53F7 | \u4F18\u5148 Agent |\n|------|----------|------------|\n";
@@ -1355,7 +1558,11 @@ ${table}
 
 ${routeTable}
 
-\u547D\u4E2D\u67D0\u4E2A\u573A\u666F\u540E\uFF0C\u518D\u6309\u9700\u8BFB\u53D6\u5BF9\u5E94 \`.codebuddy/agents/<agent-id>/AGENT.md\`\uFF0C\u4E0D\u8981\u5148\u628A\u6240\u6709 Agent \u5168\u6587\u626B\u4E00\u904D\u3002
+Agent \u6587\u4EF6\u5DF2\u4E0B\u8F7D\u81F3 \`${agentsRootDir}/\`\u3002
+
+> **\u4EE5\u5F53\u524D\u89C4\u5219\u6587\u4EF6\u4E2D\u7684 Agent \u8868\u548C \`.codebuddy/install.json\` \u4E3A\u51C6\u3002** \u82E5\u76EE\u5F55\u4E2D\u540C\u65F6\u5B58\u5728\u5386\u53F2 snapshot\uFF0C\u8BF7\u53EA\u8BFB\u53D6\u8FD9\u91CC\u5217\u51FA\u7684 active root\u3002
+
+\u547D\u4E2D\u67D0\u4E2A\u573A\u666F\u540E\uFF0C\u518D\u6309\u9700\u8BFB\u53D6\u5BF9\u5E94 \`${agentsRootDir}/<agent-id>/AGENT.md\`\uFF0C\u4E0D\u8981\u5148\u628A\u6240\u6709 Agent \u5168\u6587\u626B\u4E00\u904D\u3002
 
 ## \u5DF2\u5B89\u88C5 Agents\uFF08\u6309\u573A\u666F\u5206\u7EC4\uFF09
 
@@ -1372,7 +1579,7 @@ ${groupSections}
 | **\u8F93\u51FA** | \u5B8C\u6574\u4EA4\u4ED8\u7269\uFF08\u4EE3\u7801+\u6D4B\u8BD5+\u62A5\u544A\uFF09 | \u77E5\u8BC6\u5F15\u5BFC\u4E0B\u7684\u5355\u6B21\u64CD\u4F5C |
 `;
 }
-function generateSkillsPrompt(skills) {
+function generateSkillsPrompt(skills, skillsRootDir = ".codebuddy/skills") {
   if (skills.length === 0) return "";
   const groups = groupSkillsByScenario(skills);
   let routeTable = "| \u573A\u666F | \u5224\u65AD\u4FE1\u53F7 | \u4F18\u5148 Skill |\n|------|----------|------------|\n";
@@ -1395,13 +1602,15 @@ ${table}
   return `
 ## \u7B2C\u4E09\u6B65\uFF1ASkill \u5206\u7C7B\u8DEF\u7531\uFF08\u5355\u6B21\u64CD\u4F5C\uFF09
 
-\u6280\u80FD\u6587\u4EF6\u5DF2\u4E0B\u8F7D\u81F3 \`.codebuddy/skills/\`\u3002
+\u6280\u80FD\u6587\u4EF6\u5DF2\u4E0B\u8F7D\u81F3 \`${skillsRootDir}/\`\u3002
+
+> **\u4EE5\u5F53\u524D\u89C4\u5219\u6587\u4EF6\u4E2D\u7684\u6280\u80FD\u8868\u548C \`.codebuddy/install.json\` \u4E3A\u51C6\u3002** \u82E5\u76EE\u5F55\u4E2D\u540C\u65F6\u5B58\u5728\u5386\u53F2 snapshot\uFF0C\u8BF7\u53EA\u8BFB\u53D6\u8FD9\u91CC\u5217\u51FA\u7684 active root\u3002
 
 > **Skill \u662F\u77E5\u8BC6\u6E90\uFF0C\u4E0D\u662F\u6267\u884C\u8005\u3002** \u5982\u679C\u4EFB\u52A1\u9700\u8981\u591A\u6B65\u9AA4\u81EA\u4E3B\u6D41\u7A0B\uFF0C\u8BF7\u56DE\u5230\u7B2C\u4E8C\u6B65\u4F7F\u7528 Agent\u3002
 
 ${routeTable}
 
-\u547D\u4E2D\u67D0\u4E2A\u573A\u666F\u540E\uFF0C\u518D\u6309\u9700\u8BFB\u53D6 \`.codebuddy/skills/<\u6280\u80FDID>/SKILL.md\` \u4E0E\u76F8\u5173 \`references/\`\uFF0C\u907F\u514D\u4E00\u6B21\u6027\u52A0\u8F7D\u5168\u90E8\u6280\u80FD\u3002
+\u547D\u4E2D\u67D0\u4E2A\u573A\u666F\u540E\uFF0C\u518D\u6309\u9700\u8BFB\u53D6 \`${skillsRootDir}/<\u6280\u80FDID>/SKILL.md\` \u4E0E\u76F8\u5173 \`references/\`\uFF0C\u907F\u514D\u4E00\u6B21\u6027\u52A0\u8F7D\u5168\u90E8\u6280\u80FD\u3002
 
 ## \u5DF2\u5B89\u88C5\u6280\u80FD\uFF08\u6309\u573A\u666F\u5206\u7EC4\uFF09
 
@@ -1435,8 +1644,9 @@ ${table}
 `;
 }
 function generateWorkspacePrompt(workspaceInfo) {
-  if (!workspaceInfo.isWorkspace || workspaceInfo.projects.length <= 1) return "";
+  if (workspaceInfo.totalProjectCount <= 1) return "";
   const { projects } = workspaceInfo;
+  const scopeNote = workspaceInfo.scope === "project-targeted" && workspaceInfo.selectedProject ? `\u5F53\u524D\u4EE5 \`project-targeted\` \u6A21\u5F0F\u9501\u5B9A \`${workspaceInfo.selectedProject}\`\uFF08workspace \u603B\u8BA1 ${workspaceInfo.totalProjectCount} \u4E2A\u9879\u76EE\uFF09\u3002` : `\u5F53\u524D\u4EE5 \`workspace-union\` \u6A21\u5F0F\u805A\u5408 ${workspaceInfo.totalProjectCount} \u4E2A\u9879\u76EE\u3002`;
   let indexTable = "| \u9879\u76EE\u540D\u79F0 | \u8DEF\u5F84\u524D\u7F00 | \u8BED\u8A00 | \u6846\u67B6 | UI \u5E93 | Vue \u7248\u672C | \u89C4\u5219\u7F13\u5B58\u8DEF\u5F84 |\n";
   indexTable += "|---------|---------|------|------|-------|---------|-------------|\n";
   for (const p of projects) {
@@ -1502,6 +1712,8 @@ function generateWorkspacePrompt(workspaceInfo) {
 # \u{1F3E2} Workspace \u591A\u9879\u76EE\u8DEF\u7531
 
 \u672C\u76EE\u5F55\u4E3A **Workspace \u6A21\u5F0F**\uFF0C\u5305\u542B ${projects.length} \u4E2A\u5B50\u9879\u76EE\u3002\u7F16\u8F91\u6587\u4EF6\u65F6\u5FC5\u987B\u5148\u5224\u65AD\u6240\u5C5E\u9879\u76EE\uFF0C\u518D\u5E94\u7528\u5BF9\u5E94\u89C4\u5219\u3002
+
+> ${scopeNote}
 
 ## \u{1F3AF} \u5FEB\u6377\u9879\u76EE\u5B9A\u4F4D
 
@@ -1577,13 +1789,18 @@ var DEFAULT_TIMEOUT = 1e4;
 var DEFAULT_THRESHOLD = 0.5;
 var DEFAULT_RULE_LEVEL = "full";
 var DEFAULT_PROFILE = "analysis";
-var INSTALL_STATE_SCHEMA_VERSION = "1.0.0";
+var INSTALL_STATE_SCHEMA_VERSION = "1.2.0";
+var SKILL_SNAPSHOT_RETAIN_COUNT = 3;
+var AGENT_SNAPSHOT_RETAIN_COUNT = 3;
 var COMMANDS = /* @__PURE__ */ new Set(["install", "status", "doctor"]);
 var INSTALL_PROFILES = ["core", "analysis", "orchestrator", "full"];
+var WORKSPACE_SCOPES = ["workspace-union", "project-targeted"];
+var SKILL_ROLES = ["frontend", "backend", "fullstack", "qa", "architect", "product", "devops"];
+var LOADER_DISPLAY_VERSION = "v3.3.0";
 function showHelp() {
   console.log(`
 \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
-\u2551      CodeBuddy \u89C4\u5219\u52A0\u8F7D\u5668 v2.0 - \u4E09\u5C42\u67B6\u6784 + \u6280\u80FD\u7CFB\u7EDF              \u2551
+\u2551     CodeBuddy \u89C4\u5219\u52A0\u8F7D\u5668 ${LOADER_DISPLAY_VERSION} - \u4E09\u5C42\u67B6\u6784 + \u6280\u80FD\u7CFB\u7EDF        \u2551
 \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D
 
 \u7528\u6CD5\uFF1A
@@ -1598,6 +1815,10 @@ function showHelp() {
   --help, -h           \u663E\u793A\u5E2E\u52A9\u4FE1\u606F
   --json               status / doctor \u8F93\u51FA JSON
   --remote <URL>       \u4ECE\u8FDC\u7A0B URL \u83B7\u53D6\u89C4\u5219
+  --remote-bearer-token <token>
+                       \u8FDC\u7A0B\u8BF7\u6C42\u9644\u5E26 Bearer Token\uFF08\u4E5F\u652F\u6301\u73AF\u5883\u53D8\u91CF CODEBUDDY_REMOTE_BEARER_TOKEN\uFF09
+  --pack-only          \u8FDC\u7A0B\u6A21\u5F0F\u53EA\u5141\u8BB8\u4F7F\u7528 manifest.packs \u5185\u5BB9\u5305\uFF0C\u4E0D\u56DE\u9000\u9010\u6587\u4EF6\u62C9\u53D6
+  --strict-pack-only   --pack-only \u7684\u517C\u5BB9\u522B\u540D
   --task <type>        \u6309\u4EFB\u52A1\u7C7B\u578B\u7B5B\u9009\u89C4\u5219\uFF08\u6E10\u8FDB\u5F0F\u62AB\u9732\uFF09
                        \u7C7B\u578B: refactoring, debugging, testing, new-feature, code-review
   --threshold <n>      \u8BBE\u7F6E\u76F8\u5173\u6027\u9608\u503C (0-1, \u9ED8\u8BA4: 0.5)
@@ -1605,6 +1826,10 @@ function showHelp() {
   --profile <name>     \u5206\u53D1\u6863\u4F4D: core | analysis | orchestrator | full\uFF08\u9ED8\u8BA4: analysis\uFF09
   --enable-orchestrator \u517C\u5BB9\u65E7\u53C2\u6570\uFF0C\u7B49\u4EF7\u4E8E\u65E7\u7248\u5B8C\u6574\u5206\u53D1\uFF08\u5373 --profile full\uFF09
   --no-workspace       \u7981\u7528 workspace \u591A\u9879\u76EE\u81EA\u52A8\u53D1\u73B0
+  --workspace-scope <scope>
+                       Workspace \u5206\u53D1\u8303\u56F4: workspace-union | project-targeted\uFF08\u9ED8\u8BA4: workspace-union\uFF09
+  --project <selector> project-targeted \u6A21\u5F0F\u4E0B\u9501\u5B9A\u76EE\u6807\u9879\u76EE\uFF08\u540D\u79F0/\u8DEF\u5F84/\u76EE\u5F55\u522B\u540D\uFF09
+  --role <role>        \u6309\u5C97\u4F4D\u8FC7\u6EE4\u6280\u80FD: frontend | backend | fullstack | qa | architect | product | devops
   --verbose, -v        \u542F\u7528\u8BE6\u7EC6\u65E5\u5FD7
   --timeout <ms>       \u8BBE\u7F6E\u7F51\u7EDC\u8BF7\u6C42\u8D85\u65F6\uFF08\u9ED8\u8BA4: 10000ms\uFF09
 
@@ -1634,8 +1859,20 @@ function showHelp() {
   # \u5B89\u88C5\u5B8C\u6574\u8FD0\u884C\u65F6
   node codebuddy-loader.js --profile full
 
+  # Workspace \u5171\u4EAB\u5B89\u88C5
+  node codebuddy-loader.js --workspace-scope workspace-union
+
+  # Workspace \u9501\u5B9A\u67D0\u4E2A\u5B50\u9879\u76EE
+  node codebuddy-loader.js --workspace-scope project-targeted --project packages/api
+
+  # \u4EC5\u5B89\u88C5\u540E\u7AEF\u5C97\u4F4D\u76F8\u5173\u6280\u80FD
+  node codebuddy-loader.js --role backend
+
   # \u4ECE\u8FDC\u7A0B\u52A0\u8F7D
   node codebuddy-loader.js --remote https://example.com/standards
+
+  # \u4ECE\u53D7\u4FDD\u62A4\u8FDC\u7A0B\u6E90\u52A0\u8F7D\u5E76\u5F3A\u5236\u4F7F\u7528\u5185\u5BB9\u5305
+  node codebuddy-loader.js --remote https://example.com/standards --pack-only --remote-bearer-token YOUR_TOKEN
 
 \u8F93\u51FA\uFF1A
   \u5728\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\u751F\u6210 .codebuddy/rules/project-rules.md
@@ -1693,6 +1930,77 @@ function getLoaderVersion(ctx, logger) {
     return "0.0.0";
   }
 }
+function createInstallSnapshotId() {
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const entropy = (0, import_crypto3.createHash)("sha256").update(`${process.pid}-${Math.random()}-${Date.now()}`).digest("hex").slice(0, 8);
+  return `${timestamp}-${entropy}`;
+}
+function buildSnapshotSortKey(name, absolutePath) {
+  if (/^\d{8}T\d{6}Z-[a-f0-9]+$/i.test(name)) {
+    return `0-${name}`;
+  }
+  try {
+    const stat = fs5.statSync(absolutePath);
+    return `1-${String(Math.trunc(stat.mtimeMs)).padStart(16, "0")}-${name}`;
+  } catch {
+    return `2-${name}`;
+  }
+}
+function listSnapshotEntries(targetDir, snapshotRootDir) {
+  const snapshotsRoot = path5.join(targetDir, snapshotRootDir);
+  if (!fs5.existsSync(snapshotsRoot)) {
+    return [];
+  }
+  return fs5.readdirSync(snapshotsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
+    const absolutePath = path5.join(snapshotsRoot, entry.name);
+    return {
+      name: entry.name,
+      absolutePath,
+      relativePath: toProjectRelativePath(targetDir, absolutePath),
+      sortKey: buildSnapshotSortKey(entry.name, absolutePath)
+    };
+  }).sort((left, right) => right.sortKey.localeCompare(left.sortKey));
+}
+function gcSnapshotEntries(targetDir, snapshotRootDir, activeRootDir, retainCount, logger) {
+  if (!activeRootDir) {
+    return [];
+  }
+  const normalizedRetainCount = Math.max(1, retainCount);
+  const entries = listSnapshotEntries(targetDir, snapshotRootDir);
+  if (entries.length <= normalizedRetainCount) {
+    return [];
+  }
+  const keep = /* @__PURE__ */ new Set();
+  const activeEntry = entries.find((entry) => entry.relativePath === activeRootDir);
+  if (activeEntry) {
+    keep.add(activeEntry.relativePath);
+  } else {
+    keep.add(activeRootDir);
+  }
+  for (const entry of entries) {
+    if (keep.has(entry.relativePath)) {
+      continue;
+    }
+    keep.add(entry.relativePath);
+    if (keep.size >= normalizedRetainCount) {
+      break;
+    }
+  }
+  const removed = [];
+  for (const entry of entries) {
+    if (keep.has(entry.relativePath)) {
+      continue;
+    }
+    try {
+      if (removeManagedPath(targetDir, entry.absolutePath)) {
+        removed.push(entry.relativePath);
+      }
+    } catch (error) {
+      logger.warn(`\u6E05\u7406\u65E7\u6280\u80FD\u5FEB\u7167\u5931\u8D25: ${entry.relativePath} - ${error.message}`);
+    }
+  }
+  return removed.sort();
+}
 function buildInstallState(params) {
   const {
     ctx,
@@ -1700,6 +2008,10 @@ function buildInstallState(params) {
     targetDir,
     outputPath,
     workspaceIndexPath,
+    skillsRootDir,
+    skillsSnapshotRetention,
+    agentsRootDir,
+    agentsSnapshotRetention,
     layer1RulesCount,
     layer2IndexCount,
     layer3IndexCount,
@@ -1736,12 +2048,20 @@ function buildInstallState(params) {
     options: {
       taskType: ctx.taskType,
       ruleLevel: ctx.ruleLevel,
+      strictRemotePack: ctx.strictRemotePack,
       relevanceThreshold: ctx.relevanceThreshold,
-      workspaceDiscovery: !ctx.disableWorkspace
+      workspaceDiscovery: !ctx.disableWorkspace,
+      workspaceScope: ctx.workspaceScope,
+      targetProject: ctx.targetProject,
+      targetRole: ctx.targetRole
     },
     outputs: {
       rulesFile,
-      workspaceIndexFile
+      workspaceIndexFile,
+      skillsRootDir,
+      skillsSnapshotRetention,
+      agentsRootDir,
+      agentsSnapshotRetention
     },
     managedFiles: stableManagedFiles,
     stats: {
@@ -1777,12 +2097,20 @@ function buildInstallState(params) {
     options: {
       taskType: ctx.taskType,
       ruleLevel: ctx.ruleLevel,
+      strictRemotePack: ctx.strictRemotePack,
       relevanceThreshold: ctx.relevanceThreshold,
-      workspaceDiscovery: !ctx.disableWorkspace
+      workspaceDiscovery: !ctx.disableWorkspace,
+      workspaceScope: ctx.workspaceScope,
+      targetProject: ctx.targetProject,
+      targetRole: ctx.targetRole
     },
     outputs: {
       rulesFile,
-      workspaceIndexFile
+      workspaceIndexFile,
+      skillsRootDir,
+      skillsSnapshotRetention,
+      agentsRootDir,
+      agentsSnapshotRetention
     },
     managedFiles: normalizedManagedFiles,
     stats: {
@@ -1851,18 +2179,6 @@ var PROJECT_MARKERS = [
   { files: ["Cargo.toml"], lang: "rust" }
   // .NET: *.csproj 通过单独逻辑检测（通配符）
 ];
-function detectFrameworkLabel(deps) {
-  if (deps["vue"]) {
-    const v = deps["vue"];
-    if (v.startsWith("3") || v.startsWith("^3") || v.startsWith("~3")) return "Vue 3";
-    if (v.startsWith("2") || v.startsWith("^2") || v.startsWith("~2")) return "Vue 2";
-    return "Vue";
-  }
-  if (deps["react"]) return "React";
-  if (deps["@angular/core"]) return "Angular";
-  if (deps["svelte"]) return "Svelte";
-  return "";
-}
 var KNOWN_UI_LIBS = {
   "ant-design-vue": "Ant Design Vue",
   "vant": "Vant",
@@ -1882,6 +2198,277 @@ function detectUILibs(deps) {
     }
   }
   return result;
+}
+function normalizeStackTag(value) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+function finalizeStackTags(values) {
+  return [...new Set([...values].map(normalizeStackTag).filter(Boolean))].sort();
+}
+function readProjectFileIfExists(filePath) {
+  try {
+    return fs5.existsSync(filePath) ? fs5.readFileSync(filePath, "utf-8") : "";
+  } catch {
+    return "";
+  }
+}
+function detectNodePackageManagers(projectDir) {
+  const markers = [
+    { file: "pnpm-lock.yaml", tag: "pnpm" },
+    { file: "yarn.lock", tag: "yarn" },
+    { file: "package-lock.json", tag: "npm" },
+    { file: "bun.lockb", tag: "bun" },
+    { file: "bun.lock", tag: "bun" }
+  ];
+  return markers.filter((marker) => fs5.existsSync(path5.join(projectDir, marker.file))).map((marker) => marker.tag);
+}
+var NODE_BACKEND_STRONG_ENTRY_FILES = [
+  "src/server.ts",
+  "src/server.js",
+  "src/server.mjs",
+  "src/server.cjs",
+  "server.ts",
+  "server.js",
+  "server.mjs",
+  "server.cjs"
+];
+var NODE_BACKEND_WEAK_ENTRY_FILES = [
+  "src/main.ts",
+  "src/main.js",
+  "src/app.ts",
+  "src/app.js",
+  "main.ts",
+  "main.js",
+  "app.ts",
+  "app.js",
+  "index.ts",
+  "index.js"
+];
+var NODE_BACKEND_LAYOUT_DIRS = [
+  "src/routes",
+  "src/controllers",
+  "src/middleware",
+  "src/handlers",
+  "src/api",
+  "routes",
+  "controllers",
+  "middleware",
+  "handlers",
+  "api"
+];
+function detectGenericNodeBackendProject(projectDir, packageJson) {
+  const scripts = packageJson.scripts || {};
+  const scriptValues = Object.values(scripts).filter((value) => typeof value === "string");
+  const hasBackendScript = scriptValues.some(
+    (command) => /(node|nodemon|tsx|ts-node|ts-node-dev|bun|pm2)/i.test(command) && /(server|api|listen|http)/i.test(command)
+  );
+  for (const relativePath of NODE_BACKEND_STRONG_ENTRY_FILES) {
+    if (fs5.existsSync(path5.join(projectDir, relativePath))) {
+      return true;
+    }
+  }
+  for (const relativePath of NODE_BACKEND_WEAK_ENTRY_FILES) {
+    const absolutePath = path5.join(projectDir, relativePath);
+    if (!fs5.existsSync(absolutePath)) {
+      continue;
+    }
+    const content = readProjectFileIfExists(absolutePath);
+    if (/(createServer|listen\s*\(|process\.env\.PORT|IncomingMessage|ServerResponse)/.test(content)) {
+      return true;
+    }
+  }
+  const layoutClues = NODE_BACKEND_LAYOUT_DIRS.filter(
+    (relativePath) => fs5.existsSync(path5.join(projectDir, relativePath))
+  ).length;
+  if (layoutClues >= 2) {
+    return true;
+  }
+  return hasBackendScript && layoutClues >= 1;
+}
+function detectJavaProjectMetadata(projectDir) {
+  const pomContent = readProjectFileIfExists(path5.join(projectDir, "pom.xml"));
+  const gradleContent = readProjectFileIfExists(path5.join(projectDir, "build.gradle")) || readProjectFileIfExists(path5.join(projectDir, "build.gradle.kts"));
+  const combinedContent = `${pomContent}
+${gradleContent}`.toLowerCase();
+  const stackTags = /* @__PURE__ */ new Set(["java"]);
+  if (pomContent) stackTags.add("maven");
+  if (gradleContent) stackTags.add("gradle");
+  let frameworkLabel = "";
+  let projectKind = "library";
+  if (/org\.springframework\.boot|spring-boot/.test(combinedContent)) {
+    frameworkLabel = "Spring Boot";
+    projectKind = "backend";
+    stackTags.add("springboot");
+    stackTags.add("spring");
+  } else if (/io\.quarkus|quarkus/.test(combinedContent)) {
+    frameworkLabel = "Quarkus";
+    projectKind = "backend";
+    stackTags.add("quarkus");
+  } else if (/io\.micronaut|micronaut/.test(combinedContent)) {
+    frameworkLabel = "Micronaut";
+    projectKind = "backend";
+    stackTags.add("micronaut");
+  } else if (/jakarta\.ws\.rs|javax\.ws\.rs/.test(combinedContent)) {
+    frameworkLabel = "Jakarta REST";
+    projectKind = "backend";
+    stackTags.add("jakartarest");
+  }
+  if (/spring-data-jpa|starter-data-jpa|hibernate-core|jakarta\.persistence|javax\.persistence/.test(combinedContent)) {
+    stackTags.add("jpa");
+  }
+  if (/mybatis/.test(combinedContent)) {
+    stackTags.add("mybatis");
+  }
+  return {
+    frameworkLabel,
+    uiLibLabels: [],
+    projectKind,
+    stackTags: finalizeStackTags(stackTags)
+  };
+}
+function detectRustProjectMetadata(projectDir) {
+  const cargoContent = readProjectFileIfExists(path5.join(projectDir, "Cargo.toml"));
+  const normalizedContent = cargoContent.toLowerCase();
+  const stackTags = /* @__PURE__ */ new Set(["rust", "cargo"]);
+  let frameworkLabel = "";
+  let projectKind = "library";
+  if (/\baxum\b/.test(normalizedContent)) {
+    frameworkLabel = "Axum";
+    projectKind = "backend";
+    stackTags.add("axum");
+  } else if (/actix-web/.test(normalizedContent)) {
+    frameworkLabel = "Actix Web";
+    projectKind = "backend";
+    stackTags.add("actixweb");
+  } else if (/\brocket\b/.test(normalizedContent)) {
+    frameworkLabel = "Rocket";
+    projectKind = "backend";
+    stackTags.add("rocket");
+  } else if (/\btonic\b/.test(normalizedContent)) {
+    frameworkLabel = "Tonic";
+    projectKind = "backend";
+    stackTags.add("tonic");
+  }
+  if (/\btokio\b/.test(normalizedContent)) stackTags.add("tokio");
+  if (/\bserde\b/.test(normalizedContent)) stackTags.add("serde");
+  if (/^\s*\[workspace\]/m.test(cargoContent)) stackTags.add("cargoworkspace");
+  return {
+    frameworkLabel,
+    uiLibLabels: [],
+    projectKind,
+    stackTags: finalizeStackTags(stackTags)
+  };
+}
+function detectDotnetProjectMetadata(projectDir) {
+  const projectFiles = fs5.readdirSync(projectDir).filter((entry) => entry.endsWith(".csproj") || entry.endsWith(".fsproj"));
+  const combinedContent = projectFiles.map((file) => readProjectFileIfExists(path5.join(projectDir, file))).join("\n").toLowerCase();
+  const stackTags = /* @__PURE__ */ new Set(["dotnet"]);
+  let frameworkLabel = "";
+  let projectKind = "library";
+  if (/microsoft\.aspnetcore|aspnetcore/.test(combinedContent)) {
+    frameworkLabel = "ASP.NET Core";
+    projectKind = "backend";
+    stackTags.add("aspnetcore");
+  } else if (/microsoft\.aspnetcore\.components|blazor/.test(combinedContent)) {
+    frameworkLabel = "Blazor";
+    projectKind = "frontend";
+    stackTags.add("blazor");
+  }
+  return {
+    frameworkLabel,
+    uiLibLabels: [],
+    projectKind,
+    stackTags: finalizeStackTags(stackTags)
+  };
+}
+function detectGenericProjectMetadata(lang) {
+  return {
+    frameworkLabel: "",
+    uiLibLabels: [],
+    projectKind: "unknown",
+    stackTags: finalizeStackTags([lang])
+  };
+}
+function detectNodeProjectMetadata(projectDir, packageJson, lang) {
+  const dependencies = {
+    ...packageJson.dependencies,
+    ...packageJson.devDependencies
+  };
+  const vueProfile = checkVueProfile(dependencies);
+  const uiLibLabels = detectUILibs(dependencies);
+  const stackTags = /* @__PURE__ */ new Set([lang, "nodejs", ...detectNodePackageManagers(projectDir)]);
+  const detectedKinds = /* @__PURE__ */ new Set();
+  let frameworkLabel = "";
+  const markFramework = (label, kind, ...tags) => {
+    if (!frameworkLabel) frameworkLabel = label;
+    detectedKinds.add(kind);
+    for (const tag of tags) stackTags.add(tag);
+  };
+  if (packageJson.type === "module") stackTags.add("esm");
+  if (packageJson.workspaces) stackTags.add("monorepo");
+  if (dependencies["vite"]) stackTags.add("vite");
+  if (dependencies["webpack"]) stackTags.add("webpack");
+  if (dependencies["next"]) markFramework("Next.js", "fullstack", "nextjs");
+  if (dependencies["nuxt"] || dependencies["nuxt3"]) markFramework(frameworkLabel || "Nuxt", "fullstack", "nuxt");
+  if (dependencies["@remix-run/node"] || dependencies["@remix-run/react"]) {
+    markFramework(frameworkLabel || "Remix", "fullstack", "remix");
+  }
+  if (dependencies["@nestjs/core"]) markFramework(frameworkLabel || "NestJS", "backend", "nestjs");
+  if (dependencies["express"]) markFramework(frameworkLabel || "Express", "backend", "express");
+  if (dependencies["fastify"]) markFramework(frameworkLabel || "Fastify", "backend", "fastify");
+  if (dependencies["koa"]) markFramework(frameworkLabel || "Koa", "backend", "koa");
+  if (dependencies["hono"]) markFramework(frameworkLabel || "Hono", "backend", "hono");
+  if (dependencies["vue"]) {
+    const vueTags = vueProfile?.version === 3 ? ["vue", "vue3"] : vueProfile?.version === 2 ? ["vue", "vue2"] : ["vue"];
+    markFramework(frameworkLabel || (vueProfile?.version === 3 ? "Vue 3" : vueProfile?.version === 2 ? "Vue 2" : "Vue"), "frontend", ...vueTags);
+  }
+  if (dependencies["react"]) markFramework(frameworkLabel || "React", "frontend", "react");
+  if (dependencies["@angular/core"]) markFramework(frameworkLabel || "Angular", "frontend", "angular");
+  if (dependencies["svelte"]) markFramework(frameworkLabel || "Svelte", "frontend", "svelte");
+  if (!detectedKinds.has("backend") && !detectedKinds.has("frontend") && detectGenericNodeBackendProject(projectDir, packageJson)) {
+    markFramework(frameworkLabel || "Node Service", "backend", "nodeservice");
+  }
+  for (const uiLibLabel of uiLibLabels) {
+    stackTags.add(uiLibLabel);
+  }
+  let projectKind = "library";
+  if (detectedKinds.has("fullstack") || detectedKinds.has("frontend") && detectedKinds.has("backend")) {
+    projectKind = "fullstack";
+  } else if (detectedKinds.has("backend")) {
+    projectKind = "backend";
+  } else if (detectedKinds.has("frontend")) {
+    projectKind = "frontend";
+  }
+  return {
+    dependencies,
+    vueProfile,
+    frameworkLabel,
+    uiLibLabels,
+    projectKind,
+    stackTags: finalizeStackTags(stackTags)
+  };
+}
+function detectProjectMetadata(projectDir, lang, packageJson) {
+  if (packageJson) {
+    return detectNodeProjectMetadata(projectDir, packageJson, lang);
+  }
+  const metadata = (() => {
+    switch (lang) {
+      case "java":
+        return detectJavaProjectMetadata(projectDir);
+      case "rust":
+        return detectRustProjectMetadata(projectDir);
+      case "dotnet":
+        return detectDotnetProjectMetadata(projectDir);
+      default:
+        return detectGenericProjectMetadata(lang);
+    }
+  })();
+  return {
+    dependencies: {},
+    vueProfile: null,
+    ...metadata
+  };
 }
 function discoverWorkspace(logger, targetDir) {
   const projects = [];
@@ -1914,33 +2501,38 @@ function discoverWorkspace(logger, targetDir) {
       if (markerFile === "package.json") {
         try {
           const pkgContent = JSON.parse(fs5.readFileSync(path5.join(dir, "package.json"), "utf-8"));
-          const deps = { ...pkgContent.dependencies, ...pkgContent.devDependencies };
+          const metadata = detectProjectMetadata(dir, lang, pkgContent);
           projects.push({
             name: pkgContent.name || path5.basename(dir),
             relativePath,
             absolutePath: dir,
             lang,
             packageJson: pkgContent,
-            vueProfile: checkVueProfile(deps),
-            dependencies: deps,
+            vueProfile: metadata.vueProfile,
+            dependencies: metadata.dependencies,
             matchedLayer2Rules: [],
-            frameworkLabel: detectFrameworkLabel(deps),
-            uiLibLabels: detectUILibs(deps)
+            frameworkLabel: metadata.frameworkLabel,
+            uiLibLabels: metadata.uiLibLabels,
+            projectKind: metadata.projectKind,
+            stackTags: metadata.stackTags
           });
         } catch {
           logger.warn(`\u89E3\u6790 package.json \u5931\u8D25: ${path5.join(dir, "package.json")}`);
         }
       } else {
+        const metadata = detectProjectMetadata(dir, lang);
         projects.push({
           name: path5.basename(dir),
           relativePath,
           absolutePath: dir,
           lang,
-          vueProfile: null,
-          dependencies: {},
+          vueProfile: metadata.vueProfile,
+          dependencies: metadata.dependencies,
           matchedLayer2Rules: [],
-          frameworkLabel: "",
-          uiLibLabels: []
+          frameworkLabel: metadata.frameworkLabel,
+          uiLibLabels: metadata.uiLibLabels,
+          projectKind: metadata.projectKind,
+          stackTags: metadata.stackTags
         });
       }
       detected = true;
@@ -1951,16 +2543,19 @@ function discoverWorkspace(logger, targetDir) {
         const entries = fs5.readdirSync(dir);
         const hasCsproj = entries.some((e) => e.endsWith(".csproj") || e.endsWith(".sln"));
         if (hasCsproj) {
+          const metadata = detectProjectMetadata(dir, "dotnet");
           projects.push({
             name: path5.basename(dir),
             relativePath,
             absolutePath: dir,
             lang: "dotnet",
-            vueProfile: null,
-            dependencies: {},
+            vueProfile: metadata.vueProfile,
+            dependencies: metadata.dependencies,
             matchedLayer2Rules: [],
-            frameworkLabel: "",
-            uiLibLabels: []
+            frameworkLabel: metadata.frameworkLabel,
+            uiLibLabels: metadata.uiLibLabels,
+            projectKind: metadata.projectKind,
+            stackTags: metadata.stackTags
           });
           detected = true;
         }
@@ -2003,8 +2598,201 @@ function discoverWorkspace(logger, targetDir) {
     isWorkspace,
     rootDir: targetDir,
     projects,
-    discoveredAt: (/* @__PURE__ */ new Date()).toISOString()
+    discoveredAt: (/* @__PURE__ */ new Date()).toISOString(),
+    scope: "workspace-union",
+    selectedProject: null,
+    totalProjectCount: projects.length
   };
+}
+function normalizeSelector(value) {
+  return value.trim().toLowerCase().replace(/\\/g, "/");
+}
+function normalizeStackLabel(value) {
+  return normalizeStackTag(value);
+}
+function detectProjectLangFromDir(projectDir) {
+  for (const marker of PROJECT_MARKERS) {
+    const markerFile = marker.files.find((file) => fs5.existsSync(path5.join(projectDir, file)));
+    if (!markerFile) continue;
+    let lang = marker.lang;
+    if (marker.refinements) {
+      for (const refinement of marker.refinements) {
+        if (refinement.files.some((file) => fs5.existsSync(path5.join(projectDir, file)))) {
+          lang = refinement.lang;
+          break;
+        }
+      }
+    }
+    return lang;
+  }
+  try {
+    const entries = fs5.readdirSync(projectDir);
+    if (entries.some((entry) => entry.endsWith(".csproj") || entry.endsWith(".fsproj"))) {
+      return "dotnet";
+    }
+  } catch {
+    return "unknown";
+  }
+  return "unknown";
+}
+function getProjectAliases(project) {
+  const aliases = /* @__PURE__ */ new Set();
+  aliases.add(project.relativePath);
+  aliases.add(project.name);
+  aliases.add(project.relativePath.split("/").pop() || project.relativePath);
+  if (project.relativePath === ".") {
+    aliases.add("root");
+    aliases.add(".");
+  }
+  return [...aliases].map(normalizeSelector).filter(Boolean);
+}
+function resolveTargetProject(workspaceInfo, selector) {
+  const normalizedSelector = normalizeSelector(selector);
+  if (!normalizedSelector) return null;
+  const exact = workspaceInfo.projects.find((project) => getProjectAliases(project).includes(normalizedSelector));
+  if (exact) return exact;
+  const prefixMatches = workspaceInfo.projects.filter(
+    (project) => normalizeSelector(project.relativePath).startsWith(normalizedSelector)
+  );
+  if (prefixMatches.length === 1) return prefixMatches[0];
+  const fuzzyMatches = workspaceInfo.projects.filter(
+    (project) => getProjectAliases(project).some((alias) => alias.includes(normalizedSelector))
+  );
+  if (fuzzyMatches.length === 1) return fuzzyMatches[0];
+  return null;
+}
+function createScopedWorkspaceInfo(logger, workspaceInfo, workspaceScope, targetProjectSelector) {
+  if (!workspaceInfo.isWorkspace || workspaceInfo.projects.length <= 1) {
+    return {
+      ...workspaceInfo,
+      scope: workspaceScope,
+      selectedProject: workspaceInfo.projects[0]?.relativePath || null,
+      totalProjectCount: workspaceInfo.projects.length
+    };
+  }
+  if (workspaceScope !== "project-targeted") {
+    return {
+      ...workspaceInfo,
+      scope: "workspace-union",
+      selectedProject: null,
+      totalProjectCount: workspaceInfo.projects.length
+    };
+  }
+  if (!targetProjectSelector) {
+    logError("project-targeted \u6A21\u5F0F\u9700\u8981\u914D\u5408 --project <selector>");
+    process.exit(1);
+  }
+  const selectedProject = resolveTargetProject(workspaceInfo, targetProjectSelector);
+  if (!selectedProject) {
+    logError(`\u672A\u627E\u5230\u5339\u914D\u7684\u5B50\u9879\u76EE: ${targetProjectSelector}`);
+    process.exit(1);
+  }
+  logger.log(`Workspace \u5B9A\u5411\u6A21\u5F0F: ${selectedProject.name} (${selectedProject.relativePath})`);
+  return {
+    ...workspaceInfo,
+    isWorkspace: true,
+    projects: [selectedProject],
+    scope: "project-targeted",
+    selectedProject: selectedProject.relativePath,
+    totalProjectCount: workspaceInfo.projects.length
+  };
+}
+function collectSkillContextProjects(workspaceInfo) {
+  return workspaceInfo.projects;
+}
+function collectProjectFrameworkTags(project) {
+  const tags = new Set(project.stackTags || []);
+  if (project.frameworkLabel) tags.add(normalizeStackLabel(project.frameworkLabel));
+  if (project.vueProfile) tags.add(`vue${project.vueProfile.version}`);
+  for (const uiLib of project.uiLibLabels) {
+    tags.add(normalizeStackLabel(uiLib));
+  }
+  return tags;
+}
+function matchesSkillLanguages(skill, projects) {
+  if (!skill.languages || skill.languages.length === 0) return true;
+  const languages = new Set(projects.map((project) => project.lang));
+  return skill.languages.some((language) => languages.has(language));
+}
+function matchesSkillFrameworks(skill, projects) {
+  if (!skill.frameworks || skill.frameworks.length === 0) return true;
+  const frameworkTags = /* @__PURE__ */ new Set();
+  for (const project of projects) {
+    for (const tag of collectProjectFrameworkTags(project)) {
+      frameworkTags.add(tag);
+    }
+  }
+  return skill.frameworks.some((framework) => frameworkTags.has(normalizeStackLabel(framework)));
+}
+function matchesSkillStack(skill, projects) {
+  const hasLanguages = Boolean(skill.languages && skill.languages.length > 0);
+  const hasFrameworks = Boolean(skill.frameworks && skill.frameworks.length > 0);
+  if (!hasLanguages && !hasFrameworks) return true;
+  if (hasLanguages && hasFrameworks) {
+    return matchesSkillLanguages(skill, projects) || matchesSkillFrameworks(skill, projects);
+  }
+  if (hasLanguages) return matchesSkillLanguages(skill, projects);
+  return matchesSkillFrameworks(skill, projects);
+}
+function matchesSkillWorkspaceScope(skill, workspaceInfo) {
+  if (!skill.workspaceScope || skill.workspaceScope === "both") return true;
+  if (workspaceInfo.totalProjectCount <= 1) return true;
+  return skill.workspaceScope === workspaceInfo.scope;
+}
+function matchesSkillRole(skill, targetRole) {
+  if (!targetRole || !skill.roles || skill.roles.length === 0) return true;
+  if (targetRole === "fullstack") {
+    return skill.roles.includes("fullstack") || skill.roles.includes("frontend") || skill.roles.includes("backend");
+  }
+  return skill.roles.includes(targetRole);
+}
+function matchesBusinessRuleSelector(project, selector) {
+  const normalizedSelector = selector.trim();
+  if (!normalizedSelector) return false;
+  const separatorIndex = normalizedSelector.indexOf(":");
+  const selectorType = separatorIndex >= 0 ? normalizeStackTag(normalizedSelector.slice(0, separatorIndex)) : "";
+  const selectorValue = separatorIndex >= 0 ? normalizedSelector.slice(separatorIndex + 1).trim() : normalizedSelector;
+  if (!selectorValue) return false;
+  const hasDependency = (packageName) => Boolean(project.dependencies[packageName]);
+  const normalizedValue = normalizeStackTag(selectorValue);
+  switch (selectorType) {
+    case "":
+      return hasDependency(selectorValue);
+    case "dependency":
+    case "dep":
+    case "package":
+    case "pkg":
+      return hasDependency(selectorValue);
+    case "stack":
+    case "framework":
+    case "uilib":
+      return project.stackTags.some((tag) => normalizeStackTag(tag) === normalizedValue);
+    case "lang":
+    case "language":
+      return normalizeStackTag(project.lang) === normalizedValue;
+    case "kind":
+    case "projectkind":
+      return normalizeStackTag(project.projectKind) === normalizedValue;
+    default:
+      return false;
+  }
+}
+function collectMatchedBusinessRules(project, businessSelectors) {
+  const matches = [];
+  const seenRules = /* @__PURE__ */ new Set();
+  for (const [selector, ruleFolders] of Object.entries(businessSelectors)) {
+    if (!matchesBusinessRuleSelector(project, selector)) continue;
+    for (const rule of ruleFolders) {
+      if (seenRules.has(rule)) continue;
+      seenRules.add(rule);
+      matches.push({ selector, rule });
+    }
+  }
+  return matches;
+}
+function shouldIncludeSkill(skill, ctx, workspaceInfo) {
+  const projects = collectSkillContextProjects(workspaceInfo);
+  return matchesSkillWorkspaceScope(skill, workspaceInfo) && matchesSkillStack(skill, projects) && matchesSkillRole(skill, ctx.targetRole);
 }
 async function loadRuleFile(ctx, logger, layerId, filePath) {
   if (ctx.isRemote) {
@@ -2096,60 +2884,102 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
     const files = ctx.remoteManifest.files.filter(
       (f) => f.path.startsWith(options.manifestPrefix) && f.path.endsWith(".md")
     );
+    const rootFiles = files.filter((file) => !file.path.replace(options.manifestPrefix, "").includes("/"));
+    const entityGroups = /* @__PURE__ */ new Map();
     for (const file of files) {
+      const relativePath = file.path.replace(options.manifestPrefix, "");
+      const parts = relativePath.split("/");
+      if (parts.length <= 1) continue;
+      const entityId = parts[0];
+      const group = entityGroups.get(entityId) || [];
+      group.push(file);
+      entityGroups.set(entityId, group);
+    }
+    for (const file of rootFiles) {
       try {
         const content = await readRemoteTextAsset(ctx, logger, file.path);
         const relativePath = file.path.replace(options.manifestPrefix, "");
-        const localPath = path5.join(localDir, relativePath);
-        writeManagedFile(tracker, localPath, content);
-        logger.verbose(`\u5DF2\u4E0B\u8F7D${options.label}\u6587\u4EF6: ${relativePath}`);
-        if (file.path.endsWith(options.metadataFileName)) {
-          const entityId = relativePath.split("/")[0];
-          const metadata = options.parseMetadata(entityId, content);
-          if (metadata) entities.push(metadata);
+        writeManagedFile(tracker, path5.join(localDir, relativePath), content);
+        logger.verbose(`\u5DF2\u4E0B\u8F7D${options.label}\u6839\u6587\u4EF6: ${relativePath}`);
+      } catch (e) {
+        logger.warn(`${options.label}\u6839\u6587\u4EF6\u4E0B\u8F7D\u5931\u8D25: ${file.path} - ${e.message}`);
+      }
+    }
+    for (const [entityId, groupFiles] of entityGroups) {
+      const metadataFile = groupFiles.find((file) => file.path.endsWith(`/${options.metadataFileName}`));
+      if (!metadataFile) continue;
+      try {
+        const metadataContent = await readRemoteTextAsset(ctx, logger, metadataFile.path);
+        const metadata = options.parseMetadata(entityId, metadataContent);
+        if (!metadata) continue;
+        if (options.includeEntity && !options.includeEntity(metadata, entityId)) {
+          logger.verbose(`\u5DF2\u8DF3\u8FC7${options.label}: ${entityId}`);
+          continue;
+        }
+        entities.push(metadata);
+        for (const file of groupFiles) {
+          try {
+            const content = file.path === metadataFile.path ? metadataContent : await readRemoteTextAsset(ctx, logger, file.path);
+            const relativePath = file.path.replace(options.manifestPrefix, "");
+            const localPath = path5.join(localDir, relativePath);
+            writeManagedFile(tracker, localPath, content);
+            logger.verbose(`\u5DF2\u4E0B\u8F7D${options.label}\u6587\u4EF6: ${relativePath}`);
+          } catch (e) {
+            logger.warn(`${options.label}\u6587\u4EF6\u4E0B\u8F7D\u5931\u8D25: ${file.path} - ${e.message}`);
+          }
         }
       } catch (e) {
-        logger.warn(`${options.label}\u6587\u4EF6\u4E0B\u8F7D\u5931\u8D25: ${file.path} - ${e.message}`);
+        logger.warn(`${options.label}\u5143\u6570\u636E\u4E0B\u8F7D\u5931\u8D25: ${metadataFile.path} - ${e.message}`);
       }
     }
   } else {
     const sourceDir = path5.join(PROJECT_ROOT, sourcePath);
     if (fs5.existsSync(sourceDir)) {
-      const sourceFiles = listFilesRecursive(sourceDir);
-      for (const sourceFile of sourceFiles) {
-        const relativePath = path5.relative(sourceDir, sourceFile);
-        const destinationPath = path5.join(localDir, relativePath);
+      const entries = fs5.readdirSync(sourceDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const sourceFile = path5.join(sourceDir, entry.name);
+        const destinationPath = path5.join(localDir, entry.name);
         copyManagedFile(tracker, sourceFile, destinationPath);
       }
-      const entityDirs = fs5.readdirSync(localDir).filter((f) => {
-        const fullPath = path5.join(localDir, f);
-        return fs5.existsSync(fullPath) && fs5.statSync(fullPath).isDirectory();
-      });
+      const entityDirs = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".")).map((entry) => entry.name);
       for (const entityId of entityDirs) {
-        const metadataFile = path5.join(localDir, entityId, options.metadataFileName);
-        if (fs5.existsSync(metadataFile)) {
-          const content = fs5.readFileSync(metadataFile, "utf-8");
-          const metadata = options.parseMetadata(entityId, content);
-          if (metadata) entities.push(metadata);
+        const entitySourceDir = path5.join(sourceDir, entityId);
+        const metadataFile = path5.join(entitySourceDir, options.metadataFileName);
+        if (!fs5.existsSync(metadataFile)) continue;
+        const content = fs5.readFileSync(metadataFile, "utf-8");
+        const metadata = options.parseMetadata(entityId, content);
+        if (!metadata) continue;
+        if (options.includeEntity && !options.includeEntity(metadata, entityId)) {
+          logger.verbose(`\u5DF2\u8DF3\u8FC7${options.label}: ${entityId}`);
+          continue;
+        }
+        entities.push(metadata);
+        const sourceFiles = listFilesRecursive(entitySourceDir);
+        for (const sourceFile of sourceFiles) {
+          const relativePath = path5.relative(sourceDir, sourceFile);
+          const destinationPath = path5.join(localDir, relativePath);
+          copyManagedFile(tracker, sourceFile, destinationPath);
         }
       }
     }
   }
   return entities;
 }
-async function loadSkills(ctx, logger, skillsPath, tracker, targetDir) {
+async function loadSkills(ctx, logger, skillsPath, tracker, targetDir, workspaceInfo, targetSubDir) {
   return loadEntities(ctx, logger, skillsPath, {
     manifestPrefix: "custom-skills/",
-    targetSubDir: ".codebuddy/skills",
+    targetSubDir,
     metadataFileName: "SKILL.md",
     parseMetadata: parseSkillMetadata,
-    label: "\u6280\u80FD"
+    label: "\u6280\u80FD",
+    includeEntity: (metadata) => shouldIncludeSkill(metadata, ctx, workspaceInfo)
   }, tracker, targetDir);
 }
-async function loadAgents(ctx, logger, agentsPath, tracker, targetDir) {
+async function loadAgents(ctx, logger, agentsPath, tracker, targetDir, targetSubDir) {
   return loadEntities(ctx, logger, agentsPath, {
     manifestPrefix: "agents/",
-    targetSubDir: ".codebuddy/agents",
+    targetSubDir,
     metadataFileName: "AGENT.md",
     parseMetadata: parseAgentMetadata,
     label: "Agent"
@@ -2321,18 +3151,63 @@ function parseContextArgs(args) {
   let isVerbose = false;
   let isRemote = false;
   let remoteBaseUrl = "";
+  let remoteBearerToken = null;
   let taskType = null;
   let relevanceThreshold = DEFAULT_THRESHOLD;
   let ruleLevel = DEFAULT_RULE_LEVEL;
   let requestTimeout = DEFAULT_TIMEOUT;
   let profile = DEFAULT_PROFILE;
   let disableWorkspace = false;
+  let strictRemotePack = false;
+  let workspaceScope = "workspace-union";
+  let targetProject = null;
+  let targetRole = null;
   let profileExplicit = false;
+  let remoteBearerTokenExplicit = false;
   if (args.includes("--verbose") || args.includes("-v")) {
     isVerbose = true;
   }
   if (args.includes("--no-workspace")) {
     disableWorkspace = true;
+  }
+  if (args.includes("--pack-only") || args.includes("--strict-pack-only")) {
+    strictRemotePack = true;
+  }
+  const workspaceScopeIndex = args.indexOf("--workspace-scope");
+  if (workspaceScopeIndex !== -1) {
+    const value = (args[workspaceScopeIndex + 1] || "").trim().toLowerCase();
+    if (!value || value.startsWith("-")) {
+      logError("--workspace-scope \u9700\u8981 scope \u53C2\u6570");
+      process.exit(1);
+    }
+    if (!WORKSPACE_SCOPES.includes(value)) {
+      logError(`--workspace-scope \u4EC5\u652F\u6301 ${WORKSPACE_SCOPES.join("|")}\uFF0C\u5F53\u524D: ${value}`);
+      process.exit(1);
+    }
+    workspaceScope = value;
+  }
+  const projectIndex = args.indexOf("--project");
+  if (projectIndex !== -1) {
+    const value = (args[projectIndex + 1] || "").trim();
+    if (!value || value.startsWith("-")) {
+      logError("--project \u9700\u8981\u9879\u76EE\u9009\u62E9\u5668\u53C2\u6570");
+      process.exit(1);
+    }
+    targetProject = value;
+    workspaceScope = "project-targeted";
+  }
+  const roleIndex = args.indexOf("--role");
+  if (roleIndex !== -1) {
+    const value = (args[roleIndex + 1] || "").trim().toLowerCase();
+    if (!value || value.startsWith("-")) {
+      logError("--role \u9700\u8981\u5C97\u4F4D\u53C2\u6570");
+      process.exit(1);
+    }
+    if (!SKILL_ROLES.includes(value)) {
+      logError(`--role \u4EC5\u652F\u6301 ${SKILL_ROLES.join("|")}\uFF0C\u5F53\u524D: ${value}`);
+      process.exit(1);
+    }
+    targetRole = value;
   }
   const profileIndex = args.indexOf("--profile");
   if (profileIndex !== -1) {
@@ -2374,6 +3249,26 @@ function parseContextArgs(args) {
     isRemote = true;
     remoteBaseUrl = url.replace(/\/$/, "");
   }
+  const remoteBearerTokenIndex = args.indexOf("--remote-bearer-token");
+  if (remoteBearerTokenIndex !== -1) {
+    const token = args[remoteBearerTokenIndex + 1];
+    if (!token || token.startsWith("-")) {
+      logError("--remote-bearer-token requires a token value");
+      process.exit(1);
+    }
+    remoteBearerToken = token;
+    remoteBearerTokenExplicit = true;
+  } else if (process.env.CODEBUDDY_REMOTE_BEARER_TOKEN) {
+    remoteBearerToken = process.env.CODEBUDDY_REMOTE_BEARER_TOKEN.trim() || null;
+  }
+  if (strictRemotePack && !isRemote) {
+    logError("--pack-only can only be used with --remote");
+    process.exit(1);
+  }
+  if (remoteBearerTokenExplicit && !isRemote) {
+    logError("--remote-bearer-token can only be used with --remote");
+    process.exit(1);
+  }
   const taskIndex = args.indexOf("--task");
   if (taskIndex !== -1) {
     const taskInput = args[taskIndex + 1];
@@ -2411,16 +3306,21 @@ function parseContextArgs(args) {
     isRemote,
     isVerbose,
     remoteBaseUrl,
+    remoteBearerToken,
     remoteManifest: null,
     remoteContentRoot: null,
     remoteContentPack: null,
+    strictRemotePack,
     requestTimeout,
     taskType,
     relevanceThreshold,
     ruleLevel,
     profile,
     enableOrchestrator: isOrchestratorProfile(profile),
-    disableWorkspace
+    disableWorkspace,
+    workspaceScope,
+    targetProject,
+    targetRole
   };
 }
 function parseCliArgs() {
@@ -2503,9 +3403,11 @@ async function main() {
       remoteContentPack: packResolution.pack
     };
   }
-  logger.log("CodeBuddy \u89C4\u5219\u52A0\u8F7D\u5668 v2.0 (\u4E09\u5C42\u67B6\u6784 + \u6280\u80FD\u7CFB\u7EDF)");
+  logger.log(`CodeBuddy \u89C4\u5219\u52A0\u8F7D\u5668 ${LOADER_DISPLAY_VERSION} (\u4E09\u5C42\u67B6\u6784 + \u6280\u80FD\u7CFB\u7EDF)`);
   logger.log(ctx.isRemote ? `\u6A21\u5F0F: \u8FDC\u7A0B (${ctx.remoteBaseUrl})` : "\u6A21\u5F0F: \u672C\u5730");
   logger.log(`\u5B89\u88C5\u6863\u4F4D: ${ctx.profile}`);
+  logger.log(`Workspace \u8303\u56F4: ${ctx.workspaceScope}`);
+  if (ctx.targetProject) logger.log(`\u76EE\u6807\u9879\u76EE: ${ctx.targetProject}`);
   if (ctx.enableOrchestrator) logger.log("\u7F16\u6392\u6A21\u5F0F: \u5DF2\u542F\u7528\uFF08\u542B TaskBook / Agent Call / Workflow \u5951\u7EA6\uFF09");
   if (ctx.ruleLevel !== "full") {
     logger.log(`\u89C4\u5219\u88C1\u526A: ${ctx.ruleLevel}\uFF08Layer1 \u4E3B\u5165\u53E3\u4F7F\u7528 ${ctx.ruleLevel}\uFF1B\u5B8C\u6574\u539F\u6587\u5199\u5165 .codebuddy/rules_cache/layer1_reference/\uFF09`);
@@ -2516,20 +3418,33 @@ async function main() {
   const previousInstallState = readInstallState(targetDir, logger);
   const managedFileTracker = createManagedFileTracker(targetDir);
   logger.log(`\u76EE\u6807\u9879\u76EE: ${targetDir}`);
-  const workspaceInfo = ctx.disableWorkspace ? { isWorkspace: false, rootDir: targetDir, projects: [], discoveredAt: (/* @__PURE__ */ new Date()).toISOString() } : discoverWorkspace(logger, targetDir);
+  const discoveredWorkspaceInfo = ctx.disableWorkspace ? {
+    isWorkspace: false,
+    rootDir: targetDir,
+    projects: [],
+    discoveredAt: (/* @__PURE__ */ new Date()).toISOString(),
+    scope: ctx.workspaceScope,
+    selectedProject: null,
+    totalProjectCount: 0
+  } : discoverWorkspace(logger, targetDir);
+  const workspaceInfo = ctx.disableWorkspace ? discoveredWorkspaceInfo : createScopedWorkspaceInfo(logger, discoveredWorkspaceInfo, ctx.workspaceScope, ctx.targetProject);
   if (ctx.disableWorkspace) {
     logger.verbose("Workspace \u53D1\u73B0\u5DF2\u7981\u7528\uFF08--no-workspace\uFF09");
   } else if (workspaceInfo.isWorkspace) {
-    logger.log(`Workspace \u6A21\u5F0F: ${workspaceInfo.projects.length} \u4E2A\u5B50\u9879\u76EE`);
+    logger.log(`Workspace \u6A21\u5F0F: ${workspaceInfo.totalProjectCount} \u4E2A\u5B50\u9879\u76EE\uFF08\u5F53\u524D\u8303\u56F4: ${workspaceInfo.scope}\uFF09`);
   } else {
     logger.verbose("\u5355\u9879\u76EE\u6A21\u5F0F\uFF08\u672A\u53D1\u73B0\u591A\u4E2A\u5B50\u9879\u76EE\uFF09");
+  }
+  if (ctx.targetRole) {
+    logger.log(`\u5C97\u4F4D\u8FC7\u6EE4: ${ctx.targetRole}`);
   }
   const { layers, skills: skillsConfig, output, frontmatter } = config;
   let pkg;
   let dependencies;
   let vueProfile;
-  if (workspaceInfo.isWorkspace && workspaceInfo.projects.length > 0) {
-    const primaryProject = workspaceInfo.projects.find((p) => p.vueProfile !== null) || workspaceInfo.projects[0];
+  let primaryProject = null;
+  if ((workspaceInfo.isWorkspace || workspaceInfo.projects.length > 0) && workspaceInfo.projects.length > 0) {
+    primaryProject = workspaceInfo.projects.find((p) => p.vueProfile !== null) || workspaceInfo.projects[0];
     pkg = primaryProject.packageJson ?? {};
     dependencies = primaryProject.dependencies;
     vueProfile = primaryProject.vueProfile;
@@ -2552,7 +3467,7 @@ updatedAt: ${updatedAt}
 
 # \u524D\u7AEF\u67B6\u6784\u89C4\u8303 (CodeBuddy \u7248)
 
-> Generated by CodeBuddy Rule Loader v2.0
+> Generated by CodeBuddy Rule Loader ${LOADER_DISPLAY_VERSION}
 > Generated at: ${updatedAt}
 > Vue Version: ${vueProfile ? `${vueProfile.version} (${vueProfile.type})` : "Not detected"}
 
@@ -2610,51 +3525,52 @@ ${rule.content}
   logger.log("\u5904\u7406 Layer 2: \u4E1A\u52A1\u89C4\u8303 (Lazy Load)...");
   const layer2Index = [];
   const businessDeps = layers.business?.dependencies || {};
-  for (const [depName, ruleFolders] of Object.entries(businessDeps)) {
-    if (dependencies[depName]) {
-      logger.log(`  \u68C0\u6D4B\u5230 ${depName}\uFF0C\u6DFB\u52A0\u89C4\u5219\u7D22\u5F15`);
-      for (const folder of ruleFolders) {
-        layer2Index.push({
-          dep: depName,
-          rule: folder,
-          path: `.codebuddy/rules_cache/layer2_business/${folder}.md`
-        });
-        const cacheDir = path5.join(targetDir, ".codebuddy/rules_cache/layer2_business");
-        if (!fs5.existsSync(cacheDir)) {
-          fs5.mkdirSync(cacheDir, { recursive: true });
-        }
-        const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", folder + ".md");
-        if (content) {
-          writeManagedFile(managedFileTracker, path5.join(cacheDir, folder + ".md"), content);
-        }
-      }
+  const standaloneLang = primaryProject ? primaryProject.lang : detectProjectLangFromDir(targetDir);
+  const standalonePackageJson = !primaryProject && fs5.existsSync(path5.join(targetDir, "package.json")) ? pkg : void 0;
+  const standaloneMetadata = primaryProject ? null : detectProjectMetadata(targetDir, standaloneLang, standalonePackageJson);
+  const layer2TargetProject = primaryProject ?? {
+    lang: standaloneLang,
+    projectKind: standaloneMetadata?.projectKind || "unknown",
+    stackTags: standaloneMetadata?.stackTags || [],
+    dependencies: standaloneMetadata?.dependencies || dependencies
+  };
+  for (const match of collectMatchedBusinessRules(layer2TargetProject, businessDeps)) {
+    logger.log(`  \u547D\u4E2D ${match.selector}\uFF0C\u6DFB\u52A0\u89C4\u5219\u7D22\u5F15`);
+    layer2Index.push({
+      dep: match.selector,
+      rule: match.rule,
+      path: `.codebuddy/rules_cache/layer2_business/${match.rule}.md`
+    });
+    const cacheDir = path5.join(targetDir, ".codebuddy/rules_cache/layer2_business");
+    if (!fs5.existsSync(cacheDir)) {
+      fs5.mkdirSync(cacheDir, { recursive: true });
+    }
+    const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", `${match.rule}.md`);
+    if (content) {
+      writeManagedFile(managedFileTracker, path5.join(cacheDir, `${match.rule}.md`), content);
     }
   }
-  if (workspaceInfo.isWorkspace) {
+  if (workspaceInfo.totalProjectCount > 1) {
     logger.log("\u5904\u7406 Workspace \u5B50\u9879\u76EE Layer2 \u89C4\u5219...");
     for (const project of workspaceInfo.projects) {
       if (project.relativePath === ".") continue;
-      for (const [depName, ruleFolders] of Object.entries(businessDeps)) {
-        if (project.dependencies[depName]) {
-          logger.verbose(`  ${project.name}: \u68C0\u6D4B\u5230 ${depName}\uFF0C\u6DFB\u52A0\u89C4\u5219\u7D22\u5F15`);
-          for (const folder of ruleFolders) {
-            project.matchedLayer2Rules.push({
-              dep: depName,
-              rule: folder,
-              path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${folder}.md`
-            });
-            const projectCacheDir = path5.join(
-              targetDir,
-              `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`
-            );
-            if (!fs5.existsSync(projectCacheDir)) {
-              fs5.mkdirSync(projectCacheDir, { recursive: true });
-            }
-            const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", folder + ".md");
-            if (content) {
-              writeManagedFile(managedFileTracker, path5.join(projectCacheDir, folder + ".md"), content);
-            }
-          }
+      for (const match of collectMatchedBusinessRules(project, businessDeps)) {
+        logger.verbose(`  ${project.name}: \u547D\u4E2D ${match.selector}\uFF0C\u6DFB\u52A0\u89C4\u5219\u7D22\u5F15`);
+        project.matchedLayer2Rules.push({
+          dep: match.selector,
+          rule: match.rule,
+          path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${match.rule}.md`
+        });
+        const projectCacheDir = path5.join(
+          targetDir,
+          `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`
+        );
+        if (!fs5.existsSync(projectCacheDir)) {
+          fs5.mkdirSync(projectCacheDir, { recursive: true });
+        }
+        const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", `${match.rule}.md`);
+        if (content) {
+          writeManagedFile(managedFileTracker, path5.join(projectCacheDir, `${match.rule}.md`), content);
         }
       }
     }
@@ -2701,7 +3617,7 @@ ${rule.content}
 `;
     }
     for (const item of layer2Index) {
-      finalContent += `| ${item.rule} | \`${item.path}\` | ${item.dep} \u89C4\u8303 |
+      finalContent += `| ${item.rule} | \`${item.path}\` | Layer 2 \u5339\u914D\uFF1A${item.dep} |
 `;
     }
     for (const item of layer3Index) {
@@ -2711,18 +3627,23 @@ ${rule.content}
     finalContent += "\n";
   }
   let workspaceIndexPath = null;
-  if (workspaceInfo.isWorkspace) {
+  if (workspaceInfo.totalProjectCount > 1) {
     const workspaceIndex = {
-      version: "1.0.0",
+      version: "1.1.0",
       generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
       rootDir: targetDir,
       projectCount: workspaceInfo.projects.length,
+      totalProjectCount: workspaceInfo.totalProjectCount,
+      scope: workspaceInfo.scope,
+      selectedProject: workspaceInfo.selectedProject,
       projects: workspaceInfo.projects.map((p) => ({
         name: p.name,
         relativePath: p.relativePath,
         lang: p.lang,
         frameworkLabel: p.frameworkLabel,
         uiLibLabels: p.uiLibLabels,
+        projectKind: p.projectKind,
+        stackTags: p.stackTags,
         vueVersion: p.vueProfile?.version ?? null,
         layer2CachePath: p.relativePath === "." ? ".codebuddy/rules_cache/layer2_business/" : `.codebuddy/rules_cache/projects/${p.relativePath}/layer2_business/`,
         matchedRules: p.matchedLayer2Rules.map((r) => r.rule)
@@ -2740,17 +3661,32 @@ ${rule.content}
   finalContent += generateRuleActivationPrompt(config);
   finalContent += generateQuickActionGuide();
   let skills = [];
+  let skillsRootDir = null;
+  const skillsSnapshotRetention = skillsConfig?.enabled ? SKILL_SNAPSHOT_RETAIN_COUNT : null;
   if (skillsConfig?.enabled) {
     logger.log("\u52A0\u8F7D\u6280\u80FD\u7CFB\u7EDF...");
-    skills = await loadSkills(ctx, logger, skillsConfig.path || "custom-skills", managedFileTracker, targetDir);
+    skillsRootDir = `.codebuddy/skill-snapshots/${createInstallSnapshotId()}`;
+    logger.verbose(`Skills active root: ${skillsRootDir}`);
+    skills = await loadSkills(
+      ctx,
+      logger,
+      skillsConfig.path || "custom-skills",
+      managedFileTracker,
+      targetDir,
+      workspaceInfo,
+      skillsRootDir
+    );
     logger.log(`\u5DF2\u52A0\u8F7D ${skills.length} \u4E2A\u6280\u80FD`);
-    finalContent += generateSkillsPrompt(skills);
+    finalContent += generateSkillsPrompt(skills, skillsRootDir);
   }
   logger.log("\u52A0\u8F7D Agent \u7CFB\u7EDF...");
-  const agents = await loadAgents(ctx, logger, "agents", managedFileTracker, targetDir);
+  let agentsRootDir = `.codebuddy/agent-snapshots/${createInstallSnapshotId()}`;
+  const agentsSnapshotRetention = AGENT_SNAPSHOT_RETAIN_COUNT;
+  logger.verbose(`Agents active root: ${agentsRootDir}`);
+  const agents = await loadAgents(ctx, logger, "agents", managedFileTracker, targetDir, agentsRootDir);
   if (agents.length > 0) {
     logger.log(`\u5DF2\u52A0\u8F7D ${agents.length} \u4E2A Agents`);
-    finalContent += generateAgentsPrompt(agents);
+    finalContent += generateAgentsPrompt(agents, agentsRootDir);
   }
   logger.log("\u5206\u53D1\u5DE5\u5177\u811A\u672C...");
   const distributedScripts = await distributeScripts(ctx, logger, targetDir, managedFileTracker);
@@ -2804,13 +3740,29 @@ ${rule.content}
   const outputPath = path5.join(outputDir, output?.fileName || "project-rules.md");
   writeManagedFile(managedFileTracker, outputPath, finalContent);
   updateGitignore(logger, targetDir);
-  const removedManagedFiles = cleanupStaleManagedFiles(managedFileTracker, previousInstallState, logger);
+  const removedManagedFiles = cleanupStaleManagedFiles(
+    managedFileTracker,
+    previousInstallState,
+    {
+      preservePrefixes: [
+        ".codebuddy/agent-snapshots/",
+        ".codebuddy/agents/",
+        ".codebuddy/skill-snapshots/",
+        ".codebuddy/skills/"
+      ]
+    },
+    logger
+  );
   const installState = buildInstallState({
     ctx,
     logger,
     targetDir,
     outputPath,
     workspaceIndexPath,
+    skillsRootDir,
+    skillsSnapshotRetention,
+    agentsRootDir,
+    agentsSnapshotRetention,
     layer1RulesCount: layer1Rules.length,
     layer2IndexCount: layer2Index.length,
     layer3IndexCount: layer3Index.length,
@@ -2825,8 +3777,28 @@ ${rule.content}
     workspaceInfo
   });
   const installStatePath = writeInstallState(targetDir, installState);
+  const removedAgentSnapshots = gcSnapshotEntries(
+    targetDir,
+    ".codebuddy/agent-snapshots",
+    agentsRootDir,
+    agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT,
+    logger
+  );
+  const removedSkillSnapshots = gcSnapshotEntries(
+    targetDir,
+    ".codebuddy/skill-snapshots",
+    skillsRootDir,
+    skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT,
+    logger
+  );
   logger.log(`\u5DF2\u751F\u6210 install.json: ${installStatePath}`);
   logger.log(`\u540C\u6B65\u7ED3\u679C: \u5199\u5165 ${managedFileTracker.summary.written}\uFF0C\u590D\u7528 ${managedFileTracker.summary.unchanged}\uFF0C\u6E05\u7406 ${removedManagedFiles.length}`);
+  if (removedAgentSnapshots.length > 0) {
+    logger.log(`Agent \u5FEB\u7167\u56DE\u6536: ${removedAgentSnapshots.length} \u4E2A\uFF08\u4FDD\u7559\u6700\u8FD1 ${agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT} \u4E2A\uFF09`);
+  }
+  if (removedSkillSnapshots.length > 0) {
+    logger.log(`\u6280\u80FD\u5FEB\u7167\u56DE\u6536: ${removedSkillSnapshots.length} \u4E2A\uFF08\u4FDD\u7559\u6700\u8FD1 ${skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT} \u4E2A\uFF09`);
+  }
   logger.log("");
   logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   logger.log(`\u2705 \u6210\u529F! \u89C4\u5219\u6587\u4EF6\u5DF2\u5199\u5165: ${outputPath}`);
@@ -2839,7 +3811,7 @@ ${rule.content}
   logger.log(`   TaskBook \u5951\u7EA6: ${distributedTaskBooks.length} \u4E2A`);
   logger.log(`   Agent Call \u5951\u7EA6: ${distributedAgentCalls.length} \u4E2A`);
   logger.log(`   Slash Commands: ${distributedCommands.length} \u4E2A`);
-  if (workspaceInfo.isWorkspace) {
+  if (workspaceInfo.totalProjectCount > 1) {
     logger.log(`   Workspace \u5B50\u9879\u76EE: ${workspaceInfo.projects.length} \u4E2A`);
     for (const p of workspaceInfo.projects) {
       const rules = p.matchedLayer2Rules.map((r) => r.rule).join(", ") || "\u65E0";

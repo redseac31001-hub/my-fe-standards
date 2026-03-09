@@ -1,6 +1,6 @@
 {
-  "version": "2.0.0",
-  "generatedAt": "2026-03-07T13:17:07.023Z",
+  "version": "3.3.0",
+  "generatedAt": "2026-03-09T01:55:33.198Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -25,10 +25,55 @@
           ],
           "vant": [
             "vant"
+          ],
+          "kind:backend": [
+            "backend-service"
+          ],
+          "stack:nodeservice": [
+            "node-backend"
+          ],
+          "stack:nestjs": [
+            "node-backend"
+          ],
+          "stack:express": [
+            "node-backend"
+          ],
+          "stack:fastify": [
+            "node-backend"
+          ],
+          "stack:koa": [
+            "node-backend"
+          ],
+          "stack:hono": [
+            "node-backend"
+          ],
+          "stack:springboot": [
+            "java-backend"
+          ],
+          "stack:quarkus": [
+            "java-backend"
+          ],
+          "stack:micronaut": [
+            "java-backend"
+          ],
+          "stack:jakartarest": [
+            "java-backend"
+          ],
+          "stack:axum": [
+            "rust-backend"
+          ],
+          "stack:actixweb": [
+            "rust-backend"
+          ],
+          "stack:rocket": [
+            "rust-backend"
+          ],
+          "stack:tonic": [
+            "rust-backend"
           ]
         },
         "loadMode": "lazy",
-        "_comment": "key=npm包名, value=对应要加载的规则文件夹名数组"
+        "_comment": "key 支持 npm 包名（向后兼容）或 selector（dependency:/stack:/lang:/kind:），value=对应要加载的规则文件夹名数组"
       },
       "action": {
         "id": "layer3_action",
@@ -227,6 +272,30 @@
       "mtime": "2026-01-07T10:49:40.315Z"
     },
     {
+      "path": "rules/layer2_business/backend-service.md",
+      "name": "backend-service",
+      "size": 3078,
+      "mtime": "2026-03-08T13:08:18.638Z"
+    },
+    {
+      "path": "rules/layer2_business/java-backend.md",
+      "name": "java-backend",
+      "size": 3032,
+      "mtime": "2026-03-08T13:08:18.639Z"
+    },
+    {
+      "path": "rules/layer2_business/node-backend.md",
+      "name": "node-backend",
+      "size": 3278,
+      "mtime": "2026-03-08T13:08:18.638Z"
+    },
+    {
+      "path": "rules/layer2_business/rust-backend.md",
+      "name": "rust-backend",
+      "size": 3120,
+      "mtime": "2026-03-08T13:08:18.639Z"
+    },
+    {
       "path": "rules/layer2_business/vant.md",
       "name": "vant",
       "size": 7446,
@@ -275,6 +344,102 @@
       "mtime": "2026-01-12T06:38:05.982Z"
     },
     {
+      "path": "custom-skills/backend-code-review/references/common-checklist.md",
+      "name": "common-checklist",
+      "size": 993,
+      "mtime": "2026-03-08T10:21:57.900Z"
+    },
+    {
+      "path": "custom-skills/backend-code-review/references/java-frameworks.md",
+      "name": "java-frameworks",
+      "size": 1432,
+      "mtime": "2026-03-08T12:53:54.719Z"
+    },
+    {
+      "path": "custom-skills/backend-code-review/references/java-service.md",
+      "name": "java-service",
+      "size": 1024,
+      "mtime": "2026-03-08T12:53:24.860Z"
+    },
+    {
+      "path": "custom-skills/backend-code-review/references/node-frameworks.md",
+      "name": "node-frameworks",
+      "size": 1308,
+      "mtime": "2026-03-08T12:53:46.674Z"
+    },
+    {
+      "path": "custom-skills/backend-code-review/references/node-service.md",
+      "name": "node-service",
+      "size": 1093,
+      "mtime": "2026-03-08T12:53:16.970Z"
+    },
+    {
+      "path": "custom-skills/backend-code-review/references/rust-frameworks.md",
+      "name": "rust-frameworks",
+      "size": 1010,
+      "mtime": "2026-03-08T12:54:02.201Z"
+    },
+    {
+      "path": "custom-skills/backend-code-review/references/rust-service.md",
+      "name": "rust-service",
+      "size": 880,
+      "mtime": "2026-03-08T12:53:38.325Z"
+    },
+    {
+      "path": "custom-skills/backend-code-review/SKILL.md",
+      "name": "SKILL",
+      "size": 2369,
+      "mtime": "2026-03-09T01:53:02.356Z"
+    },
+    {
+      "path": "custom-skills/backend-testing/references/java-frameworks.md",
+      "name": "java-frameworks",
+      "size": 1015,
+      "mtime": "2026-03-08T12:54:49.963Z"
+    },
+    {
+      "path": "custom-skills/backend-testing/references/java-testing.md",
+      "name": "java-testing",
+      "size": 548,
+      "mtime": "2026-03-08T12:54:20.764Z"
+    },
+    {
+      "path": "custom-skills/backend-testing/references/node-frameworks.md",
+      "name": "node-frameworks",
+      "size": 1018,
+      "mtime": "2026-03-08T12:54:41.373Z"
+    },
+    {
+      "path": "custom-skills/backend-testing/references/node-testing.md",
+      "name": "node-testing",
+      "size": 555,
+      "mtime": "2026-03-08T12:54:11.221Z"
+    },
+    {
+      "path": "custom-skills/backend-testing/references/rust-frameworks.md",
+      "name": "rust-frameworks",
+      "size": 969,
+      "mtime": "2026-03-08T12:54:58.491Z"
+    },
+    {
+      "path": "custom-skills/backend-testing/references/rust-testing.md",
+      "name": "rust-testing",
+      "size": 541,
+      "mtime": "2026-03-08T12:54:31.728Z"
+    },
+    {
+      "path": "custom-skills/backend-testing/references/workflow.md",
+      "name": "workflow",
+      "size": 390,
+      "mtime": "2026-03-08T10:21:57.905Z"
+    },
+    {
+      "path": "custom-skills/backend-testing/SKILL.md",
+      "name": "SKILL",
+      "size": 2300,
+      "mtime": "2026-03-09T01:53:08.678Z"
+    },
+    {
       "path": "custom-skills/build-optimization/references/ci-and-dependency-analysis.md",
       "name": "ci-and-dependency-analysis",
       "size": 1287,
@@ -295,8 +460,8 @@
     {
       "path": "custom-skills/build-optimization/SKILL.md",
       "name": "SKILL",
-      "size": 1304,
-      "mtime": "2026-03-06T08:54:39.337Z"
+      "size": 1478,
+      "mtime": "2026-03-08T10:25:23.823Z"
     },
     {
       "path": "custom-skills/component-refactoring/references/complexity-patterns.md",
@@ -337,14 +502,14 @@
     {
       "path": "custom-skills/component-refactoring/SKILL.md",
       "name": "SKILL",
-      "size": 2809,
-      "mtime": "2026-03-06T08:54:39.335Z"
+      "size": 2961,
+      "mtime": "2026-03-08T10:25:23.824Z"
     },
     {
       "path": "custom-skills/custom-skills-guide.md",
       "name": "custom-skills-guide",
-      "size": 17795,
-      "mtime": "2026-03-06T02:01:34.095Z"
+      "size": 17991,
+      "mtime": "2026-03-08T09:49:16.039Z"
     },
     {
       "path": "custom-skills/frontend-code-review/references/business-logic.md",
@@ -367,8 +532,8 @@
     {
       "path": "custom-skills/frontend-code-review/SKILL.md",
       "name": "SKILL",
-      "size": 2938,
-      "mtime": "2026-03-06T08:54:39.339Z"
+      "size": 3081,
+      "mtime": "2026-03-08T10:25:23.825Z"
     },
     {
       "path": "custom-skills/frontend-testing/references/async-testing.md",
@@ -421,14 +586,14 @@
     {
       "path": "custom-skills/frontend-testing/references/workflow.md",
       "name": "workflow",
-      "size": 8120,
-      "mtime": "2026-03-06T01:56:10.390Z"
+      "size": 8113,
+      "mtime": "2026-03-08T09:49:16.040Z"
     },
     {
       "path": "custom-skills/frontend-testing/SKILL.md",
       "name": "SKILL",
-      "size": 2237,
-      "mtime": "2026-03-06T08:54:39.342Z"
+      "size": 2386,
+      "mtime": "2026-03-08T10:25:23.826Z"
     },
     {
       "path": "custom-skills/i18n-a11y/references/a11y-workflow.md",
@@ -445,8 +610,8 @@
     {
       "path": "custom-skills/i18n-a11y/SKILL.md",
       "name": "SKILL",
-      "size": 1220,
-      "mtime": "2026-03-06T08:54:39.345Z"
+      "size": 1381,
+      "mtime": "2026-03-08T10:25:23.827Z"
     },
     {
       "path": "custom-skills/module-mapping/references/analysis-workflow.md",
@@ -475,8 +640,8 @@
     {
       "path": "custom-skills/module-mapping/SKILL.md",
       "name": "SKILL",
-      "size": 1796,
-      "mtime": "2026-03-06T05:52:02.076Z"
+      "size": 1948,
+      "mtime": "2026-03-08T10:26:06.562Z"
     },
     {
       "path": "custom-skills/performance-optimization/references/loading-bundle-assets.md",
@@ -493,8 +658,8 @@
     {
       "path": "custom-skills/performance-optimization/SKILL.md",
       "name": "SKILL",
-      "size": 1157,
-      "mtime": "2026-03-06T08:54:39.348Z"
+      "size": 1329,
+      "mtime": "2026-03-08T10:25:23.827Z"
     },
     {
       "path": "custom-skills/prd/assets/prd-template.md",
@@ -517,8 +682,8 @@
     {
       "path": "custom-skills/prd/SKILL.md",
       "name": "SKILL",
-      "size": 1624,
-      "mtime": "2026-03-06T02:52:25.315Z"
+      "size": 1746,
+      "mtime": "2026-03-08T10:21:07.300Z"
     },
     {
       "path": "custom-skills/ralph-converter/references/conversion-rules.md",
@@ -535,8 +700,8 @@
     {
       "path": "custom-skills/ralph-converter/SKILL.md",
       "name": "SKILL",
-      "size": 1529,
-      "mtime": "2026-03-06T02:52:25.359Z"
+      "size": 1613,
+      "mtime": "2026-03-08T10:21:07.300Z"
     },
     {
       "path": "custom-skills/skill-creator/references/creation-lifecycle.md",
@@ -547,8 +712,8 @@
     {
       "path": "custom-skills/skill-creator/references/foundations.md",
       "name": "foundations",
-      "size": 1043,
-      "mtime": "2026-03-06T05:52:02.098Z"
+      "size": 1128,
+      "mtime": "2026-03-08T10:23:02.010Z"
     },
     {
       "path": "custom-skills/skill-creator/references/host-metadata.md",
@@ -559,8 +724,8 @@
     {
       "path": "custom-skills/skill-creator/references/output-patterns.md",
       "name": "output-patterns",
-      "size": 1817,
-      "mtime": "2026-01-11T22:32:44.000Z"
+      "size": 1816,
+      "mtime": "2026-03-08T09:48:11.332Z"
     },
     {
       "path": "custom-skills/skill-creator/references/progressive-disclosure.md",
@@ -571,14 +736,20 @@
     {
       "path": "custom-skills/skill-creator/references/workflows.md",
       "name": "workflows",
-      "size": 819,
-      "mtime": "2026-01-11T22:32:44.000Z"
+      "size": 839,
+      "mtime": "2026-03-08T09:49:16.040Z"
     },
     {
       "path": "custom-skills/skill-creator/SKILL.md",
       "name": "SKILL",
-      "size": 2242,
-      "mtime": "2026-03-06T05:52:02.095Z"
+      "size": 2339,
+      "mtime": "2026-03-08T10:21:07.300Z"
+    },
+    {
+      "path": "custom-skills/skills-index.md",
+      "name": "skills-index",
+      "size": 4729,
+      "mtime": "2026-03-08T10:23:14.220Z"
     },
     {
       "path": "custom-skills/state-management/references/migration-and-testing.md",
@@ -595,8 +766,8 @@
     {
       "path": "custom-skills/state-management/SKILL.md",
       "name": "SKILL",
-      "size": 1141,
-      "mtime": "2026-03-06T08:54:39.351Z"
+      "size": 1293,
+      "mtime": "2026-03-08T10:25:23.828Z"
     },
     {
       "path": "custom-skills/structure-review/references/anti-patterns.md",
@@ -631,8 +802,8 @@
     {
       "path": "custom-skills/structure-review/SKILL.md",
       "name": "SKILL",
-      "size": 1885,
-      "mtime": "2026-03-06T05:52:02.083Z"
+      "size": 2036,
+      "mtime": "2026-03-08T10:26:06.563Z"
     },
     {
       "path": "agents/AGENTS.md",
@@ -820,43 +991,43 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "cf4cc0f46252c67676f76edd53d6ac1d3cb7c0fe283092e54db69a146a4998ae",
-      "size": 536312,
-      "entryCount": 107,
-      "generatedAt": "2026-03-07T13:17:06.921Z"
+      "sha256": "d6303599c1d629c108f6f603a4adb0df64f24c0032de4fb8f2feaee1c9146730",
+      "size": 578967,
+      "entryCount": 128,
+      "generatedAt": "2026-03-09T01:55:33.054Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "6f024987e84ba7173657bebb8774cb80f1be5c37f723bc2790775f7ce5bffc42",
-      "size": 778058,
-      "entryCount": 110,
-      "generatedAt": "2026-03-07T13:17:06.945Z"
+      "sha256": "a2f92efd4385fbd17776bbc25b61ef084c3cd26d9761bb6afffc80b0444dd53c",
+      "size": 820713,
+      "entryCount": 131,
+      "generatedAt": "2026-03-09T01:55:33.087Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "f540468e3c7f8a775f29fc16655fc8f86b07e3b2792b8db12296fedb3eccd640",
-      "size": 1252415,
-      "entryCount": 121,
-      "generatedAt": "2026-03-07T13:17:06.976Z"
+      "sha256": "5c0003f81f2470fffda9b001ef57ea4fceff03dac3e88c92da4bd25a077e52e4",
+      "size": 1301016,
+      "entryCount": 142,
+      "generatedAt": "2026-03-09T01:55:33.130Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "0cbbc008a90fcb75ceae5aae3bf534c02df32e3872d06d7fa14127e35dec0730",
-      "size": 1266102,
-      "entryCount": 122,
-      "generatedAt": "2026-03-07T13:17:07.010Z"
+      "sha256": "7d8c6965448463957aa64571c7d4a0cc2953f54ec1833c45be5194811f03ab3d",
+      "size": 1316881,
+      "entryCount": 143,
+      "generatedAt": "2026-03-09T01:55:33.181Z"
     }
   },
   "stats": {
-    "totalFiles": 108,
-    "ruleFiles": 18,
-    "skillFiles": 60,
+    "totalFiles": 129,
+    "ruleFiles": 22,
+    "skillFiles": 77,
     "agentFiles": 25,
     "workflowFiles": 3,
     "taskbookFiles": 2

@@ -23,8 +23,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // scripts/src/agent-registry.ts
-var fs = __toESM(require("fs"));
-var path = __toESM(require("path"));
+var fs2 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
 
 // scripts/src/lib/frontmatter-utils.ts
 function normalizeNewlines(text) {
@@ -62,9 +62,9 @@ function parseFrontmatterBlock(md) {
   }
   return { ok: true, frontmatter: match[1], endIndex: match[0].length };
 }
-function extractYamlScalar(frontmatter, key) {
+function extractYamlScalar(frontmatter, key, indent = 0) {
   const normalized = normalizeNewlines(frontmatter);
-  const pattern = new RegExp(`^${escapeRegex(key)}:\\s*(.+)$`, "m");
+  const pattern = new RegExp(`^${escapeRegex(indentPrefix(indent))}${escapeRegex(key)}:\\s*(.+)$`, "m");
   const match = normalized.match(pattern);
   if (!match) return void 0;
   return stripWrappingQuotes(match[1]);
@@ -113,11 +113,64 @@ function parseYamlList(frontmatter, key, indent = 0) {
   return values;
 }
 
+// scripts/src/lib/install-roots.ts
+var path2 = __toESM(require("path"));
+
+// scripts/src/lib/install-sync.ts
+var fs = __toESM(require("fs"));
+var path = __toESM(require("path"));
+function readInstallState(targetDir, logger) {
+  const installStatePath = path.join(targetDir, ".codebuddy", "install.json");
+  if (!fs.existsSync(installStatePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(installStatePath, "utf-8"));
+  } catch (error) {
+    logger?.warn(`\u8BFB\u53D6 install.json \u5931\u8D25: ${error.message}`);
+    return null;
+  }
+}
+
+// scripts/src/lib/install-roots.ts
+function normalizeRelativeRoot(relativeRoot) {
+  if (typeof relativeRoot !== "string") return null;
+  const normalized = relativeRoot.trim().replace(/\\/g, "/");
+  return normalized ? normalized : null;
+}
+function dedupeRelativeRoots(relativeRoots) {
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const relativeRoot of relativeRoots) {
+    const normalized = normalizeRelativeRoot(relativeRoot);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+function resolveInstalledAgentsRootDir(installState) {
+  if (!installState) return null;
+  return normalizeRelativeRoot(installState.outputs.agentsRootDir) || (installState.stats.agents > 0 ? ".codebuddy/agents" : null);
+}
+function getProjectInstallState(projectRoot) {
+  return readInstallState(projectRoot);
+}
+function getProjectAgentRootCandidates(projectRoot, installState) {
+  const resolvedInstallState = typeof installState === "undefined" ? getProjectInstallState(projectRoot) : installState;
+  return dedupeRelativeRoots([
+    resolveInstalledAgentsRootDir(resolvedInstallState),
+    ".codebuddy/agents",
+    "agents"
+  ]);
+}
+function getProjectAgentRootCandidatePaths(projectRoot, installState) {
+  return getProjectAgentRootCandidates(projectRoot, installState).map((relativeRoot) => path2.join(projectRoot, relativeRoot));
+}
+
 // scripts/src/agent-registry.ts
-var DEFAULT_AGENT_DIR_CANDIDATES = [
-  path.join(process.cwd(), ".codebuddy", "agents"),
-  path.join(process.cwd(), "agents")
-];
 function toPosixPath(p) {
   return p.replace(/\\/g, "/");
 }
@@ -169,7 +222,7 @@ Agent Registry - Agent \u5B9A\u4E49\u626B\u63CF\u4E0E\u6CE8\u518C\u8868\u8F93\u5
   show <agentId>               \u67E5\u770B\u5355\u4E2A Agent
 
 \u9009\u9879:
-  --dir, --root <path>         \u626B\u63CF\u76EE\u5F55\uFF08\u9ED8\u8BA4\u4F18\u5148 .codebuddy/agents\uFF0C\u5176\u6B21 agents\uFF09
+  --dir, --root <path>         \u626B\u63CF\u76EE\u5F55\uFF08\u9ED8\u8BA4\u4F18\u5148 install.json \u8BB0\u5F55\u7684 active agents root\uFF0C\u5176\u6B21 .codebuddy/agents\uFF0C\u518D\u6B21 agents\uFF09
   --json                       \u8F93\u51FA JSON
   --strict                     list \u65F6\u82E5\u5B58\u5728\u89E3\u6790\u9519\u8BEF\u5219 exit=1
   --help, -h                   \u663E\u793A\u5E2E\u52A9
@@ -209,8 +262,8 @@ function buildAgentEntryFromYaml(agentId, yaml, rel) {
   };
 }
 function parseAgentEntry(agentId, agentMdPathAbs) {
-  const raw = fs.readFileSync(agentMdPathAbs, "utf-8");
-  const rel = toPosixPath(path.relative(process.cwd(), agentMdPathAbs));
+  const raw = fs2.readFileSync(agentMdPathAbs, "utf-8");
+  const rel = toPosixPath(path3.relative(process.cwd(), agentMdPathAbs));
   const fm = parseFrontmatterBlock(raw);
   if (fm.ok) {
     const entry2 = buildAgentEntryFromYaml(agentId, fm.frontmatter, rel);
@@ -234,28 +287,34 @@ function parseAgentEntry(agentId, agentMdPathAbs) {
 }
 function resolveAgentsRootDir(dirFlag) {
   if (isNonEmptyString(dirFlag)) {
-    const abs = path.isAbsolute(dirFlag) ? dirFlag : path.join(process.cwd(), dirFlag);
-    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+    const abs = path3.isAbsolute(dirFlag) ? dirFlag : path3.join(process.cwd(), dirFlag);
+    if (!fs2.existsSync(abs) || !fs2.statSync(abs).isDirectory()) {
       return { ok: false, issue: { level: "error", message: `agents dir not found: ${abs}` } };
     }
     return { ok: true, rootDir: abs };
   }
-  for (const cand of DEFAULT_AGENT_DIR_CANDIDATES) {
-    if (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) {
+  for (const cand of getProjectAgentRootCandidatePaths(process.cwd())) {
+    if (fs2.existsSync(cand) && fs2.statSync(cand).isDirectory()) {
       return { ok: true, rootDir: cand };
     }
   }
-  return { ok: false, issue: { level: "error", message: "agents dir not found: expected .codebuddy/agents or agents (run codebuddy-loader first)" } };
+  return {
+    ok: false,
+    issue: {
+      level: "error",
+      message: "agents dir not found: expected install.json active agents root, .codebuddy/agents or agents (run codebuddy-loader first)"
+    }
+  };
 }
 function scanAgents(rootDirAbs) {
   const issues = [];
   const agents = [];
-  const dirents = fs.readdirSync(rootDirAbs, { withFileTypes: true });
+  const dirents = fs2.readdirSync(rootDirAbs, { withFileTypes: true });
   for (const d of dirents) {
     if (!d.isDirectory()) continue;
     const agentId = d.name;
-    const agentMdPathAbs = path.join(rootDirAbs, agentId, "AGENT.md");
-    if (!fs.existsSync(agentMdPathAbs)) continue;
+    const agentMdPathAbs = path3.join(rootDirAbs, agentId, "AGENT.md");
+    if (!fs2.existsSync(agentMdPathAbs)) continue;
     try {
       const parsed = parseAgentEntry(agentId, agentMdPathAbs);
       if (parsed.ok) agents.push(parsed.entry);
@@ -264,7 +323,7 @@ function scanAgents(rootDirAbs) {
       issues.push({
         level: "error",
         agentId,
-        file: toPosixPath(path.relative(process.cwd(), agentMdPathAbs)),
+        file: toPosixPath(path3.relative(process.cwd(), agentMdPathAbs)),
         message: e instanceof Error ? e.message : String(e)
       });
     }
@@ -297,7 +356,7 @@ function main() {
     case "list": {
       const payload = {
         ok: issues.every((i) => i.level !== "error"),
-        rootDir: toPosixPath(path.relative(process.cwd(), rootDirAbs)),
+        rootDir: toPosixPath(path3.relative(process.cwd(), rootDirAbs)),
         agentCount: agents.length,
         agents,
         issues

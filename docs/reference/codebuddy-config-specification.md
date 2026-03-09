@@ -152,15 +152,18 @@ C:\Users\<用户名>\.codebuddy\
 # 用户级
 C:\Users\wozhifu\.codebuddy\
 C:\Users\wozhifu\.codebuddy\agents\
-C:\Users\wozhifu\.codebuddy\skills\
+C:\Users\wozhifu\.codebuddy\agent-snapshots\<snapshot-id>\
+C:\Users\wozhifu\.codebuddy\skill-snapshots\<snapshot-id>\
 C:\Users\wozhifu\.codebuddy\rules\
 
 # 项目级 (以 my-fe-standards 为例)
 E:\mygit\my-fe-standards\.codebuddy\
-E:\mygit\my-fe-standards\.codebuddy\agents\
-E:\mygit\my-fe-standards\.codebuddy\skills\
+E:\mygit\my-fe-standards\.codebuddy\agent-snapshots\<snapshot-id>\
+E:\mygit\my-fe-standards\.codebuddy\skill-snapshots\<snapshot-id>\
 E:\mygit\my-fe-standards\.codebuddy\rules\
 ```
+
+说明：项目级 `agent-snapshots/` 与 `skill-snapshots/` 均为不可变快照目录；loader 会将当前激活 root 记录到 `.codebuddy/install.json`，并自动保留最近 3 个快照。
 
 ---
 
@@ -353,7 +356,8 @@ enabledAutoRun: true
 # 保留规则和配置
 !.codebuddy/rules/
 !.codebuddy/agents/
-!.codebuddy/skills/
+!.codebuddy/agent-snapshots/
+!.codebuddy/skill-snapshots/
 ```
 
 ### 用户级配置

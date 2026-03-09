@@ -3,7 +3,50 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseSkillMetadata = parseSkillMetadata;
 exports.parseAgentMetadata = parseAgentMetadata;
 const frontmatter_utils_1 = require("./frontmatter-utils");
+const SKILL_ROLE_SET = new Set([
+    'frontend',
+    'backend',
+    'fullstack',
+    'qa',
+    'architect',
+    'product',
+    'devops',
+]);
+const PROJECT_LANG_SET = new Set([
+    'typescript',
+    'javascript',
+    'java',
+    'python',
+    'go',
+    'rust',
+    'dotnet',
+    'unknown',
+]);
+const SKILL_WORKSPACE_SCOPE_SET = new Set([
+    'workspace-union',
+    'project-targeted',
+    'both',
+]);
+function normalizeSkillRole(value) {
+    const normalized = value.trim().toLowerCase();
+    return SKILL_ROLE_SET.has(normalized) ? normalized : null;
+}
+function normalizeProjectLang(value) {
+    const normalized = value.trim().toLowerCase();
+    return PROJECT_LANG_SET.has(normalized) ? normalized : null;
+}
+function normalizeWorkspaceScope(value) {
+    const normalized = value.trim().toLowerCase();
+    return SKILL_WORKSPACE_SCOPE_SET.has(normalized)
+        ? normalized
+        : null;
+}
+function normalizeStringList(values) {
+    const normalized = [...new Set(values.map(value => value.trim()).filter(Boolean))];
+    return normalized.length > 0 ? normalized : undefined;
+}
 function parseSkillMetadata(skillId, content) {
+    var _a;
     const fm = (0, frontmatter_utils_1.parseFrontmatterBlock)(content);
     if (!fm.ok)
         return null;
@@ -22,6 +65,20 @@ function parseSkillMetadata(skillId, content) {
     const metadataRelated = metadataBlock ? (0, frontmatter_utils_1.parseYamlList)(metadataBlock, 'related', 2) : [];
     const legacyRelated = (0, frontmatter_utils_1.parseYamlList)(frontmatter, 'related');
     const related = metadataRelated.length > 0 ? metadataRelated : legacyRelated;
+    const metadataLanguages = metadataBlock ? (0, frontmatter_utils_1.parseYamlList)(metadataBlock, 'languages', 2) : [];
+    const languages = metadataLanguages
+        .map(normalizeProjectLang)
+        .filter((value) => value !== null);
+    const metadataFrameworks = metadataBlock ? (0, frontmatter_utils_1.parseYamlList)(metadataBlock, 'frameworks', 2) : [];
+    const frameworks = normalizeStringList(metadataFrameworks);
+    const metadataRoles = metadataBlock ? (0, frontmatter_utils_1.parseYamlList)(metadataBlock, 'roles', 2) : [];
+    const roles = metadataRoles
+        .map(normalizeSkillRole)
+        .filter((value) => value !== null);
+    const metadataScenarios = metadataBlock ? (0, frontmatter_utils_1.parseYamlList)(metadataBlock, 'scenarios', 2) : [];
+    const scenarios = normalizeStringList(metadataScenarios);
+    const workspaceScopeRaw = metadataBlock ? (0, frontmatter_utils_1.extractYamlScalar)(metadataBlock, 'workspace_scope', 2) : undefined;
+    const workspaceScope = workspaceScopeRaw ? (_a = normalizeWorkspaceScope(workspaceScopeRaw)) !== null && _a !== void 0 ? _a : undefined : undefined;
     return {
         id: skillId,
         name,
@@ -29,6 +86,11 @@ function parseSkillMetadata(skillId, content) {
         triggers,
         tools,
         related,
+        languages: languages.length > 0 ? languages : undefined,
+        frameworks,
+        roles: roles.length > 0 ? roles : undefined,
+        scenarios,
+        workspaceScope,
     };
 }
 function parseAgentMetadata(agentId, content) {

@@ -41,6 +41,7 @@ exports.copyManagedFile = copyManagedFile;
 exports.writeManagedFile = writeManagedFile;
 exports.getManagedFiles = getManagedFiles;
 exports.cleanupStaleManagedFiles = cleanupStaleManagedFiles;
+exports.removeManagedPath = removeManagedPath;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const crypto_1 = require("crypto");
@@ -127,15 +128,19 @@ function writeManagedFile(tracker, destinationPath, content) {
 function getManagedFiles(tracker) {
     return Array.from(tracker.files.values()).sort((left, right) => left.path.localeCompare(right.path));
 }
-function cleanupStaleManagedFiles(tracker, previousInstallState, logger) {
+function cleanupStaleManagedFiles(tracker, previousInstallState, options, logger) {
     var _a;
     if (!((_a = previousInstallState === null || previousInstallState === void 0 ? void 0 : previousInstallState.managedFiles) === null || _a === void 0 ? void 0 : _a.length)) {
         return [];
     }
     const currentPaths = new Set(tracker.files.keys());
+    const preservePrefixes = ((options === null || options === void 0 ? void 0 : options.preservePrefixes) || []).map(prefix => prefix.replace(/\\/g, '/'));
     const removed = [];
     for (const managedFile of previousInstallState.managedFiles) {
         if (currentPaths.has(managedFile.path)) {
+            continue;
+        }
+        if (preservePrefixes.some(prefix => managedFile.path.startsWith(prefix))) {
             continue;
         }
         if (!managedFile.path.startsWith('.codebuddy/')) {
@@ -147,13 +152,9 @@ function cleanupStaleManagedFiles(tracker, previousInstallState, logger) {
             continue;
         }
         try {
-            const stat = fs.statSync(absolutePath);
-            if (!stat.isFile()) {
+            if (!removeManagedPath(tracker.targetDir, absolutePath)) {
                 continue;
             }
-            fs.chmodSync(absolutePath, 0o666);
-            fs.rmSync(absolutePath, { force: true });
-            pruneEmptyParents(tracker.targetDir, path.dirname(absolutePath));
             tracker.summary.removed += 1;
             removed.push(managedFile.path);
         }
@@ -162,6 +163,43 @@ function cleanupStaleManagedFiles(tracker, previousInstallState, logger) {
         }
     }
     return removed.sort();
+}
+function removeManagedPath(targetDir, absolutePath) {
+    if (!fs.existsSync(absolutePath)) {
+        return false;
+    }
+    ensureWritableRecursive(absolutePath);
+    fs.rmSync(absolutePath, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 50,
+    });
+    if (fs.existsSync(absolutePath)) {
+        return false;
+    }
+    pruneEmptyParents(targetDir, path.dirname(absolutePath));
+    return true;
+}
+function ensureWritableRecursive(targetPath) {
+    if (!fs.existsSync(targetPath)) {
+        return;
+    }
+    const stat = fs.lstatSync(targetPath);
+    if (stat.isDirectory()) {
+        for (const entry of fs.readdirSync(targetPath)) {
+            ensureWritableRecursive(path.join(targetPath, entry));
+        }
+        try {
+            fs.chmodSync(targetPath, 0o777);
+        }
+        catch (_a) { }
+        return;
+    }
+    try {
+        fs.chmodSync(targetPath, 0o666);
+    }
+    catch (_b) { }
 }
 function pruneEmptyParents(targetDir, startDir) {
     const stopDir = path.join(targetDir, '.codebuddy');
