@@ -43,6 +43,12 @@ node scripts/dist/codebuddy-loader.js
 npm run remote
 ```
 
+### 业务项目跨平台安装
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+```
+
 ### 本地业务夹具远程 Smoke
 
 ```bash

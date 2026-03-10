@@ -43,6 +43,7 @@ node codebuddy-loader.bundle.js \
 
 ```text
 manifest.json
+scripts/dist/codebuddy-install.js
 scripts/dist/codebuddy-loader.bundle.js
 packs/content-pack-core.json
 packs/content-pack-analysis.json
@@ -81,6 +82,7 @@ npm run build
 
 ```text
 manifest.json
+scripts/dist/codebuddy-install.js
 scripts/dist/codebuddy-loader.bundle.js
 packs/content-pack-core.json
 packs/content-pack-analysis.json
@@ -100,6 +102,7 @@ npm run build:release
 release/standards/
 ├─ manifest.json
 ├─ release-manifest.json
+├─ scripts/dist/codebuddy-install.js
 ├─ scripts/dist/codebuddy-loader.bundle.js
 └─ packs/
    ├─ content-pack-core.json
@@ -138,6 +141,7 @@ release/standards/
 ├─ manifest.json
 ├─ scripts/
 │  └─ dist/
+│     ├─ codebuddy-install.js
 │     └─ codebuddy-loader.bundle.js
 └─ packs/
    ├─ content-pack-core.json
@@ -175,6 +179,7 @@ https://intra.example.com/my-fe-standards/
 ├─ manifest.json
 ├─ scripts/
 │  └─ dist/
+│     ├─ codebuddy-install.js
 │     └─ codebuddy-loader.bundle.js
 └─ packs/
    ├─ content-pack-core.json
@@ -190,6 +195,7 @@ mkdir -p /srv/static/my-fe-standards/scripts/dist
 mkdir -p /srv/static/my-fe-standards/packs
 
 cp manifest.json /srv/static/my-fe-standards/
+cp scripts/dist/codebuddy-install.js /srv/static/my-fe-standards/scripts/dist/
 cp scripts/dist/codebuddy-loader.bundle.js /srv/static/my-fe-standards/scripts/dist/
 cp packs/content-pack-*.json /srv/static/my-fe-standards/packs/
 ```
@@ -201,6 +207,7 @@ New-Item -ItemType Directory -Force -Path D:\static\my-fe-standards\scripts\dist
 New-Item -ItemType Directory -Force -Path D:\static\my-fe-standards\packs | Out-Null
 
 Copy-Item manifest.json D:\static\my-fe-standards\
+Copy-Item scripts\dist\codebuddy-install.js D:\static\my-fe-standards\scripts\dist\
 Copy-Item scripts\dist\codebuddy-loader.bundle.js D:\static\my-fe-standards\scripts\dist\
 Copy-Item packs\content-pack-*.json D:\static\my-fe-standards\packs\
 ```
@@ -248,6 +255,37 @@ node codebuddy-loader.bundle.js --remote https://intra.example.com/my-fe-standar
 - 如果你的远程源只开放 `manifest + packs`，建议业务侧固定使用 `--pack-only`
 
 ## 四、业务项目安装
+
+### 推荐：跨平台安装脚本
+
+优先推荐业务项目直接使用 `codebuddy-install.js`。
+
+它会自动下载 loader，并默认附带：
+
+```text
+--profile analysis --rule-level quick --pack-only
+```
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://intra.example.com/my-fe-standards/scripts/dist/codebuddy-install.js | \
+node - --remote https://intra.example.com/my-fe-standards
+```
+
+Windows PowerShell：
+
+```powershell
+irm https://intra.example.com/my-fe-standards/scripts/dist/codebuddy-install.js | `
+node - --remote https://intra.example.com/my-fe-standards
+```
+
+如需完整编排能力：
+
+```bash
+curl -fsSL https://intra.example.com/my-fe-standards/scripts/dist/codebuddy-install.js | \
+node - --remote https://intra.example.com/my-fe-standards --profile full
+```
 
 ### 推荐安装参数
 

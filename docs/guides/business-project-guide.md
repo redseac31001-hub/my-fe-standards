@@ -30,10 +30,36 @@
 
 ### 方式一：远程一键加载（推荐）
 
+优先使用跨平台安装脚本 `codebuddy-install.js`。它会自动下载 loader，并默认补齐：
+
+```text
+--profile analysis --rule-level quick --pack-only
+```
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+```
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+```
+
+如需完整编排能力，追加：
+
+```text
+--profile full
+```
+
+### 方式一补充：直接执行 loader
+
 无需下载任何文件，在**业务项目根目录**执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
 ```
 
 **执行过程**：

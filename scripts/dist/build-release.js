@@ -40,6 +40,7 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const DEFAULT_OUTPUT_DIR = path.join(PROJECT_ROOT, 'release', 'standards');
 const RELEASE_FILES = [
     'manifest.json',
+    'scripts/dist/codebuddy-install.js',
     'scripts/dist/codebuddy-loader.bundle.js',
     'packs/content-pack-core.json',
     'packs/content-pack-analysis.json',

@@ -443,6 +443,7 @@ function removePathIfExists(targetPath) {
 const MOCK_PROJECTS_DIR = path.join(__dirname, 'mock-projects');
 const TEST_RUNTIME_DIR = path.join(__dirname, '..', 'temp', 'test-run');
 const RULE_LOADER_PATH = path.join(__dirname, '..', 'scripts', 'dist', 'codebuddy-loader.js');
+const INSTALLER_WRAPPER_PATH = path.join(__dirname, '..', 'scripts', 'dist', 'codebuddy-install.js');
 const PYTHON_RUNNER = detectPythonRunner();
 
 const TEST_CASES = [
@@ -539,7 +540,8 @@ function copyRelativeFile(sourceRoot, targetRoot, relativePath) {
 
 function createRemotePackOnlyRoot(profile = 'analysis') {
   const rootDir = prepareRemoteRoot('remote-pack');
-  const manifestPath = path.join(__dirname, '..', 'manifest.json');
+  const repoRoot = path.join(__dirname, '..');
+  const manifestPath = path.join(repoRoot, 'manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
   const packMeta = manifest.packs && manifest.packs[profile];
   if (!packMeta) {
@@ -552,7 +554,9 @@ function createRemotePackOnlyRoot(profile = 'analysis') {
       [profile]: packMeta,
     },
   }, null, 2), 'utf-8');
-  copyRelativeFile(path.join(__dirname, '..'), rootDir, packMeta.file);
+  copyRelativeFile(repoRoot, rootDir, packMeta.file);
+  copyRelativeFile(repoRoot, rootDir, 'scripts/dist/codebuddy-install.js');
+  copyRelativeFile(repoRoot, rootDir, 'scripts/dist/codebuddy-loader.bundle.js');
 
   return rootDir;
 }
@@ -1217,6 +1221,61 @@ function runRemoteContentPackSmoke() {
     return true;
   } catch (e) {
     logError(`remote content pack smoke 婵犵數濮烽弫鍛婃叏娴兼潙鍨傛繛宸簻绾惧潡鏌ゅù瀣珔闁搞劍绻堥弻娑㈠箻濡も偓鐎氼剟寮? ${e.message}`);
+    return false;
+  }
+}
+
+function runRemoteInstallerWrapperSmoke() {
+  log(`\n${colors.bold}Remote Installer Wrapper${colors.reset}`);
+
+  try {
+    if (!fs.existsSync(INSTALLER_WRAPPER_PATH)) {
+      throw new Error(`installer wrapper missing: ${INSTALLER_WRAPPER_PATH}`);
+    }
+
+    const projectDir = prepareProjectSandbox('vue3-project');
+    const remoteRoot = createRemotePackOnlyRoot('analysis');
+    const server = startStaticFileServer(remoteRoot);
+
+    try {
+      const result = spawnSync(process.execPath, [
+        INSTALLER_WRAPPER_PATH,
+        '--remote',
+        server.baseUrl,
+      ], {
+        cwd: projectDir,
+        stdio: 'pipe',
+        encoding: 'utf-8',
+      });
+
+      if (result.status !== 0) {
+        throw buildExecError(`node "${INSTALLER_WRAPPER_PATH}" --remote ${server.baseUrl}`, result);
+      }
+
+      const installState = readInstallState(projectDir);
+      if (installState.profile !== 'analysis') {
+        throw new Error(`installer wrapper should default to analysis profile: ${installState.profile}`);
+      }
+      if (installState.options.ruleLevel !== 'quick') {
+        throw new Error(`installer wrapper should default to quick rule-level: ${installState.options.ruleLevel}`);
+      }
+      if (installState.options.strictRemotePack !== true) {
+        throw new Error('installer wrapper should default to pack-only');
+      }
+      if (!installState.source.contentPackFile) {
+        throw new Error('installer wrapper should install through content pack');
+      }
+
+      assertFilePresence(projectDir, '.codebuddy/rules/project-rules.md', true, 'installer wrapper');
+      assertFilePresence(projectDir, '.codebuddy/scripts/structure-analyzer.js', true, 'installer wrapper');
+      assertFilePresence(projectDir, '.codebuddy/scripts/task-orchestrator.js', false, 'installer wrapper');
+      logSuccess('remote installer wrapper passed');
+      return true;
+    } finally {
+      try { server.proc.kill(); } catch {}
+    }
+  } catch (e) {
+    logError(`remote installer wrapper failed: ${e.message}`);
     return false;
   }
 }
@@ -2401,6 +2460,9 @@ ${colors.bold}CodeBuddy Loader Test Suite${colors.reset}`);
   else failed++;
 
   if (runRemoteContentPackSmoke()) passed++;
+  else failed++;
+
+  if (runRemoteInstallerWrapperSmoke()) passed++;
   else failed++;
 
   log(`

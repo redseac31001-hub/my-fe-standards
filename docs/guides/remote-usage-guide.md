@@ -46,6 +46,7 @@ https://your-server.com/standards/
 ├─ manifest.json
 ├─ scripts/
 │  └─ dist/
+│     ├─ codebuddy-install.js
 │     └─ codebuddy-loader.bundle.js
 └─ packs/
    ├─ content-pack-core.json
@@ -69,6 +70,35 @@ agent-calls/
 
 ## 快速开始
 
+### 推荐：使用跨平台安装脚本
+
+`codebuddy-install.js` 适合直接给业务项目使用。它会自动下载 `codebuddy-loader.bundle.js`，然后执行安装。
+
+默认会补齐这组推荐参数：
+
+```text
+--profile analysis --rule-level quick --pack-only
+```
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://your-server.com/standards/scripts/dist/codebuddy-install.js | node - --remote https://your-server.com/standards
+```
+
+Windows PowerShell：
+
+```powershell
+irm https://your-server.com/standards/scripts/dist/codebuddy-install.js | node - --remote https://your-server.com/standards
+```
+
+如果你想先下载再执行：
+
+```bash
+curl -O https://your-server.com/standards/scripts/dist/codebuddy-install.js
+node codebuddy-install.js --remote https://your-server.com/standards
+```
+
 ### 直接远程执行
 
 ```bash
@@ -87,6 +117,7 @@ node codebuddy-loader.bundle.js --remote https://your-server.com/standards
 ```json
 {
   "scripts": {
+    "codebuddy:install": "node codebuddy-install.js --remote https://your-server.com/standards",
     "codebuddy:update": "node codebuddy-loader.bundle.js --remote https://your-server.com/standards"
   }
 }
