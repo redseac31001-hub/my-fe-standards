@@ -25,7 +25,7 @@
 | `build-fix` | 构建修复 | 自动诊断修复构建/类型/Lint 错误 | "构建失败"、"build failed"、"类型错误" |
 | `code-reviewer` | 代码审查 | 按 clean-code 规则结构化审查 | "代码审查"、"code review"、"CR" |
 | `bug-investigator` | Bug 调查 | 运行时 bug 分层定位、依赖图裁剪、根因分析 | "修复bug"、"排查问题"、"报错"、"不生效" |
-| `system-overview-writer` | 概要设计文档生成 | 基于 Word 模板生成系统概要设计文档 | "系统概要设计"、"概设"、"概要设计模板" |
+| `system-overview-writer` | 概要设计文档生成 | 自动完成需求分析、项目上下文分析并基于官方模板生成系统概要设计文档 | "系统概要设计"、"概要设计文档"、"生成概要设计"、"设计方案" |
 
 ## Agent 调用流程
 
@@ -155,7 +155,7 @@ Agent 可以关联 Layer3 Action 规则：
 - `build-fix` → `layer1_base/typescript/strict-types.md`
 - `code-reviewer` → `layer1_base/code-quality/clean-code.md`, `layer3_action/defensive-coding.md`
 - `bug-investigator` → `layer3_action/debugging.md`, `layer3_action/context-management.md`
-- `system-overview-writer` → `layer3_action/system-design-documentation.md`, `layer3_action/context-management.md`
+- `system-overview-writer` → `layer3_action/system-design-documentation.md`, `layer3_action/context-management.md`, `layer3_action/self-verification.md`
 
 ---
 

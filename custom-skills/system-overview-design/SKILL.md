@@ -1,12 +1,16 @@
 ---
 name: system-overview-design
-description: "Generate a system overview design document from a Word `.docx` template and structured project inputs. Use when the user asks for 系统概要设计/概要设计/概设/概要设计模板, needs to convert an overview-design Word template into AI-readable guidance, or needs a final `.docx` overview design export."
+description: "Generate a system overview design document from the bundled official Word `.docx` template and project materials. Use when the host or an agent needs to respond to 系统概要设计/概要设计文档/概设/设计方案/系统设计文档 requests, analyze requirements + interfaces + pages + project structure, and produce a final `.docx` overview design export."
 metadata:
   triggers:
     - "系统概要设计"
     - "概要设计"
     - "概设"
+    - "概要设计文档"
+    - "生成概要设计"
     - "概要设计模板"
+    - "设计方案"
+    - "系统设计文档"
     - "设计文档模板"
     - "word 模板"
   roles:
@@ -16,10 +20,15 @@ metadata:
   scenarios:
     - template-conversion
     - design-documentation
+    - project-analysis
     - docx-export
   tools:
     - python:scripts/extract_template.py
     - python:scripts/render_overview_doc.py
+  related:
+    - prd
+    - structure-review
+    - module-mapping
 ---
 
 # System Overview Design Skill
@@ -35,11 +44,12 @@ metadata:
 ## Workflow
 
 1. 日常业务生成时，默认使用内置模板配置 `assets/system-overview-template-config.json`、`assets/system-overview-template-schema.json` 和 `assets/system-overview-template-guide.md`。
-2. 把需求说明、接口字段、页面说明、项目架构等内容整理到 `assets/system-overview-input.template.json` 对应的结构化字段中。
-3. 缺信息时保留待确认项，不要自行臆造系统边界、容量、安全策略或部署拓扑。
-4. 运行 `scripts/render_overview_doc.py`，将结构化内容按内置模板配置写回 Word 模板。
-5. 只有在官方模板发生变化或要接入新模板时，才运行 `scripts/extract_template.py` 重新抽取 schema / guide 并更新内置资源。
-6. 导出后人工在 Word 中刷新目录字段，确认页码、分页和表格布局。
+2. 优先从需求说明、接口字段、页面说明、项目架构和现有代码结构中自动归并输入，而不是要求用户先手工准备完整 JSON。
+3. 把归并结果写入 `assets/system-overview-input.template.json` 对应的结构化字段。
+4. 缺信息时保留待确认项，不要自行臆造系统边界、容量、安全策略或部署拓扑。
+5. 运行 `scripts/render_overview_doc.py`，将结构化内容按内置模板配置写回 Word 模板。
+6. 只有在官方模板发生变化或要接入新模板时，才运行 `scripts/extract_template.py` 重新抽取 schema / guide 并更新内置资源。
+7. 导出后人工在 Word 中刷新目录字段，确认页码、分页和表格布局。
 
 ## Installed Path
 

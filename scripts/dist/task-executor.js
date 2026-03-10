@@ -142,6 +142,7 @@ var AGENT_CALLS_DIR = ".codebuddy/agent-calls";
 var LOCK_STALE_MS = 2 * 60 * 1e3;
 var LOCK_TIMEOUT_MS = 10 * 1e3;
 var LOCK_RETRY_MS = 80;
+var IN_PROCESS_LOCK_DEPTHS = /* @__PURE__ */ new Map();
 var SLEEP_INT32 = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) {
   Atomics.wait(SLEEP_INT32, 0, 0, ms);
@@ -199,6 +200,46 @@ var TaskBookManager = class {
   getLockPath(taskBookId) {
     return path4.join(this.getLocksDir(), `${taskBookId}.lock`);
   }
+  cleanupLockFile(lockPath) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        if (fs2.existsSync(lockPath)) {
+          fs2.unlinkSync(lockPath);
+        }
+        return;
+      } catch (error) {
+        const err = error;
+        if ((err?.code === "EPERM" || err?.code === "EBUSY") && attempt < 4) {
+          sleepSync(LOCK_RETRY_MS);
+          continue;
+        }
+        return;
+      }
+    }
+  }
+  getInProcessLockDepth(taskBookId) {
+    return IN_PROCESS_LOCK_DEPTHS.get(taskBookId) ?? 0;
+  }
+  enterInProcessLock(taskBookId) {
+    IN_PROCESS_LOCK_DEPTHS.set(taskBookId, this.getInProcessLockDepth(taskBookId) + 1);
+  }
+  exitInProcessLock(taskBookId) {
+    const nextDepth = this.getInProcessLockDepth(taskBookId) - 1;
+    if (nextDepth > 0) {
+      IN_PROCESS_LOCK_DEPTHS.set(taskBookId, nextDepth);
+      return;
+    }
+    IN_PROCESS_LOCK_DEPTHS.delete(taskBookId);
+  }
+  readLockOwnerPid(lockPath) {
+    try {
+      const raw = fs2.readFileSync(lockPath, "utf-8");
+      const parsed = JSON.parse(raw);
+      return typeof parsed.pid === "number" ? parsed.pid : null;
+    } catch {
+      return null;
+    }
+  }
   normalize(taskBook) {
     if (typeof taskBook.revision !== "number") {
       taskBook.revision = 0;
@@ -225,11 +266,20 @@ var TaskBookManager = class {
   withTaskBookLock(taskBookId, fn, opts) {
     const lockPath = this.getLockPath(taskBookId);
     ensureDir(path4.dirname(lockPath));
+    if (this.getInProcessLockDepth(taskBookId) > 0) {
+      this.enterInProcessLock(taskBookId);
+      try {
+        return fn();
+      } finally {
+        this.exitInProcessLock(taskBookId);
+      }
+    }
     const startedAt = Date.now();
     const timeoutMs = opts?.timeoutMs ?? LOCK_TIMEOUT_MS;
     while (true) {
       try {
         const fd = fs2.openSync(lockPath, "wx");
+        this.enterInProcessLock(taskBookId);
         try {
           const payload = { pid: process.pid, createdAt: now(), taskBookId };
           fs2.writeFileSync(fd, JSON.stringify(payload, null, 2), "utf-8");
@@ -242,25 +292,29 @@ var TaskBookManager = class {
             fs2.closeSync(fd);
           } catch {
           }
-          try {
-            fs2.unlinkSync(lockPath);
-          } catch {
-          }
+          this.cleanupLockFile(lockPath);
+          this.exitInProcessLock(taskBookId);
         }
       } catch (error) {
         const err = error;
         if (err?.code !== "EEXIST") {
           throw error;
         }
+        if (this.readLockOwnerPid(lockPath) === process.pid) {
+          this.enterInProcessLock(taskBookId);
+          try {
+            return fn();
+          } finally {
+            this.exitInProcessLock(taskBookId);
+            this.cleanupLockFile(lockPath);
+          }
+        }
         try {
           const stat = fs2.statSync(lockPath);
           const ageMs = Date.now() - stat.mtimeMs;
           if (ageMs > LOCK_STALE_MS) {
-            try {
-              fs2.unlinkSync(lockPath);
-              continue;
-            } catch {
-            }
+            this.cleanupLockFile(lockPath);
+            continue;
           }
         } catch {
         }
@@ -3741,6 +3795,17 @@ var AGENT_CALLS_DIR3 = ".codebuddy/agent-calls";
 var AGENT_CALL_MARKER = "[agent-call]";
 var DEFAULT_MANUAL_AGENT_ID = "task-orchestrator";
 var MANUAL_AGENT_ID_ENV = "CODEBUDDY_MANUAL_AGENT_ID";
+function buildTaskRoutingText(task) {
+  return [
+    task.title,
+    ...task.acceptanceCriteria ?? [],
+    ...task.scope?.tags ?? []
+  ].filter((value) => typeof value === "string" && value.trim().length > 0).join(" ");
+}
+function isSystemOverviewDesignTask(task) {
+  const text = buildTaskRoutingText(task);
+  return /(系统概要设计|概要设计文档|概要设计|概设|系统设计文档)/i.test(text) || /(设计文档|word|docx|模板)/i.test(text) || /((生成|输出|编写|整理|撰写).*(设计方案)|(设计方案.*(文档|word|docx|模板|输出|生成)))/i.test(text);
+}
 function selectManualAgentId(task) {
   const env = (process.env[MANUAL_AGENT_ID_ENV] || "").trim();
   if (env) return env;
@@ -3749,6 +3814,9 @@ function selectManualAgentId(task) {
   }
   if (/(安全|security|xss|csrf|owasp)/i.test(task.title)) {
     return "security-reviewer";
+  }
+  if (task.type === "design" && isSystemOverviewDesignTask(task)) {
+    return "system-overview-writer";
   }
   switch (task.type) {
     case "analysis":
@@ -4413,7 +4481,14 @@ var TaskExecutor = class {
    */
   async executeDesignTask(task) {
     console.log(`[TaskExecutor] \u6267\u884C\u8BBE\u8BA1\u4EFB\u52A1: ${task.title}`);
-    throw new Error(`MANUAL_REQUIRED: \u9700\u8981 planner Agent \u5B8C\u6210\u8BBE\u8BA1\u4EFB\u52A1\uFF1A${task.title}`);
+    const designAgentId = selectManualAgentId(task);
+    if (designAgentId === "system-overview-writer") {
+      throw new Error(`MANUAL_REQUIRED: \u9700\u8981 system-overview-writer Agent \u751F\u6210\u7CFB\u7EDF\u6982\u8981\u8BBE\u8BA1\u6587\u6863\uFF1A${task.title}`);
+    }
+    if (designAgentId === "planner") {
+      throw new Error(`MANUAL_REQUIRED: \u9700\u8981 planner Agent \u5B8C\u6210\u8BBE\u8BA1\u89C4\u5212\u4EFB\u52A1\uFF1A${task.title}`);
+    }
+    throw new Error(`MANUAL_REQUIRED: \u9700\u8981 ${designAgentId} Agent \u5B8C\u6210\u8BBE\u8BA1\u4EFB\u52A1\uFF1A${task.title}`);
   }
   /**
    * 执行测试任务
@@ -4941,6 +5016,9 @@ function loadAgentPromptTemplate(projectRoot, agentId, taskType) {
     },
     "build-fix": {
       "build-fix": "diagnose-fix.md"
+    },
+    "system-overview-writer": {
+      "design": "execute.md"
     }
   };
   const agentPrompts = promptFileMap[agentId];

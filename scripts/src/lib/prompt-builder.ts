@@ -473,6 +473,7 @@ export function generateQuickActionGuide(): string {
 | 新功能 / 重构 / 缺陷修复 | 走任务闭环，不要手工跳步骤 | \`/task <需求>\` |
 | 需要理解项目结构 | 先做结构分析，再读相关规则/代码 | \`node .codebuddy/scripts/structure-analyzer.js .\` |
 | 需要查看已有分析结果 | 先查报告状态，避免重复扫描 | \`node .codebuddy/scripts/report-manager.js status\` |
+| 需要生成系统概要设计 / 设计文档 | 优先路由到专用设计文档 Agent，再按需加载 skill 和模板 | \`system-overview-writer\` |
 | 需要执行外部 Agent Call | 读取 prompt，写回 result.json | \`/agent-call <requestId>\` |
 | 需要校验 TaskBook / Workflow 契约 | 先跑契约校验 | \`node .codebuddy/scripts/contract-validator.js --workflows --taskbooks\` |
 | 需要细节规范 | 按需读取缓存规则，不要全文扫读全部规则 | \`.codebuddy/rules_cache/\` |
@@ -481,8 +482,8 @@ export function generateQuickActionGuide(): string {
 `;
 }
 
-type AgentRouteCategory = 'orchestration' | 'diagnosis' | 'review' | 'other';
-type SkillRouteCategory = 'architecture' | 'implementation' | 'quality' | 'performance' | 'workflow' | 'other';
+type AgentRouteCategory = 'orchestration' | 'documentation' | 'diagnosis' | 'review' | 'other';
+type SkillRouteCategory = 'architecture' | 'implementation' | 'quality' | 'performance' | 'documentation' | 'workflow' | 'other';
 
 interface RouteGroup<T, K extends string> {
   key: K;
@@ -530,6 +531,9 @@ function classifyAgentRouteCategory(agent: AgentMetadata): AgentRouteCategory {
   if (/(orchestrator|planner|tdd|编排|规划|交付)/.test(text)) {
     return 'orchestration';
   }
+  if (/(overview|design|documentation|document|概要设计|设计文档|文档生成|方案输出|word)/.test(text)) {
+    return 'documentation';
+  }
   if (/(build|bug|fix|debug|investigator|profiler|修复|排查|诊断|构建|性能)/.test(text)) {
     return 'diagnosis';
   }
@@ -546,6 +550,12 @@ function groupAgentsByScenario(agents: AgentMetadata[]): Array<RouteGroup<AgentM
       key: 'orchestration',
       title: '计划与执行',
       signal: '多文件、多步骤、需要规划/实现/验收闭环',
+      items: [],
+    },
+    {
+      key: 'documentation',
+      title: '文档与设计',
+      signal: '系统概要设计、设计方案、正式设计文档输出',
       items: [],
     },
     {
@@ -591,6 +601,9 @@ function classifySkillRouteCategory(skill: SkillMetadata): SkillRouteCategory {
   if (/(performance|build|render|bundle)/.test(text)) {
     return 'performance';
   }
+  if (/(system-overview|design-document|overview design|概要设计|设计文档|word 模板)/.test(text)) {
+    return 'documentation';
+  }
   if (/(prd|ralph|skill-creator|requirements|spec)/.test(text)) {
     return 'workflow';
   }
@@ -622,6 +635,12 @@ function groupSkillsByScenario(skills: SkillMetadata[]): Array<RouteGroup<SkillM
       key: 'performance',
       title: '性能与构建',
       signal: '渲染性能、包体积、构建速度、配置优化',
+      items: [],
+    },
+    {
+      key: 'documentation',
+      title: '文档与设计',
+      signal: '概要设计、设计文档、模板驱动导出',
       items: [],
     },
     {

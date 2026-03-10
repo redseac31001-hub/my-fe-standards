@@ -30,6 +30,7 @@ const AGENT_CALLS_DIR = '.codebuddy/agent-calls';
 const LOCK_STALE_MS = 2 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 10 * 1000;
 const LOCK_RETRY_MS = 80;
+const IN_PROCESS_LOCK_DEPTHS = new Map<string, number>();
 
 const SLEEP_INT32 = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms: number): void {
@@ -121,6 +122,51 @@ export class TaskBookManager {
     return path.join(this.getLocksDir(), `${taskBookId}.lock`);
   }
 
+  private cleanupLockFile(lockPath: string): void {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        if (fs.existsSync(lockPath)) {
+          fs.unlinkSync(lockPath);
+        }
+        return;
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if ((err?.code === 'EPERM' || err?.code === 'EBUSY') && attempt < 4) {
+          sleepSync(LOCK_RETRY_MS);
+          continue;
+        }
+        return;
+      }
+    }
+  }
+
+  private getInProcessLockDepth(taskBookId: string): number {
+    return IN_PROCESS_LOCK_DEPTHS.get(taskBookId) ?? 0;
+  }
+
+  private enterInProcessLock(taskBookId: string): void {
+    IN_PROCESS_LOCK_DEPTHS.set(taskBookId, this.getInProcessLockDepth(taskBookId) + 1);
+  }
+
+  private exitInProcessLock(taskBookId: string): void {
+    const nextDepth = this.getInProcessLockDepth(taskBookId) - 1;
+    if (nextDepth > 0) {
+      IN_PROCESS_LOCK_DEPTHS.set(taskBookId, nextDepth);
+      return;
+    }
+    IN_PROCESS_LOCK_DEPTHS.delete(taskBookId);
+  }
+
+  private readLockOwnerPid(lockPath: string): number | null {
+    try {
+      const raw = fs.readFileSync(lockPath, 'utf-8');
+      const parsed = JSON.parse(raw) as { pid?: unknown };
+      return typeof parsed.pid === 'number' ? parsed.pid : null;
+    } catch {
+      return null;
+    }
+  }
+
   private normalize(taskBook: TaskBook): TaskBook {
     if (typeof taskBook.revision !== 'number') {
       taskBook.revision = 0;
@@ -151,12 +197,22 @@ export class TaskBookManager {
     const lockPath = this.getLockPath(taskBookId);
     ensureDir(path.dirname(lockPath));
 
+    if (this.getInProcessLockDepth(taskBookId) > 0) {
+      this.enterInProcessLock(taskBookId);
+      try {
+        return fn();
+      } finally {
+        this.exitInProcessLock(taskBookId);
+      }
+    }
+
     const startedAt = Date.now();
     const timeoutMs = opts?.timeoutMs ?? LOCK_TIMEOUT_MS;
 
     while (true) {
       try {
         const fd = fs.openSync(lockPath, 'wx');
+        this.enterInProcessLock(taskBookId);
         try {
           const payload = { pid: process.pid, createdAt: now(), taskBookId };
           fs.writeFileSync(fd, JSON.stringify(payload, null, 2), 'utf-8');
@@ -172,11 +228,8 @@ export class TaskBookManager {
           } catch {
             // ignore
           }
-          try {
-            fs.unlinkSync(lockPath);
-          } catch {
-            // ignore
-          }
+          this.cleanupLockFile(lockPath);
+          this.exitInProcessLock(taskBookId);
         }
       } catch (error) {
         const err = error as NodeJS.ErrnoException;
@@ -184,17 +237,23 @@ export class TaskBookManager {
           throw error;
         }
 
+        if (this.readLockOwnerPid(lockPath) === process.pid) {
+          this.enterInProcessLock(taskBookId);
+          try {
+            return fn();
+          } finally {
+            this.exitInProcessLock(taskBookId);
+            this.cleanupLockFile(lockPath);
+          }
+        }
+
         // lock exists: check staleness
         try {
           const stat = fs.statSync(lockPath);
           const ageMs = Date.now() - stat.mtimeMs;
           if (ageMs > LOCK_STALE_MS) {
-            try {
-              fs.unlinkSync(lockPath);
-              continue;
-            } catch {
-              // ignore
-            }
+            this.cleanupLockFile(lockPath);
+            continue;
           }
         } catch {
           // ignore

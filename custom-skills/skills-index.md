@@ -23,7 +23,7 @@ There are **15** custom skills in this repository.
 | Backend | `backend-code-review` | Review backend services and APIs | backend review, API review, service review |
 | Backend | `backend-testing` | Generate backend tests | backend testing, integration test, API testing |
 | Product | `prd` | Generate a PRD | write PRD, plan feature, create requirements |
-| Product | `system-overview-design` | Generate a system overview design document from a Word template | 系统概要设计, 概要设计模板, 概设, Word 模板 |
+| Product | `system-overview-design` | Generate a system overview design document from the bundled official Word template and project materials | 系统概要设计, 概要设计文档, 生成概要设计, 设计方案 |
 | Product | `ralph-converter` | Convert a PRD to Ralph `prd.json` | convert PRD, Ralph format, prd.json |
 | Meta | `skill-creator` | Create or refactor skills | new skill, update skill, restructure skill |
 
@@ -60,8 +60,9 @@ Use this chain for backend services:
 Use this chain for product planning flows:
 
 1. `prd`
-2. `system-overview-design`
-3. `ralph-converter`
+2. `structure-review` / `module-mapping`
+3. `system-overview-design`
+4. `ralph-converter`
 
 ### Skill maintenance
 

@@ -1552,6 +1552,7 @@ function generateQuickActionGuide() {
 | \u65B0\u529F\u80FD / \u91CD\u6784 / \u7F3A\u9677\u4FEE\u590D | \u8D70\u4EFB\u52A1\u95ED\u73AF\uFF0C\u4E0D\u8981\u624B\u5DE5\u8DF3\u6B65\u9AA4 | \`/task <\u9700\u6C42>\` |
 | \u9700\u8981\u7406\u89E3\u9879\u76EE\u7ED3\u6784 | \u5148\u505A\u7ED3\u6784\u5206\u6790\uFF0C\u518D\u8BFB\u76F8\u5173\u89C4\u5219/\u4EE3\u7801 | \`node .codebuddy/scripts/structure-analyzer.js .\` |
 | \u9700\u8981\u67E5\u770B\u5DF2\u6709\u5206\u6790\u7ED3\u679C | \u5148\u67E5\u62A5\u544A\u72B6\u6001\uFF0C\u907F\u514D\u91CD\u590D\u626B\u63CF | \`node .codebuddy/scripts/report-manager.js status\` |
+| \u9700\u8981\u751F\u6210\u7CFB\u7EDF\u6982\u8981\u8BBE\u8BA1 / \u8BBE\u8BA1\u6587\u6863 | \u4F18\u5148\u8DEF\u7531\u5230\u4E13\u7528\u8BBE\u8BA1\u6587\u6863 Agent\uFF0C\u518D\u6309\u9700\u52A0\u8F7D skill \u548C\u6A21\u677F | \`system-overview-writer\` |
 | \u9700\u8981\u6267\u884C\u5916\u90E8 Agent Call | \u8BFB\u53D6 prompt\uFF0C\u5199\u56DE result.json | \`/agent-call <requestId>\` |
 | \u9700\u8981\u6821\u9A8C TaskBook / Workflow \u5951\u7EA6 | \u5148\u8DD1\u5951\u7EA6\u6821\u9A8C | \`node .codebuddy/scripts/contract-validator.js --workflows --taskbooks\` |
 | \u9700\u8981\u7EC6\u8282\u89C4\u8303 | \u6309\u9700\u8BFB\u53D6\u7F13\u5B58\u89C4\u5219\uFF0C\u4E0D\u8981\u5168\u6587\u626B\u8BFB\u5168\u90E8\u89C4\u5219 | \`.codebuddy/rules_cache/\` |
@@ -1590,6 +1591,9 @@ function classifyAgentRouteCategory(agent) {
   if (/(orchestrator|planner|tdd|编排|规划|交付)/.test(text)) {
     return "orchestration";
   }
+  if (/(overview|design|documentation|document|概要设计|设计文档|文档生成|方案输出|word)/.test(text)) {
+    return "documentation";
+  }
   if (/(build|bug|fix|debug|investigator|profiler|修复|排查|诊断|构建|性能)/.test(text)) {
     return "diagnosis";
   }
@@ -1604,6 +1608,12 @@ function groupAgentsByScenario(agents) {
       key: "orchestration",
       title: "\u8BA1\u5212\u4E0E\u6267\u884C",
       signal: "\u591A\u6587\u4EF6\u3001\u591A\u6B65\u9AA4\u3001\u9700\u8981\u89C4\u5212/\u5B9E\u73B0/\u9A8C\u6536\u95ED\u73AF",
+      items: []
+    },
+    {
+      key: "documentation",
+      title: "\u6587\u6863\u4E0E\u8BBE\u8BA1",
+      signal: "\u7CFB\u7EDF\u6982\u8981\u8BBE\u8BA1\u3001\u8BBE\u8BA1\u65B9\u6848\u3001\u6B63\u5F0F\u8BBE\u8BA1\u6587\u6863\u8F93\u51FA",
       items: []
     },
     {
@@ -1645,6 +1655,9 @@ function classifySkillRouteCategory(skill) {
   if (/(performance|build|render|bundle)/.test(text)) {
     return "performance";
   }
+  if (/(system-overview|design-document|overview design|概要设计|设计文档|word 模板)/.test(text)) {
+    return "documentation";
+  }
   if (/(prd|ralph|skill-creator|requirements|spec)/.test(text)) {
     return "workflow";
   }
@@ -1674,6 +1687,12 @@ function groupSkillsByScenario(skills) {
       key: "performance",
       title: "\u6027\u80FD\u4E0E\u6784\u5EFA",
       signal: "\u6E32\u67D3\u6027\u80FD\u3001\u5305\u4F53\u79EF\u3001\u6784\u5EFA\u901F\u5EA6\u3001\u914D\u7F6E\u4F18\u5316",
+      items: []
+    },
+    {
+      key: "documentation",
+      title: "\u6587\u6863\u4E0E\u8BBE\u8BA1",
+      signal: "\u6982\u8981\u8BBE\u8BA1\u3001\u8BBE\u8BA1\u6587\u6863\u3001\u6A21\u677F\u9A71\u52A8\u5BFC\u51FA",
       items: []
     },
     {

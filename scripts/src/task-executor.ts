@@ -91,6 +91,24 @@ const AGENT_CALL_MARKER = '[agent-call]';
 const DEFAULT_MANUAL_AGENT_ID = 'task-orchestrator';
 const MANUAL_AGENT_ID_ENV = 'CODEBUDDY_MANUAL_AGENT_ID';
 
+function buildTaskRoutingText(task: TaskItem): string {
+  return [
+    task.title,
+    ...(task.acceptanceCriteria ?? []),
+    ...(task.scope?.tags ?? []),
+  ]
+    .filter(value => typeof value === 'string' && value.trim().length > 0)
+    .join(' ');
+}
+
+function isSystemOverviewDesignTask(task: TaskItem): boolean {
+  const text = buildTaskRoutingText(task);
+
+  return /(系统概要设计|概要设计文档|概要设计|概设|系统设计文档)/i.test(text)
+    || /(设计文档|word|docx|模板)/i.test(text)
+    || /((生成|输出|编写|整理|撰写).*(设计方案)|(设计方案.*(文档|word|docx|模板|输出|生成)))/i.test(text);
+}
+
 function selectManualAgentId(task: TaskItem): string {
   const env = (process.env[MANUAL_AGENT_ID_ENV] || '').trim();
   if (env) return env;
@@ -101,6 +119,9 @@ function selectManualAgentId(task: TaskItem): string {
   }
   if (/(安全|security|xss|csrf|owasp)/i.test(task.title)) {
     return 'security-reviewer';
+  }
+  if (task.type === 'design' && isSystemOverviewDesignTask(task)) {
+    return 'system-overview-writer';
   }
 
   switch (task.type) {
@@ -971,7 +992,14 @@ export class TaskExecutor {
    */
   private async executeDesignTask(task: TaskItem): Promise<string> {
     console.log(`[TaskExecutor] 执行设计任务: ${task.title}`);
-    throw new Error(`MANUAL_REQUIRED: 需要 planner Agent 完成设计任务：${task.title}`);
+    const designAgentId = selectManualAgentId(task);
+    if (designAgentId === 'system-overview-writer') {
+      throw new Error(`MANUAL_REQUIRED: 需要 system-overview-writer Agent 生成系统概要设计文档：${task.title}`);
+    }
+    if (designAgentId === 'planner') {
+      throw new Error(`MANUAL_REQUIRED: 需要 planner Agent 完成设计规划任务：${task.title}`);
+    }
+    throw new Error(`MANUAL_REQUIRED: 需要 ${designAgentId} Agent 完成设计任务：${task.title}`);
   }
 
   /**
@@ -1653,6 +1681,9 @@ function loadAgentPromptTemplate(projectRoot: string, agentId: string, taskType:
     },
     'build-fix': {
       'build-fix': 'diagnose-fix.md',
+    },
+    'system-overview-writer': {
+      'design': 'execute.md',
     },
   };
 

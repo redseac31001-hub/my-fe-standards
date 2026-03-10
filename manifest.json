@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-03-10T08:04:24.197Z",
+  "generatedAt": "2026-03-10T09:08:13.902Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -354,8 +354,8 @@
     {
       "path": "rules/layer3_action/system-design-documentation.md",
       "name": "system-design-documentation",
-      "size": 2976,
-      "mtime": "2026-03-10T03:43:29.460Z",
+      "size": 3175,
+      "mtime": "2026-03-10T08:24:07.544Z",
       "encoding": "utf8"
     },
     {
@@ -907,8 +907,8 @@
     {
       "path": "custom-skills/skills-index.md",
       "name": "skills-index",
-      "size": 5183,
-      "mtime": "2026-03-10T03:43:52.247Z",
+      "size": 5278,
+      "mtime": "2026-03-10T08:23:56.584Z",
       "encoding": "utf8"
     },
     {
@@ -1047,15 +1047,15 @@
     {
       "path": "custom-skills/system-overview-design/SKILL.md",
       "name": "SKILL",
-      "size": 3830,
-      "mtime": "2026-03-10T07:45:25.591Z",
+      "size": 4176,
+      "mtime": "2026-03-10T08:23:50.231Z",
       "encoding": "utf8"
     },
     {
       "path": "agents/AGENTS.md",
       "name": "AGENTS",
-      "size": 6956,
-      "mtime": "2026-03-10T03:45:25.122Z",
+      "size": 7074,
+      "mtime": "2026-03-10T08:24:01.985Z",
       "encoding": "utf8"
     },
     {
@@ -1117,8 +1117,8 @@
     {
       "path": "agents/planner/AGENT.md",
       "name": "AGENT",
-      "size": 5402,
-      "mtime": "2026-03-02T08:22:14.666Z",
+      "size": 5546,
+      "mtime": "2026-03-10T08:30:26.814Z",
       "encoding": "utf8"
     },
     {
@@ -1173,8 +1173,15 @@
     {
       "path": "agents/system-overview-writer/AGENT.md",
       "name": "AGENT",
-      "size": 2991,
-      "mtime": "2026-03-10T07:45:34.801Z",
+      "size": 5847,
+      "mtime": "2026-03-10T08:23:30.112Z",
+      "encoding": "utf8"
+    },
+    {
+      "path": "agents/system-overview-writer/prompts/execute.md",
+      "name": "execute",
+      "size": 1240,
+      "mtime": "2026-03-10T08:23:37.220Z",
       "encoding": "utf8"
     },
     {
@@ -1274,44 +1281,44 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "f7239208deb759307c1aaade79a7c9ff0366827b5fabb959eb32137519bcfe15",
-      "size": 828674,
-      "entryCount": 150,
-      "generatedAt": "2026-03-10T08:04:24.052Z"
+      "sha256": "95e6b1107482a455cf6110510b9d5bc761dc575483d274299836e7bcda3c876d",
+      "size": 834020,
+      "entryCount": 151,
+      "generatedAt": "2026-03-10T09:08:13.585Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "f8f0fbdbe7c803a91c3b4db9228aa2ad0d3a2fc691fabcc8c20716f702ebf6f6",
-      "size": 1070498,
-      "entryCount": 153,
-      "generatedAt": "2026-03-10T08:04:24.090Z"
+      "sha256": "9f80c852f044924ca3d38cdf1e7686e9a03d77246df4a0a74a6a0459050ae7e9",
+      "size": 1075844,
+      "entryCount": 154,
+      "generatedAt": "2026-03-10T09:08:13.651Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "48ca4f3c9e3db988aec63107e4a676dc08696dcf1bc819b71995efff4bdc3c29",
-      "size": 1551087,
-      "entryCount": 164,
-      "generatedAt": "2026-03-10T08:04:24.133Z"
+      "sha256": "09a89fcbee9cb6ba50ae037eabffc5224dfcf9f949bc99987a48121dee4bf0e6",
+      "size": 1561241,
+      "entryCount": 165,
+      "generatedAt": "2026-03-10T09:08:13.738Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "662b14c72222f613eb011667cb06d9338a86717533e232bf58091c0621257337",
-      "size": 1566978,
-      "entryCount": 165,
-      "generatedAt": "2026-03-10T08:04:24.181Z"
+      "sha256": "4c64320d7abfd4b2f7c2f0712d7130d821b6c5b185a5eb02dbd3125e1294e10e",
+      "size": 1577132,
+      "entryCount": 166,
+      "generatedAt": "2026-03-10T09:08:13.846Z"
     }
   },
   "stats": {
-    "totalFiles": 151,
+    "totalFiles": 152,
     "ruleFiles": 23,
     "skillFiles": 97,
-    "agentFiles": 26,
+    "agentFiles": 27,
     "workflowFiles": 3,
     "taskbookFiles": 2
   }
