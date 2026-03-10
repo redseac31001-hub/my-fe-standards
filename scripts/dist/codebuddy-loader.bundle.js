@@ -1274,23 +1274,104 @@ function buildScriptsTable(scripts) {
   }
   return table;
 }
+function formatCodeList(values) {
+  return values.map((value) => `\`${value}\``).join("\u3001");
+}
+function buildCommandsSummaryTable(commands) {
+  const entries = commands.map(getCommandPromptEntry).sort((a, b) => a.command.localeCompare(b.command));
+  let table = "| \u573A\u666F | \u9996\u9009\u5165\u53E3 | \u8BF4\u660E |\n|------|----------|------|\n";
+  for (const entry of entries) {
+    table += `| ${entry.description} | \`${entry.example}\` | \u8BE6\u60C5\u89C1 \`${entry.path}\` |
+`;
+  }
+  return table;
+}
+function buildScriptPromptGroups(scripts) {
+  const scriptSet = new Set(scripts);
+  const consumed = /* @__PURE__ */ new Set();
+  const groups = [];
+  const addGroup = (title, summary, entry, files) => {
+    const present = files.filter((file) => scriptSet.has(file));
+    if (present.length === 0) return;
+    for (const file of present) {
+      consumed.add(file);
+    }
+    groups.push({
+      title,
+      summary,
+      entry,
+      files: present
+    });
+  };
+  addGroup(
+    "\u7ED3\u6784\u5206\u6790",
+    "\u5148\u751F\u6210\u7ED3\u6784\u548C\u6A21\u5757\u8FB9\u754C\uFF0C\u518D\u51B3\u5B9A\u662F\u5426\u7EE7\u7EED\u6DF1\u6316",
+    "node .codebuddy/scripts/structure-analyzer.js .",
+    ["structure-analyzer.js", "module-mapper.js"]
+  );
+  addGroup(
+    "\u62A5\u544A\u67E5\u8BE2",
+    "\u4F18\u5148\u590D\u7528\u5DF2\u6709\u62A5\u544A\uFF0C\u907F\u514D\u91CD\u590D\u626B\u63CF",
+    "node .codebuddy/scripts/report-manager.js status",
+    ["report-manager.js"]
+  );
+  addGroup(
+    "\u89C4\u5219\u4E0E\u5951\u7EA6\u6821\u9A8C",
+    "\u89C4\u5219\u3001\u6280\u80FD\u3001TaskBook/Workflow \u53D8\u66F4\u524D\u5148\u6821\u9A8C",
+    "node .codebuddy/scripts/contract-validator.js --workflows --taskbooks",
+    ["rule-validator.js", "skill-validator.js", "contract-validator.js", "agent-registry.js"]
+  );
+  addGroup(
+    "\u7F16\u6392\u6267\u884C",
+    "\u9700\u8981\u5B8C\u6574\u4EFB\u52A1\u95ED\u73AF\u65F6\u8D70\u7F16\u6392\u5165\u53E3",
+    'node .codebuddy/scripts/task-orchestrator.js "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature',
+    ["task-orchestrator.js", "taskbook-manager.js", "task-executor.js"]
+  );
+  addGroup(
+    "Agent Call \u4E0E\u4E0A\u4E0B\u6587",
+    "\u5904\u7406\u5916\u90E8\u6267\u884C\u3001\u4E0A\u4E0B\u6587\u91C7\u96C6\u548C\u7ED3\u679C\u5199\u56DE",
+    "node .codebuddy/scripts/agent-call-manager.js list",
+    ["agent-call-manager.js", "reference-finder.js", "context-collector.js"]
+  );
+  const remaining = [...scripts].filter((file) => !consumed.has(file)).sort((a, b) => a.localeCompare(b));
+  if (remaining.length > 0) {
+    groups.push({
+      title: "\u5176\u4ED6\u5165\u53E3",
+      summary: "\u4EC5\u5728\u4E0A\u8FF0\u5165\u53E3\u4E0D\u5339\u914D\u65F6\u518D\u6309\u9700\u8BFB\u53D6",
+      entry: `node .codebuddy/scripts/${remaining[0]}`,
+      files: remaining
+    });
+  }
+  return groups;
+}
+function buildScriptsSummaryTable(scripts) {
+  const groups = buildScriptPromptGroups(scripts);
+  let table = "| \u573A\u666F | \u9996\u9009\u5165\u53E3 | \u8986\u76D6\u811A\u672C |\n|------|----------|----------|\n";
+  for (const group of groups) {
+    table += `| ${group.title} | \`${group.entry}\` | ${formatCodeList(group.files)} |
+`;
+  }
+  return table;
+}
 function generateCommandsPrompt(commands) {
   if (commands.length === 0) return "";
-  const table = buildCommandsTable(commands);
+  const entries = commands.map(getCommandPromptEntry).sort((a, b) => a.command.localeCompare(b.command));
+  const installedCommands = formatCodeList(entries.map((entry) => entry.command));
+  const installedFiles = formatCodeList(entries.map((entry) => entry.path));
   return `
 # \u{1F4CB} Slash Commands \u7D22\u5F15
 
-\u672C\u89C4\u5219\u5E93\u5305\u542B\u53EF\u6267\u884C\u7684 Slash Commands\uFF0C\u5DF2\u5B89\u88C5\u81F3 \`.codebuddy/commands/\`\u3002
+\u672C\u89C4\u5219\u5E93\u53EA\u4FDD\u7559\u5C11\u91CF\u9AD8\u9891\u547D\u4EE4\u4F5C\u4E3A\u77ED\u5165\u53E3\uFF1B\u8BE6\u7EC6\u53C2\u6570\u548C\u5B8C\u6574\u8BF4\u660E\u5DF2\u5916\u8FC1\u5230 \`.codebuddy/commands/README.md\`\u3002
 
-## \u5DF2\u5B89\u88C5\u547D\u4EE4
+## \u5FEB\u901F\u5165\u53E3
 
-${table}
+${buildCommandsSummaryTable(commands)}
 
-\u4F18\u5148\u8BFB\u53D6\u77ED\u5165\u53E3\uFF1A\`.codebuddy/commands/README.md\`\u3002
+\u5DF2\u5B89\u88C5\u547D\u4EE4\uFF1A${installedCommands}
 
-\u6309\u9700\u518D\u8BFB\u5177\u4F53\u547D\u4EE4\u6587\u4EF6\uFF1A
-- \u4EFB\u52A1\u95ED\u73AF\uFF1A\`.codebuddy/commands/task.md\`
-- Agent Call \u6587\u4EF6\u534F\u8BAE\uFF1A\`.codebuddy/commands/agent-call.md\`
+\u547D\u4EE4\u6587\u4EF6\uFF1A${installedFiles}
+
+\u5148\u8BFB README\uFF0C\u518D\u6309\u9700\u6253\u5F00\u5BF9\u5E94\u547D\u4EE4\u6587\u4EF6\uFF0C\u4E0D\u8981\u4E00\u6B21\u6027\u626B\u8BFB\u5168\u90E8 command \u8BF4\u660E\u3002
 `;
 }
 function generateCommandsReadme(commands) {
@@ -1354,19 +1435,19 @@ function generateScriptsReadme(scripts) {
 }
 function generateScriptsPrompt(scripts) {
   if (scripts.length === 0) return "";
-  const table = buildScriptsTable(scripts);
+  const sortedScripts = [...scripts].sort((a, b) => a.localeCompare(b));
   return `
 # \u{1F527} \u5DE5\u5177\u811A\u672C\u7D22\u5F15 (Scripts Index)
 
-\u672C\u89C4\u5219\u5E93\u5305\u542B\u53EF\u6267\u884C\u811A\u672C\uFF0C\u5DF2\u5B89\u88C5\u81F3 \`.codebuddy/scripts/\`\u3002
+\u672C\u89C4\u5219\u5E93\u7684\u811A\u672C\u7EC6\u8282\u5DF2\u5916\u8FC1\u5230 \`.codebuddy/scripts/README.md\`\uFF1B\u8FD9\u91CC\u4EC5\u4FDD\u7559\u9AD8\u9891\u5165\u53E3\u548C\u80FD\u529B\u5206\u7EC4\u3002
 
-## \u5DF2\u5B89\u88C5\u811A\u672C
+## \u5FEB\u901F\u5165\u53E3
 
-${table}
+${buildScriptsSummaryTable(sortedScripts)}
 
-\u5E38\u7528\u793A\u4F8B\u4E0E\u8BF4\u660E\u89C1 \`.codebuddy/scripts/README.md\`\u3002
+\u5DF2\u5B89\u88C5\u811A\u672C\uFF1A${formatCodeList(sortedScripts)}
 
-\u5206\u6790\u7C7B\u811A\u672C\u9ED8\u8BA4\u628A\u7ED3\u679C\u5199\u5165 \`.codebuddy/reports/\`\uFF0C\u4F18\u5148\u590D\u7528\u5DF2\u6709\u62A5\u544A\uFF0C\u518D\u51B3\u5B9A\u662F\u5426\u91CD\u8DD1\u3002
+\u5206\u6790\u7C7B\u811A\u672C\u9ED8\u8BA4\u628A\u7ED3\u679C\u5199\u5165 \`.codebuddy/reports/\`\u3002\u4F18\u5148\u5148\u770B README\uFF0C\u518D\u6309\u9700\u8BFB\u53D6\u5177\u4F53\u811A\u672C\u5E2E\u52A9\u3002
 `;
 }
 function generateQuickActionGuide() {

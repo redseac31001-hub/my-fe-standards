@@ -175,6 +175,10 @@ Skill Validator - Skills \u57FA\u7840\u6821\u9A8C
   --json                       \u8F93\u51FA JSON
   --strict                     \u5B58\u5728 error \u65F6 exit=1\uFF08\u9ED8\u8BA4\u4E5F\u662F\u5982\u6B64\uFF1B\u4FDD\u7559\u8BE5\u5F00\u5173\u4FBF\u4E8E\u5BF9\u9F50\u5176\u5B83\u811A\u672C\uFF09
   --help, -h                   \u663E\u793A\u5E2E\u52A9
+
+\u8BF4\u660E:
+  - \u9ED8\u8BA4\u9012\u5F52\u6821\u9A8C skill \u76EE\u5F55\u4E0B\u5168\u90E8 Markdown \u6587\u4EF6\u7684\u76F8\u5BF9\u94FE\u63A5
+  - \u6307\u5411 skill \u6839\u76EE\u5F55\u5916\u90E8\u7684\u76F8\u5BF9\u8DEF\u5F84\uFF0C\u9700\u7528 metadata.link_whitelist \u663E\u5F0F\u653E\u884C
 `.trim());
 }
 function readText(filePath) {
@@ -225,17 +229,163 @@ function listSkillDirs(skillsDir) {
     return [];
   }
 }
-function parseMarkdownLinks(markdown) {
-  const urls = [];
-  const re = /\[[^\]]*?\]\(([^)]+)\)/g;
-  let m;
-  while (m = re.exec(markdown)) {
-    const raw = m[1].trim();
-    if (!raw) continue;
-    const url = raw.split(/\s+/)[0];
-    urls.push(url);
+function isSubPath(parentDir, childPath) {
+  const rel = path.relative(parentDir, childPath);
+  return rel === "" || !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+function listMarkdownFiles(rootDir) {
+  const files = [];
+  const queue = [rootDir];
+  const ignoredDirNames = /* @__PURE__ */ new Set([".git", "node_modules", "__pycache__"]);
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (ignoredDirNames.has(entry.name)) continue;
+        queue.push(path.join(current, entry.name));
+        continue;
+      }
+      if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+        files.push(path.join(current, entry.name));
+      }
+    }
   }
-  return urls;
+  return files.sort((a, b) => a.localeCompare(b));
+}
+function stripMarkdownCode(markdown) {
+  return markdown.replace(/```[\s\S]*?```/g, (block) => block.replace(/[^\n]/g, " ")).replace(/~~~[\s\S]*?~~~/g, (block) => block.replace(/[^\n]/g, " ")).replace(/`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
+}
+function countLineAtOffset(text, offset) {
+  let line = 1;
+  for (let i = 0; i < offset; i++) {
+    if (text.charCodeAt(i) === 10) line++;
+  }
+  return line;
+}
+function parseMarkdownLinks(markdown) {
+  const links = [];
+  const sanitized = stripMarkdownCode(markdown);
+  const re = /!?\[([^\]\n]*?)\]\(([^)\n]+)\)/g;
+  let m;
+  while (m = re.exec(sanitized)) {
+    if (m[0].startsWith("!")) continue;
+    const destination = splitMarkdownLinkDestination(m[2]);
+    if (!destination.target) continue;
+    links.push({
+      text: m[1].trim(),
+      target: destination.target,
+      title: destination.title,
+      line: countLineAtOffset(sanitized, m.index)
+    });
+  }
+  return links;
+}
+function splitMarkdownLinkDestination(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return { target: "", title: null };
+  if (trimmed.startsWith("<")) {
+    const closing = trimmed.indexOf(">");
+    if (closing > 0) {
+      const target = trimmed.slice(1, closing).trim();
+      const title = trimmed.slice(closing + 1).trim();
+      return { target, title: title || null };
+    }
+  }
+  const match = trimmed.match(/^(\S+)(?:\s+(?:"([^"]*)"|'([^']*)'|\(([^)]*)\)))?$/);
+  if (!match) {
+    return { target: trimmed, title: null };
+  }
+  return {
+    target: match[1].trim(),
+    title: (match[2] ?? match[3] ?? match[4] ?? "").trim() || null
+  };
+}
+function normalizeLocalMarkdownTarget(target) {
+  let normalized = target.trim();
+  const hashIndex = normalized.indexOf("#");
+  if (hashIndex >= 0) normalized = normalized.slice(0, hashIndex);
+  const queryIndex = normalized.indexOf("?");
+  if (queryIndex >= 0) normalized = normalized.slice(0, queryIndex);
+  return normalized.trim();
+}
+function normalizeWhitelistEntry(value) {
+  return toPosixPath(value.trim()).replace(/^\.\//, "");
+}
+function parseLinkWhitelist(frontmatter) {
+  const metadataBlock = extractYamlSection(frontmatter, "metadata");
+  if (!metadataBlock) return [];
+  return parseYamlList(metadataBlock, "link_whitelist", 2).map(normalizeWhitelistEntry).filter(Boolean);
+}
+function isWhitelistedRelativePath(relativeTarget, whitelist) {
+  const normalizedTarget = normalizeWhitelistEntry(relativeTarget);
+  return whitelist.some((rule) => {
+    const normalizedRule = normalizeWhitelistEntry(rule);
+    if (!normalizedRule) return false;
+    if (normalizedRule.endsWith("/")) {
+      const prefix = normalizedRule.slice(0, -1);
+      return normalizedTarget === prefix || normalizedTarget.startsWith(normalizedRule);
+    }
+    return normalizedTarget === normalizedRule;
+  });
+}
+function formatLinkLabel(link) {
+  if (link.text) return `"${link.text}"`;
+  if (link.title) return `"${link.title}"`;
+  return link.target;
+}
+function validateMarkdownFile(skillId, skillDir, filePath, whitelist) {
+  const issues = [];
+  const relativeFile = toPosixPath(path.relative(process.cwd(), filePath));
+  const read = readText(filePath);
+  if (!read.ok) {
+    issues.push({ level: "error", skillId, file: relativeFile, message: `\u8BFB\u53D6\u5931\u8D25: ${read.error}` });
+    return { issues, checkedLinkCount: 0 };
+  }
+  const raw = read.data;
+  const backtickFenceCount = raw.match(/^```/gm)?.length ?? 0;
+  if (backtickFenceCount % 2 !== 0) {
+    issues.push({ level: "error", skillId, file: relativeFile, message: "\u5B58\u5728\u672A\u95ED\u5408\u7684\u4EE3\u7801\u5757\uFF08``` \u6570\u91CF\u4E3A\u5947\u6570\uFF09" });
+  }
+  const tildeFenceCount = raw.match(/^~~~/gm)?.length ?? 0;
+  if (tildeFenceCount % 2 !== 0) {
+    issues.push({ level: "error", skillId, file: relativeFile, message: "\u5B58\u5728\u672A\u95ED\u5408\u7684\u4EE3\u7801\u5757\uFF08~~~ \u6570\u91CF\u4E3A\u5947\u6570\uFF09" });
+  }
+  const links = parseMarkdownLinks(raw);
+  for (const link of links) {
+    const localTarget = normalizeLocalMarkdownTarget(link.target);
+    if (!localTarget || isSkippableLink(localTarget)) continue;
+    if (localTarget.startsWith("/")) continue;
+    if (path.isAbsolute(localTarget)) continue;
+    const resolved = path.resolve(path.dirname(filePath), localTarget);
+    if (!fs.existsSync(resolved)) {
+      issues.push({
+        level: "error",
+        skillId,
+        file: relativeFile,
+        message: `\u7B2C ${link.line} \u884C\u94FE\u63A5 ${formatLinkLabel(link)} \u76EE\u6807\u4E0D\u5B58\u5728: ${localTarget}`
+      });
+      continue;
+    }
+    if (!isSubPath(skillDir, resolved)) {
+      const escapedRelativePath = normalizeWhitelistEntry(toPosixPath(path.relative(skillDir, resolved)));
+      if (!isWhitelistedRelativePath(escapedRelativePath, whitelist)) {
+        issues.push({
+          level: "error",
+          skillId,
+          file: relativeFile,
+          message: `\u7B2C ${link.line} \u884C\u94FE\u63A5 ${formatLinkLabel(link)} \u6307\u5411 skill \u76EE\u5F55\u5916\u90E8: ${escapedRelativePath}\uFF08\u53EF\u7528 metadata.link_whitelist \u663E\u5F0F\u653E\u884C\uFF09`
+        });
+      }
+    }
+  }
+  return { issues, checkedLinkCount: links.length };
 }
 function isSkippableLink(url) {
   if (url.startsWith("#")) return true;
@@ -250,18 +400,18 @@ function validateSkillDir(skillId, skillDir) {
   const relSkillFile = toPosixPath(path.relative(process.cwd(), skillFile));
   if (!fs.existsSync(skillFile)) {
     issues.push({ level: "error", skillId, file: toPosixPath(path.relative(process.cwd(), skillDir)), message: "\u7F3A\u5C11 SKILL.md" });
-    return { issues, checkedFileCount: 0 };
+    return { issues, checkedFileCount: 0, checkedLinkCount: 0 };
   }
   const read = readText(skillFile);
   if (!read.ok) {
     issues.push({ level: "error", skillId, file: relSkillFile, message: `\u8BFB\u53D6\u5931\u8D25: ${read.error}` });
-    return { issues, checkedFileCount: 1 };
+    return { issues, checkedFileCount: 1, checkedLinkCount: 0 };
   }
   const raw = read.data;
   const fm = parseFrontmatterBlock(raw);
   if (!fm.ok) {
     issues.push({ level: "error", skillId, file: relSkillFile, message: fm.error });
-    return { issues, checkedFileCount: 1 };
+    return { issues, checkedFileCount: 1, checkedLinkCount: 0 };
   }
   const frontmatter = fm.frontmatter;
   const name = (extractYamlScalar(frontmatter, "name") ?? "").trim();
@@ -291,7 +441,17 @@ function validateSkillDir(skillId, skillDir) {
   const metadataBlock = extractYamlSection(frontmatter, "metadata");
   if (metadataBlock) {
     const metadataKeys = listYamlKeys(metadataBlock, 2);
-    const allowedMetadataKeys = /* @__PURE__ */ new Set(["triggers", "tools", "related", "languages", "frameworks", "roles", "scenarios", "workspace_scope"]);
+    const allowedMetadataKeys = /* @__PURE__ */ new Set([
+      "triggers",
+      "tools",
+      "related",
+      "languages",
+      "frameworks",
+      "roles",
+      "scenarios",
+      "workspace_scope",
+      "link_whitelist"
+    ]);
     for (const key of metadataKeys) {
       if (!allowedMetadataKeys.has(key)) {
         issues.push({
@@ -313,20 +473,15 @@ function validateSkillDir(skillId, skillDir) {
       }
     }
   }
-  const fenceMatches = raw.match(/^```/gm) ?? [];
-  if (fenceMatches.length % 2 !== 0) {
-    issues.push({ level: "error", skillId, file: relSkillFile, message: "\u5B58\u5728\u672A\u95ED\u5408\u7684\u4EE3\u7801\u5757\uFF08``` \u6570\u91CF\u4E3A\u5947\u6570\uFF09" });
+  const whitelist = parseLinkWhitelist(frontmatter);
+  const markdownFiles = listMarkdownFiles(skillDir);
+  let checkedLinkCount = 0;
+  for (const markdownFile of markdownFiles) {
+    const result = validateMarkdownFile(skillId, skillDir, markdownFile, whitelist);
+    checkedLinkCount += result.checkedLinkCount;
+    issues.push(...result.issues);
   }
-  const urls = parseMarkdownLinks(raw);
-  for (const url of urls) {
-    if (isSkippableLink(url)) continue;
-    if (url.startsWith("/")) continue;
-    const resolved = path.resolve(skillDir, url);
-    if (!fs.existsSync(resolved)) {
-      issues.push({ level: "warning", skillId, file: relSkillFile, message: `\u94FE\u63A5\u76EE\u6807\u4E0D\u5B58\u5728: ${url}` });
-    }
-  }
-  return { issues, checkedFileCount: 1 };
+  return { issues, checkedFileCount: markdownFiles.length, checkedLinkCount };
 }
 function main() {
   const parsed = parseCli(process.argv.slice(2));
@@ -355,10 +510,12 @@ function main() {
   const skillDirs = listSkillDirs(skillsDir);
   const issues = [];
   let checkedFileCount = 0;
+  let checkedLinkCount = 0;
   for (const skillId of skillDirs) {
     const abs = path.join(skillsDir, skillId);
     const res = validateSkillDir(skillId, abs);
     checkedFileCount += res.checkedFileCount;
+    checkedLinkCount += res.checkedLinkCount;
     issues.push(...res.issues);
   }
   const errorCount = issues.filter((i) => i.level === "error").length;
@@ -368,6 +525,7 @@ function main() {
     skillsDir: toPosixPath(path.relative(process.cwd(), skillsDir) || "."),
     checkedSkillCount: skillDirs.length,
     checkedFileCount,
+    checkedLinkCount,
     issueCount: issues.length,
     errorCount,
     warningCount,
@@ -378,7 +536,7 @@ function main() {
   } else {
     console.log(`[skill-validator] root: ${payload.skillsDir}`);
     console.log(
-      `[skill-validator] checked skills: ${payload.checkedSkillCount}, files: ${payload.checkedFileCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`
+      `[skill-validator] checked skills: ${payload.checkedSkillCount}, files: ${payload.checkedFileCount}, links: ${payload.checkedLinkCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`
     );
     for (const it of issues) {
       const prefix = it.level === "error" ? "ERROR" : "WARN";

@@ -1236,6 +1236,7 @@ function runTestCase(testCase) {
   const outputFile = path.join(outputDir, 'project-rules.md');
   const scriptsDir = path.join(projectDir, '.codebuddy', 'scripts');
   const scriptsPackageFile = path.join(scriptsDir, 'package.json');
+  const scriptsReadmeFile = path.join(scriptsDir, 'README.md');
   const contractValidatorFile = path.join(scriptsDir, 'contract-validator.js');
   const ruleValidatorFile = path.join(scriptsDir, 'rule-validator.js');
   const skillValidatorFile = path.join(scriptsDir, 'skill-validator.js');
@@ -1253,6 +1254,12 @@ function runTestCase(testCase) {
   const agentCallCommandFile = path.join(commandsDir, 'agent-call.md');
   const agentCallsDir = path.join(projectDir, '.codebuddy', 'agent-calls');
   const agentCallSchemaFile = path.join(agentCallsDir, 'agent-call.schema.json');
+  const skillValidatorFixtureRoot = path.join(projectDir, '.codebuddy', 'tmp-skill-validator');
+  const skillValidatorSharedDir = path.join(skillValidatorFixtureRoot, 'shared');
+  const skillValidatorInvalidRoot = path.join(skillValidatorFixtureRoot, 'invalid-root');
+  const skillValidatorValidRoot = path.join(skillValidatorFixtureRoot, 'valid-root');
+  const skillValidatorInvalidSkillDir = path.join(skillValidatorInvalidRoot, 'invalid-skill');
+  const skillValidatorValidSkillDir = path.join(skillValidatorValidRoot, 'valid-skill');
 
   log(`\n${colors.bold}濠电姷鏁告慨鐑藉极閹间礁纾婚柣鎰▕閻掕姤绻涢崱妯绘儎闁轰礁瀚伴弻娑㈩敃閻樻彃濮曢梺? ${testCase.name}${colors.reset}`);
   log(`闂傚倸鍊搁崐鐑芥嚄閸洖纾块柣銏㈩焾閻ら箖鏌嶉崫鍕櫣缂佹劖顨婇弻鈥愁吋鎼粹€茬敖缂備讲鍋? ${projectDir}`);
@@ -1286,6 +1293,17 @@ function runTestCase(testCase) {
       return false;
     }
     logSuccess('scripts package.json passed');
+
+    if (!fs.existsSync(scriptsReadmeFile)) {
+      logError(`scripts README missing: ${scriptsReadmeFile}`);
+      return false;
+    }
+    const scriptsReadme = fs.readFileSync(scriptsReadmeFile, 'utf-8');
+    if (!scriptsReadme.includes('CodeBuddy 工具脚本') || !scriptsReadme.includes('structure-analyzer.js')) {
+      logError(`scripts README content invalid: ${scriptsReadmeFile}`);
+      return false;
+    }
+    logSuccess('scripts: README.md');
 
     if (!fs.existsSync(ruleValidatorFile)) {
       logError(`rule-validator 闂傚倸鍊搁崐鐑芥嚄閸洖鍌ㄧ憸鏃堝箖濞差亜惟鐟滃秹寮搁崼鈶╁亾楠炲灝鍔氶柟閿嬪灴閹虫捇宕稿Δ浣哄幗濠德板€愰崑鎾绘煟濡も偓缁绘﹢宕洪姀銈呯睄闁稿本顨呮禍鐐殽閻愯尙浠㈤柛鏃€宀搁弻鐔兼惞椤愩垹顫掑Δ鐘靛仦椤ㄥ﹪骞冮埡鍐＜婵☆垳鍘ч獮? ${ruleValidatorFile}`);
@@ -1345,6 +1363,12 @@ function runTestCase(testCase) {
     }
     logSuccess('闂傚倷娴囬褍顫濋敃鍌︾稏濠㈣埖鍔栭崑銈夋煛閸मो晛小闁绘帒锕ョ换娑㈠幢濡纰嶉梺鍝勵儎缁舵岸寮婚悢鐓庣闁逛即娼у▓顓犵磽?commands: README.md');
 
+    const commandsReadme = fs.readFileSync(commandsReadmeFile, 'utf-8');
+    if (!commandsReadme.includes('CodeBuddy Slash Commands') || !commandsReadme.includes('/task') || !commandsReadme.includes('/agent-call')) {
+      logError(`commands README content invalid: ${commandsReadmeFile}`);
+      return false;
+    }
+
     if (!fs.existsSync(agentCallSchemaFile)) {
       logError(`agent-call schema 闂傚倸鍊搁崐椋庣矆娓氣偓楠炴牠顢曢敃鈧壕鍦磼鐎ｎ偓绱╂繛宸簼閺呮煡鏌涘☉鍙樼凹闁诲骸顭峰娲濞戙垻宕紓浣介哺濞茬喖宕洪姀銈呯睄闁稿本顨呮禍鐐殽閻愯尙浠㈤柛鏃€宀搁弻鐔兼惞椤愩垹顫掑Δ鐘靛仦椤ㄥ﹪骞冮埡鍐＜婵☆垳鍘ч獮? ${agentCallSchemaFile}`);
       return false;
@@ -1360,6 +1384,19 @@ function runTestCase(testCase) {
     }
     if (!content.includes('## 第三步：Skill 分类路由（单次操作）')) {
       logError('generated prompt missing grouped Skill routing section');
+      allPassed = false;
+    }
+
+    if (!content.includes('.codebuddy/scripts/README.md') || !content.includes('.codebuddy/commands/README.md')) {
+      logError('generated prompt missing README pointers for scripts/commands');
+      allPassed = false;
+    }
+    if (!content.includes('| 场景 | 首选入口 | 覆盖脚本 |')) {
+      logError('generated prompt missing grouped script summary table');
+      allPassed = false;
+    }
+    if (content.includes('| 脚本 | 路径 | 说明 | 用法 |') || content.includes('| 命令 | 路径 | 说明 | 示例 |')) {
+      logError('generated prompt should not embed full script/command detail tables');
       allPassed = false;
     }
 
@@ -1485,6 +1522,87 @@ function runTestCase(testCase) {
       allPassed = false;
     }
 
+    try {
+      fs.rmSync(skillValidatorFixtureRoot, { recursive: true, force: true });
+      fs.mkdirSync(skillValidatorSharedDir, { recursive: true });
+      fs.writeFileSync(path.join(skillValidatorSharedDir, 'shared-guide.md'), '# Shared Guide\n', 'utf-8');
+
+      fs.mkdirSync(path.join(skillValidatorInvalidSkillDir, 'references'), { recursive: true });
+      fs.writeFileSync(path.join(skillValidatorInvalidSkillDir, 'SKILL.md'), `---
+name: invalid-skill
+description: Validate that cross-root links without whitelist fail.
+---
+
+# Invalid Skill
+
+## Routing
+
+- Read [references/extra.md](references/extra.md)
+`, 'utf-8');
+      fs.writeFileSync(path.join(skillValidatorInvalidSkillDir, 'references', 'extra.md'), `# Extra
+
+Use [Shared guide](../../../shared/shared-guide.md "Shared reference") before continuing.
+`, 'utf-8');
+
+      fs.mkdirSync(path.join(skillValidatorValidSkillDir, 'references'), { recursive: true });
+      fs.writeFileSync(path.join(skillValidatorValidSkillDir, 'SKILL.md'), `---
+name: valid-skill
+description: Validate that whitelist-based cross-root links pass.
+metadata:
+  link_whitelist:
+    - ../../shared/
+---
+
+# Valid Skill
+
+## Routing
+
+- Read [references/extra.md](references/extra.md)
+`, 'utf-8');
+      fs.writeFileSync(path.join(skillValidatorValidSkillDir, 'references', 'extra.md'), `# Extra
+
+Use [Shared guide](../../../shared/shared-guide.md "Shared reference") before continuing.
+`, 'utf-8');
+
+      let invalidFixtureReport = null;
+      let invalidFixtureRaw = '';
+      try {
+        invalidFixtureRaw = execSync('node ".codebuddy/scripts/skill-validator.js" check --dir ".codebuddy/tmp-skill-validator/invalid-root" --json', {
+          cwd: projectDir,
+          stdio: 'pipe',
+          encoding: 'utf-8',
+        });
+        throw new Error(`skill-validator fixture should have failed: ${invalidFixtureRaw.slice(0, 1200)}`);
+      } catch (error) {
+        invalidFixtureRaw = String(error && error.stdout ? error.stdout : '');
+        invalidFixtureReport = invalidFixtureRaw ? JSON.parse(invalidFixtureRaw) : null;
+      }
+      if (invalidFixtureReport.ok !== false || (invalidFixtureReport.errorCount || 0) < 1) {
+        throw new Error(`skill-validator fixture should fail for cross-root link: ${invalidFixtureRaw.slice(0, 1200)}`);
+      }
+      if (!Array.isArray(invalidFixtureReport.issues) || !invalidFixtureReport.issues.some(issue => String(issue.message || '').includes('Shared guide'))) {
+        throw new Error(`skill-validator fixture should report link title in diagnostics: ${invalidFixtureRaw.slice(0, 1200)}`);
+      }
+
+      const validFixtureRaw = execSync('node ".codebuddy/scripts/skill-validator.js" check --dir ".codebuddy/tmp-skill-validator/valid-root" --json', {
+        cwd: projectDir,
+        stdio: 'pipe',
+        encoding: 'utf-8',
+      });
+      const validFixtureReport = JSON.parse(validFixtureRaw);
+      if (!validFixtureReport.ok || (validFixtureReport.errorCount || 0) !== 0) {
+        throw new Error(`skill-validator whitelist fixture should pass: ${validFixtureRaw.slice(0, 1200)}`);
+      }
+      if ((validFixtureReport.checkedFileCount || 0) < 2) {
+        throw new Error(`skill-validator should scan nested markdown files: ${validFixtureRaw.slice(0, 1200)}`);
+      }
+
+      logSuccess('skill-validator link integrity fixtures passed');
+    } catch (e) {
+      logError(`skill-validator fixture E2E 婵犵數濮烽弫鍛婃叏娴兼潙鍨傛繛宸簻绾惧潡鏌ゅù瀣珔闁搞劍绻堥弻娑㈠箻濡も偓鐎氼剟寮? ${e.message}`);
+      allPassed = false;
+    }
+
     if (PYTHON_RUNNER) {
       try {
         const installState = readInstallState(projectDir);
@@ -1496,6 +1614,17 @@ function runTestCase(testCase) {
         const packageScript = path.join(skillScriptsDir, 'package_skill.py');
 
         fs.rmSync(distDir, { recursive: true, force: true });
+        let invalidQuickValidateFailed = false;
+        try {
+          runPythonScript(PYTHON_RUNNER, quickValidateScript, [skillValidatorInvalidSkillDir], { cwd: projectDir });
+        } catch (error) {
+          invalidQuickValidateFailed = String(error && error.message ? error.message : error).includes('outside skill root');
+        }
+        if (!invalidQuickValidateFailed) {
+          throw new Error('quick_validate should fail for cross-root links without metadata.link_whitelist');
+        }
+
+        runPythonScript(PYTHON_RUNNER, quickValidateScript, [skillValidatorValidSkillDir], { cwd: projectDir });
         runPythonScript(PYTHON_RUNNER, quickValidateScript, [targetSkillDir], { cwd: projectDir });
         runPythonScript(PYTHON_RUNNER, packageScript, [targetSkillDir, distDir], { cwd: projectDir });
 

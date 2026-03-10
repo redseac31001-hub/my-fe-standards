@@ -1,0 +1,23 @@
+{
+  "runtimeRoot": "temp/business-fixtures",
+  "defaultFixture": "vue3-remote-smoke",
+  "fixtures": {
+    "vue3-remote-smoke": {
+      "description": "Vue 3 single-app fixture used to stage a realistic business-project shadow copy into temp and verify remote loading + orchestrator smoke.",
+      "sourceDir": "test/fixtures/business-projects/vue3-remote-smoke",
+      "loaderArgs": [
+        "--enable-orchestrator"
+      ],
+      "expectedFiles": [
+        ".codebuddy/rules/project-rules.md",
+        ".codebuddy/install.json",
+        ".codebuddy/scripts/contract-validator.js",
+        ".codebuddy/scripts/README.md",
+        ".codebuddy/scripts/task-orchestrator.js",
+        ".codebuddy/commands/README.md",
+        ".codebuddy/workflows/default.workflow.json",
+        ".codebuddy/taskbooks/taskbook.schema.json"
+      ]
+    }
+  }
+}

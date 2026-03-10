@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-03-09T01:55:33.198Z",
+  "generatedAt": "2026-03-10T01:55:37.455Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -704,16 +704,22 @@
       "mtime": "2026-03-08T10:21:07.300Z"
     },
     {
+      "path": "custom-skills/skill-creator/assets/minimal-skill-template/SKILL.md",
+      "name": "SKILL",
+      "size": 1096,
+      "mtime": "2026-03-09T02:44:10.503Z"
+    },
+    {
       "path": "custom-skills/skill-creator/references/creation-lifecycle.md",
       "name": "creation-lifecycle",
-      "size": 1318,
-      "mtime": "2026-03-06T05:52:02.114Z"
+      "size": 1419,
+      "mtime": "2026-03-09T02:42:23.145Z"
     },
     {
       "path": "custom-skills/skill-creator/references/foundations.md",
       "name": "foundations",
-      "size": 1128,
-      "mtime": "2026-03-08T10:23:02.010Z"
+      "size": 1404,
+      "mtime": "2026-03-09T02:42:23.147Z"
     },
     {
       "path": "custom-skills/skill-creator/references/host-metadata.md",
@@ -734,6 +740,12 @@
       "mtime": "2026-03-06T05:52:02.112Z"
     },
     {
+      "path": "custom-skills/skill-creator/references/release-workflow.md",
+      "name": "release-workflow",
+      "size": 1461,
+      "mtime": "2026-03-09T02:42:23.151Z"
+    },
+    {
       "path": "custom-skills/skill-creator/references/workflows.md",
       "name": "workflows",
       "size": 839,
@@ -742,14 +754,14 @@
     {
       "path": "custom-skills/skill-creator/SKILL.md",
       "name": "SKILL",
-      "size": 2339,
-      "mtime": "2026-03-08T10:21:07.300Z"
+      "size": 2598,
+      "mtime": "2026-03-09T02:42:23.144Z"
     },
     {
       "path": "custom-skills/skills-index.md",
       "name": "skills-index",
-      "size": 4729,
-      "mtime": "2026-03-08T10:23:14.220Z"
+      "size": 4988,
+      "mtime": "2026-03-09T02:43:57.274Z"
     },
     {
       "path": "custom-skills/state-management/references/migration-and-testing.md",
@@ -991,43 +1003,43 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "d6303599c1d629c108f6f603a4adb0df64f24c0032de4fb8f2feaee1c9146730",
-      "size": 578967,
-      "entryCount": 128,
-      "generatedAt": "2026-03-09T01:55:33.054Z"
+      "sha256": "6d74b0ec4aab159ca20af939d948a4907362aa31d8c616d92c3138852b8d0c66",
+      "size": 589441,
+      "entryCount": 130,
+      "generatedAt": "2026-03-10T01:55:37.329Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "a2f92efd4385fbd17776bbc25b61ef084c3cd26d9761bb6afffc80b0444dd53c",
-      "size": 820713,
-      "entryCount": 131,
-      "generatedAt": "2026-03-09T01:55:33.087Z"
+      "sha256": "a351125a34afc3bef4b6007414f368cb43e99e896a805b4e714288d8859463cf",
+      "size": 831187,
+      "entryCount": 133,
+      "generatedAt": "2026-03-10T01:55:37.359Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "5c0003f81f2470fffda9b001ef57ea4fceff03dac3e88c92da4bd25a077e52e4",
-      "size": 1301016,
-      "entryCount": 142,
-      "generatedAt": "2026-03-09T01:55:33.130Z"
+      "sha256": "23ecb69693fd33a1d862672c34b7036f7b8af678b2756e2389ac64086b2d3525",
+      "size": 1311490,
+      "entryCount": 144,
+      "generatedAt": "2026-03-10T01:55:37.398Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "7d8c6965448463957aa64571c7d4a0cc2953f54ec1833c45be5194811f03ab3d",
-      "size": 1316881,
-      "entryCount": 143,
-      "generatedAt": "2026-03-09T01:55:33.181Z"
+      "sha256": "2b83257868492c5708bec59939c6ef69cf3afd2acd93fce9c1c9528f8eca793b",
+      "size": 1327355,
+      "entryCount": 145,
+      "generatedAt": "2026-03-10T01:55:37.441Z"
     }
   },
   "stats": {
-    "totalFiles": 129,
+    "totalFiles": 131,
     "ruleFiles": 22,
-    "skillFiles": 77,
+    "skillFiles": 79,
     "agentFiles": 25,
     "workflowFiles": 3,
     "taskbookFiles": 2

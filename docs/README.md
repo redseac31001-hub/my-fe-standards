@@ -18,6 +18,7 @@
 - [Handoff](./guides/HANDOFF.md)
 - [Private Deployment Guide](./guides/private-deployment-guide.md)
 - [Remote Usage Guide](./guides/remote-usage-guide.md)
+- [Local Business Fixture Smoke](./guides/local-business-fixture-smoke.md)
 - [E2E Validation Playbook](./guides/e2e-validation-playbook.md)
 - [Workflows Guide](./guides/workflows-guide.md)
 - [Agent Call Remote](./guides/agent-call-remote.md)

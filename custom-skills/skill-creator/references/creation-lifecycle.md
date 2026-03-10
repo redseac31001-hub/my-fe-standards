@@ -50,7 +50,7 @@ python scripts/quick_validate.py <skill-folder>
 python scripts/package_skill.py <skill-folder>
 ```
 
-如果有脚本，至少跑一组代表性输入。
+如果有脚本，至少跑一组代表性输入。发布前再按 [release-workflow.md](release-workflow.md) 走一次仓库级校验和索引更新。
 
 ## 7. Iterate
 

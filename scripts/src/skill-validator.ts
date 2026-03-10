@@ -25,6 +25,13 @@ type Issue = {
   message: string;
 };
 
+type MarkdownLink = {
+  text: string;
+  target: string;
+  title: string | null;
+  line: number;
+};
+
 type ParsedCli = {
   command: string | null;
   positionals: string[];
@@ -90,6 +97,10 @@ Skill Validator - Skills 基础校验
   --json                       输出 JSON
   --strict                     存在 error 时 exit=1（默认也是如此；保留该开关便于对齐其它脚本）
   --help, -h                   显示帮助
+
+说明:
+  - 默认递归校验 skill 目录下全部 Markdown 文件的相对链接
+  - 指向 skill 根目录外部的相对路径，需用 metadata.link_whitelist 显式放行
 `.trim());
 }
 
@@ -157,17 +168,198 @@ function listSkillDirs(skillsDir: string): string[] {
   }
 }
 
-function parseMarkdownLinks(markdown: string): string[] {
-  const urls: string[] = [];
-  const re = /\[[^\]]*?\]\(([^)]+)\)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(markdown))) {
-    const raw = m[1].trim();
-    if (!raw) continue;
-    const url = raw.split(/\s+/)[0]; // strip optional title
-    urls.push(url);
+function isSubPath(parentDir: string, childPath: string): boolean {
+  const rel = path.relative(parentDir, childPath);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function listMarkdownFiles(rootDir: string): string[] {
+  const files: string[] = [];
+  const queue = [rootDir];
+  const ignoredDirNames = new Set(['.git', 'node_modules', '__pycache__']);
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
+
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (ignoredDirNames.has(entry.name)) continue;
+        queue.push(path.join(current, entry.name));
+        continue;
+      }
+
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        files.push(path.join(current, entry.name));
+      }
+    }
   }
-  return urls;
+
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
+function stripMarkdownCode(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, block => block.replace(/[^\n]/g, ' '))
+    .replace(/~~~[\s\S]*?~~~/g, block => block.replace(/[^\n]/g, ' '))
+    .replace(/`[^`\n]*`/g, code => code.replace(/[^\n]/g, ' '));
+}
+
+function countLineAtOffset(text: string, offset: number): number {
+  let line = 1;
+  for (let i = 0; i < offset; i++) {
+    if (text.charCodeAt(i) === 10) line++;
+  }
+  return line;
+}
+
+function parseMarkdownLinks(markdown: string): MarkdownLink[] {
+  const links: MarkdownLink[] = [];
+  const sanitized = stripMarkdownCode(markdown);
+  const re = /!?\[([^\]\n]*?)\]\(([^)\n]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sanitized))) {
+    if (m[0].startsWith('!')) continue;
+    const destination = splitMarkdownLinkDestination(m[2]);
+    if (!destination.target) continue;
+    links.push({
+      text: m[1].trim(),
+      target: destination.target,
+      title: destination.title,
+      line: countLineAtOffset(sanitized, m.index),
+    });
+  }
+  return links;
+}
+
+function splitMarkdownLinkDestination(raw: string): { target: string; title: string | null } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { target: '', title: null };
+
+  if (trimmed.startsWith('<')) {
+    const closing = trimmed.indexOf('>');
+    if (closing > 0) {
+      const target = trimmed.slice(1, closing).trim();
+      const title = trimmed.slice(closing + 1).trim();
+      return { target, title: title || null };
+    }
+  }
+
+  const match = trimmed.match(/^(\S+)(?:\s+(?:"([^"]*)"|'([^']*)'|\(([^)]*)\)))?$/);
+  if (!match) {
+    return { target: trimmed, title: null };
+  }
+
+  return {
+    target: match[1].trim(),
+    title: (match[2] ?? match[3] ?? match[4] ?? '').trim() || null,
+  };
+}
+
+function normalizeLocalMarkdownTarget(target: string): string {
+  let normalized = target.trim();
+  const hashIndex = normalized.indexOf('#');
+  if (hashIndex >= 0) normalized = normalized.slice(0, hashIndex);
+  const queryIndex = normalized.indexOf('?');
+  if (queryIndex >= 0) normalized = normalized.slice(0, queryIndex);
+  return normalized.trim();
+}
+
+function normalizeWhitelistEntry(value: string): string {
+  return toPosixPath(value.trim()).replace(/^\.\//, '');
+}
+
+function parseLinkWhitelist(frontmatter: string): string[] {
+  const metadataBlock = extractYamlSection(frontmatter, 'metadata');
+  if (!metadataBlock) return [];
+  return parseYamlList(metadataBlock, 'link_whitelist', 2)
+    .map(normalizeWhitelistEntry)
+    .filter(Boolean);
+}
+
+function isWhitelistedRelativePath(relativeTarget: string, whitelist: string[]): boolean {
+  const normalizedTarget = normalizeWhitelistEntry(relativeTarget);
+  return whitelist.some(rule => {
+    const normalizedRule = normalizeWhitelistEntry(rule);
+    if (!normalizedRule) return false;
+    if (normalizedRule.endsWith('/')) {
+      const prefix = normalizedRule.slice(0, -1);
+      return normalizedTarget === prefix || normalizedTarget.startsWith(normalizedRule);
+    }
+    return normalizedTarget === normalizedRule;
+  });
+}
+
+function formatLinkLabel(link: MarkdownLink): string {
+  if (link.text) return `"${link.text}"`;
+  if (link.title) return `"${link.title}"`;
+  return link.target;
+}
+
+function validateMarkdownFile(
+  skillId: string,
+  skillDir: string,
+  filePath: string,
+  whitelist: string[]
+): { issues: Issue[]; checkedLinkCount: number } {
+  const issues: Issue[] = [];
+  const relativeFile = toPosixPath(path.relative(process.cwd(), filePath));
+  const read = readText(filePath);
+
+  if (!read.ok) {
+    issues.push({ level: 'error', skillId, file: relativeFile, message: `读取失败: ${read.error}` });
+    return { issues, checkedLinkCount: 0 };
+  }
+
+  const raw = read.data;
+  const backtickFenceCount = raw.match(/^```/gm)?.length ?? 0;
+  if (backtickFenceCount % 2 !== 0) {
+    issues.push({ level: 'error', skillId, file: relativeFile, message: '存在未闭合的代码块（``` 数量为奇数）' });
+  }
+  const tildeFenceCount = raw.match(/^~~~/gm)?.length ?? 0;
+  if (tildeFenceCount % 2 !== 0) {
+    issues.push({ level: 'error', skillId, file: relativeFile, message: '存在未闭合的代码块（~~~ 数量为奇数）' });
+  }
+
+  const links = parseMarkdownLinks(raw);
+  for (const link of links) {
+    const localTarget = normalizeLocalMarkdownTarget(link.target);
+    if (!localTarget || isSkippableLink(localTarget)) continue;
+    if (localTarget.startsWith('/')) continue; // treat absolute path as external to the skill package
+    if (path.isAbsolute(localTarget)) continue;
+
+    const resolved = path.resolve(path.dirname(filePath), localTarget);
+    if (!fs.existsSync(resolved)) {
+      issues.push({
+        level: 'error',
+        skillId,
+        file: relativeFile,
+        message: `第 ${link.line} 行链接 ${formatLinkLabel(link)} 目标不存在: ${localTarget}`,
+      });
+      continue;
+    }
+
+    if (!isSubPath(skillDir, resolved)) {
+      const escapedRelativePath = normalizeWhitelistEntry(toPosixPath(path.relative(skillDir, resolved)));
+      if (!isWhitelistedRelativePath(escapedRelativePath, whitelist)) {
+        issues.push({
+          level: 'error',
+          skillId,
+          file: relativeFile,
+          message: `第 ${link.line} 行链接 ${formatLinkLabel(link)} 指向 skill 目录外部: ${escapedRelativePath}（可用 metadata.link_whitelist 显式放行）`,
+        });
+      }
+    }
+  }
+
+  return { issues, checkedLinkCount: links.length };
 }
 
 function isSkippableLink(url: string): boolean {
@@ -178,27 +370,27 @@ function isSkippableLink(url: string): boolean {
   return false;
 }
 
-function validateSkillDir(skillId: string, skillDir: string): { issues: Issue[]; checkedFileCount: number } {
+function validateSkillDir(skillId: string, skillDir: string): { issues: Issue[]; checkedFileCount: number; checkedLinkCount: number } {
   const issues: Issue[] = [];
   const skillFile = path.join(skillDir, 'SKILL.md');
   const relSkillFile = toPosixPath(path.relative(process.cwd(), skillFile));
 
   if (!fs.existsSync(skillFile)) {
     issues.push({ level: 'error', skillId, file: toPosixPath(path.relative(process.cwd(), skillDir)), message: '缺少 SKILL.md' });
-    return { issues, checkedFileCount: 0 };
+    return { issues, checkedFileCount: 0, checkedLinkCount: 0 };
   }
 
   const read = readText(skillFile);
   if (!read.ok) {
     issues.push({ level: 'error', skillId, file: relSkillFile, message: `读取失败: ${read.error}` });
-    return { issues, checkedFileCount: 1 };
+    return { issues, checkedFileCount: 1, checkedLinkCount: 0 };
   }
 
   const raw = read.data;
   const fm = parseFrontmatter(raw);
   if (!fm.ok) {
     issues.push({ level: 'error', skillId, file: relSkillFile, message: fm.error });
-    return { issues, checkedFileCount: 1 };
+    return { issues, checkedFileCount: 1, checkedLinkCount: 0 };
   }
 
   const frontmatter = fm.frontmatter;
@@ -232,7 +424,17 @@ function validateSkillDir(skillId: string, skillDir: string): { issues: Issue[];
   const metadataBlock = extractYamlSection(frontmatter, 'metadata');
   if (metadataBlock) {
     const metadataKeys = listYamlKeys(metadataBlock, 2);
-    const allowedMetadataKeys = new Set(['triggers', 'tools', 'related', 'languages', 'frameworks', 'roles', 'scenarios', 'workspace_scope']);
+    const allowedMetadataKeys = new Set([
+      'triggers',
+      'tools',
+      'related',
+      'languages',
+      'frameworks',
+      'roles',
+      'scenarios',
+      'workspace_scope',
+      'link_whitelist',
+    ]);
     for (const key of metadataKeys) {
       if (!allowedMetadataKeys.has(key)) {
         issues.push({
@@ -256,25 +458,16 @@ function validateSkillDir(skillId: string, skillDir: string): { issues: Issue[];
     }
   }
 
-  // Code fences balanced.
-  const fenceMatches = raw.match(/^```/gm) ?? [];
-  if (fenceMatches.length % 2 !== 0) {
-    issues.push({ level: 'error', skillId, file: relSkillFile, message: '存在未闭合的代码块（``` 数量为奇数）' });
+  const whitelist = parseLinkWhitelist(frontmatter);
+  const markdownFiles = listMarkdownFiles(skillDir);
+  let checkedLinkCount = 0;
+  for (const markdownFile of markdownFiles) {
+    const result = validateMarkdownFile(skillId, skillDir, markdownFile, whitelist);
+    checkedLinkCount += result.checkedLinkCount;
+    issues.push(...result.issues);
   }
 
-  // Validate relative links (references/assets/scripts).
-  const urls = parseMarkdownLinks(raw);
-  for (const url of urls) {
-    if (isSkippableLink(url)) continue;
-    if (url.startsWith('/')) continue; // treat absolute path as external to the skill package
-
-    const resolved = path.resolve(skillDir, url);
-    if (!fs.existsSync(resolved)) {
-      issues.push({ level: 'warning', skillId, file: relSkillFile, message: `链接目标不存在: ${url}` });
-    }
-  }
-
-  return { issues, checkedFileCount: 1 };
+  return { issues, checkedFileCount: markdownFiles.length, checkedLinkCount };
 }
 
 function main(): void {
@@ -309,11 +502,13 @@ function main(): void {
   const skillDirs = listSkillDirs(skillsDir);
   const issues: Issue[] = [];
   let checkedFileCount = 0;
+  let checkedLinkCount = 0;
 
   for (const skillId of skillDirs) {
     const abs = path.join(skillsDir, skillId);
     const res = validateSkillDir(skillId, abs);
     checkedFileCount += res.checkedFileCount;
+    checkedLinkCount += res.checkedLinkCount;
     issues.push(...res.issues);
   }
 
@@ -325,6 +520,7 @@ function main(): void {
     skillsDir: toPosixPath(path.relative(process.cwd(), skillsDir) || '.'),
     checkedSkillCount: skillDirs.length,
     checkedFileCount,
+    checkedLinkCount,
     issueCount: issues.length,
     errorCount,
     warningCount,
@@ -336,7 +532,7 @@ function main(): void {
   } else {
     console.log(`[skill-validator] root: ${payload.skillsDir}`);
     console.log(
-      `[skill-validator] checked skills: ${payload.checkedSkillCount}, files: ${payload.checkedFileCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`
+      `[skill-validator] checked skills: ${payload.checkedSkillCount}, files: ${payload.checkedFileCount}, links: ${payload.checkedLinkCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`
     );
     for (const it of issues) {
       const prefix = it.level === 'error' ? 'ERROR' : 'WARN';

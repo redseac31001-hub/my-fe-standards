@@ -43,6 +43,12 @@ node scripts/dist/codebuddy-loader.js
 npm run remote
 ```
 
+### 本地业务夹具远程 Smoke
+
+```bash
+npm run smoke:business-remote
+```
+
 ### 全量回归
 
 ```bash
@@ -57,6 +63,7 @@ npm run build:release
 npm run codebuddy
 npm run remote
 npm run remote:full
+npm run smoke:business-remote
 node scripts/dist/codebuddy-loader.js --workspace-scope project-targeted --project mcp-server --role backend
 node scripts/dist/skill-validator.js check
 node test/run-tests.js
@@ -89,6 +96,7 @@ my-fe-standards/
 - [交接说明](./docs/guides/HANDOFF.md)
 - [私有化发布与业务安装指南](./docs/guides/private-deployment-guide.md)
 - [远程接入指南](./docs/guides/remote-usage-guide.md)
+- [本地业务夹具 Smoke](./docs/guides/local-business-fixture-smoke.md)
 - [E2E 验证方案](./docs/guides/e2e-validation-playbook.md)
 - [Workflow 使用指南](./docs/guides/workflows-guide.md)
 - [Agent Call 远程写回](./docs/guides/agent-call-remote.md)

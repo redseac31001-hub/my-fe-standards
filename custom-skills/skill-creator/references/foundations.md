@@ -41,6 +41,9 @@ skill-name/
 - `roles`
 - `scenarios`
 - `workspace_scope`
+- `link_whitelist`（仅在链接必须越出 skill 根目录时使用）
+
+`metadata.link_whitelist` 里的路径一律相对 skill 根目录书写。只有当 Markdown 链接确实需要引用 skill 包外部资源时才加，避免把外部依赖默默带进技能文档。
 
 ## What Not To Add
 

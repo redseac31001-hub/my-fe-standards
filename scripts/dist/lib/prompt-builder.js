@@ -226,24 +226,85 @@ function buildScriptsTable(scripts) {
     }
     return table;
 }
+function formatCodeList(values) {
+    return values.map(value => `\`${value}\``).join('、');
+}
+function buildCommandsSummaryTable(commands) {
+    const entries = commands
+        .map(getCommandPromptEntry)
+        .sort((a, b) => a.command.localeCompare(b.command));
+    let table = '| 场景 | 首选入口 | 说明 |\n|------|----------|------|\n';
+    for (const entry of entries) {
+        table += `| ${entry.description} | \`${entry.example}\` | 详情见 \`${entry.path}\` |\n`;
+    }
+    return table;
+}
+function buildScriptPromptGroups(scripts) {
+    const scriptSet = new Set(scripts);
+    const consumed = new Set();
+    const groups = [];
+    const addGroup = (title, summary, entry, files) => {
+        const present = files.filter(file => scriptSet.has(file));
+        if (present.length === 0)
+            return;
+        for (const file of present) {
+            consumed.add(file);
+        }
+        groups.push({
+            title,
+            summary,
+            entry,
+            files: present,
+        });
+    };
+    addGroup('结构分析', '先生成结构和模块边界，再决定是否继续深挖', 'node .codebuddy/scripts/structure-analyzer.js .', ['structure-analyzer.js', 'module-mapper.js']);
+    addGroup('报告查询', '优先复用已有报告，避免重复扫描', 'node .codebuddy/scripts/report-manager.js status', ['report-manager.js']);
+    addGroup('规则与契约校验', '规则、技能、TaskBook/Workflow 变更前先校验', 'node .codebuddy/scripts/contract-validator.js --workflows --taskbooks', ['rule-validator.js', 'skill-validator.js', 'contract-validator.js', 'agent-registry.js']);
+    addGroup('编排执行', '需要完整任务闭环时走编排入口', 'node .codebuddy/scripts/task-orchestrator.js "实现用户登录" --type new-feature', ['task-orchestrator.js', 'taskbook-manager.js', 'task-executor.js']);
+    addGroup('Agent Call 与上下文', '处理外部执行、上下文采集和结果写回', 'node .codebuddy/scripts/agent-call-manager.js list', ['agent-call-manager.js', 'reference-finder.js', 'context-collector.js']);
+    const remaining = [...scripts]
+        .filter(file => !consumed.has(file))
+        .sort((a, b) => a.localeCompare(b));
+    if (remaining.length > 0) {
+        groups.push({
+            title: '其他入口',
+            summary: '仅在上述入口不匹配时再按需读取',
+            entry: `node .codebuddy/scripts/${remaining[0]}`,
+            files: remaining,
+        });
+    }
+    return groups;
+}
+function buildScriptsSummaryTable(scripts) {
+    const groups = buildScriptPromptGroups(scripts);
+    let table = '| 场景 | 首选入口 | 覆盖脚本 |\n|------|----------|----------|\n';
+    for (const group of groups) {
+        table += `| ${group.title} | \`${group.entry}\` | ${formatCodeList(group.files)} |\n`;
+    }
+    return table;
+}
 function generateCommandsPrompt(commands) {
     if (commands.length === 0)
         return '';
-    const table = buildCommandsTable(commands);
+    const entries = commands
+        .map(getCommandPromptEntry)
+        .sort((a, b) => a.command.localeCompare(b.command));
+    const installedCommands = formatCodeList(entries.map(entry => entry.command));
+    const installedFiles = formatCodeList(entries.map(entry => entry.path));
     return `
 # 📋 Slash Commands 索引
 
-本规则库包含可执行的 Slash Commands，已安装至 \`.codebuddy/commands/\`。
+本规则库只保留少量高频命令作为短入口；详细参数和完整说明已外迁到 \`.codebuddy/commands/README.md\`。
 
-## 已安装命令
+## 快速入口
 
-${table}
+${buildCommandsSummaryTable(commands)}
 
-优先读取短入口：\`.codebuddy/commands/README.md\`。
+已安装命令：${installedCommands}
 
-按需再读具体命令文件：
-- 任务闭环：\`.codebuddy/commands/task.md\`
-- Agent Call 文件协议：\`.codebuddy/commands/agent-call.md\`
+命令文件：${installedFiles}
+
+先读 README，再按需打开对应命令文件，不要一次性扫读全部 command 说明。
 `;
 }
 function generateCommandsReadme(commands) {
@@ -308,19 +369,19 @@ function generateScriptsReadme(scripts) {
 function generateScriptsPrompt(scripts) {
     if (scripts.length === 0)
         return '';
-    const table = buildScriptsTable(scripts);
+    const sortedScripts = [...scripts].sort((a, b) => a.localeCompare(b));
     return `
 # 🔧 工具脚本索引 (Scripts Index)
 
-本规则库包含可执行脚本，已安装至 \`.codebuddy/scripts/\`。
+本规则库的脚本细节已外迁到 \`.codebuddy/scripts/README.md\`；这里仅保留高频入口和能力分组。
 
-## 已安装脚本
+## 快速入口
 
-${table}
+${buildScriptsSummaryTable(sortedScripts)}
 
-常用示例与说明见 \`.codebuddy/scripts/README.md\`。
+已安装脚本：${formatCodeList(sortedScripts)}
 
-分析类脚本默认把结果写入 \`.codebuddy/reports/\`，优先复用已有报告，再决定是否重跑。
+分析类脚本默认把结果写入 \`.codebuddy/reports/\`。优先先看 README，再按需读取具体脚本帮助。
 `;
 }
 function generateQuickActionGuide() {

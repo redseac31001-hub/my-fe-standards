@@ -1,6 +1,6 @@
 # Skills Index
 
-> Updated: 2026-03-08
+> Updated: 2026-03-09
 > Scope: current `custom-skills/` inventory, routing, and maintenance conventions
 
 This file is the current entry point for the repository's custom skills. Use each skill's `SKILL.md` and bundled `references/`, `scripts/`, and `assets/` for execution details.
@@ -93,6 +93,7 @@ Recommended `metadata` keys:
 - `roles`
 - `scenarios`
 - `workspace_scope`
+- `link_whitelist` (only for intentional links outside the skill root)
 
 ### Keep host wording neutral
 
@@ -136,6 +137,11 @@ Get-ChildItem custom-skills -Directory | ForEach-Object {
   }
 }
 ```
+
+Release references:
+
+- Minimal template: `custom-skills/skill-creator/assets/minimal-skill-template/SKILL.md`
+- Release flow: `custom-skills/skill-creator/references/release-workflow.md`
 
 ## Relationship to Agents
 
