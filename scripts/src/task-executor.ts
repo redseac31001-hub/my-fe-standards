@@ -103,10 +103,23 @@ function buildTaskRoutingText(task: TaskItem): string {
 
 function isSystemOverviewDesignTask(task: TaskItem): boolean {
   const text = buildTaskRoutingText(task);
+  const hasOverviewSignal = /(系统概要设计|概要设计文档|概要设计|概设|系统设计文档)/i.test(text);
+  if (hasOverviewSignal) return true;
 
-  return /(系统概要设计|概要设计文档|概要设计|概设|系统设计文档)/i.test(text)
-    || /(设计文档|word|docx|模板)/i.test(text)
-    || /((生成|输出|编写|整理|撰写).*(设计方案)|(设计方案.*(文档|word|docx|模板|输出|生成)))/i.test(text);
+  const hasOverviewContext = /(系统|概要)/i.test(text);
+  const hasPlanSignal = /(设计方案)/i.test(text);
+  const hasOutputSignal = /(生成|输出|编写|整理|撰写|导出)/i.test(text);
+  const hasWordTemplateSignal = /(word|docx|模板)/i.test(text);
+
+  return hasOverviewContext && hasPlanSignal && (hasOutputSignal || hasWordTemplateSignal);
+}
+
+function isRuntimeBugInvestigationTask(task: TaskItem): boolean {
+  const text = buildTaskRoutingText(task);
+  const hasRuntimeBugSignal = /(修复bug|debug|排查|报错|异常|不生效|白屏|没反应|数据不对|控制台错误)/i.test(text);
+  const hasBuildSignal = /(构建|编译|打包|lint|typecheck|类型错误|npm run build|vite build|webpack|esbuild)/i.test(text);
+
+  return hasRuntimeBugSignal && !hasBuildSignal;
 }
 
 function selectManualAgentId(task: TaskItem): string {
@@ -119,6 +132,9 @@ function selectManualAgentId(task: TaskItem): string {
   }
   if (/(安全|security|xss|csrf|owasp)/i.test(task.title)) {
     return 'security-reviewer';
+  }
+  if (isRuntimeBugInvestigationTask(task)) {
+    return 'bug-investigator';
   }
   if (task.type === 'design' && isSystemOverviewDesignTask(task)) {
     return 'system-overview-writer';
@@ -1681,6 +1697,9 @@ function loadAgentPromptTemplate(projectRoot: string, agentId: string, taskType:
     },
     'build-fix': {
       'build-fix': 'diagnose-fix.md',
+    },
+    'bug-investigator': {
+      'analysis': 'investigate.md',
     },
     'system-overview-writer': {
       'design': 'execute.md',

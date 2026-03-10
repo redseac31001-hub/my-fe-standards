@@ -95,16 +95,18 @@ agents/
 │   ├── AGENT.md
 │   └── prompts/
 │       └── diagnose-fix.md      # 诊断修复 prompt
-└── code-reviewer/               # 代码审查 Agent
-    ├── AGENT.md
-    └── prompts/
-        └── review.md            # 审查 prompt
-├── system-overview-writer/      # 概要设计文档生成 Agent
-│   └── AGENT.md
-├── bug-investigator/            # Bug 调查 Agent
+├── code-reviewer/               # 代码审查 Agent
 │   ├── AGENT.md
 │   └── prompts/
-│       └── investigate.md       # 调查 prompt
+│       └── review.md            # 审查 prompt
+├── system-overview-writer/      # 概要设计文档生成 Agent
+│   ├── AGENT.md
+│   └── prompts/
+│       └── execute.md           # 概要设计生成 prompt
+└── bug-investigator/            # Bug 调查 Agent
+    ├── AGENT.md
+    └── prompts/
+        └── investigate.md       # 调查 prompt
 ```
 
 ## AGENT.md 规范

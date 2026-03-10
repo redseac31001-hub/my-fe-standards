@@ -30,6 +30,8 @@
         "system-overview-design/scripts/render_overview_doc.py"
       ],
       "expectedAgents": [
+        "planner",
+        "bug-investigator",
         "system-overview-writer"
       ]
     }

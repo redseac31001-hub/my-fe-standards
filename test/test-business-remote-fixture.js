@@ -462,6 +462,125 @@ function runWorkflowSmoke(projectDir) {
   };
 }
 
+function parseAgentCallMeta(task) {
+  const blockedReason = String(task && task.blockedReason ? task.blockedReason : '');
+  const metaLine = blockedReason
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .find(line => line.startsWith('[agent-call]'));
+
+  if (!metaLine) {
+    throw new Error(`blocked task missing [agent-call] metadata: ${task && task.title ? task.title : 'unknown task'}`);
+  }
+
+  return JSON.parse(metaLine.slice('[agent-call]'.length).trim());
+}
+
+function readPromptHeader(projectDir, promptRelativePath) {
+  const promptPath = path.join(projectDir, promptRelativePath);
+  const promptText = fs.readFileSync(promptPath, 'utf-8');
+  const match = promptText.match(/```json\s*([\s\S]*?)\s*```/);
+  if (!match) {
+    throw new Error(`agent-call prompt missing JSON header: ${promptRelativePath}`);
+  }
+  return JSON.parse(match[1]);
+}
+
+function runRouteCase(projectDir, taskBookType, taskType, title) {
+  const taskBook = JSON.parse(runNode([
+    '.codebuddy/scripts/taskbook-manager.js',
+    'create',
+    '--title',
+    title,
+    '--description',
+    'route smoke',
+    '--type',
+    taskBookType,
+    '--json',
+  ], projectDir, 0).stdout);
+  const taskBookId = taskBook.id;
+
+  runNode([
+    '.codebuddy/scripts/taskbook-manager.js',
+    'add-task',
+    taskBookId,
+    '--title',
+    title,
+    '--type',
+    taskType,
+    '--json',
+  ], projectDir, 0);
+
+  runNode([
+    '.codebuddy/scripts/taskbook-manager.js',
+    'confirm',
+    taskBookId,
+    '--json',
+  ], projectDir, 0);
+
+  runNode([
+    '.codebuddy/scripts/task-executor.js',
+    taskBookId,
+    '--tasks-only',
+  ], projectDir, 2);
+
+  const activeTaskBookPath = path.join(projectDir, '.codebuddy', 'taskbooks', 'active', `${taskBookId}.json`);
+  const activeTaskBook = JSON.parse(fs.readFileSync(activeTaskBookPath, 'utf-8'));
+  const blockedTask = activeTaskBook.tasks.find(task => task && task.status === 'blocked');
+  if (!blockedTask) {
+    throw new Error(`expected blocked task for route smoke: ${title}`);
+  }
+
+  const meta = parseAgentCallMeta(blockedTask);
+  const promptHeader = readPromptHeader(projectDir, meta.promptPath);
+
+  return {
+    taskBookId,
+    taskType,
+    title,
+    agentId: promptHeader.agentId,
+    requestId: meta.requestId,
+    promptPath: toPosixPath(meta.promptPath),
+  };
+}
+
+function runAgentRoutingSmoke(projectDir) {
+  const cases = [
+    {
+      key: 'overviewDesign',
+      taskBookType: 'new-feature',
+      taskType: 'design',
+      title: '请根据当前项目、需求说明和接口字段生成系统概要设计 Word 文档',
+      expectedAgentId: 'system-overview-writer',
+    },
+    {
+      key: 'genericDesign',
+      taskBookType: 'new-feature',
+      taskType: 'design',
+      title: '整理支付模块设计方案模板并导出 Word 文档',
+      expectedAgentId: 'planner',
+    },
+    {
+      key: 'runtimeBug',
+      taskBookType: 'debugging',
+      taskType: 'implement',
+      title: '排查页面白屏和控制台错误，定位运行时 bug 根因并给出修复建议',
+      expectedAgentId: 'bug-investigator',
+    },
+  ];
+
+  const summary = {};
+  for (const item of cases) {
+    const result = runRouteCase(projectDir, item.taskBookType, item.taskType, item.title);
+    if (result.agentId !== item.expectedAgentId) {
+      throw new Error(`unexpected routed agent for "${item.title}": expected ${item.expectedAgentId}, got ${result.agentId}`);
+    }
+    summary[item.key] = result;
+  }
+
+  return summary;
+}
+
 async function main() {
   const config = loadConfig();
   const args = parseArgs(process.argv.slice(2));
@@ -531,6 +650,7 @@ async function main() {
     if (args.workflowSmoke) {
       workflowSummary = runWorkflowSmoke(targetDir);
     }
+    const agentRoutingSmoke = runAgentRoutingSmoke(targetDir);
 
     const summary = {
       fixtureId,
@@ -543,6 +663,7 @@ async function main() {
       generatedAt: new Date().toISOString(),
       systemOverviewOutput,
       workflowSmoke: workflowSummary,
+      agentRoutingSmoke,
     };
 
     writeRunMetadata(targetDir, summary);
