@@ -40,6 +40,7 @@ exports.formatStatusReport = formatStatusReport;
 exports.formatDoctorReport = formatDoctorReport;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const child_process_1 = require("child_process");
 const install_roots_1 = require("./install-roots");
 const install_sync_1 = require("./install-sync");
 const SUPPORTED_INSTALL_STATE_SCHEMAS = new Set(['1.0.0', '1.1.0', '1.2.0']);
@@ -93,6 +94,61 @@ const LEGACY_ORCHESTRATOR_ARTIFACTS = [
     '.codebuddy/workflows/workflow.schema.json',
     '.codebuddy/workflows/README.md',
 ];
+const PYTHON_COMMAND_CANDIDATES = process.platform === 'win32'
+    ? [
+        { command: 'python', args: [], label: 'python' },
+        { command: 'py', args: ['-3'], label: 'py -3' },
+        { command: 'python3', args: [], label: 'python3' },
+    ]
+    : [
+        { command: 'python3', args: [], label: 'python3' },
+        { command: 'python', args: [], label: 'python' },
+    ];
+function canRunCommand(command, args) {
+    const result = (0, child_process_1.spawnSync)(command, [...args, '--version'], {
+        encoding: 'utf-8',
+        stdio: 'ignore',
+        timeout: 5000,
+    });
+    return !result.error && result.status === 0;
+}
+function detectPythonRuntime() {
+    let fallback = null;
+    for (const candidate of PYTHON_COMMAND_CANDIDATES) {
+        if (!canRunCommand(candidate.command, candidate.args)) {
+            continue;
+        }
+        const importResult = (0, child_process_1.spawnSync)(candidate.command, [...candidate.args, '-c', 'import docx'], {
+            encoding: 'utf-8',
+            stdio: 'ignore',
+            timeout: 5000,
+        });
+        const status = {
+            available: true,
+            label: candidate.label,
+            pythonDocx: !importResult.error && importResult.status === 0,
+        };
+        if (status.pythonDocx) {
+            return status;
+        }
+        if (!fallback) {
+            fallback = status;
+        }
+    }
+    return fallback || {
+        available: false,
+        label: null,
+        pythonDocx: false,
+    };
+}
+function needsSystemOverviewPythonRuntime(inspection) {
+    var _a;
+    const managedFiles = ((_a = inspection.installState) === null || _a === void 0 ? void 0 : _a.managedFiles) || [];
+    return managedFiles.some(file => /system-overview-design\/scripts\/(extract_template|render_overview_doc)\.py$/.test(file.path.replace(/\\/g, '/')));
+}
+function buildPipInstallCommand(pythonLabel) {
+    return pythonLabel ? `${pythonLabel} -m pip install python-docx` : 'python -m pip install python-docx';
+}
 function resolveManagedRoots(installState) {
     const roots = [
         '.codebuddy/agent-calls',
@@ -229,6 +285,31 @@ function buildDoctorChecks(inspection) {
             message: inspection.skillsRootExists
                 ? `skills 根存在: ${skillsRootDir}`
                 : `skills 根缺失: ${skillsRootDir}`,
+        });
+    }
+    if (needsSystemOverviewPythonRuntime(inspection)) {
+        const pythonRuntime = detectPythonRuntime();
+        checks.push({
+            id: 'system-overview-python',
+            status: pythonRuntime.available ? 'pass' : 'warn',
+            message: pythonRuntime.available
+                ? `system-overview-design Python runtime ready: ${pythonRuntime.label}`
+                : 'system-overview-design requires Python 3, but no python command was detected on PATH',
+            details: pythonRuntime.available ? undefined : [
+                'Install Python 3 and ensure `python`, `python3`, or `py -3` is available in PATH.',
+            ],
+        });
+        checks.push({
+            id: 'system-overview-python-docx',
+            status: !pythonRuntime.available || pythonRuntime.pythonDocx ? 'pass' : 'warn',
+            message: !pythonRuntime.available
+                ? 'Skip python-docx check because Python runtime is unavailable'
+                : (pythonRuntime.pythonDocx
+                    ? `python-docx import ok via ${pythonRuntime.label}`
+                    : `python-docx is missing for ${pythonRuntime.label}`),
+            details: !pythonRuntime.available || pythonRuntime.pythonDocx
+                ? undefined
+                : [`Install dependency: \`${buildPipInstallCommand(pythonRuntime.label)}\``],
         });
     }
     checks.push({

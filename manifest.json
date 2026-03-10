@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-03-10T02:44:16.122Z",
+  "generatedAt": "2026-03-10T04:20:48.359Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -330,6 +330,12 @@
       "name": "self-verification",
       "size": 14502,
       "mtime": "2026-01-24T05:47:04.139Z"
+    },
+    {
+      "path": "rules/layer3_action/system-design-documentation.md",
+      "name": "system-design-documentation",
+      "size": 2976,
+      "mtime": "2026-03-10T03:43:29.460Z"
     },
     {
       "path": "rules/layer3_action/testing.md",
@@ -662,6 +668,12 @@
       "mtime": "2026-03-08T10:25:23.827Z"
     },
     {
+      "path": "custom-skills/prd/assets/prd-input.template.json",
+      "name": "prd-input.template",
+      "size": 1859,
+      "mtime": "2026-03-06T02:52:25.331Z"
+    },
+    {
       "path": "custom-skills/prd/assets/prd-template.md",
       "name": "prd-template",
       "size": 879,
@@ -680,10 +692,22 @@
       "mtime": "2026-03-06T02:40:50.216Z"
     },
     {
+      "path": "custom-skills/prd/scripts/create_prd.py",
+      "name": "create_prd",
+      "size": 8245,
+      "mtime": "2026-03-06T02:52:25.320Z"
+    },
+    {
       "path": "custom-skills/prd/SKILL.md",
       "name": "SKILL",
       "size": 1746,
       "mtime": "2026-03-08T10:21:07.300Z"
+    },
+    {
+      "path": "custom-skills/ralph-converter/assets/prd.template.json",
+      "name": "prd.template",
+      "size": 449,
+      "mtime": "2026-03-06T02:40:50.220Z"
     },
     {
       "path": "custom-skills/ralph-converter/references/conversion-rules.md",
@@ -696,6 +720,12 @@
       "name": "story-sizing-and-ordering",
       "size": 1559,
       "mtime": "2026-03-06T02:40:50.219Z"
+    },
+    {
+      "path": "custom-skills/ralph-converter/scripts/convert_prd.py",
+      "name": "convert_prd",
+      "size": 10465,
+      "mtime": "2026-03-06T02:52:25.364Z"
     },
     {
       "path": "custom-skills/ralph-converter/SKILL.md",
@@ -752,6 +782,24 @@
       "mtime": "2026-03-08T09:49:16.040Z"
     },
     {
+      "path": "custom-skills/skill-creator/scripts/init_skill.py",
+      "name": "init_skill",
+      "size": 10935,
+      "mtime": "2026-03-08T09:49:16.040Z"
+    },
+    {
+      "path": "custom-skills/skill-creator/scripts/package_skill.py",
+      "name": "package_skill",
+      "size": 3566,
+      "mtime": "2026-03-06T05:52:56.468Z"
+    },
+    {
+      "path": "custom-skills/skill-creator/scripts/quick_validate.py",
+      "name": "quick_validate",
+      "size": 10483,
+      "mtime": "2026-03-09T02:41:18.752Z"
+    },
+    {
       "path": "custom-skills/skill-creator/SKILL.md",
       "name": "SKILL",
       "size": 2598,
@@ -760,8 +808,8 @@
     {
       "path": "custom-skills/skills-index.md",
       "name": "skills-index",
-      "size": 4988,
-      "mtime": "2026-03-09T02:43:57.274Z"
+      "size": 5183,
+      "mtime": "2026-03-10T03:43:52.247Z"
     },
     {
       "path": "custom-skills/state-management/references/migration-and-testing.md",
@@ -818,10 +866,52 @@
       "mtime": "2026-03-08T10:26:06.563Z"
     },
     {
+      "path": "custom-skills/system-overview-design/assets/system-overview-input.example.json",
+      "name": "system-overview-input.example",
+      "size": 10632,
+      "mtime": "2026-03-10T03:41:21.921Z"
+    },
+    {
+      "path": "custom-skills/system-overview-design/assets/system-overview-input.template.json",
+      "name": "system-overview-input.template",
+      "size": 2309,
+      "mtime": "2026-03-10T03:41:21.921Z"
+    },
+    {
+      "path": "custom-skills/system-overview-design/references/input-contract.md",
+      "name": "input-contract",
+      "size": 3673,
+      "mtime": "2026-03-10T03:41:21.921Z"
+    },
+    {
+      "path": "custom-skills/system-overview-design/references/template-structure.md",
+      "name": "template-structure",
+      "size": 2460,
+      "mtime": "2026-03-10T03:41:21.921Z"
+    },
+    {
+      "path": "custom-skills/system-overview-design/scripts/extract_template.py",
+      "name": "extract_template",
+      "size": 6096,
+      "mtime": "2026-03-10T03:41:45.702Z"
+    },
+    {
+      "path": "custom-skills/system-overview-design/scripts/render_overview_doc.py",
+      "name": "render_overview_doc",
+      "size": 19461,
+      "mtime": "2026-03-10T03:56:19.014Z"
+    },
+    {
+      "path": "custom-skills/system-overview-design/SKILL.md",
+      "name": "SKILL",
+      "size": 2769,
+      "mtime": "2026-03-10T04:13:58.454Z"
+    },
+    {
       "path": "agents/AGENTS.md",
       "name": "AGENTS",
-      "size": 6598,
-      "mtime": "2026-03-02T08:34:03.151Z"
+      "size": 6956,
+      "mtime": "2026-03-10T03:45:25.122Z"
     },
     {
       "path": "agents/bug-investigator/AGENT.md",
@@ -920,6 +1010,12 @@
       "mtime": "2026-01-29T03:03:37.987Z"
     },
     {
+      "path": "agents/system-overview-writer/AGENT.md",
+      "name": "AGENT",
+      "size": 2505,
+      "mtime": "2026-03-10T04:14:07.905Z"
+    },
+    {
       "path": "agents/task-orchestrator/AGENT.md",
       "name": "AGENT",
       "size": 14827,
@@ -1003,44 +1099,44 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "d09ca17f55bc72ce37422968e4a07c6922e591508747fa01af51491e0f8a98ff",
-      "size": 589441,
-      "entryCount": 130,
-      "generatedAt": "2026-03-10T02:44:15.942Z"
+      "sha256": "c8acec201c041855474258e4a727ade2b7cfec368a012804523ea84f01e0bf7c",
+      "size": 698090,
+      "entryCount": 146,
+      "generatedAt": "2026-03-10T04:20:48.247Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "d86a491378063269ecd84da91355cc6c6e39c1955ac9728398a2f92c731b9bfc",
-      "size": 831187,
-      "entryCount": 133,
-      "generatedAt": "2026-03-10T02:44:15.981Z"
+      "sha256": "6849b25874e26309ce242bbb9fea89815d4b7ba843e3df59bf69c44f89331c7b",
+      "size": 939836,
+      "entryCount": 149,
+      "generatedAt": "2026-03-10T04:20:48.276Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "4a75f7bdaf653378c7be3793a64958d864af624a6a9236746796dbbf649441be",
-      "size": 1311490,
-      "entryCount": 144,
-      "generatedAt": "2026-03-10T02:44:16.034Z"
+      "sha256": "7c636313f6c2f1b57aad05812d3fbaf5e4233cfd1c70ec6d6e3fa5f2ecf908b0",
+      "size": 1420139,
+      "entryCount": 160,
+      "generatedAt": "2026-03-10T04:20:48.309Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "9580066bec074885626f8c2d9829c28d9497313717eff060d27a723db6e062f5",
-      "size": 1327355,
-      "entryCount": 145,
-      "generatedAt": "2026-03-10T02:44:16.098Z"
+      "sha256": "5e39d4c7c1a8df67777379799a4855eef1caadaaae0da65bb5e15f4b688d04fc",
+      "size": 1436004,
+      "entryCount": 161,
+      "generatedAt": "2026-03-10T04:20:48.346Z"
     }
   },
   "stats": {
-    "totalFiles": 131,
-    "ruleFiles": 22,
-    "skillFiles": 79,
-    "agentFiles": 25,
+    "totalFiles": 147,
+    "ruleFiles": 23,
+    "skillFiles": 93,
+    "agentFiles": 26,
     "workflowFiles": 3,
     "taskbookFiles": 2
   }

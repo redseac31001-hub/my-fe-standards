@@ -57,6 +57,9 @@ const CONFIG_PATH = path.join(PROJECT_ROOT, 'config', 'loader-config.json');
 const OUTPUT_PATH = path.join(PROJECT_ROOT, 'manifest.json');
 const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, 'package.json');
 const PACKS_ROOT = path.join(PROJECT_ROOT, 'packs');
+const RULE_FILE_EXTENSIONS = ['.md'];
+const SKILL_FILE_EXTENSIONS = ['.md', '.json', '.py', '.txt', '.yaml', '.yml', '.js', '.sh'];
+const AGENT_FILE_EXTENSIONS = ['.md', '.json', '.txt', '.yaml', '.yml'];
 function log(message) {
     console.log(`[Manifest] ${message}`);
 }
@@ -65,7 +68,7 @@ function log(message) {
  *
  * 说明：用于远程加载模式的文件清单（manifest.json）。
  */
-function scanDirectory(dir, basePath = '', extensions = ['.md']) {
+function scanDirectory(dir, basePath = '', extensions = RULE_FILE_EXTENSIONS) {
     const files = [];
     if (!fs.existsSync(dir)) {
         return files;
@@ -185,21 +188,21 @@ function main() {
     }
     // 2. 扫描规则文件
     log('扫描 rules/ 目录...');
-    const ruleFiles = scanDirectory(RULES_ROOT).map(f => ({
+    const ruleFiles = scanDirectory(RULES_ROOT, '', RULE_FILE_EXTENSIONS).map(f => ({
         ...f,
         path: `rules/${f.path}`,
     }));
     log(`  找到 ${ruleFiles.length} 个规则文件`);
     // 3. 扫描技能文件
     log('扫描 custom-skills/ 目录...');
-    const skillFiles = scanDirectory(SKILLS_ROOT).map(f => ({
+    const skillFiles = scanDirectory(SKILLS_ROOT, '', SKILL_FILE_EXTENSIONS).map(f => ({
         ...f,
         path: `custom-skills/${f.path}`,
     }));
     log(`  找到 ${skillFiles.length} 个技能文件`);
     // 4. 扫描 Agent 文件
     log('扫描 agents/ 目录...');
-    const agentFiles = scanDirectory(AGENTS_ROOT).map(f => ({
+    const agentFiles = scanDirectory(AGENTS_ROOT, '', AGENT_FILE_EXTENSIONS).map(f => ({
         ...f,
         path: `agents/${f.path}`,
     }));

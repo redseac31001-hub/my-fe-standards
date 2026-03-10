@@ -303,6 +303,34 @@ function assertFilesExist(rootDir, relativePaths) {
   }
 }
 
+function readInstallState(projectDir) {
+  const installStatePath = path.join(projectDir, '.codebuddy', 'install.json');
+  return JSON.parse(fs.readFileSync(installStatePath, 'utf-8'));
+}
+
+function assertSkillFilesExist(projectDir, installState, relativePaths) {
+  const skillsRootDir = installState && installState.outputs && installState.outputs.skillsRootDir;
+  if (!skillsRootDir) {
+    throw new Error('install.json missing outputs.skillsRootDir');
+  }
+
+  for (const relativePath of relativePaths) {
+    const absPath = path.join(projectDir, skillsRootDir, relativePath);
+    if (!fs.existsSync(absPath)) {
+      throw new Error(`expected skill file missing after remote load: ${absPath}`);
+    }
+  }
+}
+
+function assertAgentsPresent(registryPayload, expectedAgents) {
+  const installedAgents = new Set((registryPayload.agents || []).map(agent => agent.id));
+  for (const agentId of expectedAgents) {
+    if (!installedAgents.has(agentId)) {
+      throw new Error(`expected agent missing after remote load: ${agentId}`);
+    }
+  }
+}
+
 function writeRunMetadata(targetDir, payload) {
   const metadataPath = path.join(targetDir, '.fixture-run.json');
   fs.writeFileSync(metadataPath, JSON.stringify(payload, null, 2), 'utf-8');
@@ -418,6 +446,8 @@ async function main() {
     runNode([downloadedLoaderPath, ...loaderArgs], targetDir, 0);
 
     assertFilesExist(targetDir, fixture.expectedFiles || []);
+    const installState = readInstallState(targetDir);
+    assertSkillFilesExist(targetDir, installState, fixture.expectedSkillFiles || []);
 
     runNode(['.codebuddy/scripts/contract-validator.js', '--workflows', '--taskbooks'], targetDir, 0);
     const registryResult = runNode(['.codebuddy/scripts/agent-registry.js', 'list', '--json'], targetDir, 0);
@@ -425,6 +455,7 @@ async function main() {
     if (!registryPayload || !Array.isArray(registryPayload.agents) || registryPayload.agents.length === 0) {
       throw new Error(`unexpected agent registry payload: ${registryResult.stdout}`);
     }
+    assertAgentsPresent(registryPayload, fixture.expectedAgents || []);
 
     let workflowSummary = null;
     if (args.workflowSmoke) {

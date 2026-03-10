@@ -1283,7 +1283,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
         fs.mkdirSync(localDir, { recursive: true });
     }
     if (ctx.isRemote) {
-        const files = ctx.remoteManifest.files.filter(f => f.path.startsWith(options.manifestPrefix) && f.path.endsWith('.md'));
+        const files = ctx.remoteManifest.files.filter(f => f.path.startsWith(options.manifestPrefix));
         const rootFiles = files.filter(file => !file.path.replace(options.manifestPrefix, '').includes('/'));
         const entityGroups = new Map();
         for (const file of files) {

@@ -541,6 +541,7 @@ function getScriptsForProfile(profile) {
 // scripts/src/lib/install-health.ts
 var fs4 = __toESM(require("fs"));
 var path4 = __toESM(require("path"));
+var import_child_process = require("child_process");
 
 // scripts/src/lib/install-roots.ts
 function normalizeRelativeRoot(relativeRoot) {
@@ -623,6 +624,58 @@ var LEGACY_ORCHESTRATOR_ARTIFACTS = [
   ".codebuddy/workflows/workflow.schema.json",
   ".codebuddy/workflows/README.md"
 ];
+var PYTHON_COMMAND_CANDIDATES = process.platform === "win32" ? [
+  { command: "python", args: [], label: "python" },
+  { command: "py", args: ["-3"], label: "py -3" },
+  { command: "python3", args: [], label: "python3" }
+] : [
+  { command: "python3", args: [], label: "python3" },
+  { command: "python", args: [], label: "python" }
+];
+function canRunCommand(command, args) {
+  const result = (0, import_child_process.spawnSync)(command, [...args, "--version"], {
+    encoding: "utf-8",
+    stdio: "ignore",
+    timeout: 5e3
+  });
+  return !result.error && result.status === 0;
+}
+function detectPythonRuntime() {
+  let fallback = null;
+  for (const candidate of PYTHON_COMMAND_CANDIDATES) {
+    if (!canRunCommand(candidate.command, candidate.args)) {
+      continue;
+    }
+    const importResult = (0, import_child_process.spawnSync)(candidate.command, [...candidate.args, "-c", "import docx"], {
+      encoding: "utf-8",
+      stdio: "ignore",
+      timeout: 5e3
+    });
+    const status = {
+      available: true,
+      label: candidate.label,
+      pythonDocx: !importResult.error && importResult.status === 0
+    };
+    if (status.pythonDocx) {
+      return status;
+    }
+    if (!fallback) {
+      fallback = status;
+    }
+  }
+  return fallback || {
+    available: false,
+    label: null,
+    pythonDocx: false
+  };
+}
+function needsSystemOverviewPythonRuntime(inspection) {
+  const managedFiles = inspection.installState?.managedFiles || [];
+  return managedFiles.some((file) => /system-overview-design\/scripts\/(extract_template|render_overview_doc)\.py$/.test(file.path.replace(/\\/g, "/")));
+}
+function buildPipInstallCommand(pythonLabel) {
+  return pythonLabel ? `${pythonLabel} -m pip install python-docx` : "python -m pip install python-docx";
+}
 function resolveManagedRoots(installState) {
   const roots = [
     ".codebuddy/agent-calls",
@@ -733,6 +786,23 @@ function buildDoctorChecks(inspection) {
       id: "skills-root",
       status: inspection.skillsRootExists ? "pass" : "fail",
       message: inspection.skillsRootExists ? `skills \u6839\u5B58\u5728: ${skillsRootDir}` : `skills \u6839\u7F3A\u5931: ${skillsRootDir}`
+    });
+  }
+  if (needsSystemOverviewPythonRuntime(inspection)) {
+    const pythonRuntime = detectPythonRuntime();
+    checks.push({
+      id: "system-overview-python",
+      status: pythonRuntime.available ? "pass" : "warn",
+      message: pythonRuntime.available ? `system-overview-design Python runtime ready: ${pythonRuntime.label}` : "system-overview-design requires Python 3, but no python command was detected on PATH",
+      details: pythonRuntime.available ? void 0 : [
+        "Install Python 3 and ensure `python`, `python3`, or `py -3` is available in PATH."
+      ]
+    });
+    checks.push({
+      id: "system-overview-python-docx",
+      status: !pythonRuntime.available || pythonRuntime.pythonDocx ? "pass" : "warn",
+      message: !pythonRuntime.available ? "Skip python-docx check because Python runtime is unavailable" : pythonRuntime.pythonDocx ? `python-docx import ok via ${pythonRuntime.label}` : `python-docx is missing for ${pythonRuntime.label}`,
+      details: !pythonRuntime.available || pythonRuntime.pythonDocx ? void 0 : [`Install dependency: \`${buildPipInstallCommand(pythonRuntime.label)}\``]
     });
   }
   checks.push({
@@ -2963,7 +3033,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
   }
   if (ctx.isRemote) {
     const files = ctx.remoteManifest.files.filter(
-      (f) => f.path.startsWith(options.manifestPrefix) && f.path.endsWith(".md")
+      (f) => f.path.startsWith(options.manifestPrefix)
     );
     const rootFiles = files.filter((file) => !file.path.replace(options.manifestPrefix, "").includes("/"));
     const entityGroups = /* @__PURE__ */ new Map();

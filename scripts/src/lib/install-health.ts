@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
 import { InstallState } from '../types';
 import {
   resolveInstalledAgentsRootDir,
@@ -90,6 +91,77 @@ const LEGACY_ORCHESTRATOR_ARTIFACTS = [
   '.codebuddy/workflows/workflow.schema.json',
   '.codebuddy/workflows/README.md',
 ];
+
+const PYTHON_COMMAND_CANDIDATES = process.platform === 'win32'
+  ? [
+      { command: 'python', args: [], label: 'python' },
+      { command: 'py', args: ['-3'], label: 'py -3' },
+      { command: 'python3', args: [], label: 'python3' },
+    ]
+  : [
+      { command: 'python3', args: [], label: 'python3' },
+      { command: 'python', args: [], label: 'python' },
+    ];
+
+interface PythonRuntimeStatus {
+  available: boolean;
+  label: string | null;
+  pythonDocx: boolean;
+}
+
+function canRunCommand(command: string, args: string[]): boolean {
+  const result = spawnSync(command, [...args, '--version'], {
+    encoding: 'utf-8',
+    stdio: 'ignore',
+    timeout: 5000,
+  });
+  return !result.error && result.status === 0;
+}
+
+function detectPythonRuntime(): PythonRuntimeStatus {
+  let fallback: PythonRuntimeStatus | null = null;
+
+  for (const candidate of PYTHON_COMMAND_CANDIDATES) {
+    if (!canRunCommand(candidate.command, candidate.args)) {
+      continue;
+    }
+
+    const importResult = spawnSync(candidate.command, [...candidate.args, '-c', 'import docx'], {
+      encoding: 'utf-8',
+      stdio: 'ignore',
+      timeout: 5000,
+    });
+
+    const status: PythonRuntimeStatus = {
+      available: true,
+      label: candidate.label,
+      pythonDocx: !importResult.error && importResult.status === 0,
+    };
+
+    if (status.pythonDocx) {
+      return status;
+    }
+
+    if (!fallback) {
+      fallback = status;
+    }
+  }
+
+  return fallback || {
+    available: false,
+    label: null,
+    pythonDocx: false,
+  };
+}
+
+function needsSystemOverviewPythonRuntime(inspection: InstallInspection): boolean {
+  const managedFiles = inspection.installState?.managedFiles || [];
+  return managedFiles.some(file => /system-overview-design\/scripts\/(extract_template|render_overview_doc)\.py$/.test(file.path.replace(/\\/g, '/')));
+}
+
+function buildPipInstallCommand(pythonLabel: string | null): string {
+  return pythonLabel ? `${pythonLabel} -m pip install python-docx` : 'python -m pip install python-docx';
+}
 
 function resolveManagedRoots(installState: InstallState | null): string[] {
   const roots = [
@@ -246,6 +318,33 @@ export function buildDoctorChecks(inspection: InstallInspection): DoctorCheck[] 
       message: inspection.skillsRootExists
         ? `skills 根存在: ${skillsRootDir}`
         : `skills 根缺失: ${skillsRootDir}`,
+    });
+  }
+
+  if (needsSystemOverviewPythonRuntime(inspection)) {
+    const pythonRuntime = detectPythonRuntime();
+    checks.push({
+      id: 'system-overview-python',
+      status: pythonRuntime.available ? 'pass' : 'warn',
+      message: pythonRuntime.available
+        ? `system-overview-design Python runtime ready: ${pythonRuntime.label}`
+        : 'system-overview-design requires Python 3, but no python command was detected on PATH',
+      details: pythonRuntime.available ? undefined : [
+        'Install Python 3 and ensure `python`, `python3`, or `py -3` is available in PATH.',
+      ],
+    });
+
+    checks.push({
+      id: 'system-overview-python-docx',
+      status: !pythonRuntime.available || pythonRuntime.pythonDocx ? 'pass' : 'warn',
+      message: !pythonRuntime.available
+        ? 'Skip python-docx check because Python runtime is unavailable'
+        : (pythonRuntime.pythonDocx
+          ? `python-docx import ok via ${pythonRuntime.label}`
+          : `python-docx is missing for ${pythonRuntime.label}`),
+      details: !pythonRuntime.available || pythonRuntime.pythonDocx
+        ? undefined
+        : [`Install dependency: \`${buildPipInstallCommand(pythonRuntime.label)}\``],
     });
   }
 

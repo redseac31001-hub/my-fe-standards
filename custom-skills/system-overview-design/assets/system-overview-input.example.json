@@ -1,0 +1,270 @@
+{
+  "cover": {
+    "document_title": "统一收单路由平台系统概要设计",
+    "document_code": "DDD PAY-ROUTER-2026",
+    "template_version_label": "模版版本 v0.1",
+    "company_name": "示例科技有限公司",
+    "document_date": "2026年03月",
+    "initial_version": "V0.1",
+    "confidentiality_level": "公司级",
+    "document_version": "0.1",
+    "author": "架构组",
+    "author_date": "2026年03月10日",
+    "reviewer": "技术委员会",
+    "review_date": "2026年03月12日"
+  },
+  "version_control": [
+    {
+      "version": "0.1",
+      "date": "2026年03月10日",
+      "participants": "架构组",
+      "change_summary": "制订初稿"
+    },
+    {
+      "version": "0.2",
+      "date": "2026年03月12日",
+      "participants": "架构组/产品组",
+      "change_summary": "补充接口与部署设计"
+    }
+  ],
+  "sections": {
+    "background_and_objectives": {
+      "background": [
+        "现有收单链路由多个系统串联完成，渠道接入标准不一，导致新增支付渠道成本高、变更周期长。",
+        "平台需要统一路由、限流、熔断和监控能力，降低渠道接入和运营成本，并支撑后续多区域部署。"
+      ],
+      "design_constraints": [
+        "必须兼容现网渠道签名方式和报文字段，不允许对存量渠道做破坏性改造。",
+        "首期项目排期三个月，部署环境限定在现有 Kubernetes 集群与公司统一中间件体系内。"
+      ],
+      "design_goals": {
+        "configurability": [
+          "路由规则、渠道权重、限流阈值和灰度开关均应支持配置中心动态下发。"
+        ],
+        "performance": [
+          "核心下单链路 P95 响应时间不高于 300ms，单集群峰值吞吐不低于 3000 TPS。"
+        ],
+        "scalability": [
+          "应用节点支持按实例数水平扩容，容量扩展不依赖代码改造。"
+        ],
+        "availability": [
+          "核心交易链路目标 SLA 不低于 99.95%，RTO 小于 10 分钟，RPO 为 0。"
+        ],
+        "security": [
+          "敏感字段需加密存储并记录审计日志，内部接口必须经过统一鉴权。"
+        ],
+        "observability": [
+          "需完整采集请求量、成功率、错误码分布、渠道耗时和资源水位指标。"
+        ],
+        "maintainability": [
+          "新渠道接入应控制在 3 人日以内，并支持版本回退和灰度发布。"
+        ]
+      }
+    },
+    "application_architecture": {
+      "use_case_design": {
+        "user_list": [
+          {
+            "role": "运营人员",
+            "description": "维护渠道配置、路由权重和监控阈值。"
+          },
+          {
+            "role": "商户系统",
+            "description": "通过统一收单接口发起支付、查询和退款请求。"
+          }
+        ],
+        "use_case_diagram": [
+          "用例图应包含商户系统、运营人员、渠道网关三个角色，以及下单、查询、退款、路由配置四类用例。"
+        ],
+        "use_case_list": [
+          {
+            "use_case": "统一支付下单",
+            "actor": "商户系统",
+            "precondition": "商户已开通渠道并完成签名配置",
+            "result": "平台完成路由决策并向目标渠道发起支付"
+          },
+          {
+            "use_case": "路由规则调整",
+            "actor": "运营人员",
+            "precondition": "运营人员拥有渠道配置权限",
+            "result": "新的渠道权重和灰度规则在配置中心生效"
+          }
+        ]
+      },
+      "domain_model_design": {
+        "domain_model_diagram": [
+          "领域模型图应包含商户、交易单、渠道、路由规则、渠道账户和对账任务等核心对象。"
+        ],
+        "domain_objects": [
+          {
+            "object": "交易单",
+            "description": "记录平台统一交易状态、金额、渠道映射和幂等键。",
+            "key_fields": "tradeId, merchantId, amount, status, channelOrderId"
+          },
+          {
+            "object": "路由规则",
+            "description": "描述路由优先级、命中条件、灰度范围和降级策略。",
+            "key_fields": "ruleId, merchantScope, sceneCode, weight, fallbackPolicy"
+          }
+        ]
+      },
+      "system_context": {
+        "context_diagram": [
+          "上下文图应标识商户接入层、统一收单路由平台、渠道网关、风控平台、账务平台和监控平台之间的边界。"
+        ],
+        "context_description": [
+          "统一收单路由平台位于商户接入层与第三方渠道之间，负责统一协议适配、路由决策与交易状态聚合。",
+          "平台与账务、风控和监控平台存在同步接口调用以及事件通知关系。"
+        ],
+        "interfaces": [
+          {
+            "seq": "1",
+            "interface_id": "PAY-001",
+            "apikit_id": "52992",
+            "name": "/v1/orders/pay",
+            "external_access": "否",
+            "protocol": "HTTP",
+            "description": "统一支付下单接口",
+            "caller": "商户系统",
+            "callee": "统一收单路由平台"
+          },
+          {
+            "seq": "2",
+            "interface_id": "PAY-002",
+            "apikit_id": "52993",
+            "name": "/v1/orders/query",
+            "external_access": "否",
+            "protocol": "HTTP",
+            "description": "统一交易查询接口",
+            "caller": "商户系统",
+            "callee": "统一收单路由平台"
+          }
+        ]
+      },
+      "decomposition_design": {
+        "functional_architecture": [
+          "功能架构图应包括接入层、路由引擎、渠道适配层、交易中心、配置中心适配、监控与审计组件。"
+        ],
+        "subsystems": [
+          {
+            "subsystem": "路由引擎",
+            "responsibility": "计算渠道命中结果并执行降级、熔断和灰度策略。",
+            "capabilities": "规则匹配、权重计算、候选渠道选择",
+            "dependencies": "配置中心、渠道健康状态服务"
+          },
+          {
+            "subsystem": "渠道适配层",
+            "responsibility": "统一封装不同渠道协议和签名规则。",
+            "capabilities": "请求转换、响应标准化、异常码映射",
+            "dependencies": "渠道 SDK、密钥管理服务"
+          }
+        ],
+        "core_sequences": [
+          {
+            "sequence": "统一支付下单时序",
+            "description": "商户请求进入接入层后，依次完成鉴权、路由计算、渠道调用、状态归档和事件通知。"
+          }
+        ]
+      },
+      "data_storage_design": {
+        "business_data_storage": [
+          {
+            "domain": "交易中心",
+            "storage": "MySQL",
+            "description": "存储交易主单、渠道映射、状态变更日志。"
+          }
+        ],
+        "multimodal_storage": [
+          {
+            "type": "审计日志",
+            "storage": "Elasticsearch",
+            "description": "存储关键操作、风控命中和异常事件日志。"
+          }
+        ],
+        "big_data_storage_notes": [
+          "交易明细长期分析数据通过离线同步进入大数据平台，首期不在本系统内建设分析集群。"
+        ]
+      }
+    },
+    "technical_architecture": {
+      "non_functional_design": {
+        "tech_stack": [
+          {
+            "layer": "应用层",
+            "selection": "Node.js + NestJS",
+            "version": "18 / 10",
+            "description": "承载统一 API、路由编排和交易状态聚合逻辑。"
+          },
+          {
+            "layer": "缓存层",
+            "selection": "Redis",
+            "version": "7.x",
+            "description": "缓存渠道健康状态、限流计数和热点配置。"
+          }
+        ],
+        "performance_capacity": [
+          "通过无状态应用实例横向扩容承接 TPS 增长，核心接口在网关和应用双层限流。"
+        ],
+        "scalability": [
+          "渠道适配器按独立模块扩展，新渠道接入不影响既有路由策略。"
+        ],
+        "availability": [
+          "应用多副本跨可用区部署，缓存与数据库采用高可用主从架构。"
+        ],
+        "security": [
+          "接口统一接入网关鉴权，敏感配置由密钥管理系统下发，数据库关键字段加密存储。"
+        ],
+        "observability": [
+          "统一接入日志、指标、链路追踪三套观测体系，并按渠道和商户维度建立告警。"
+        ],
+        "maintainability": [
+          "服务采用标准化 CI/CD 发布，支持蓝绿切换和版本回滚。"
+        ]
+      },
+      "deployment_design": {
+        "deployment_architecture": [
+          "部署架构图应展示公网/内网边界、API 网关、应用集群、Redis、MySQL、Elasticsearch 和监控组件。"
+        ],
+        "deployment_description": [
+          "生产环境采用双可用区部署，应用实例通过 Kubernetes 管理，数据库与缓存采用托管高可用方案。"
+        ]
+      }
+    },
+    "resource_evaluation": {
+      "resource_inventory": [
+        {
+          "resource_type": "应用节点",
+          "spec": "4C8G * 6",
+          "estimated_peak": "3000 TPS",
+          "notes": "峰值按双十一活动预估"
+        },
+        {
+          "resource_type": "MySQL",
+          "spec": "主从各 8C16G / 1TB SSD",
+          "estimated_peak": "交易主表日增 500 万",
+          "notes": "按 12 个月在线保留估算"
+        }
+      ],
+      "evaluation_notes": [
+        "首期资源按 1.5 倍峰值冗余配置，后续根据活动峰值和渠道增长情况滚动调整。"
+      ]
+    },
+    "transition_plan": {
+      "background_reason": [
+        "为降低一次性切换风险，首期保留部分商户走原有直连渠道方案。"
+      ],
+      "interim_plan": [
+        "通过商户维度灰度开关控制新老链路分流，异常时可按分钟级回切。"
+      ],
+      "target_solution": [
+        "全部商户统一接入路由平台，直连渠道接口逐步下线。"
+      ],
+      "differences_and_impact": [
+        "过渡阶段将同时维护两套监控和对账逻辑，运维复杂度短期上升。"
+      ],
+      "cutover_plan": [
+        "按商户分批灰度切换，完成对账验证后关闭旧链路入口。"
+      ]
+    }
+  }
+}

@@ -17,6 +17,16 @@
         ".codebuddy/commands/README.md",
         ".codebuddy/workflows/default.workflow.json",
         ".codebuddy/taskbooks/taskbook.schema.json"
+      ],
+      "expectedSkillFiles": [
+        "system-overview-design/SKILL.md",
+        "system-overview-design/assets/system-overview-input.template.json",
+        "system-overview-design/assets/system-overview-input.example.json",
+        "system-overview-design/scripts/extract_template.py",
+        "system-overview-design/scripts/render_overview_doc.py"
+      ],
+      "expectedAgents": [
+        "system-overview-writer"
       ]
     }
   }

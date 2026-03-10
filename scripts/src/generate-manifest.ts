@@ -32,6 +32,9 @@ const CONFIG_PATH: string = path.join(PROJECT_ROOT, 'config', 'loader-config.jso
 const OUTPUT_PATH: string = path.join(PROJECT_ROOT, 'manifest.json');
 const PACKAGE_JSON_PATH: string = path.join(PROJECT_ROOT, 'package.json');
 const PACKS_ROOT: string = path.join(PROJECT_ROOT, 'packs');
+const RULE_FILE_EXTENSIONS = ['.md'];
+const SKILL_FILE_EXTENSIONS = ['.md', '.json', '.py', '.txt', '.yaml', '.yml', '.js', '.sh'];
+const AGENT_FILE_EXTENSIONS = ['.md', '.json', '.txt', '.yaml', '.yml'];
 
 function log(message: string): void {
   console.log(`[Manifest] ${message}`);
@@ -45,7 +48,7 @@ function log(message: string): void {
 function scanDirectory(
   dir: string,
   basePath: string = '',
-  extensions: string[] = ['.md']
+  extensions: string[] = RULE_FILE_EXTENSIONS,
 ): ManifestFile[] {
   const files: ManifestFile[] = [];
 
@@ -195,7 +198,7 @@ function main(): void {
 
   // 2. 扫描规则文件
   log('扫描 rules/ 目录...');
-  const ruleFiles: ManifestFile[] = scanDirectory(RULES_ROOT).map(f => ({
+  const ruleFiles: ManifestFile[] = scanDirectory(RULES_ROOT, '', RULE_FILE_EXTENSIONS).map(f => ({
     ...f,
     path: `rules/${f.path}`,
   }));
@@ -203,7 +206,7 @@ function main(): void {
 
   // 3. 扫描技能文件
   log('扫描 custom-skills/ 目录...');
-  const skillFiles: ManifestFile[] = scanDirectory(SKILLS_ROOT).map(f => ({
+  const skillFiles: ManifestFile[] = scanDirectory(SKILLS_ROOT, '', SKILL_FILE_EXTENSIONS).map(f => ({
     ...f,
     path: `custom-skills/${f.path}`,
   }));
@@ -211,7 +214,7 @@ function main(): void {
 
   // 4. 扫描 Agent 文件
   log('扫描 agents/ 目录...');
-  const agentFiles: ManifestFile[] = scanDirectory(AGENTS_ROOT).map(f => ({
+  const agentFiles: ManifestFile[] = scanDirectory(AGENTS_ROOT, '', AGENT_FILE_EXTENSIONS).map(f => ({
     ...f,
     path: `agents/${f.path}`,
   }));

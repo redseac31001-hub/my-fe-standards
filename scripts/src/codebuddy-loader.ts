@@ -1517,7 +1517,7 @@ async function loadEntities<T>(
 
   if (ctx.isRemote) {
     const files = ctx.remoteManifest!.files.filter(
-      f => f.path.startsWith(options.manifestPrefix) && f.path.endsWith('.md')
+      f => f.path.startsWith(options.manifestPrefix)
     );
     const rootFiles = files.filter(file => !file.path.replace(options.manifestPrefix, '').includes('/'));
     const entityGroups = new Map<string, typeof files>();

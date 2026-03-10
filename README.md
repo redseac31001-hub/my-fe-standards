@@ -102,6 +102,7 @@ my-fe-standards/
 - [交接说明](./docs/guides/HANDOFF.md)
 - [私有化发布与业务安装指南](./docs/guides/private-deployment-guide.md)
 - [远程接入指南](./docs/guides/remote-usage-guide.md)
+- [系统概要设计模板使用指南](./docs/guides/system-overview-design-guide.md)
 - [本地业务夹具 Smoke](./docs/guides/local-business-fixture-smoke.md)
 - [E2E 验证方案](./docs/guides/e2e-validation-playbook.md)
 - [Workflow 使用指南](./docs/guides/workflows-guide.md)

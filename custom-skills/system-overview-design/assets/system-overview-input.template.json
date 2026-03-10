@@ -1,0 +1,91 @@
+{
+  "cover": {
+    "document_title": "XX系统概要设计",
+    "document_code": "DDD XXX-XXXX",
+    "template_version_label": "模版版本 v0.1",
+    "company_name": "xxxx有限公司",
+    "document_date": "2026年03月",
+    "initial_version": "V0.1",
+    "confidentiality_level": "公司级",
+    "document_version": "0.1",
+    "author": "张三",
+    "author_date": "2026年03月10日",
+    "reviewer": "李四",
+    "review_date": ""
+  },
+  "version_control": [
+    {
+      "version": "0.1",
+      "date": "2026年03月10日",
+      "participants": "张三",
+      "change_summary": "制订初稿"
+    }
+  ],
+  "sections": {
+    "background_and_objectives": {
+      "background": [],
+      "design_constraints": [],
+      "design_goals": {
+        "configurability": [],
+        "performance": [],
+        "scalability": [],
+        "availability": [],
+        "security": [],
+        "observability": [],
+        "maintainability": []
+      }
+    },
+    "application_architecture": {
+      "use_case_design": {
+        "user_list": [],
+        "use_case_diagram": [],
+        "use_case_list": []
+      },
+      "domain_model_design": {
+        "domain_model_diagram": [],
+        "domain_objects": []
+      },
+      "system_context": {
+        "context_diagram": [],
+        "context_description": [],
+        "interfaces": []
+      },
+      "decomposition_design": {
+        "functional_architecture": [],
+        "subsystems": [],
+        "core_sequences": []
+      },
+      "data_storage_design": {
+        "business_data_storage": [],
+        "multimodal_storage": [],
+        "big_data_storage_notes": []
+      }
+    },
+    "technical_architecture": {
+      "non_functional_design": {
+        "tech_stack": [],
+        "performance_capacity": [],
+        "scalability": [],
+        "availability": [],
+        "security": [],
+        "observability": [],
+        "maintainability": []
+      },
+      "deployment_design": {
+        "deployment_architecture": [],
+        "deployment_description": []
+      }
+    },
+    "resource_evaluation": {
+      "resource_inventory": [],
+      "evaluation_notes": []
+    },
+    "transition_plan": {
+      "background_reason": [],
+      "interim_plan": [],
+      "target_solution": [],
+      "differences_and_impact": [],
+      "cutover_plan": []
+    }
+  }
+}

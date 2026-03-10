@@ -1,7 +1,7 @@
 # MY-FE-STANDARDS 项目架构图谱
 
 > Role: capability and structure source of truth
-> Updated: 2026-03-07
+> Updated: 2026-03-10
 > Use `README.md` for entry and `ROADMAP.md` for execution status.
 
 ---
@@ -40,7 +40,7 @@
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐        │
 │  │   Rules 规则层   │    │  Skills 技能层  │    │  Agents 代理层  │        │
 │  │                 │    │                 │    │                 │        │
-│  │  Layer1: 基础   │    │  14 个技能      │    │  8 个 Agent     │        │
+│  │  Layer1: 基础   │    │  15 个技能      │    │  9 个 Agent     │        │
 │  │  Layer2: 业务   │    │  (详见下方)     │    │  (详见下方)     │        │
 │  │  Layer3: 行为   │    │                 │    │                 │        │
 │  └─────────────────┘    └─────────────────┘    └─────────────────┘        │
@@ -83,7 +83,8 @@ my-fe-standards/
 │   ├── build-fix/             # 构建修复 Agent (v1.0.0)
 │   ├── security-reviewer/     # 安全审查 Agent
 │   ├── performance-profiler/  # 性能分析 Agent
-│   └── structure-analyzer/    # 结构分析 Agent (v2.1.0)
+│   ├── structure-analyzer/    # 结构分析 Agent (v2.1.0)
+│   └── system-overview-writer/ # 概要设计文档生成 Agent
 │
 ├── config/                     # 配置文件
 │   └── loader-config.json     # 加载器配置
@@ -102,6 +103,7 @@ my-fe-standards/
 │   ├── structure-review/      # 结构审查技能
 │   ├── prd/                   # PRD 分析技能
 │   ├── ralph-converter/       # Ralph 转换技能
+│   ├── system-overview-design/ # 系统概要设计技能
 │   └── skill-creator/         # 技能创建器
 │
 ├── mcp-server/                 # MCP 服务器
@@ -179,6 +181,7 @@ my-fe-standards/
 | | 结构审查 | `custom-skills/structure-review/` | 目录结构审查、健康度评分、重构建议 |
 | | PRD 分析 | `custom-skills/prd/` | PRD 文档分析 |
 | | Ralph 转换 | `custom-skills/ralph-converter/` | Ralph 格式转换 |
+| | 系统概要设计 | `custom-skills/system-overview-design/` | 基于 Word 模板生成系统概要设计文档 |
 | | 技能创建 | `custom-skills/skill-creator/` | 创建新技能 |
 | **Agents 代理** | | | |
 | | 任务编排 Agent | `agents/task-orchestrator/` | 端到端计划任务执行与验收，/task 命令 |
@@ -189,6 +192,7 @@ my-fe-standards/
 | | 安全审查 Agent | `agents/security-reviewer/` | XSS 等安全检查 |
 | | 性能分析 Agent | `agents/performance-profiler/` | 性能问题分析 |
 | | 结构分析 Agent | `agents/structure-analyzer/` | 综合架构审查，模块识别，健康度评分 |
+| | 概要设计文档生成 Agent | `agents/system-overview-writer/` | 读取 Word 模板并生成系统概要设计文档 |
 | **Scripts 工具脚本** | | | |
 | | 项目结构分析器 | `scripts/src/structure-analyzer.ts` | 目录结构健康度检测 (SA001-SA005) |
 | | 模块图谱分析器 | `scripts/src/module-mapper.ts` | 功能模块识别、依赖分析、业务分类 |
@@ -275,6 +279,7 @@ await mcp.call("get_skills", { name: "frontend-code-review" });
 
 | 日期 | 版本 | 更新内容 |
 |------|------|----------|
+| 2026-03-10 | unreleased | 新增 `system-overview-design` Skill、`system-overview-writer` Agent，以及系统概要设计模板抽取/Word 回填脚本 |
 | 2026-03-07 | 3.3.0 | 新增私有化发布产物收集（`build:release`）、远程 Bearer Token、`--pack-only` 严格模式与对应安装/发布文档 |
 | 2026-03-05 | 3.2.0 | Workspace 多语言项目识别（JS/TS/Java/Go/Python/Rust/.NET）；新增 `@project` 快捷项目定位约定；提示词和索引表增加语言列 |
 | 2026-02-07 | 3.0.0 | Workflow v2.0.0 七步闭环；新增 tdd-driver/code-reviewer/build-fix Agent + Prompt 模板体系；TaskType 扩展为 10 种；task-executor Agent 路由 + prompt 注入 |
