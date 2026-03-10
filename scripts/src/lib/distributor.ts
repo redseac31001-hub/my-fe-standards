@@ -9,7 +9,7 @@ import * as path from 'path';
 import { Context } from '../types';
 import { Logger } from './logger';
 import { ManagedFileTracker, copyManagedFile, writeManagedFile } from './install-sync';
-import { readRemoteTextAsset } from './remote-content-pack';
+import { readRemoteAsset } from './remote-content-pack';
 
 export interface DistributeItemsOptions {
   targetSubDir: string;
@@ -49,11 +49,11 @@ export async function distributeItems(
 
     if (ctx.isRemote) {
       try {
-        const content = await readRemoteTextAsset(ctx, logger, item.sourcePath);
+        const content = await readRemoteAsset(ctx, logger, item.sourcePath);
         if (options.tracker) {
           writeManagedFile(options.tracker, destPath, content);
         } else {
-          fs.writeFileSync(destPath, content, 'utf-8');
+          fs.writeFileSync(destPath, content);
         }
         distributed.push(item.destFile);
         logger.verbose(`已下载 ${options.label}: ${item.destFile}`);

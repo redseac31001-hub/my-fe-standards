@@ -1298,7 +1298,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
         }
         for (const file of rootFiles) {
             try {
-                const content = await (0, remote_content_pack_1.readRemoteTextAsset)(ctx, logger, file.path);
+                const content = await (0, remote_content_pack_1.readRemoteAsset)(ctx, logger, file.path);
                 const relativePath = file.path.replace(options.manifestPrefix, '');
                 (0, install_sync_1.writeManagedFile)(tracker, path.join(localDir, relativePath), content);
                 logger.verbose(`已下载${options.label}根文件: ${relativePath}`);
@@ -1325,7 +1325,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
                     try {
                         const content = file.path === metadataFile.path
                             ? metadataContent
-                            : await (0, remote_content_pack_1.readRemoteTextAsset)(ctx, logger, file.path);
+                            : await (0, remote_content_pack_1.readRemoteAsset)(ctx, logger, file.path);
                         const relativePath = file.path.replace(options.manifestPrefix, '');
                         const localPath = path.join(localDir, relativePath);
                         (0, install_sync_1.writeManagedFile)(tracker, localPath, content);

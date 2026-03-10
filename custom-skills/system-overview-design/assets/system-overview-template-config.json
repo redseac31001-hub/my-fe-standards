@@ -1,0 +1,561 @@
+{
+  "template": {
+    "name": "系统概要设计模版",
+    "type": "system-overview-design",
+    "source": "custom-skills/system-overview-design/assets/templates/system-overview-template.docx",
+    "upstream_source": "docs/系统概要设计模版.docx",
+    "styles": {
+      "heading_1": "heading 1",
+      "heading_2": "heading 2",
+      "heading_3": "heading 3",
+      "body": "正文1",
+      "body_fallback": "正文内容",
+      "list": "List Paragraph",
+      "table": "Table Grid"
+    }
+  },
+  "cover": {
+    "paragraph_fields_before_toc": [
+      {
+        "source": "cover.document_title"
+      },
+      {
+        "source": "cover.document_code"
+      },
+      {
+        "source": "cover.template_version_label",
+        "format": "wrap_full_width_parentheses"
+      },
+      {
+        "source": "cover.company_name"
+      },
+      {
+        "source": "cover.document_date"
+      }
+    ],
+    "metadata_table": {
+      "table_index": 0,
+      "cells": [
+        {
+          "row": 0,
+          "col": 1,
+          "source": "cover.document_title"
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "source": "cover.initial_version"
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "source": "cover.confidentiality_level"
+        },
+        {
+          "row": 2,
+          "col": 3,
+          "source": "cover.document_version"
+        },
+        {
+          "row": 3,
+          "col": 1,
+          "source": "cover.author"
+        },
+        {
+          "row": 3,
+          "col": 3,
+          "source": "cover.author_date"
+        },
+        {
+          "row": 4,
+          "col": 1,
+          "source": "cover.reviewer"
+        },
+        {
+          "row": 4,
+          "col": 3,
+          "source": "cover.review_date"
+        }
+      ]
+    },
+    "version_control_table": {
+      "table_index": 1,
+      "keep_header_rows": 1,
+      "rows_field": "version_control",
+      "columns": [
+        {
+          "source": "version"
+        },
+        {
+          "source": "date"
+        },
+        {
+          "source": "participants"
+        },
+        {
+          "source": "change_summary"
+        }
+      ]
+    }
+  },
+  "content_plan": [
+    {
+      "title": "系统建设背景及目标",
+      "style": "heading 1"
+    },
+    {
+      "title": "背景",
+      "style": "heading 2",
+      "path": "sections.background_and_objectives.background",
+      "kind": "bullets"
+    },
+    {
+      "title": "系统设计限制",
+      "style": "heading 2",
+      "path": "sections.background_and_objectives.design_constraints",
+      "kind": "bullets"
+    },
+    {
+      "title": "设计目标",
+      "style": "heading 2"
+    },
+    {
+      "title": "可配置性目标",
+      "style": "heading 3",
+      "path": "sections.background_and_objectives.design_goals.configurability",
+      "kind": "bullets"
+    },
+    {
+      "title": "性能目标",
+      "style": "heading 3",
+      "path": "sections.background_and_objectives.design_goals.performance",
+      "kind": "bullets"
+    },
+    {
+      "title": "扩展性目标",
+      "style": "heading 3",
+      "path": "sections.background_and_objectives.design_goals.scalability",
+      "kind": "bullets"
+    },
+    {
+      "title": "可用性目标",
+      "style": "heading 3",
+      "path": "sections.background_and_objectives.design_goals.availability",
+      "kind": "bullets"
+    },
+    {
+      "title": "安全性目标",
+      "style": "heading 3",
+      "path": "sections.background_and_objectives.design_goals.security",
+      "kind": "bullets"
+    },
+    {
+      "title": "可观测性目标",
+      "style": "heading 3",
+      "path": "sections.background_and_objectives.design_goals.observability",
+      "kind": "bullets"
+    },
+    {
+      "title": "可维护性目标",
+      "style": "heading 3",
+      "path": "sections.background_and_objectives.design_goals.maintainability",
+      "kind": "bullets"
+    },
+    {
+      "title": "系统应用架构设计",
+      "style": "heading 1"
+    },
+    {
+      "title": "系统用例设计",
+      "style": "heading 2"
+    },
+    {
+      "title": "系统用户清单及描述",
+      "style": "正文内容",
+      "path": "sections.application_architecture.use_case_design.user_list",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "role",
+          "label": "角色"
+        },
+        {
+          "key": "description",
+          "label": "说明"
+        }
+      ]
+    },
+    {
+      "title": "系统用例图",
+      "style": "正文内容",
+      "path": "sections.application_architecture.use_case_design.use_case_diagram",
+      "kind": "paragraphs"
+    },
+    {
+      "title": "系统用例清单及描述",
+      "style": "正文内容",
+      "path": "sections.application_architecture.use_case_design.use_case_list",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "use_case",
+          "label": "用例"
+        },
+        {
+          "key": "actor",
+          "label": "角色"
+        },
+        {
+          "key": "precondition",
+          "label": "前置条件"
+        },
+        {
+          "key": "result",
+          "label": "结果"
+        }
+      ]
+    },
+    {
+      "title": "系统领域模型设计",
+      "style": "heading 2"
+    },
+    {
+      "title": "系统领域模型图",
+      "style": "正文内容",
+      "path": "sections.application_architecture.domain_model_design.domain_model_diagram",
+      "kind": "paragraphs"
+    },
+    {
+      "title": "系统领域对象清单及描述",
+      "style": "正文内容",
+      "path": "sections.application_architecture.domain_model_design.domain_objects",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "object",
+          "label": "对象"
+        },
+        {
+          "key": "description",
+          "label": "说明"
+        },
+        {
+          "key": "key_fields",
+          "label": "关键字段"
+        }
+      ]
+    },
+    {
+      "title": "系统上下文",
+      "style": "heading 2"
+    },
+    {
+      "title": "系统上下文图",
+      "style": "正文内容",
+      "path": "sections.application_architecture.system_context.context_diagram",
+      "kind": "paragraphs"
+    },
+    {
+      "title": "系统上下文描述",
+      "style": "正文内容",
+      "path": "sections.application_architecture.system_context.context_description",
+      "kind": "bullets"
+    },
+    {
+      "title": "系统接口清单",
+      "style": "正文内容",
+      "path": "sections.application_architecture.system_context.interfaces",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "seq",
+          "label": "序号"
+        },
+        {
+          "key": "interface_id",
+          "label": "接口序号"
+        },
+        {
+          "key": "apikit_id",
+          "label": "APIKIT序号"
+        },
+        {
+          "key": "name",
+          "label": "接口"
+        },
+        {
+          "key": "external_access",
+          "label": "公司外访问"
+        },
+        {
+          "key": "protocol",
+          "label": "接口方式"
+        },
+        {
+          "key": "description",
+          "label": "接口描述"
+        },
+        {
+          "key": "caller",
+          "label": "发起方"
+        },
+        {
+          "key": "callee",
+          "label": "落地方"
+        }
+      ]
+    },
+    {
+      "title": "系统分解设计",
+      "style": "heading 2"
+    },
+    {
+      "title": "系统功能架构图",
+      "style": "正文内容",
+      "path": "sections.application_architecture.decomposition_design.functional_architecture",
+      "kind": "paragraphs"
+    },
+    {
+      "title": "子系统清单及描述",
+      "style": "正文内容",
+      "path": "sections.application_architecture.decomposition_design.subsystems",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "subsystem",
+          "label": "子系统"
+        },
+        {
+          "key": "responsibility",
+          "label": "职责"
+        },
+        {
+          "key": "capabilities",
+          "label": "关键能力"
+        },
+        {
+          "key": "dependencies",
+          "label": "依赖"
+        }
+      ]
+    },
+    {
+      "title": "核心用例时序",
+      "style": "正文内容",
+      "path": "sections.application_architecture.decomposition_design.core_sequences",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "sequence",
+          "label": "时序"
+        },
+        {
+          "key": "description",
+          "label": "说明"
+        }
+      ]
+    },
+    {
+      "title": "系统数据存储设计",
+      "style": "heading 2"
+    },
+    {
+      "title": "业务数据存储设计",
+      "style": "正文内容",
+      "path": "sections.application_architecture.data_storage_design.business_data_storage",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "domain",
+          "label": "业务域"
+        },
+        {
+          "key": "storage",
+          "label": "存储介质"
+        },
+        {
+          "key": "description",
+          "label": "说明"
+        }
+      ]
+    },
+    {
+      "title": "多模态数据存储设计",
+      "style": "正文内容",
+      "path": "sections.application_architecture.data_storage_design.multimodal_storage",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "type",
+          "label": "数据类型"
+        },
+        {
+          "key": "storage",
+          "label": "存储介质"
+        },
+        {
+          "key": "description",
+          "label": "说明"
+        }
+      ]
+    },
+    {
+      "title": "大数据存储说明",
+      "style": "正文内容",
+      "path": "sections.application_architecture.data_storage_design.big_data_storage_notes",
+      "kind": "bullets"
+    },
+    {
+      "title": "系统技术架构设计",
+      "style": "heading 1"
+    },
+    {
+      "title": "系统非功能设计",
+      "style": "heading 2"
+    },
+    {
+      "title": "系统技术栈",
+      "style": "heading 3",
+      "path": "sections.technical_architecture.non_functional_design.tech_stack",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "layer",
+          "label": "层次"
+        },
+        {
+          "key": "selection",
+          "label": "技术选型"
+        },
+        {
+          "key": "version",
+          "label": "版本"
+        },
+        {
+          "key": "description",
+          "label": "说明"
+        }
+      ]
+    },
+    {
+      "title": "性能与容量设计",
+      "style": "heading 3",
+      "path": "sections.technical_architecture.non_functional_design.performance_capacity",
+      "kind": "bullets"
+    },
+    {
+      "title": "扩展性设计",
+      "style": "heading 3",
+      "path": "sections.technical_architecture.non_functional_design.scalability",
+      "kind": "bullets"
+    },
+    {
+      "title": "可用性设计",
+      "style": "heading 3",
+      "path": "sections.technical_architecture.non_functional_design.availability",
+      "kind": "bullets"
+    },
+    {
+      "title": "安全设计",
+      "style": "heading 3",
+      "path": "sections.technical_architecture.non_functional_design.security",
+      "kind": "bullets"
+    },
+    {
+      "title": "可观测性设计",
+      "style": "heading 3",
+      "path": "sections.technical_architecture.non_functional_design.observability",
+      "kind": "bullets"
+    },
+    {
+      "title": "可维护性设计",
+      "style": "heading 3",
+      "path": "sections.technical_architecture.non_functional_design.maintainability",
+      "kind": "bullets"
+    },
+    {
+      "title": "系统部署设计",
+      "style": "heading 2"
+    },
+    {
+      "title": "部署架构图",
+      "style": "正文内容",
+      "path": "sections.technical_architecture.deployment_design.deployment_architecture",
+      "kind": "paragraphs"
+    },
+    {
+      "title": "部署架构说明",
+      "style": "正文内容",
+      "path": "sections.technical_architecture.deployment_design.deployment_description",
+      "kind": "bullets"
+    },
+    {
+      "title": "系统资源评估",
+      "style": "heading 1"
+    },
+    {
+      "title": "系统资源清单",
+      "style": "heading 2",
+      "path": "sections.resource_evaluation.resource_inventory",
+      "kind": "table",
+      "columns": [
+        {
+          "key": "resource_type",
+          "label": "资源类型"
+        },
+        {
+          "key": "spec",
+          "label": "规格"
+        },
+        {
+          "key": "estimated_peak",
+          "label": "预估峰值"
+        },
+        {
+          "key": "notes",
+          "label": "说明"
+        }
+      ]
+    },
+    {
+      "title": "系统资源评估说明",
+      "style": "heading 2",
+      "path": "sections.resource_evaluation.evaluation_notes",
+      "kind": "bullets"
+    },
+    {
+      "title": "过渡方案设计（附加）",
+      "style": "heading 1"
+    },
+    {
+      "title": "过渡方案背景及理由",
+      "style": "heading 2",
+      "path": "sections.transition_plan.background_reason",
+      "kind": "bullets"
+    },
+    {
+      "title": "过渡方案",
+      "style": "heading 2",
+      "path": "sections.transition_plan.interim_plan",
+      "kind": "bullets"
+    },
+    {
+      "title": "最终方案草案",
+      "style": "heading 2",
+      "path": "sections.transition_plan.target_solution",
+      "kind": "bullets"
+    },
+    {
+      "title": "方案差异点及影响评估",
+      "style": "heading 2",
+      "path": "sections.transition_plan.differences_and_impact",
+      "kind": "bullets"
+    },
+    {
+      "title": "方案切换方案",
+      "style": "heading 2",
+      "path": "sections.transition_plan.cutover_plan",
+      "kind": "bullets"
+    }
+  ]
+}

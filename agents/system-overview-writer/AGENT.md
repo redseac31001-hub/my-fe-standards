@@ -30,7 +30,7 @@ dependencies:
 
 ## 职责范围
 
-- 识别概要设计模板结构并抽取 AI 可读 schema
+- 加载并遵循内置的概要设计模板配置、schema 和 guide
 - 把离散输入映射到概要设计模板对应章节
 - 识别缺口并保留待确认项，不编造事实
 - 输出结构化 JSON 和最终 Word 文档
@@ -44,11 +44,12 @@ dependencies:
 > - 业务项目安装后使用 `<skills-root>/system-overview-design/...`
 > - `<skills-root>` 取 `.codebuddy/install.json -> outputs.skillsRootDir`
 
-### Phase 1: 模板识别
+### Phase 1: 模板配置加载
 
-1. 确认用户提供的 `.docx` 模板路径。
-2. 调用 `<skills-root>/system-overview-design/scripts/extract_template.py` 抽取章节、样式和表格结构。
-3. 核对模板是否属于“系统概要设计”而非“系统详细设计”。
+1. 默认使用 `<skills-root>/system-overview-design/assets/templates/system-overview-template.docx` 作为官方模板本体；只有明确要求切换模板时才使用外部模板。
+2. 默认加载 `<skills-root>/system-overview-design/assets/system-overview-template-config.json`、`system-overview-template-schema.json` 和 `system-overview-template-guide.md`。
+3. 核对当前任务是否属于“系统概要设计”而非“系统详细设计”。
+4. 只有在官方模板发生变化或用户明确提供新模板要求切换时，才调用 `<skills-root>/system-overview-design/scripts/extract_template.py` 重新抽取并更新配置资源。
 
 ### Phase 2: 输入归一化
 
@@ -58,8 +59,8 @@ dependencies:
 
 ### Phase 3: 文档生成
 
-1. 按模板章节生成概要设计内容。
-2. 调用 `<skills-root>/system-overview-design/scripts/render_overview_doc.py` 写回模板。
+1. 按内置模板配置生成概要设计内容。
+2. 调用 `<skills-root>/system-overview-design/scripts/render_overview_doc.py` 写回官方模板；若切换模板，再显式传入 `--template`。
 3. 输出生成结果和待人工确认项。
 
 ## 输出格式

@@ -20,6 +20,10 @@
       ],
       "expectedSkillFiles": [
         "system-overview-design/SKILL.md",
+        "system-overview-design/assets/system-overview-template-config.json",
+        "system-overview-design/assets/system-overview-template-schema.json",
+        "system-overview-design/assets/system-overview-template-guide.md",
+        "system-overview-design/assets/templates/system-overview-template.docx",
         "system-overview-design/assets/system-overview-input.template.json",
         "system-overview-design/assets/system-overview-input.example.json",
         "system-overview-design/scripts/extract_template.py",

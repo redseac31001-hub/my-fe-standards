@@ -13,6 +13,12 @@ from docx.oxml.ns import qn
 from docx.shared import Pt
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+SKILL_ROOT = SCRIPT_DIR.parent
+DEFAULT_TEMPLATE_CONFIG_PATH = SKILL_ROOT / "assets" / "system-overview-template-config.json"
+DEFAULT_TEMPLATE_PATH = SKILL_ROOT / "assets" / "templates" / "system-overview-template.docx"
+
+
 CONTENT_PLAN = [
     {"title": "系统建设背景及目标", "style": "heading 1"},
     {"title": "背景", "style": "heading 2", "path": ["sections", "background_and_objectives", "background"], "kind": "bullets"},
@@ -151,6 +157,52 @@ def load_json(path: Path) -> dict[str, Any]:
     return data
 
 
+def split_path(path_value: Any) -> list[str]:
+    if isinstance(path_value, list):
+        return [str(item) for item in path_value if str(item)]
+    if isinstance(path_value, str):
+        return [segment for segment in path_value.split(".") if segment]
+    return []
+
+
+def normalize_template_content_plan(config: dict[str, Any]) -> list[dict[str, Any]]:
+    plan = config.get("content_plan")
+    if not isinstance(plan, list):
+        raise ValueError("template config missing content_plan list")
+
+    normalized_plan: list[dict[str, Any]] = []
+    for item in plan:
+        if not isinstance(item, dict):
+            continue
+        normalized_item = {
+            "title": item.get("title", ""),
+            "style": item.get("style", "Normal"),
+            "kind": item.get("kind"),
+        }
+        path_segments = split_path(item.get("path"))
+        if path_segments:
+            normalized_item["path"] = path_segments
+        columns = item.get("columns")
+        if isinstance(columns, list):
+            normalized_columns: list[tuple[str, str]] = []
+            for column in columns:
+                if not isinstance(column, dict):
+                    continue
+                key = str(column.get("key", "")).strip()
+                label = str(column.get("label", "")).strip()
+                if key and label:
+                    normalized_columns.append((key, label))
+            if normalized_columns:
+                normalized_item["columns"] = normalized_columns
+        normalized_plan.append(normalized_item)
+
+    return normalized_plan
+
+
+def load_template_content_plan(path: Path) -> list[dict[str, Any]]:
+    return normalize_template_content_plan(load_json(path))
+
+
 def get_nested(data: dict[str, Any], path: list[str]) -> Any:
     current: Any = data
     for key in path:
@@ -158,6 +210,13 @@ def get_nested(data: dict[str, Any], path: list[str]) -> Any:
             return None
         current = current.get(key)
     return current
+
+
+def get_field_value(data: dict[str, Any], path_value: Any) -> Any:
+    path = split_path(path_value)
+    if not path:
+        return None
+    return get_nested(data, path)
 
 
 def coerce_text(value: Any) -> str:
@@ -221,8 +280,19 @@ def replace_paragraph_text(paragraph: Any, text: str) -> None:
     paragraph.text = text
 
 
-def fill_cover(document: DocumentObject, spec: dict[str, Any]) -> None:
+def resolve_mapping_value(spec: dict[str, Any], mapping: dict[str, Any]) -> str:
+    value = get_field_value(spec, mapping.get("source"))
+    text = coerce_text(value)
+    if mapping.get("format") == "wrap_full_width_parentheses" and text:
+        return f"（{text}）"
+    return text
+
+
+def fill_cover(document: DocumentObject, spec: dict[str, Any], template_config: dict[str, Any] | None = None) -> None:
     cover = spec.get("cover", {}) if isinstance(spec.get("cover"), dict) else {}
+    cover_config = {}
+    if isinstance(template_config, dict) and isinstance(template_config.get("cover"), dict):
+        cover_config = template_config.get("cover", {})
     non_empty_before_toc = []
     for paragraph in document.paragraphs:
         style_name = getattr(getattr(paragraph, "style", None), "name", "") or ""
@@ -231,18 +301,38 @@ def fill_cover(document: DocumentObject, spec: dict[str, Any]) -> None:
         if paragraph.text.strip():
             non_empty_before_toc.append(paragraph)
 
-    cover_values = [
-        cover.get("document_title", ""),
-        cover.get("document_code", ""),
-        f"（{cover.get('template_version_label', '')}）" if cover.get("template_version_label") else "",
-        cover.get("company_name", ""),
-        cover.get("document_date", "")
-    ]
-    for paragraph, value in zip(non_empty_before_toc[:5], cover_values):
-        if value:
-            replace_paragraph_text(paragraph, value)
+    paragraph_mappings = cover_config.get("paragraph_fields_before_toc", [])
+    if isinstance(paragraph_mappings, list) and paragraph_mappings:
+        for paragraph, mapping in zip(non_empty_before_toc, paragraph_mappings):
+            if not isinstance(mapping, dict):
+                continue
+            value = resolve_mapping_value(spec, mapping)
+            if value:
+                replace_paragraph_text(paragraph, value)
+    else:
+        cover_values = [
+            cover.get("document_title", ""),
+            cover.get("document_code", ""),
+            f"（{cover.get('template_version_label', '')}）" if cover.get("template_version_label") else "",
+            cover.get("company_name", ""),
+            cover.get("document_date", "")
+        ]
+        for paragraph, value in zip(non_empty_before_toc[:5], cover_values):
+            if value:
+                replace_paragraph_text(paragraph, value)
 
-    if len(document.tables) >= 1:
+    metadata_table = cover_config.get("metadata_table")
+    if isinstance(metadata_table, dict) and len(document.tables) > int(metadata_table.get("table_index", -1)):
+        table = document.tables[int(metadata_table.get("table_index", 0))]
+        for mapping in metadata_table.get("cells", []):
+            if not isinstance(mapping, dict):
+                continue
+            row = int(mapping.get("row", -1))
+            col = int(mapping.get("col", -1))
+            if row < 0 or col < 0 or row >= len(table.rows) or col >= len(table.columns):
+                continue
+            table.cell(row, col).text = resolve_mapping_value(spec, mapping)
+    elif len(document.tables) >= 1:
         table = document.tables[0]
         table.cell(0, 1).text = coerce_text(cover.get("document_title"))
         table.cell(1, 1).text = coerce_text(cover.get("initial_version"))
@@ -253,7 +343,21 @@ def fill_cover(document: DocumentObject, spec: dict[str, Any]) -> None:
         table.cell(4, 1).text = coerce_text(cover.get("reviewer"))
         table.cell(4, 3).text = coerce_text(cover.get("review_date"))
 
-    if len(document.tables) >= 2:
+    version_control_table = cover_config.get("version_control_table")
+    if isinstance(version_control_table, dict) and len(document.tables) > int(version_control_table.get("table_index", -1)):
+        version_rows = list_of_dicts(get_field_value(spec, version_control_table.get("rows_field")))
+        table = document.tables[int(version_control_table.get("table_index", 1))]
+        keep_header_rows = max(int(version_control_table.get("keep_header_rows", 1)), 0)
+        while len(table.rows) > keep_header_rows:
+            table._tbl.remove(table.rows[-1]._tr)
+        columns = version_control_table.get("columns", [])
+        for row_data in version_rows:
+            cells = table.add_row().cells
+            for index, column in enumerate(columns):
+                if index >= len(cells) or not isinstance(column, dict):
+                    continue
+                cells[index].text = coerce_text(row_data.get(column.get("source")))
+    elif len(document.tables) >= 2:
         version_rows = list_of_dicts(spec.get("version_control"))
         table = document.tables[1]
         while len(table.rows) > 1:
@@ -347,8 +451,8 @@ def add_table(document: DocumentObject, rows: list[dict[str, Any]], columns: lis
                     apply_body_run_format(document, cells[index].paragraphs[0].runs[0])
 
 
-def render_content(document: DocumentObject, spec: dict[str, Any]) -> None:
-    for item in CONTENT_PLAN:
+def render_content(document: DocumentObject, spec: dict[str, Any], content_plan: list[dict[str, Any]]) -> None:
+    for item in content_plan:
         title = item["title"]
         style = item["style"]
         path = item.get("path")
@@ -372,9 +476,18 @@ def render_content(document: DocumentObject, spec: dict[str, Any]) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render a system overview design DOCX from a template and JSON spec.")
-    parser.add_argument("--template", required=True, help="Path to the overview-design DOCX template.")
+    parser.add_argument(
+        "--template",
+        default=str(DEFAULT_TEMPLATE_PATH),
+        help="Path to the overview-design DOCX template. Defaults to the bundled official template.",
+    )
     parser.add_argument("--spec", required=True, help="Path to the structured JSON input.")
     parser.add_argument("--output", required=True, help="Output DOCX path.")
+    parser.add_argument(
+        "--template-config",
+        default=str(DEFAULT_TEMPLATE_CONFIG_PATH),
+        help="Template config JSON path. Defaults to the bundled system-overview template config.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite the output file if it exists.")
     return parser.parse_args()
 
@@ -384,6 +497,7 @@ def main() -> int:
     template_path = Path(args.template)
     spec_path = Path(args.spec)
     output_path = Path(args.output)
+    template_config_path = Path(args.template_config)
 
     if not template_path.exists():
         print(f"error: template not found: {template_path}", file=sys.stderr)
@@ -396,18 +510,21 @@ def main() -> int:
 
     try:
         spec = load_json(spec_path)
+        template_config = load_json(template_config_path)
+        content_plan = normalize_template_content_plan(template_config)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     document = Document(str(template_path))
-    fill_cover(document, spec)
+    fill_cover(document, spec, template_config)
     remove_body_from_first_heading(document)
-    render_content(document, spec)
+    render_content(document, spec, content_plan)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(str(output_path))
     print(f"created {output_path}")
+    print(f"template config: {template_config_path}")
     print("note: open the document in Word and refresh the table of contents before final delivery")
     return 0
 

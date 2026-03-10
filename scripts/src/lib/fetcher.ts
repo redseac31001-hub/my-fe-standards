@@ -29,7 +29,12 @@ function buildRequestHeaders(ctx: Readonly<Context>, url: string): Record<string
   };
 }
 
-export function fetchUrl(ctx: Readonly<Context>, logger: Logger, url: string, retries: number = 3): Promise<string> {
+export function fetchUrlBuffer(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  url: string,
+  retries: number = 3,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
     const headers = buildRequestHeaders(ctx, url);
@@ -42,7 +47,7 @@ export function fetchUrl(ctx: Readonly<Context>, logger: Logger, url: string, re
         const redirectUrl = new URL(res.headers.location, url).toString();
         res.resume();
         logger.verbose(`Redirecting to: ${redirectUrl}`);
-        fetchUrl(ctx, logger, redirectUrl, retries).then(resolve).catch(reject);
+        fetchUrlBuffer(ctx, logger, redirectUrl, retries).then(resolve).catch(reject);
         return;
       }
 
@@ -51,7 +56,7 @@ export function fetchUrl(ctx: Readonly<Context>, logger: Logger, url: string, re
           res.resume();
           logger.warn(`HTTP ${res.statusCode}. Retrying...`);
           setTimeout(() => {
-            fetchUrl(ctx, logger, url, retries - 1).then(resolve).catch(reject);
+            fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve).catch(reject);
           }, 1000);
           return;
         }
@@ -61,12 +66,12 @@ export function fetchUrl(ctx: Readonly<Context>, logger: Logger, url: string, re
         return;
       }
 
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk: Buffer | string) => {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      });
-      res.on('end', () => {
-        const data = Buffer.concat(chunks).toString('utf-8');
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer | string) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        res.on('end', () => {
+        const data = Buffer.concat(chunks);
         logger.verbose(`Fetched ${data.length} bytes from ${url}`);
         resolve(data);
       });
@@ -76,7 +81,7 @@ export function fetchUrl(ctx: Readonly<Context>, logger: Logger, url: string, re
       if (retries > 0) {
         logger.warn(`Network Error (${e.code}). Retrying...`);
         setTimeout(() => {
-          fetchUrl(ctx, logger, url, retries - 1).then(resolve).catch(reject);
+          fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve).catch(reject);
         }, 1000);
         return;
       }
@@ -88,11 +93,21 @@ export function fetchUrl(ctx: Readonly<Context>, logger: Logger, url: string, re
       if (retries > 0) {
         logger.warn(`Request Timeout. Retrying...`);
         setTimeout(() => {
-          fetchUrl(ctx, logger, url, retries - 1).then(resolve).catch(reject);
+          fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve).catch(reject);
         }, 1000);
         return;
       }
       reject(new Error(`Request Timeout: ${url}`));
     });
   });
+}
+
+export async function fetchUrl(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  url: string,
+  retries: number = 3,
+): Promise<string> {
+  const buffer = await fetchUrlBuffer(ctx, logger, url, retries);
+  return buffer.toString('utf-8');
 }

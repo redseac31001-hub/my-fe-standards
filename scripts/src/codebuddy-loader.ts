@@ -75,7 +75,7 @@ import {
   inspectInstallState,
   summarizeDoctorChecks,
 } from './lib/install-health';
-import { ensureRemoteContentPack, readRemoteTextAsset } from './lib/remote-content-pack';
+import { ensureRemoteContentPack, readRemoteAsset, readRemoteTextAsset } from './lib/remote-content-pack';
 import { parseSkillMetadata, parseAgentMetadata } from './lib/metadata-parser';
 import {
   generateWorkflowsPrompt,
@@ -1535,7 +1535,7 @@ async function loadEntities<T>(
 
     for (const file of rootFiles) {
       try {
-        const content = await readRemoteTextAsset(ctx, logger, file.path);
+        const content = await readRemoteAsset(ctx, logger, file.path);
         const relativePath = file.path.replace(options.manifestPrefix, '');
         writeManagedFile(tracker, path.join(localDir, relativePath), content);
         logger.verbose(`已下载${options.label}根文件: ${relativePath}`);
@@ -1563,7 +1563,7 @@ async function loadEntities<T>(
           try {
             const content = file.path === metadataFile.path
               ? metadataContent
-              : await readRemoteTextAsset(ctx, logger, file.path);
+              : await readRemoteAsset(ctx, logger, file.path);
             const relativePath = file.path.replace(options.manifestPrefix, '');
             const localPath = path.join(localDir, relativePath);
             writeManagedFile(tracker, localPath, content);

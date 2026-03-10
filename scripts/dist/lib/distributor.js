@@ -63,12 +63,12 @@ async function distributeItems(ctx, logger, targetDir, projectRoot, options) {
         const destPath = path.join(localDir, item.destFile);
         if (ctx.isRemote) {
             try {
-                const content = await (0, remote_content_pack_1.readRemoteTextAsset)(ctx, logger, item.sourcePath);
+                const content = await (0, remote_content_pack_1.readRemoteAsset)(ctx, logger, item.sourcePath);
                 if (options.tracker) {
                     (0, install_sync_1.writeManagedFile)(options.tracker, destPath, content);
                 }
                 else {
-                    fs.writeFileSync(destPath, content, 'utf-8');
+                    fs.writeFileSync(destPath, content);
                 }
                 distributed.push(item.destFile);
                 logger.verbose(`已下载 ${options.label}: ${item.destFile}`);

@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-03-10T04:20:48.359Z",
+  "generatedAt": "2026-03-10T08:04:24.197Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -215,883 +215,1058 @@
       "path": "rules/layer1_base/architecture/feature-based-structure.md",
       "name": "feature-based-structure",
       "size": 3194,
-      "mtime": "2026-03-07T11:17:18.509Z"
+      "mtime": "2026-03-07T11:17:18.509Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer1_base/code-quality/clean-code.md",
       "name": "clean-code",
       "size": 14251,
-      "mtime": "2026-01-30T07:05:42.348Z"
+      "mtime": "2026-01-30T07:05:42.348Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer1_base/typescript/api-request.md",
       "name": "api-request",
       "size": 14908,
-      "mtime": "2026-01-09T08:29:48.810Z"
+      "mtime": "2026-01-09T08:29:48.810Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer1_base/typescript/strict-types.md",
       "name": "strict-types",
       "size": 3911,
-      "mtime": "2026-03-07T11:17:18.509Z"
+      "mtime": "2026-03-07T11:17:18.509Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer1_base/vue2/vue2-composition.md",
       "name": "vue2-composition",
       "size": 2588,
-      "mtime": "2026-03-07T11:17:18.509Z"
+      "mtime": "2026-03-07T11:17:18.509Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer1_base/vue2/vue2-general.md",
       "name": "vue2-general",
       "size": 5371,
-      "mtime": "2026-03-07T11:17:18.509Z"
+      "mtime": "2026-03-07T11:17:18.509Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer1_base/vue3/pinia.md",
       "name": "pinia",
       "size": 7313,
-      "mtime": "2026-01-09T08:03:19.686Z"
+      "mtime": "2026-01-09T08:03:19.686Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer1_base/vue3/router.md",
       "name": "router",
       "size": 7965,
-      "mtime": "2026-01-09T08:19:57.639Z"
+      "mtime": "2026-01-09T08:19:57.639Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer1_base/vue3/vue3-script-setup.md",
       "name": "vue3-script-setup",
       "size": 3168,
-      "mtime": "2026-01-07T10:52:41.293Z"
+      "mtime": "2026-01-07T10:52:41.293Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/antdv.md",
       "name": "antdv",
       "size": 5818,
-      "mtime": "2026-01-07T10:49:40.315Z"
+      "mtime": "2026-01-07T10:49:40.315Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/backend-service.md",
       "name": "backend-service",
       "size": 3078,
-      "mtime": "2026-03-08T13:08:18.638Z"
+      "mtime": "2026-03-08T13:08:18.638Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/java-backend.md",
       "name": "java-backend",
       "size": 3032,
-      "mtime": "2026-03-08T13:08:18.639Z"
+      "mtime": "2026-03-08T13:08:18.639Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/node-backend.md",
       "name": "node-backend",
       "size": 3278,
-      "mtime": "2026-03-08T13:08:18.638Z"
+      "mtime": "2026-03-08T13:08:18.638Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/rust-backend.md",
       "name": "rust-backend",
       "size": 3120,
-      "mtime": "2026-03-08T13:08:18.639Z"
+      "mtime": "2026-03-08T13:08:18.639Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/vant.md",
       "name": "vant",
       "size": 7446,
-      "mtime": "2026-01-07T10:48:17.338Z"
+      "mtime": "2026-01-07T10:48:17.338Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/context-management.md",
       "name": "context-management",
       "size": 5384,
-      "mtime": "2026-03-02T08:10:47.910Z"
+      "mtime": "2026-03-02T08:10:47.910Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/debugging.md",
       "name": "debugging",
       "size": 4535,
-      "mtime": "2026-03-02T08:26:47.821Z"
+      "mtime": "2026-03-02T08:26:47.821Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/defensive-coding.md",
       "name": "defensive-coding",
       "size": 8852,
-      "mtime": "2026-01-24T05:48:13.678Z"
+      "mtime": "2026-01-24T05:48:13.678Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/refactoring.md",
       "name": "refactoring",
       "size": 4444,
-      "mtime": "2026-01-24T05:45:32.727Z"
+      "mtime": "2026-01-24T05:45:32.727Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/self-verification.md",
       "name": "self-verification",
       "size": 14502,
-      "mtime": "2026-01-24T05:47:04.139Z"
+      "mtime": "2026-01-24T05:47:04.139Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/system-design-documentation.md",
       "name": "system-design-documentation",
       "size": 2976,
-      "mtime": "2026-03-10T03:43:29.460Z"
+      "mtime": "2026-03-10T03:43:29.460Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/testing.md",
       "name": "testing",
       "size": 4434,
-      "mtime": "2026-01-13T09:25:58.963Z"
+      "mtime": "2026-01-13T09:25:58.963Z",
+      "encoding": "utf8"
     },
     {
       "path": "rules/skills/skills-refactoring.md",
       "name": "skills-refactoring",
       "size": 5653,
-      "mtime": "2026-01-12T06:38:05.982Z"
+      "mtime": "2026-01-12T06:38:05.982Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-code-review/references/common-checklist.md",
       "name": "common-checklist",
       "size": 993,
-      "mtime": "2026-03-08T10:21:57.900Z"
+      "mtime": "2026-03-08T10:21:57.900Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-code-review/references/java-frameworks.md",
       "name": "java-frameworks",
       "size": 1432,
-      "mtime": "2026-03-08T12:53:54.719Z"
+      "mtime": "2026-03-08T12:53:54.719Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-code-review/references/java-service.md",
       "name": "java-service",
       "size": 1024,
-      "mtime": "2026-03-08T12:53:24.860Z"
+      "mtime": "2026-03-08T12:53:24.860Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-code-review/references/node-frameworks.md",
       "name": "node-frameworks",
       "size": 1308,
-      "mtime": "2026-03-08T12:53:46.674Z"
+      "mtime": "2026-03-08T12:53:46.674Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-code-review/references/node-service.md",
       "name": "node-service",
       "size": 1093,
-      "mtime": "2026-03-08T12:53:16.970Z"
+      "mtime": "2026-03-08T12:53:16.970Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-code-review/references/rust-frameworks.md",
       "name": "rust-frameworks",
       "size": 1010,
-      "mtime": "2026-03-08T12:54:02.201Z"
+      "mtime": "2026-03-08T12:54:02.201Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-code-review/references/rust-service.md",
       "name": "rust-service",
       "size": 880,
-      "mtime": "2026-03-08T12:53:38.325Z"
+      "mtime": "2026-03-08T12:53:38.325Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-code-review/SKILL.md",
       "name": "SKILL",
       "size": 2369,
-      "mtime": "2026-03-09T01:53:02.356Z"
+      "mtime": "2026-03-09T01:53:02.356Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-testing/references/java-frameworks.md",
       "name": "java-frameworks",
       "size": 1015,
-      "mtime": "2026-03-08T12:54:49.963Z"
+      "mtime": "2026-03-08T12:54:49.963Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-testing/references/java-testing.md",
       "name": "java-testing",
       "size": 548,
-      "mtime": "2026-03-08T12:54:20.764Z"
+      "mtime": "2026-03-08T12:54:20.764Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-testing/references/node-frameworks.md",
       "name": "node-frameworks",
       "size": 1018,
-      "mtime": "2026-03-08T12:54:41.373Z"
+      "mtime": "2026-03-08T12:54:41.373Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-testing/references/node-testing.md",
       "name": "node-testing",
       "size": 555,
-      "mtime": "2026-03-08T12:54:11.221Z"
+      "mtime": "2026-03-08T12:54:11.221Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-testing/references/rust-frameworks.md",
       "name": "rust-frameworks",
       "size": 969,
-      "mtime": "2026-03-08T12:54:58.491Z"
+      "mtime": "2026-03-08T12:54:58.491Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-testing/references/rust-testing.md",
       "name": "rust-testing",
       "size": 541,
-      "mtime": "2026-03-08T12:54:31.728Z"
+      "mtime": "2026-03-08T12:54:31.728Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-testing/references/workflow.md",
       "name": "workflow",
       "size": 390,
-      "mtime": "2026-03-08T10:21:57.905Z"
+      "mtime": "2026-03-08T10:21:57.905Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/backend-testing/SKILL.md",
       "name": "SKILL",
       "size": 2300,
-      "mtime": "2026-03-09T01:53:08.678Z"
+      "mtime": "2026-03-09T01:53:08.678Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/build-optimization/references/ci-and-dependency-analysis.md",
       "name": "ci-and-dependency-analysis",
       "size": 1287,
-      "mtime": "2026-03-06T02:37:11.043Z"
+      "mtime": "2026-03-06T02:37:11.043Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/build-optimization/references/vite-optimization.md",
       "name": "vite-optimization",
       "size": 1621,
-      "mtime": "2026-03-06T02:37:11.040Z"
+      "mtime": "2026-03-06T02:37:11.040Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/build-optimization/references/webpack-optimization.md",
       "name": "webpack-optimization",
       "size": 1185,
-      "mtime": "2026-03-06T02:37:11.041Z"
+      "mtime": "2026-03-06T02:37:11.041Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/build-optimization/SKILL.md",
       "name": "SKILL",
       "size": 1478,
-      "mtime": "2026-03-08T10:25:23.823Z"
+      "mtime": "2026-03-08T10:25:23.823Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/component-refactoring/references/complexity-patterns.md",
       "name": "complexity-patterns",
       "size": 11936,
-      "mtime": "2026-03-06T01:56:10.389Z"
+      "mtime": "2026-03-06T01:56:10.389Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/component-refactoring/references/component-splitting.md",
       "name": "component-splitting",
       "size": 11677,
-      "mtime": "2026-01-11T22:20:06.000Z"
+      "mtime": "2026-01-11T22:20:06.000Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/component-refactoring/references/hook-extraction.md",
       "name": "hook-extraction",
       "size": 8520,
-      "mtime": "2026-01-11T22:20:06.000Z"
+      "mtime": "2026-01-11T22:20:06.000Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/component-refactoring/references/vue/component-splitting.md",
       "name": "component-splitting",
       "size": 1654,
-      "mtime": "2026-01-13T03:03:41.598Z"
+      "mtime": "2026-01-13T03:03:41.598Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/component-refactoring/references/vue/composition-api.md",
       "name": "composition-api",
       "size": 2815,
-      "mtime": "2026-01-13T03:03:37.690Z"
+      "mtime": "2026-01-13T03:03:37.690Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/component-refactoring/references/vue/options-api.md",
       "name": "options-api",
       "size": 1669,
-      "mtime": "2026-01-13T03:03:39.632Z"
+      "mtime": "2026-01-13T03:03:39.632Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/component-refactoring/SKILL.md",
       "name": "SKILL",
       "size": 2961,
-      "mtime": "2026-03-08T10:25:23.824Z"
+      "mtime": "2026-03-08T10:25:23.824Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/custom-skills-guide.md",
       "name": "custom-skills-guide",
       "size": 17991,
-      "mtime": "2026-03-08T09:49:16.039Z"
+      "mtime": "2026-03-08T09:49:16.039Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-code-review/references/business-logic.md",
       "name": "business-logic",
       "size": 619,
-      "mtime": "2026-01-11T22:15:46.000Z"
+      "mtime": "2026-01-11T22:15:46.000Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-code-review/references/code-quality.md",
       "name": "code-quality",
       "size": 2463,
-      "mtime": "2026-01-13T03:04:25.030Z"
+      "mtime": "2026-01-13T03:04:25.030Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-code-review/references/performance.md",
       "name": "performance",
       "size": 928,
-      "mtime": "2026-01-11T22:15:46.000Z"
+      "mtime": "2026-01-11T22:15:46.000Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-code-review/SKILL.md",
       "name": "SKILL",
       "size": 3081,
-      "mtime": "2026-03-08T10:25:23.825Z"
+      "mtime": "2026-03-08T10:25:23.825Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/references/async-testing.md",
       "name": "async-testing",
       "size": 8463,
-      "mtime": "2026-01-11T22:31:30.000Z"
+      "mtime": "2026-01-11T22:31:30.000Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/references/checklist.md",
       "name": "checklist",
       "size": 5981,
-      "mtime": "2026-03-06T01:56:10.390Z"
+      "mtime": "2026-03-06T01:56:10.390Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/references/common-patterns.md",
       "name": "common-patterns",
       "size": 11738,
-      "mtime": "2026-01-11T22:31:30.000Z"
+      "mtime": "2026-01-11T22:31:30.000Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/references/domain-components.md",
       "name": "domain-components",
       "size": 15261,
-      "mtime": "2026-01-11T22:31:30.000Z"
+      "mtime": "2026-01-11T22:31:30.000Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/references/mocking.md",
       "name": "mocking",
       "size": 9399,
-      "mtime": "2026-01-11T22:31:30.000Z"
+      "mtime": "2026-01-11T22:31:30.000Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/references/vue/common-patterns.md",
       "name": "common-patterns",
       "size": 1371,
-      "mtime": "2026-01-13T03:04:50.987Z"
+      "mtime": "2026-01-13T03:04:50.987Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/references/vue/testing-vue2.md",
       "name": "testing-vue2",
       "size": 1171,
-      "mtime": "2026-01-13T03:04:46.958Z"
+      "mtime": "2026-01-13T03:04:46.958Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/references/vue/testing-vue3.md",
       "name": "testing-vue3",
       "size": 1431,
-      "mtime": "2026-01-13T03:04:49.247Z"
+      "mtime": "2026-01-13T03:04:49.247Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/references/workflow.md",
       "name": "workflow",
       "size": 8113,
-      "mtime": "2026-03-08T09:49:16.040Z"
+      "mtime": "2026-03-08T09:49:16.040Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/frontend-testing/SKILL.md",
       "name": "SKILL",
       "size": 2386,
-      "mtime": "2026-03-08T10:25:23.826Z"
+      "mtime": "2026-03-08T10:25:23.826Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/i18n-a11y/references/a11y-workflow.md",
       "name": "a11y-workflow",
       "size": 2016,
-      "mtime": "2026-03-06T02:37:11.047Z"
+      "mtime": "2026-03-06T02:37:11.047Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/i18n-a11y/references/i18n-workflow.md",
       "name": "i18n-workflow",
       "size": 1385,
-      "mtime": "2026-03-06T02:37:11.046Z"
+      "mtime": "2026-03-06T02:37:11.046Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/i18n-a11y/SKILL.md",
       "name": "SKILL",
       "size": 1381,
-      "mtime": "2026-03-08T10:25:23.827Z"
+      "mtime": "2026-03-08T10:25:23.827Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/module-mapping/references/analysis-workflow.md",
       "name": "analysis-workflow",
       "size": 1475,
-      "mtime": "2026-03-06T05:52:02.077Z"
+      "mtime": "2026-03-06T05:52:02.077Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/module-mapping/references/dependency-analysis.md",
       "name": "dependency-analysis",
       "size": 3515,
-      "mtime": "2026-01-29T06:06:12.430Z"
+      "mtime": "2026-01-29T06:06:12.430Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/module-mapping/references/reporting-and-followups.md",
       "name": "reporting-and-followups",
       "size": 1347,
-      "mtime": "2026-03-06T05:52:02.079Z"
+      "mtime": "2026-03-06T05:52:02.079Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/module-mapping/references/vue-module-patterns.md",
       "name": "vue-module-patterns",
       "size": 3529,
-      "mtime": "2026-01-29T06:06:09.462Z"
+      "mtime": "2026-01-29T06:06:09.462Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/module-mapping/SKILL.md",
       "name": "SKILL",
       "size": 1948,
-      "mtime": "2026-03-08T10:26:06.562Z"
+      "mtime": "2026-03-08T10:26:06.562Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/performance-optimization/references/loading-bundle-assets.md",
       "name": "loading-bundle-assets",
       "size": 1187,
-      "mtime": "2026-03-06T02:37:11.051Z"
+      "mtime": "2026-03-06T02:37:11.051Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/performance-optimization/references/rendering-and-lists.md",
       "name": "rendering-and-lists",
       "size": 1178,
-      "mtime": "2026-03-06T02:37:11.050Z"
+      "mtime": "2026-03-06T02:37:11.050Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/performance-optimization/SKILL.md",
       "name": "SKILL",
       "size": 1329,
-      "mtime": "2026-03-08T10:25:23.827Z"
+      "mtime": "2026-03-08T10:25:23.827Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/prd/assets/prd-input.template.json",
       "name": "prd-input.template",
       "size": 1859,
-      "mtime": "2026-03-06T02:52:25.331Z"
+      "mtime": "2026-03-06T02:52:25.331Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/prd/assets/prd-template.md",
       "name": "prd-template",
       "size": 879,
-      "mtime": "2026-03-06T02:40:50.217Z"
+      "mtime": "2026-03-06T02:40:50.217Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/prd/references/discovery-questions.md",
       "name": "discovery-questions",
       "size": 1582,
-      "mtime": "2026-03-06T02:40:50.215Z"
+      "mtime": "2026-03-06T02:40:50.215Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/prd/references/prd-sections.md",
       "name": "prd-sections",
       "size": 2762,
-      "mtime": "2026-03-06T02:40:50.216Z"
+      "mtime": "2026-03-06T02:40:50.216Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/prd/scripts/create_prd.py",
       "name": "create_prd",
       "size": 8245,
-      "mtime": "2026-03-06T02:52:25.320Z"
+      "mtime": "2026-03-06T02:52:25.320Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/prd/SKILL.md",
       "name": "SKILL",
       "size": 1746,
-      "mtime": "2026-03-08T10:21:07.300Z"
+      "mtime": "2026-03-08T10:21:07.300Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/ralph-converter/assets/prd.template.json",
       "name": "prd.template",
       "size": 449,
-      "mtime": "2026-03-06T02:40:50.220Z"
+      "mtime": "2026-03-06T02:40:50.220Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/ralph-converter/references/conversion-rules.md",
       "name": "conversion-rules",
       "size": 1798,
-      "mtime": "2026-03-06T02:40:50.219Z"
+      "mtime": "2026-03-06T02:40:50.219Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/ralph-converter/references/story-sizing-and-ordering.md",
       "name": "story-sizing-and-ordering",
       "size": 1559,
-      "mtime": "2026-03-06T02:40:50.219Z"
+      "mtime": "2026-03-06T02:40:50.219Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/ralph-converter/scripts/convert_prd.py",
       "name": "convert_prd",
       "size": 10465,
-      "mtime": "2026-03-06T02:52:25.364Z"
+      "mtime": "2026-03-06T02:52:25.364Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/ralph-converter/SKILL.md",
       "name": "SKILL",
       "size": 1613,
-      "mtime": "2026-03-08T10:21:07.300Z"
+      "mtime": "2026-03-08T10:21:07.300Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/assets/minimal-skill-template/SKILL.md",
       "name": "SKILL",
       "size": 1096,
-      "mtime": "2026-03-09T02:44:10.503Z"
+      "mtime": "2026-03-09T02:44:10.503Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/references/creation-lifecycle.md",
       "name": "creation-lifecycle",
       "size": 1419,
-      "mtime": "2026-03-09T02:42:23.145Z"
+      "mtime": "2026-03-09T02:42:23.145Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/references/foundations.md",
       "name": "foundations",
       "size": 1404,
-      "mtime": "2026-03-09T02:42:23.147Z"
+      "mtime": "2026-03-09T02:42:23.147Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/references/host-metadata.md",
       "name": "host-metadata",
       "size": 947,
-      "mtime": "2026-03-06T05:52:02.124Z"
+      "mtime": "2026-03-06T05:52:02.124Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/references/output-patterns.md",
       "name": "output-patterns",
       "size": 1816,
-      "mtime": "2026-03-08T09:48:11.332Z"
+      "mtime": "2026-03-08T09:48:11.332Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/references/progressive-disclosure.md",
       "name": "progressive-disclosure",
       "size": 1250,
-      "mtime": "2026-03-06T05:52:02.112Z"
+      "mtime": "2026-03-06T05:52:02.112Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/references/release-workflow.md",
       "name": "release-workflow",
       "size": 1461,
-      "mtime": "2026-03-09T02:42:23.151Z"
+      "mtime": "2026-03-09T02:42:23.151Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/references/workflows.md",
       "name": "workflows",
       "size": 839,
-      "mtime": "2026-03-08T09:49:16.040Z"
+      "mtime": "2026-03-08T09:49:16.040Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/scripts/init_skill.py",
       "name": "init_skill",
       "size": 10935,
-      "mtime": "2026-03-08T09:49:16.040Z"
+      "mtime": "2026-03-08T09:49:16.040Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/scripts/package_skill.py",
       "name": "package_skill",
       "size": 3566,
-      "mtime": "2026-03-06T05:52:56.468Z"
+      "mtime": "2026-03-06T05:52:56.468Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/scripts/quick_validate.py",
       "name": "quick_validate",
       "size": 10483,
-      "mtime": "2026-03-09T02:41:18.752Z"
+      "mtime": "2026-03-09T02:41:18.752Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skill-creator/SKILL.md",
       "name": "SKILL",
       "size": 2598,
-      "mtime": "2026-03-09T02:42:23.144Z"
+      "mtime": "2026-03-09T02:42:23.144Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/skills-index.md",
       "name": "skills-index",
       "size": 5183,
-      "mtime": "2026-03-10T03:43:52.247Z"
+      "mtime": "2026-03-10T03:43:52.247Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/state-management/references/migration-and-testing.md",
       "name": "migration-and-testing",
       "size": 1024,
-      "mtime": "2026-03-06T02:37:11.054Z"
+      "mtime": "2026-03-06T02:37:11.054Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/state-management/references/store-design.md",
       "name": "store-design",
       "size": 1545,
-      "mtime": "2026-03-06T02:37:11.053Z"
+      "mtime": "2026-03-06T02:37:11.053Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/state-management/SKILL.md",
       "name": "SKILL",
       "size": 1293,
-      "mtime": "2026-03-08T10:25:23.828Z"
+      "mtime": "2026-03-08T10:25:23.828Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/structure-review/references/anti-patterns.md",
       "name": "anti-patterns",
       "size": 6736,
-      "mtime": "2026-01-29T03:09:08.861Z"
+      "mtime": "2026-01-29T03:09:08.861Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/structure-review/references/execution-and-modes.md",
       "name": "execution-and-modes",
       "size": 1563,
-      "mtime": "2026-03-06T05:52:02.091Z"
+      "mtime": "2026-03-06T05:52:02.091Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/structure-review/references/feature-based-patterns.md",
       "name": "feature-based-patterns",
       "size": 5615,
-      "mtime": "2026-01-29T03:09:06.140Z"
+      "mtime": "2026-01-29T03:09:06.140Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/structure-review/references/refactoring-strategies.md",
       "name": "refactoring-strategies",
       "size": 7044,
-      "mtime": "2026-01-29T03:09:11.257Z"
+      "mtime": "2026-01-29T03:09:11.257Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/structure-review/references/scoring-and-reporting.md",
       "name": "scoring-and-reporting",
       "size": 1697,
-      "mtime": "2026-03-06T05:52:02.093Z"
+      "mtime": "2026-03-06T05:52:02.093Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/structure-review/SKILL.md",
       "name": "SKILL",
       "size": 2036,
-      "mtime": "2026-03-08T10:26:06.563Z"
+      "mtime": "2026-03-08T10:26:06.563Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/system-overview-design/assets/system-overview-input.example.json",
       "name": "system-overview-input.example",
       "size": 10632,
-      "mtime": "2026-03-10T03:41:21.921Z"
+      "mtime": "2026-03-10T03:41:21.921Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/system-overview-design/assets/system-overview-input.template.json",
       "name": "system-overview-input.template",
       "size": 2309,
-      "mtime": "2026-03-10T03:41:21.921Z"
+      "mtime": "2026-03-10T03:41:21.921Z",
+      "encoding": "utf8"
+    },
+    {
+      "path": "custom-skills/system-overview-design/assets/system-overview-template-config.json",
+      "name": "system-overview-template-config",
+      "size": 13746,
+      "mtime": "2026-03-10T07:44:51.682Z",
+      "encoding": "utf8"
+    },
+    {
+      "path": "custom-skills/system-overview-design/assets/system-overview-template-guide.md",
+      "name": "system-overview-template-guide",
+      "size": 6648,
+      "mtime": "2026-03-10T07:45:05.524Z",
+      "encoding": "utf8"
+    },
+    {
+      "path": "custom-skills/system-overview-design/assets/system-overview-template-schema.json",
+      "name": "system-overview-template-schema",
+      "size": 14961,
+      "mtime": "2026-03-10T07:45:05.524Z",
+      "encoding": "utf8"
+    },
+    {
+      "path": "custom-skills/system-overview-design/assets/templates/system-overview-template.docx",
+      "name": "system-overview-template",
+      "size": 59019,
+      "mtime": "2026-03-10T03:26:04.339Z",
+      "encoding": "base64"
     },
     {
       "path": "custom-skills/system-overview-design/references/input-contract.md",
       "name": "input-contract",
       "size": 3673,
-      "mtime": "2026-03-10T03:41:21.921Z"
+      "mtime": "2026-03-10T03:41:21.921Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/system-overview-design/references/template-structure.md",
       "name": "template-structure",
-      "size": 2460,
-      "mtime": "2026-03-10T03:41:21.921Z"
+      "size": 2775,
+      "mtime": "2026-03-10T07:45:40.716Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/system-overview-design/scripts/extract_template.py",
       "name": "extract_template",
       "size": 6096,
-      "mtime": "2026-03-10T03:41:45.702Z"
+      "mtime": "2026-03-10T03:41:45.702Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/system-overview-design/scripts/render_overview_doc.py",
       "name": "render_overview_doc",
-      "size": 19461,
-      "mtime": "2026-03-10T03:56:19.014Z"
+      "size": 24800,
+      "mtime": "2026-03-10T07:44:46.928Z",
+      "encoding": "utf8"
     },
     {
       "path": "custom-skills/system-overview-design/SKILL.md",
       "name": "SKILL",
-      "size": 2769,
-      "mtime": "2026-03-10T04:13:58.454Z"
+      "size": 3830,
+      "mtime": "2026-03-10T07:45:25.591Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/AGENTS.md",
       "name": "AGENTS",
       "size": 6956,
-      "mtime": "2026-03-10T03:45:25.122Z"
+      "mtime": "2026-03-10T03:45:25.122Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/bug-investigator/AGENT.md",
       "name": "AGENT",
       "size": 7596,
-      "mtime": "2026-03-02T08:04:49.749Z"
+      "mtime": "2026-03-02T08:04:49.749Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/bug-investigator/prompts/investigate.md",
       "name": "investigate",
       "size": 4432,
-      "mtime": "2026-03-02T08:06:10.072Z"
+      "mtime": "2026-03-02T08:06:10.072Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/build-fix/AGENT.md",
       "name": "AGENT",
       "size": 6431,
-      "mtime": "2026-03-02T06:23:47.205Z"
+      "mtime": "2026-03-02T06:23:47.205Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/build-fix/prompts/diagnose-fix.md",
       "name": "diagnose-fix",
       "size": 2693,
-      "mtime": "2026-02-07T14:33:41.404Z"
+      "mtime": "2026-02-07T14:33:41.404Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/code-reviewer/AGENT.md",
       "name": "AGENT",
       "size": 6970,
-      "mtime": "2026-03-02T06:24:08.872Z"
+      "mtime": "2026-03-02T06:24:08.872Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/code-reviewer/prompts/review.md",
       "name": "review",
       "size": 2981,
-      "mtime": "2026-02-07T14:33:44.531Z"
+      "mtime": "2026-02-07T14:33:44.531Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/performance-profiler/AGENT.md",
       "name": "AGENT",
       "size": 5133,
-      "mtime": "2026-03-02T06:24:53.661Z"
+      "mtime": "2026-03-02T06:24:53.661Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/performance-profiler/templates/performance-report.md",
       "name": "performance-report",
       "size": 2719,
-      "mtime": "2026-01-25T12:11:49.500Z"
+      "mtime": "2026-01-25T12:11:49.500Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/planner/AGENT.md",
       "name": "AGENT",
       "size": 5402,
-      "mtime": "2026-03-02T08:22:14.666Z"
+      "mtime": "2026-03-02T08:22:14.666Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/planner/templates/implementation-plan.md",
       "name": "implementation-plan",
       "size": 2754,
-      "mtime": "2026-01-25T12:11:54.666Z"
+      "mtime": "2026-01-25T12:11:54.666Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/security-reviewer/AGENT.md",
       "name": "AGENT",
       "size": 5283,
-      "mtime": "2026-03-02T06:24:38.551Z"
+      "mtime": "2026-03-02T06:24:38.551Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/security-reviewer/checklists/xss-checklist.md",
       "name": "xss-checklist",
       "size": 1973,
-      "mtime": "2026-01-25T12:09:38.182Z"
+      "mtime": "2026-01-25T12:09:38.182Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/security-reviewer/templates/security-report.md",
       "name": "security-report",
       "size": 1758,
-      "mtime": "2026-01-25T12:09:40.891Z"
+      "mtime": "2026-01-25T12:09:40.891Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/structure-analyzer/AGENT.md",
       "name": "AGENT",
       "size": 9035,
-      "mtime": "2026-01-29T13:06:30.095Z"
+      "mtime": "2026-01-29T13:06:30.095Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/structure-analyzer/checklists/structure-checklist.md",
       "name": "structure-checklist",
       "size": 4014,
-      "mtime": "2026-01-29T03:03:35.388Z"
+      "mtime": "2026-01-29T03:03:35.388Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/structure-analyzer/templates/structure-report.md",
       "name": "structure-report",
       "size": 3103,
-      "mtime": "2026-01-29T03:03:37.987Z"
+      "mtime": "2026-01-29T03:03:37.987Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/system-overview-writer/AGENT.md",
       "name": "AGENT",
-      "size": 2505,
-      "mtime": "2026-03-10T04:14:07.905Z"
+      "size": 2991,
+      "mtime": "2026-03-10T07:45:34.801Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/task-orchestrator/AGENT.md",
       "name": "AGENT",
       "size": 14827,
-      "mtime": "2026-03-02T08:19:08.863Z"
+      "mtime": "2026-03-02T08:19:08.863Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/task-orchestrator/prompts/phase7-summary.md",
       "name": "phase7-summary",
       "size": 4517,
-      "mtime": "2026-02-28T03:19:37.881Z"
+      "mtime": "2026-02-28T03:19:37.881Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/task-orchestrator/templates/acceptance-report.md",
       "name": "acceptance-report",
       "size": 5541,
-      "mtime": "2026-01-30T04:24:59.472Z"
+      "mtime": "2026-01-30T04:24:59.472Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/task-orchestrator/templates/taskbook.md",
       "name": "taskbook",
       "size": 6537,
-      "mtime": "2026-01-30T04:24:51.696Z"
+      "mtime": "2026-01-30T04:24:51.696Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/tdd-driver/AGENT.md",
       "name": "AGENT",
       "size": 7022,
-      "mtime": "2026-03-02T06:23:21.361Z"
+      "mtime": "2026-03-02T06:23:21.361Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/tdd-driver/prompts/green.md",
       "name": "green",
       "size": 1587,
-      "mtime": "2026-02-07T14:33:35.871Z"
+      "mtime": "2026-02-07T14:33:35.871Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/tdd-driver/prompts/red.md",
       "name": "red",
       "size": 2098,
-      "mtime": "2026-02-07T14:33:33.329Z"
+      "mtime": "2026-02-07T14:33:33.329Z",
+      "encoding": "utf8"
     },
     {
       "path": "agents/tdd-driver/prompts/refactor.md",
       "name": "refactor",
       "size": 1962,
-      "mtime": "2026-02-07T14:33:38.570Z"
+      "mtime": "2026-02-07T14:33:38.570Z",
+      "encoding": "utf8"
     },
     {
       "path": "workflows/README.md",
       "name": "README",
       "size": 1329,
-      "mtime": "2026-01-31T16:29:22.905Z"
+      "mtime": "2026-01-31T16:29:22.905Z",
+      "encoding": "utf8"
     },
     {
       "path": "workflows/schema/workflow.schema.json",
       "name": "workflow.schema",
       "size": 2802,
-      "mtime": "2026-01-30T18:11:15.349Z"
+      "mtime": "2026-01-30T18:11:15.349Z",
+      "encoding": "utf8"
     },
     {
       "path": "workflows/templates/default.workflow.json",
       "name": "default.workflow",
       "size": 7271,
-      "mtime": "2026-02-27T05:59:09.020Z"
+      "mtime": "2026-02-27T05:59:09.020Z",
+      "encoding": "utf8"
     },
     {
       "path": "taskbooks/README.md",
       "name": "README",
       "size": 986,
-      "mtime": "2026-01-30T19:05:24.634Z"
+      "mtime": "2026-01-30T19:05:24.634Z",
+      "encoding": "utf8"
     },
     {
       "path": "taskbooks/schema/taskbook.schema.json",
       "name": "taskbook.schema",
       "size": 5033,
-      "mtime": "2026-02-10T02:55:48.992Z"
+      "mtime": "2026-02-10T02:55:48.992Z",
+      "encoding": "utf8"
     }
   ],
   "packs": {
@@ -1099,43 +1274,43 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "c8acec201c041855474258e4a727ade2b7cfec368a012804523ea84f01e0bf7c",
-      "size": 698090,
-      "entryCount": 146,
-      "generatedAt": "2026-03-10T04:20:48.247Z"
+      "sha256": "f7239208deb759307c1aaade79a7c9ff0366827b5fabb959eb32137519bcfe15",
+      "size": 828674,
+      "entryCount": 150,
+      "generatedAt": "2026-03-10T08:04:24.052Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "6849b25874e26309ce242bbb9fea89815d4b7ba843e3df59bf69c44f89331c7b",
-      "size": 939836,
-      "entryCount": 149,
-      "generatedAt": "2026-03-10T04:20:48.276Z"
+      "sha256": "f8f0fbdbe7c803a91c3b4db9228aa2ad0d3a2fc691fabcc8c20716f702ebf6f6",
+      "size": 1070498,
+      "entryCount": 153,
+      "generatedAt": "2026-03-10T08:04:24.090Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "7c636313f6c2f1b57aad05812d3fbaf5e4233cfd1c70ec6d6e3fa5f2ecf908b0",
-      "size": 1420139,
-      "entryCount": 160,
-      "generatedAt": "2026-03-10T04:20:48.309Z"
+      "sha256": "48ca4f3c9e3db988aec63107e4a676dc08696dcf1bc819b71995efff4bdc3c29",
+      "size": 1551087,
+      "entryCount": 164,
+      "generatedAt": "2026-03-10T08:04:24.133Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "5e39d4c7c1a8df67777379799a4855eef1caadaaae0da65bb5e15f4b688d04fc",
-      "size": 1436004,
-      "entryCount": 161,
-      "generatedAt": "2026-03-10T04:20:48.346Z"
+      "sha256": "662b14c72222f613eb011667cb06d9338a86717533e232bf58091c0621257337",
+      "size": 1566978,
+      "entryCount": 165,
+      "generatedAt": "2026-03-10T08:04:24.181Z"
     }
   },
   "stats": {
-    "totalFiles": 147,
+    "totalFiles": 151,
     "ruleFiles": 23,
-    "skillFiles": 93,
+    "skillFiles": 97,
     "agentFiles": 26,
     "workflowFiles": 3,
     "taskbookFiles": 2

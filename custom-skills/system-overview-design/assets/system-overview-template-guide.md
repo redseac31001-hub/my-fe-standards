@@ -1,0 +1,132 @@
+# System Overview Template Guide
+
+- Source: `custom-skills/system-overview-design/assets/templates/system-overview-template.docx`
+- Generated: `2026-03-10T15:45:05`
+
+## Cover Paragraphs
+
+- `Normal`: XX系统概要设计
+- `Normal`: DDD XXX-XXXX
+- `Normal`: （模版版本v0.1）
+- `Normal`: xxxx有限公司
+- `Normal`: 2025年x月
+- `Normal`: 版本控制
+- `Normal`: 本文档版权属xxxx有限公司所有。未经联通支付有限公司书面许可，任何单位和/或个人不得以任何形式摘抄、复制本文档的任意部分或全部，并以任何形式传播。
+- `toc 1`: 目  录
+- `toc 1`: 目  录	3
+- `toc 1`: 一、 系统建设背景及目标	5
+- `toc 2`: 1.1. 背景	5
+- `toc 2`: 1.2. 系统设计限制	5
+- `toc 2`: 1.3. 设计目标	5
+- `toc 3`: 1.3.1. 可配置性目标	5
+- `toc 3`: 1.3.2. 性能目标	6
+- `toc 3`: 1.3.3. 扩展性目标	6
+- `toc 3`: 1.3.4. 可用性目标	6
+- `toc 3`: 1.3.5. 安全性目标	6
+- `toc 3`: 1.3.6. 可观测性目标	7
+- `toc 3`: 1.3.7. 可维护性目标	7
+- `toc 1`: 二、 系统应用架构设计	7
+- `toc 2`: 2.1. 系统用例设计	7
+- `toc 2`: 2.2. 系统领域模型设计	8
+- `toc 2`: 2.3. 系统上下文	8
+- `toc 2`: 2.4. 系统分解设计	8
+- `toc 2`: 2.5. 系统数据存储设计	9
+- `toc 1`: 三、 系统技术架构设计	10
+- `toc 2`: 3.1. 系统非功能设计	10
+- `toc 3`: 3.1.1. 系统技术栈	10
+- `toc 3`: 3.1.2. 性能与容量设计	10
+- `toc 3`: 3.1.3. 扩展性设计	10
+- `toc 3`: 3.1.4. 可用性设计	10
+- `toc 3`: 3.1.5. 安全设计	10
+- `toc 3`: 3.1.6. 可观测性设计	10
+- `toc 3`: 3.1.7. 可维护性设计	10
+- `toc 2`: 3.2. 系统部署设计	10
+- `toc 1`: 四、 系统资源评估	11
+- `toc 2`: 4.1. 系统资源清单	11
+- `toc 2`: 4.2. 系统资源评估说明	11
+- `toc 1`: 五、 过渡方案设计（附加）	11
+- `toc 2`: 5.1. 过渡方案背景及理由	11
+- `toc 2`: 5.2. 过渡方案	11
+- `toc 2`: 5.3. 最终方案草案	11
+- `toc 2`: 5.4. 方案差异点及影响评估	11
+- `toc 2`: 5.5. 方案切换方案	11
+
+## Sections
+
+- L1 `Heading 1` 系统建设背景及目标
+  - L2 `Heading 2` 背景
+    - guidance: 描述系统建设内外部动因、业务目的、业务模式、对应产品、系统价值、所属项目、大致研发周期。
+  - L2 `Heading 2` 系统设计限制
+    - guidance: 描述导致系统设计必须遵守的规则，如合规要求、项目时间、特殊使用环境、技术栈约束、部署环境约束、资源限制等。
+  - L2 `Heading 2` 设计目标
+    - L3 `Heading 3` 可配置性目标
+      - guidance: 制定通过插件、开关、配置等方式实现系统业务能力、性能、安全等能力的控制、新增、扩展的目标，以满足系统需求或潜在的灵活性要求。
+    - L3 `Heading 3` 性能目标
+      - guidance: 性能目标应包含响应时间、吞吐量、总容量等体现系统处理能力与体验的指标。
+    - L3 `Heading 3` 扩展性目标
+      - guidance: 扩展性目标应包括扩展方式（垂直、水平）、扩展步长、扩展形式（自动扩展、手动扩展、周期性）。
+    - L3 `Heading 3` 可用性目标
+      - guidance: 可用性应包含SLA、RTO、RPO。如，SLA>=9999，RTO<5min，RPO=0。
+    - L3 `Heading 3` 安全性目标
+      - guidance: 安全性目标应包含用户安全（多因素认证、权限控制、密码强度）、通信安全（来源认证、通信加密、访问控制）、数据安全（数据加密、数据脱敏、完整性验证）、漏洞修复时间、安全审计。
+    - L3 `Heading 3` 可观测性目标
+      - guidance: 可观测目标包括系统可被观测的健康程度指标项及告警阈值，如，吞吐量、响应时间、错误率、上下游状态、处理日志、资源用量、系统负载等。
+    - L3 `Heading 3` 可维护性目标
+      - guidance: 可运维目标应关注系统安装部署、升级、起停、恢复等运维能力与便捷性，根据系统特点制定可运维目标，包括不仅限于可安装、可升级、可重启、可回退、可降级、可恢复、可数据归档等。
+- L1 `Heading 1` 系统应用架构设计
+  - L2 `Heading 2` 系统用例设计
+    - guidance: 系统用户清单及描述
+    - guidance: 系统用例图
+    - guidance: 系统用例清单及描述
+  - L2 `Heading 2` 系统领域模型设计
+    - guidance: 系统领域模型图
+    - guidance: 系统领域对象清单及描述
+  - L2 `Heading 2` 系统上下文
+    - guidance: 系统上下文图
+    - guidance: 系统上下文描述
+    - guidance: 系统接口清单
+  - L2 `Heading 2` 系统分解设计
+    - guidance: 系统功能架构图
+    - guidance: 子系统清单及描述
+    - guidance: 核心用例时序
+  - L2 `Heading 2` 系统数据存储设计
+    - guidance: 业务数据存储设计
+    - guidance: 多模态数据存储设计
+    - guidance: 大数据存储说明
+- L1 `Heading 1` 系统技术架构设计
+  - L2 `Heading 2` 系统非功能设计
+    - L3 `Heading 3` 系统技术栈
+    - L3 `Heading 3` 性能与容量设计
+    - L3 `Heading 3` 扩展性设计
+    - L3 `Heading 3` 可用性设计
+    - L3 `Heading 3` 安全设计
+    - L3 `Heading 3` 可观测性设计
+    - L3 `Heading 3` 可维护性设计
+  - L2 `Heading 2` 系统部署设计
+    - guidance: 部署架构图
+    - guidance: 部署架构说明
+- L1 `Heading 1` 系统资源评估
+  - L2 `Heading 2` 系统资源清单
+  - L2 `Heading 2` 系统资源评估说明
+- L1 `Heading 1` 过渡方案设计（附加）
+  - L2 `Heading 2` 过渡方案背景及理由
+    - guidance: 背景、原因、特殊审批、持续时间
+  - L2 `Heading 2` 过渡方案
+  - L2 `Heading 2` 最终方案草案
+  - L2 `Heading 2` 方案差异点及影响评估
+  - L2 `Heading 2` 方案切换方案
+
+## Tables
+
+- Table 1: 5 rows x 4 cols
+  - header: 文档名称 | XX系统概要设计 | XX系统概要设计 | XX系统概要设计
+  - sample: 初始版本编号 | V0.1 | V0.1 | V0.1
+  - sample: 保密级别 | 公司级 | 文档版本号 | 0.1
+- Table 2: 5 rows x 4 cols
+  - header: 版本 | 日期 | 参与人员 | 更新说明
+  - sample: 0.1 | 2025年3月21日 |  | 制订初稿
+  - sample: 0.2 | 2025年4月30日 |  | 增加模块xxx，见产品文档0.2.1
+- Table 3: 3 rows x 9 cols
+  - header: 序号 | 接口序号 | APIKIT序号 | 接口 | 公司外访问 | 接口方式 | 接口描述 | 发起方 | 落地方
+  - sample: 1 |  | 52992 | v1/externalPayment |  | http |  |  | 
+  - sample:  |  |  |  |  |  |  |  | 

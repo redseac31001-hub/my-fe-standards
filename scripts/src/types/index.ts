@@ -14,6 +14,7 @@ export interface ManifestFile {
   name: string;
   size: number;
   mtime: string;
+  encoding?: ContentPackEntryEncoding;
 }
 
 export interface ManifestContentPack {
@@ -26,10 +27,13 @@ export interface ManifestContentPack {
   generatedAt: string;
 }
 
+export type ContentPackEntryEncoding = 'utf8' | 'base64';
+
 export interface ContentPackEntry {
   path: string;
   sha256: string;
   content: string;
+  encoding?: ContentPackEntryEncoding;
 }
 
 export interface ContentPack {

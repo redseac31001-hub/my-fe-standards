@@ -294,6 +294,56 @@ function runNode(commandArgs, cwd, expectedExitCode = 0) {
   return result;
 }
 
+function runCommand(command, commandArgs, cwd, expectedExitCode = 0) {
+  const result = spawnSync(command, commandArgs, {
+    cwd,
+    stdio: 'pipe',
+    encoding: 'utf-8',
+  });
+
+  if (result.error) {
+    const detail = result.error instanceof Error ? result.error.stack || result.error.message : String(result.error);
+    throw new Error(`command failed to start: ${command} ${commandArgs.join(' ')}\n${detail}`);
+  }
+
+  if (result.status !== expectedExitCode) {
+    const output = (result.stderr || result.stdout || '').trim();
+    const signal = result.signal ? ` signal=${result.signal}` : '';
+    throw new Error(`command failed (exit=${result.status}${signal}): ${command} ${commandArgs.join(' ')}\n${output}`);
+  }
+
+  return result;
+}
+
+function runPython(commandArgs, cwd, expectedExitCode = 0) {
+  const candidates = process.platform === 'win32'
+    ? [
+        { command: 'python', prefix: [] },
+        { command: 'py', prefix: ['-3'] },
+        { command: 'python3', prefix: [] },
+      ]
+    : [
+        { command: 'python3', prefix: [] },
+        { command: 'python', prefix: [] },
+      ];
+
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      return runCommand(candidate.command, [...candidate.prefix, ...commandArgs], cwd, expectedExitCode);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('ENOENT')) {
+        lastError = error;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError || new Error('no usable python command found');
+}
+
 function assertFilesExist(rootDir, relativePaths) {
   for (const relativePath of relativePaths) {
     const absPath = path.join(rootDir, relativePath);
@@ -329,6 +379,25 @@ function assertAgentsPresent(registryPayload, expectedAgents) {
       throw new Error(`expected agent missing after remote load: ${agentId}`);
     }
   }
+}
+
+function runSystemOverviewSmoke(projectDir, installState) {
+  const skillsRootDir = installState && installState.outputs && installState.outputs.skillsRootDir;
+  if (!skillsRootDir) {
+    throw new Error('install.json missing outputs.skillsRootDir for system overview smoke');
+  }
+
+  const renderScript = path.join(projectDir, skillsRootDir, 'system-overview-design', 'scripts', 'render_overview_doc.py');
+  const specPath = path.join(projectDir, skillsRootDir, 'system-overview-design', 'assets', 'system-overview-input.example.json');
+  const outputPath = path.join(projectDir, 'output', 'doc', 'system-overview-remote-smoke.docx');
+
+  runPython([renderScript, '--spec', specPath, '--output', outputPath, '--overwrite'], projectDir, 0);
+
+  if (!fs.existsSync(outputPath)) {
+    throw new Error(`expected system overview output missing: ${outputPath}`);
+  }
+
+  return toPosixPath(path.relative(projectDir, outputPath));
 }
 
 function writeRunMetadata(targetDir, payload) {
@@ -448,6 +517,7 @@ async function main() {
     assertFilesExist(targetDir, fixture.expectedFiles || []);
     const installState = readInstallState(targetDir);
     assertSkillFilesExist(targetDir, installState, fixture.expectedSkillFiles || []);
+    const systemOverviewOutput = runSystemOverviewSmoke(targetDir, installState);
 
     runNode(['.codebuddy/scripts/contract-validator.js', '--workflows', '--taskbooks'], targetDir, 0);
     const registryResult = runNode(['.codebuddy/scripts/agent-registry.js', 'list', '--json'], targetDir, 0);
@@ -471,6 +541,7 @@ async function main() {
       loaderUrl,
       loaderArgs,
       generatedAt: new Date().toISOString(),
+      systemOverviewOutput,
       workflowSmoke: workflowSummary,
     };
 

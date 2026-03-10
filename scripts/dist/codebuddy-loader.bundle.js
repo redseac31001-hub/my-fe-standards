@@ -63,7 +63,7 @@ function buildRequestHeaders(ctx, url) {
     Authorization: `Bearer ${ctx.remoteBearerToken}`
   };
 }
-function fetchUrl(ctx, logger, url, retries = 3) {
+function fetchUrlBuffer(ctx, logger, url, retries = 3) {
   return new Promise((resolve2, reject) => {
     const client = url.startsWith("https") ? https : http;
     const headers = buildRequestHeaders(ctx, url);
@@ -73,7 +73,7 @@ function fetchUrl(ctx, logger, url, retries = 3) {
         const redirectUrl = new URL(res.headers.location, url).toString();
         res.resume();
         logger.verbose(`Redirecting to: ${redirectUrl}`);
-        fetchUrl(ctx, logger, redirectUrl, retries).then(resolve2).catch(reject);
+        fetchUrlBuffer(ctx, logger, redirectUrl, retries).then(resolve2).catch(reject);
         return;
       }
       if (res.statusCode !== 200) {
@@ -81,7 +81,7 @@ function fetchUrl(ctx, logger, url, retries = 3) {
           res.resume();
           logger.warn(`HTTP ${res.statusCode}. Retrying...`);
           setTimeout(() => {
-            fetchUrl(ctx, logger, url, retries - 1).then(resolve2).catch(reject);
+            fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve2).catch(reject);
           }, 1e3);
           return;
         }
@@ -94,7 +94,7 @@ function fetchUrl(ctx, logger, url, retries = 3) {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       });
       res.on("end", () => {
-        const data = Buffer.concat(chunks).toString("utf-8");
+        const data = Buffer.concat(chunks);
         logger.verbose(`Fetched ${data.length} bytes from ${url}`);
         resolve2(data);
       });
@@ -103,7 +103,7 @@ function fetchUrl(ctx, logger, url, retries = 3) {
       if (retries > 0) {
         logger.warn(`Network Error (${e.code}). Retrying...`);
         setTimeout(() => {
-          fetchUrl(ctx, logger, url, retries - 1).then(resolve2).catch(reject);
+          fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve2).catch(reject);
         }, 1e3);
         return;
       }
@@ -114,13 +114,17 @@ function fetchUrl(ctx, logger, url, retries = 3) {
       if (retries > 0) {
         logger.warn(`Request Timeout. Retrying...`);
         setTimeout(() => {
-          fetchUrl(ctx, logger, url, retries - 1).then(resolve2).catch(reject);
+          fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve2).catch(reject);
         }, 1e3);
         return;
       }
       reject(new Error(`Request Timeout: ${url}`));
     });
   });
+}
+async function fetchUrl(ctx, logger, url, retries = 3) {
+  const buffer = await fetchUrlBuffer(ctx, logger, url, retries);
+  return buffer.toString("utf-8");
 }
 
 // scripts/src/lib/distributor.ts
@@ -318,7 +322,13 @@ function ensureDirectoryForFile(filePath) {
   }
 }
 function computeSha256(content) {
-  return (0, import_crypto2.createHash)("sha256").update(content, "utf-8").digest("hex");
+  return (0, import_crypto2.createHash)("sha256").update(content).digest("hex");
+}
+function decodeEntryContent(entry) {
+  if (entry.encoding === "base64") {
+    return Buffer.from(entry.content, "base64");
+  }
+  return Buffer.from(entry.content, "utf-8");
 }
 function validateContentPack(pack, packMeta) {
   if (!pack || typeof pack !== "object") {
@@ -335,6 +345,14 @@ function validateContentPack(pack, packMeta) {
   }
   if (pack.entryCount !== pack.entries.length) {
     throw new Error(`content pack entryCount mismatch: expected ${pack.entryCount}, got ${pack.entries.length}`);
+  }
+  for (const entry of pack.entries) {
+    if (!entry || typeof entry !== "object") {
+      throw new Error("content pack entry must be an object");
+    }
+    if (entry.encoding && entry.encoding !== "utf8" && entry.encoding !== "base64") {
+      throw new Error(`unsupported content pack entry encoding: ${String(entry.encoding)}`);
+    }
   }
 }
 function buildContentRoot(targetDir, manifestVersion, packMeta) {
@@ -383,8 +401,9 @@ async function ensureRemoteContentPack(ctx, logger, targetDir) {
       const normalized = normalizeRelativePath(entry.path);
       const destPath = path2.join(contentRoot, normalized);
       ensureDirectoryForFile(destPath);
-      fs2.writeFileSync(destPath, entry.content, "utf-8");
-      const entrySha = computeSha256(entry.content);
+      const entryBuffer = decodeEntryContent(entry);
+      fs2.writeFileSync(destPath, entryBuffer);
+      const entrySha = computeSha256(entryBuffer);
       if (entry.sha256 !== entrySha) {
         throw new Error(`content pack entry sha256 mismatch: ${normalized}`);
       }
@@ -409,11 +428,15 @@ async function ensureRemoteContentPack(ctx, logger, targetDir) {
   }
 }
 async function readRemoteTextAsset(ctx, logger, relativePath) {
+  const buffer = await readRemoteAsset(ctx, logger, relativePath);
+  return buffer.toString("utf-8");
+}
+async function readRemoteAsset(ctx, logger, relativePath) {
   const normalized = normalizeRelativePath(relativePath);
   if (ctx.remoteContentRoot) {
     const cachedPath = path2.join(ctx.remoteContentRoot, normalized);
     if (fs2.existsSync(cachedPath)) {
-      return fs2.readFileSync(cachedPath, "utf-8");
+      return fs2.readFileSync(cachedPath);
     }
     if (ctx.strictRemotePack) {
       throw new Error(`pack-only mode blocked raw fallback for ${normalized}`);
@@ -424,7 +447,7 @@ async function readRemoteTextAsset(ctx, logger, relativePath) {
     throw new Error(`pack-only mode requires cached asset: ${normalized}`);
   }
   const url = `${ctx.remoteBaseUrl}/${normalized}`;
-  return fetchUrl(ctx, logger, url);
+  return fetchUrlBuffer(ctx, logger, url);
 }
 
 // scripts/src/lib/distributor.ts
@@ -444,11 +467,11 @@ async function distributeItems(ctx, logger, targetDir, projectRoot, options) {
     const destPath = path3.join(localDir, item.destFile);
     if (ctx.isRemote) {
       try {
-        const content = await readRemoteTextAsset(ctx, logger, item.sourcePath);
+        const content = await readRemoteAsset(ctx, logger, item.sourcePath);
         if (options.tracker) {
           writeManagedFile(options.tracker, destPath, content);
         } else {
-          fs3.writeFileSync(destPath, content, "utf-8");
+          fs3.writeFileSync(destPath, content);
         }
         distributed.push(item.destFile);
         logger.verbose(`\u5DF2\u4E0B\u8F7D ${options.label}: ${item.destFile}`);
@@ -3048,7 +3071,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
     }
     for (const file of rootFiles) {
       try {
-        const content = await readRemoteTextAsset(ctx, logger, file.path);
+        const content = await readRemoteAsset(ctx, logger, file.path);
         const relativePath = file.path.replace(options.manifestPrefix, "");
         writeManagedFile(tracker, path5.join(localDir, relativePath), content);
         logger.verbose(`\u5DF2\u4E0B\u8F7D${options.label}\u6839\u6587\u4EF6: ${relativePath}`);
@@ -3070,7 +3093,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
         entities.push(metadata);
         for (const file of groupFiles) {
           try {
-            const content = file.path === metadataFile.path ? metadataContent : await readRemoteTextAsset(ctx, logger, file.path);
+            const content = file.path === metadataFile.path ? metadataContent : await readRemoteAsset(ctx, logger, file.path);
             const relativePath = file.path.replace(options.manifestPrefix, "");
             const localPath = path5.join(localDir, relativePath);
             writeManagedFile(tracker, localPath, content);

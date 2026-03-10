@@ -58,10 +58,14 @@ const OUTPUT_PATH = path.join(PROJECT_ROOT, 'manifest.json');
 const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, 'package.json');
 const PACKS_ROOT = path.join(PROJECT_ROOT, 'packs');
 const RULE_FILE_EXTENSIONS = ['.md'];
-const SKILL_FILE_EXTENSIONS = ['.md', '.json', '.py', '.txt', '.yaml', '.yml', '.js', '.sh'];
+const SKILL_FILE_EXTENSIONS = ['.md', '.json', '.py', '.txt', '.yaml', '.yml', '.js', '.sh', '.docx'];
 const AGENT_FILE_EXTENSIONS = ['.md', '.json', '.txt', '.yaml', '.yml'];
+const BINARY_FILE_EXTENSIONS = new Set(['.docx']);
 function log(message) {
     console.log(`[Manifest] ${message}`);
+}
+function isBinaryFilePath(filePath) {
+    return BINARY_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 /**
  * 递归扫描目录，收集指定后缀的文件
@@ -90,13 +94,14 @@ function scanDirectory(dir, basePath = '', extensions = RULE_FILE_EXTENSIONS) {
                 name: path.parse(item).name,
                 size: stat.size,
                 mtime: stat.mtime.toISOString(),
+                encoding: isBinaryFilePath(relativePath) ? 'base64' : 'utf8',
             });
         }
     }
     return files;
 }
 function computeSha256(content) {
-    return (0, crypto_1.createHash)('sha256').update(content, 'utf-8').digest('hex');
+    return (0, crypto_1.createHash)('sha256').update(content).digest('hex');
 }
 function toPosixPath(filePath) {
     return filePath.replace(/\\/g, '/');
@@ -105,11 +110,13 @@ function buildContentPackEntries(relativePaths) {
     const uniquePaths = Array.from(new Set(relativePaths.map(toPosixPath))).sort();
     return uniquePaths.map(relativePath => {
         const absolutePath = path.join(PROJECT_ROOT, relativePath);
-        const content = fs.readFileSync(absolutePath, 'utf-8');
+        const buffer = fs.readFileSync(absolutePath);
+        const encoding = isBinaryFilePath(relativePath) ? 'base64' : 'utf8';
         return {
             path: relativePath,
-            sha256: computeSha256(content),
-            content,
+            sha256: computeSha256(buffer),
+            content: encoding === 'base64' ? buffer.toString('base64') : buffer.toString('utf-8'),
+            encoding,
         };
     });
 }

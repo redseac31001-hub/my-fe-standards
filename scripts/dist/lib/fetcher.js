@@ -38,6 +38,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.fetchUrlBuffer = fetchUrlBuffer;
 exports.fetchUrl = fetchUrl;
 const https = __importStar(require("https"));
 const http = __importStar(require("http"));
@@ -59,7 +60,7 @@ function buildRequestHeaders(ctx, url) {
         Authorization: `Bearer ${ctx.remoteBearerToken}`,
     };
 }
-function fetchUrl(ctx, logger, url, retries = 3) {
+function fetchUrlBuffer(ctx, logger, url, retries = 3) {
     return new Promise((resolve, reject) => {
         const client = url.startsWith('https') ? https : http;
         const headers = buildRequestHeaders(ctx, url);
@@ -70,7 +71,7 @@ function fetchUrl(ctx, logger, url, retries = 3) {
                 const redirectUrl = new URL(res.headers.location, url).toString();
                 res.resume();
                 logger.verbose(`Redirecting to: ${redirectUrl}`);
-                fetchUrl(ctx, logger, redirectUrl, retries).then(resolve).catch(reject);
+                fetchUrlBuffer(ctx, logger, redirectUrl, retries).then(resolve).catch(reject);
                 return;
             }
             if (res.statusCode !== 200) {
@@ -78,7 +79,7 @@ function fetchUrl(ctx, logger, url, retries = 3) {
                     res.resume();
                     logger.warn(`HTTP ${res.statusCode}. Retrying...`);
                     setTimeout(() => {
-                        fetchUrl(ctx, logger, url, retries - 1).then(resolve).catch(reject);
+                        fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve).catch(reject);
                     }, 1000);
                     return;
                 }
@@ -91,7 +92,7 @@ function fetchUrl(ctx, logger, url, retries = 3) {
                 chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
             });
             res.on('end', () => {
-                const data = Buffer.concat(chunks).toString('utf-8');
+                const data = Buffer.concat(chunks);
                 logger.verbose(`Fetched ${data.length} bytes from ${url}`);
                 resolve(data);
             });
@@ -100,7 +101,7 @@ function fetchUrl(ctx, logger, url, retries = 3) {
             if (retries > 0) {
                 logger.warn(`Network Error (${e.code}). Retrying...`);
                 setTimeout(() => {
-                    fetchUrl(ctx, logger, url, retries - 1).then(resolve).catch(reject);
+                    fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve).catch(reject);
                 }, 1000);
                 return;
             }
@@ -111,11 +112,15 @@ function fetchUrl(ctx, logger, url, retries = 3) {
             if (retries > 0) {
                 logger.warn(`Request Timeout. Retrying...`);
                 setTimeout(() => {
-                    fetchUrl(ctx, logger, url, retries - 1).then(resolve).catch(reject);
+                    fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve).catch(reject);
                 }, 1000);
                 return;
             }
             reject(new Error(`Request Timeout: ${url}`));
         });
     });
+}
+async function fetchUrl(ctx, logger, url, retries = 3) {
+    const buffer = await fetchUrlBuffer(ctx, logger, url, retries);
+    return buffer.toString('utf-8');
 }

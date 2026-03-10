@@ -1,6 +1,13 @@
 # 系统概要设计模板结构
 
-源模板：`docs/系统概要设计模版.docx`
+源模板：`assets/templates/system-overview-template.docx`
+
+当前官方模板抽取结果已固化到以下资源内，业务项目日常生成应优先使用它们：
+
+- `assets/templates/system-overview-template.docx`
+- `assets/system-overview-template-config.json`
+- `assets/system-overview-template-schema.json`
+- `assets/system-overview-template-guide.md`
 
 ## 模板识别结论
 

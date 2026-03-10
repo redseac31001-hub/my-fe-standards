@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
-import { ContentPack, Context, ManifestContentPack } from '../types';
+import { ContentPack, ContentPackEntry, Context, ManifestContentPack } from '../types';
 import { Logger } from './logger';
-import { fetchUrl } from './fetcher';
+import { fetchUrl, fetchUrlBuffer } from './fetcher';
 
 const CONTENT_PACK_SCHEMA_VERSION = '1.0.0';
 
@@ -28,8 +28,15 @@ function ensureDirectoryForFile(filePath: string): void {
   }
 }
 
-function computeSha256(content: string): string {
-  return createHash('sha256').update(content, 'utf-8').digest('hex');
+function computeSha256(content: string | Buffer): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function decodeEntryContent(entry: ContentPackEntry): Buffer {
+  if (entry.encoding === 'base64') {
+    return Buffer.from(entry.content, 'base64');
+  }
+  return Buffer.from(entry.content, 'utf-8');
 }
 
 function validateContentPack(pack: ContentPack, packMeta: ManifestContentPack): void {
@@ -47,6 +54,14 @@ function validateContentPack(pack: ContentPack, packMeta: ManifestContentPack): 
   }
   if (pack.entryCount !== pack.entries.length) {
     throw new Error(`content pack entryCount mismatch: expected ${pack.entryCount}, got ${pack.entries.length}`);
+  }
+  for (const entry of pack.entries) {
+    if (!entry || typeof entry !== 'object') {
+      throw new Error('content pack entry must be an object');
+    }
+    if (entry.encoding && entry.encoding !== 'utf8' && entry.encoding !== 'base64') {
+      throw new Error(`unsupported content pack entry encoding: ${String(entry.encoding)}`);
+    }
   }
 }
 
@@ -108,9 +123,10 @@ export async function ensureRemoteContentPack(
       const normalized = normalizeRelativePath(entry.path);
       const destPath = path.join(contentRoot, normalized);
       ensureDirectoryForFile(destPath);
-      fs.writeFileSync(destPath, entry.content, 'utf-8');
+      const entryBuffer = decodeEntryContent(entry);
+      fs.writeFileSync(destPath, entryBuffer);
 
-      const entrySha = computeSha256(entry.content);
+      const entrySha = computeSha256(entryBuffer);
       if (entry.sha256 !== entrySha) {
         throw new Error(`content pack entry sha256 mismatch: ${normalized}`);
       }
@@ -142,12 +158,21 @@ export async function readRemoteTextAsset(
   logger: Logger,
   relativePath: string,
 ): Promise<string> {
+  const buffer = await readRemoteAsset(ctx, logger, relativePath);
+  return buffer.toString('utf-8');
+}
+
+export async function readRemoteAsset(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  relativePath: string,
+): Promise<Buffer> {
   const normalized = normalizeRelativePath(relativePath);
 
   if (ctx.remoteContentRoot) {
     const cachedPath = path.join(ctx.remoteContentRoot, normalized);
     if (fs.existsSync(cachedPath)) {
-      return fs.readFileSync(cachedPath, 'utf-8');
+      return fs.readFileSync(cachedPath);
     }
     if (ctx.strictRemotePack) {
       throw new Error(`pack-only mode blocked raw fallback for ${normalized}`);
@@ -160,5 +185,5 @@ export async function readRemoteTextAsset(
   }
 
   const url = `${ctx.remoteBaseUrl}/${normalized}`;
-  return fetchUrl(ctx, logger, url);
+  return fetchUrlBuffer(ctx, logger, url);
 }

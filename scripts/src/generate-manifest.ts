@@ -33,11 +33,16 @@ const OUTPUT_PATH: string = path.join(PROJECT_ROOT, 'manifest.json');
 const PACKAGE_JSON_PATH: string = path.join(PROJECT_ROOT, 'package.json');
 const PACKS_ROOT: string = path.join(PROJECT_ROOT, 'packs');
 const RULE_FILE_EXTENSIONS = ['.md'];
-const SKILL_FILE_EXTENSIONS = ['.md', '.json', '.py', '.txt', '.yaml', '.yml', '.js', '.sh'];
+const SKILL_FILE_EXTENSIONS = ['.md', '.json', '.py', '.txt', '.yaml', '.yml', '.js', '.sh', '.docx'];
 const AGENT_FILE_EXTENSIONS = ['.md', '.json', '.txt', '.yaml', '.yml'];
+const BINARY_FILE_EXTENSIONS = new Set(['.docx']);
 
 function log(message: string): void {
   console.log(`[Manifest] ${message}`);
+}
+
+function isBinaryFilePath(filePath: string): boolean {
+  return BINARY_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
 /**
@@ -74,6 +79,7 @@ function scanDirectory(
         name: path.parse(item).name,
         size: stat.size,
         mtime: stat.mtime.toISOString(),
+        encoding: isBinaryFilePath(relativePath) ? 'base64' : 'utf8',
       });
     }
   }
@@ -81,8 +87,8 @@ function scanDirectory(
   return files;
 }
 
-function computeSha256(content: string): string {
-  return createHash('sha256').update(content, 'utf-8').digest('hex');
+function computeSha256(content: string | Buffer): string {
+  return createHash('sha256').update(content).digest('hex');
 }
 
 function toPosixPath(filePath: string): string {
@@ -94,11 +100,13 @@ function buildContentPackEntries(relativePaths: string[]): ContentPackEntry[] {
 
   return uniquePaths.map(relativePath => {
     const absolutePath = path.join(PROJECT_ROOT, relativePath);
-    const content = fs.readFileSync(absolutePath, 'utf-8');
+    const buffer = fs.readFileSync(absolutePath);
+    const encoding = isBinaryFilePath(relativePath) ? 'base64' : 'utf8';
     return {
       path: relativePath,
-      sha256: computeSha256(content),
-      content,
+      sha256: computeSha256(buffer),
+      content: encoding === 'base64' ? buffer.toString('base64') : buffer.toString('utf-8'),
+      encoding,
     };
   });
 }
