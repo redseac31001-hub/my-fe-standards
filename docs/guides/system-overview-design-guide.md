@@ -44,7 +44,7 @@ python -m pip install python-docx
 
 - 如果用户要的是任务拆解、工时估算、方案对比，仍然由 `planner` 负责
 - 如果用户要的是正式概要设计文档导出，必须由 `system-overview-writer` 接管
-- 当前版本里，`/task` 入口下的 `design` 任务只要命中 `概要设计 / 设计文档 / Word 模板` 等信号，也会优先绑定 `system-overview-writer`
+- 当前版本里，`/task` 入口下的 `design` 任务只有明确命中 `系统概要设计 / 概要设计文档 / 概设 / 系统设计文档`，或同时具备“系统/概要 + 设计方案 + 导出/Word/模板”信号时，才会优先绑定 `system-overview-writer`
 
 ## 4. 日常业务生成
 
