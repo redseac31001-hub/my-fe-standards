@@ -1539,19 +1539,30 @@ async function distributeCommands(ctx, logger, targetDir, tracker) {
 // ============ .gitignore 更新 ============
 function updateGitignore(logger, projectDir) {
     const gitignorePath = path.join(projectDir, '.gitignore');
-    const entry = '.codebuddy/';
+    const header = '# CodeBuddy 生成文件';
+    const entries = ['.codebuddy/', 'codebuddy-loader.bundle.js'];
     try {
         let content = '';
         if (fs.existsSync(gitignorePath)) {
             content = fs.readFileSync(gitignorePath, 'utf-8');
-            if (content.includes(entry)) {
-                return;
-            }
+        }
+        const existingLines = new Set(content
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean));
+        const missingEntries = entries.filter(entry => !existingLines.has(entry));
+        if (missingEntries.length === 0) {
+            return;
         }
         if (content && !content.endsWith('\n')) {
             content += '\n';
         }
-        content += `\n# CodeBuddy 生成文件\n${entry}\n`;
+        if (!existingLines.has(header)) {
+            content += `\n${header}\n`;
+        }
+        for (const entry of missingEntries) {
+            content += `${entry}\n`;
+        }
         fs.writeFileSync(gitignorePath, content, 'utf-8');
         logger.verbose('已更新 .gitignore');
     }

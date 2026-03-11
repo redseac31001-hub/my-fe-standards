@@ -3318,22 +3318,32 @@ async function distributeCommands(ctx, logger, targetDir, tracker) {
 }
 function updateGitignore(logger, projectDir) {
   const gitignorePath = path5.join(projectDir, ".gitignore");
-  const entry = ".codebuddy/";
+  const header = "# CodeBuddy \u751F\u6210\u6587\u4EF6";
+  const entries = [".codebuddy/", "codebuddy-loader.bundle.js"];
   try {
     let content = "";
     if (fs5.existsSync(gitignorePath)) {
       content = fs5.readFileSync(gitignorePath, "utf-8");
-      if (content.includes(entry)) {
-        return;
-      }
+    }
+    const existingLines = new Set(
+      content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+    );
+    const missingEntries = entries.filter((entry) => !existingLines.has(entry));
+    if (missingEntries.length === 0) {
+      return;
     }
     if (content && !content.endsWith("\n")) {
       content += "\n";
     }
-    content += `
-# CodeBuddy \u751F\u6210\u6587\u4EF6
-${entry}
+    if (!existingLines.has(header)) {
+      content += `
+${header}
 `;
+    }
+    for (const entry of missingEntries) {
+      content += `${entry}
+`;
+    }
     fs5.writeFileSync(gitignorePath, content, "utf-8");
     logger.verbose("\u5DF2\u66F4\u65B0 .gitignore");
   } catch (error) {

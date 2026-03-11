@@ -156,7 +156,7 @@ your-project/
 │   └── commands/                  # Slash Commands
 │       ├── task.md                #    /task 命令
 │       └── agent-call.md          #    /agent-call 命令
-├── .gitignore                     # 已自动追加 .codebuddy/
+├── .gitignore                     # 已自动追加 .codebuddy/、codebuddy-loader.bundle.js
 ├── package.json
 └── src/
 ```
@@ -184,7 +184,7 @@ your-project/
 | Agent 系统加载 | 当前激活 Agent root 已写入 `install.json` 且 Agent 表可见 | `node .codebuddy/scripts/codebuddy-loader.js status --json` |
 | 技能系统加载 | 当前激活技能已写入 `install.json` 且 rules 中技能表可见 | `node .codebuddy/scripts/codebuddy-loader.js status --json` |
 | 脚本分发完成 | scripts/ 下有 5 个核心脚本 | `ls .codebuddy/scripts/*.js` |
-| .gitignore 更新 | 包含 `.codebuddy/` 条目 | `grep codebuddy .gitignore` |
+| .gitignore 更新 | 包含 `.codebuddy/`、`codebuddy-loader.bundle.js` 条目 | `grep codebuddy .gitignore` |
 | Vue 版本检测 | 正确识别 Vue 2/3（如适用） | 查看加载日志 |
 
 ### 4.2 AI 行为预期

@@ -381,6 +381,26 @@ function assertAgentsPresent(registryPayload, expectedAgents) {
   }
 }
 
+function assertGitignoreEntries(projectDir, expectedEntries) {
+  const gitignorePath = path.join(projectDir, '.gitignore');
+  if (!fs.existsSync(gitignorePath)) {
+    throw new Error(`expected .gitignore missing after remote load: ${gitignorePath}`);
+  }
+
+  const lines = new Set(
+    fs.readFileSync(gitignorePath, 'utf-8')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+  );
+
+  for (const entry of expectedEntries) {
+    if (!lines.has(entry)) {
+      throw new Error(`expected .gitignore entry missing after remote load: ${entry}`);
+    }
+  }
+}
+
 function runSystemOverviewSmoke(projectDir, installState) {
   const skillsRootDir = installState && installState.outputs && installState.outputs.skillsRootDir;
   if (!skillsRootDir) {
@@ -634,6 +654,7 @@ async function main() {
     runNode([downloadedLoaderPath, ...loaderArgs], targetDir, 0);
 
     assertFilesExist(targetDir, fixture.expectedFiles || []);
+    assertGitignoreEntries(targetDir, ['.codebuddy/', 'codebuddy-loader.bundle.js']);
     const installState = readInstallState(targetDir);
     assertSkillFilesExist(targetDir, installState, fixture.expectedSkillFiles || []);
     const systemOverviewOutput = runSystemOverviewSmoke(targetDir, installState);
