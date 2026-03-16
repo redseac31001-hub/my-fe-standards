@@ -155,6 +155,18 @@ npm run validate:all
 npm run validate:all:strict
 ```
 
+如果需要一次性执行聚合 gate，并同时产出可审计 JSON 报告：
+
+```bash
+npm run validate:gate:strict -- --scope all --json --out-dir artifacts/validator-strict-gate
+```
+
+该命令会输出：
+
+- `validator-gate-summary.json`
+- `rule-validator-report.json`
+- `skill-validator-report.json`
+
 ## 仓库结构
 
 ```text

@@ -23,6 +23,7 @@ const projectDetectionDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', '
 const workflowRoutingDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'workflow-routing.js');
 const ruleValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'rule-validator.js');
 const skillValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'skill-validator.js');
+const validatorGateDistPath = path.join(repoRoot, 'scripts', 'dist', 'validator-gate.js');
 
 function assertBuiltArtifactExists(filePath, hintCommand) {
   if (!fs.existsSync(filePath)) {
@@ -1273,6 +1274,97 @@ async function testSkillValidatorBundledReferenceWarnings() {
   }
 }
 
+async function testValidatorGateWritesStrictReports() {
+  assertBuiltArtifactExists(validatorGateDistPath, 'npm run build:scripts');
+  const { runValidatorGate } = require(validatorGateDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-validator-gate-'));
+  try {
+    const rulesDir = path.join(tempDir, 'rules');
+    const skillsDir = path.join(tempDir, 'custom-skills');
+    const skillDir = path.join(skillsDir, 'demo-skill');
+    const outDir = path.join(tempDir, 'reports');
+
+    await fsp.mkdir(path.join(rulesDir, 'layer1'), { recursive: true });
+    await fsp.mkdir(path.join(skillDir, 'references'), { recursive: true });
+
+    await fsp.writeFile(
+      path.join(rulesDir, 'layer1', 'missing-tags.md'),
+      [
+        '# Missing tags',
+        '',
+        '## Context',
+        '',
+        'Rule fixture.',
+        '',
+        '## The Rule',
+        '',
+        'Do the thing.',
+        '',
+        '## Reasoning',
+        '',
+        'Consistency matters.',
+        '',
+        '## Examples',
+        '',
+        '```ts',
+        'export const demo = true;',
+        '```',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    await fsp.writeFile(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: demo-skill',
+        'description: fixture skill',
+        '---',
+        '',
+        '# Demo Skill',
+        '',
+        '- Read [references/used.md](references/used.md)',
+      ].join('\n'),
+      'utf-8',
+    );
+    await fsp.writeFile(path.join(skillDir, 'references', 'used.md'), '# Used\n', 'utf-8');
+    await fsp.writeFile(path.join(skillDir, 'references', 'orphan.md'), '# Orphan\n', 'utf-8');
+
+    const report = runValidatorGate({
+      scope: 'all',
+      strict: true,
+      json: false,
+      outDir,
+      rulesDir,
+      skillsDir,
+    });
+
+    assert.equal(report.strictMode, true);
+    assert.equal(report.ok, true, 'base ok should remain backward-compatible');
+    assert.equal(report.effectiveOk, false, 'strict gate should fail when warnings exist');
+    assert.equal(typeof report.outputDir, 'string');
+    assert.equal(report.reportFiles.includes('rule-validator-report.json'), true);
+    assert.equal(report.reportFiles.includes('skill-validator-report.json'), true);
+    assert.equal(report.reportFiles.includes('validator-gate-summary.json'), true);
+
+    const summary = JSON.parse(await fsp.readFile(path.join(outDir, 'validator-gate-summary.json'), 'utf-8'));
+    assert.equal(summary.strictMode, true);
+    assert.equal(summary.scope, 'all');
+    assert.equal(summary.effectiveOk, false);
+
+    const ruleReport = JSON.parse(await fsp.readFile(path.join(outDir, 'rule-validator-report.json'), 'utf-8'));
+    assert.equal(ruleReport.strictMode, true);
+    assert.equal(ruleReport.effectiveOk, false);
+
+    const skillReport = JSON.parse(await fsp.readFile(path.join(outDir, 'skill-validator-report.json'), 'utf-8'));
+    assert.equal(skillReport.strictMode, true);
+    assert.equal(skillReport.effectiveOk, false);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const tests = [
     ['frontmatter utils parse and extract structured YAML content', testFrontmatterUtils],
@@ -1283,6 +1375,7 @@ async function main() {
     ['contract validator architecture drift checks stay opt-in and additive', testContractValidatorArchitectureWarnings],
     ['rule validator warns when recommended metadata is missing', testRuleValidatorMetadataWarnings],
     ['skill validator warns on bundled files that are never linked from markdown', testSkillValidatorBundledReferenceWarnings],
+    ['validator gate writes strict summary and per-validator reports', testValidatorGateWritesStrictReports],
     ['context targeting keeps skill and business-rule matching stable', testContextTargeting],
     ['project detection recognizes workspace structure and target selection', testProjectDetection],
     ['install state helpers keep snapshot retention and hashing stable', testInstallStateHelpers],

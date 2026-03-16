@@ -34,16 +34,11 @@ jobs:
         run: npm run build:scripts
 
       - name: Run strict validator gate
-        shell: bash
-        run: |
-          case "${{ inputs.scope }}" in
-            rules)
-              npm run validate:rules:strict
-              ;;
-            skills)
-              npm run validate:skills:strict
-              ;;
-            *)
-              npm run validate:all:strict
-              ;;
-          esac
+        run: npm run validate:gate:strict -- --scope ${{ inputs.scope }} --json --out-dir artifacts/validator-strict-gate
+
+      - name: Upload validator strict reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: validator-strict-gate-${{ inputs.scope }}
+          path: artifacts/validator-strict-gate
+          if-no-files-found: error
