@@ -1,11 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { TaskType } from '../types';
+import {
+  TaskBook,
+  TaskType,
+  WorkflowRoutingDecision,
+} from '../types';
 
 const METRICS_SCHEMA_VERSION = '1.0.0';
-const METRICS_DIR = path.join(process.cwd(), '.codebuddy', 'reports', 'metrics');
-const EVENTS_FILE = path.join(METRICS_DIR, 'execution-events.jsonl');
-const SUMMARY_FILE = path.join(METRICS_DIR, 'latest-summary.json');
 
 type ExecutionMetricEventType =
   | 'task_started'
@@ -13,7 +14,10 @@ type ExecutionMetricEventType =
   | 'task_blocked'
   | 'task_failed'
   | 'agent_call_created'
-  | 'agent_call_applied';
+  | 'agent_call_applied'
+  | 'workflow_route_selected'
+  | 'workflow_route_reused'
+  | 'workflow_route_fallback';
 
 type ExecutionMetricMode =
   | 'script'
@@ -28,9 +32,9 @@ interface ExecutionMetricEvent {
   eventType: ExecutionMetricEventType;
   recordedAt: string;
   taskBookId: string;
-  taskId: string;
-  taskType: TaskType;
-  taskTitle: string;
+  taskId?: string;
+  taskType?: TaskType;
+  taskTitle?: string;
   executionMode?: ExecutionMetricMode;
   agentId?: string;
   requestId?: string;
@@ -40,6 +44,10 @@ interface ExecutionMetricEvent {
   blockedReason?: string;
   worker?: string;
   resumed?: boolean;
+  workflowId?: string;
+  workflowPath?: string;
+  routeMode?: WorkflowRoutingDecision['mode'];
+  routeConfidence?: WorkflowRoutingDecision['confidence'];
 }
 
 interface ExecutionMetricAggregate {
@@ -65,34 +73,43 @@ interface ExecutionMetricsSummary {
     agentCallsCreated: number;
     agentCallsApplied: number;
     workerExecutions: number;
+    workflowRoutesSelected: number;
+    workflowRoutesReused: number;
+    workflowRoutesFallback: number;
     totalDurationMs: number;
     averageDurationMs: number;
   };
   byTaskType: Record<string, ExecutionMetricAggregate>;
   byExecutionMode: Record<string, ExecutionMetricAggregate>;
   blockedReasons: Record<string, number>;
+  workflowRoutesById: Record<string, number>;
+  workflowRoutesByMode: Record<string, number>;
 }
 
 export type RecordExecutionMetricInput = Omit<ExecutionMetricEvent, 'schemaVersion' | 'recordedAt'> & {
   recordedAt?: string;
+  projectRoot?: string;
 };
 
 export function recordExecutionMetric(input: RecordExecutionMetricInput): ExecutionMetricEvent {
-  ensureMetricsDir();
+  const projectRoot = input.projectRoot || process.cwd();
+  const metricsPaths = getExecutionMetricsPaths(projectRoot);
+  ensureMetricsDir(metricsPaths.dir);
 
   const event: ExecutionMetricEvent = {
     ...input,
     schemaVersion: METRICS_SCHEMA_VERSION,
     recordedAt: input.recordedAt || new Date().toISOString(),
   };
+  delete (event as Partial<RecordExecutionMetricInput>).projectRoot;
 
-  fs.appendFileSync(EVENTS_FILE, `${JSON.stringify(event)}\n`, 'utf-8');
+  fs.appendFileSync(metricsPaths.eventsFile, `${JSON.stringify(event)}\n`, 'utf-8');
 
-  const summary = loadExecutionMetricsSummary();
+  const summary = loadExecutionMetricsSummary(projectRoot);
   applyEvent(summary, event);
   summary.generatedAt = event.recordedAt;
   summary.lastEventAt = event.recordedAt;
-  fs.writeFileSync(SUMMARY_FILE, JSON.stringify(summary, null, 2), 'utf-8');
+  fs.writeFileSync(metricsPaths.summaryFile, JSON.stringify(summary, null, 2), 'utf-8');
 
   return event;
 }
@@ -121,6 +138,30 @@ export function getExecutionMetricsPaths(projectRoot: string = process.cwd()): {
     eventsFile: path.join(projectRoot, '.codebuddy', 'reports', 'metrics', 'execution-events.jsonl'),
     summaryFile: path.join(projectRoot, '.codebuddy', 'reports', 'metrics', 'latest-summary.json'),
   };
+}
+
+export function recordWorkflowRoutingMetric(params: {
+  projectRoot: string;
+  taskBook: Pick<TaskBook, 'id'>;
+  decision: WorkflowRoutingDecision;
+  recordedAt?: string;
+}): ExecutionMetricEvent {
+  const eventType = params.decision.mode === 'reused'
+    ? 'workflow_route_reused'
+    : (params.decision.mode === 'fallback'
+      ? 'workflow_route_fallback'
+      : 'workflow_route_selected');
+
+  return recordExecutionMetric({
+    projectRoot: params.projectRoot,
+    eventType,
+    recordedAt: params.recordedAt,
+    taskBookId: params.taskBook.id,
+    workflowId: params.decision.selectedWorkflowId,
+    workflowPath: params.decision.selectedWorkflowPath,
+    routeMode: params.decision.mode,
+    routeConfidence: params.decision.confidence,
+  });
 }
 
 export function classifyBlockedReason(reason: string | undefined): string {
@@ -169,8 +210,8 @@ export function computeDurationMs(startedAt: string | undefined, completedAt: st
   return end - start;
 }
 
-function ensureMetricsDir(): void {
-  fs.mkdirSync(METRICS_DIR, { recursive: true });
+function ensureMetricsDir(metricsDir: string): void {
+  fs.mkdirSync(metricsDir, { recursive: true });
 }
 
 function createEmptySummary(projectRoot: string): ExecutionMetricsSummary {
@@ -188,12 +229,17 @@ function createEmptySummary(projectRoot: string): ExecutionMetricsSummary {
       agentCallsCreated: 0,
       agentCallsApplied: 0,
       workerExecutions: 0,
+      workflowRoutesSelected: 0,
+      workflowRoutesReused: 0,
+      workflowRoutesFallback: 0,
       totalDurationMs: 0,
       averageDurationMs: 0,
     },
     byTaskType: {},
     byExecutionMode: {},
     blockedReasons: {},
+    workflowRoutesById: {},
+    workflowRoutesByMode: {},
   };
 }
 
@@ -211,6 +257,8 @@ function normalizeSummary(raw: Partial<ExecutionMetricsSummary>, projectRoot: st
     byTaskType: normalizeAggregateMap(raw.byTaskType),
     byExecutionMode: normalizeAggregateMap(raw.byExecutionMode),
     blockedReasons: normalizeCounterMap(raw.blockedReasons),
+    workflowRoutesById: normalizeCounterMap(raw.workflowRoutesById),
+    workflowRoutesByMode: normalizeCounterMap(raw.workflowRoutesByMode),
   };
 }
 
@@ -247,16 +295,18 @@ function normalizeAggregate(raw: unknown): ExecutionMetricAggregate {
 }
 
 function applyEvent(summary: ExecutionMetricsSummary, event: ExecutionMetricEvent): void {
-  const taskTypeAggregate = ensureAggregate(summary.byTaskType, event.taskType);
+  const taskTypeAggregate = event.taskType ? ensureAggregate(summary.byTaskType, event.taskType) : null;
   const modeAggregate = event.executionMode ? ensureAggregate(summary.byExecutionMode, event.executionMode) : null;
 
   switch (event.eventType) {
     case 'task_started':
+      if (!taskTypeAggregate) return;
       summary.totals.started += 1;
       taskTypeAggregate.started += 1;
       if (modeAggregate) modeAggregate.started += 1;
       break;
     case 'task_completed':
+      if (!taskTypeAggregate) return;
       summary.totals.completed += 1;
       taskTypeAggregate.completed += 1;
       if (modeAggregate) modeAggregate.completed += 1;
@@ -266,6 +316,7 @@ function applyEvent(summary: ExecutionMetricsSummary, event: ExecutionMetricEven
       applyDuration(summary, taskTypeAggregate, modeAggregate, event.durationMs);
       break;
     case 'task_blocked':
+      if (!taskTypeAggregate) return;
       summary.totals.blocked += 1;
       taskTypeAggregate.blocked += 1;
       if (modeAggregate) modeAggregate.blocked += 1;
@@ -274,6 +325,7 @@ function applyEvent(summary: ExecutionMetricsSummary, event: ExecutionMetricEven
       }
       break;
     case 'task_failed':
+      if (!taskTypeAggregate) return;
       summary.totals.failed += 1;
       taskTypeAggregate.failed += 1;
       if (modeAggregate) modeAggregate.failed += 1;
@@ -282,15 +334,54 @@ function applyEvent(summary: ExecutionMetricsSummary, event: ExecutionMetricEven
       summary.totals.agentCallsCreated += 1;
       break;
     case 'agent_call_applied':
+      if (!taskTypeAggregate) return;
       summary.totals.agentCallsApplied += 1;
+      if (event.status === 'failed') {
+        summary.totals.failed += 1;
+        taskTypeAggregate.failed += 1;
+        if (modeAggregate) modeAggregate.failed += 1;
+        break;
+      }
+
+      if (event.status === 'blocked') {
+        summary.totals.blocked += 1;
+        taskTypeAggregate.blocked += 1;
+        if (modeAggregate) modeAggregate.blocked += 1;
+        if (event.blockedReasonCode) {
+          summary.blockedReasons[event.blockedReasonCode] = (summary.blockedReasons[event.blockedReasonCode] || 0) + 1;
+        }
+        break;
+      }
+
       summary.totals.resumed += 1;
       summary.totals.completed += 1;
       taskTypeAggregate.completed += 1;
       if (modeAggregate) modeAggregate.completed += 1;
       applyDuration(summary, taskTypeAggregate, modeAggregate, event.durationMs);
       break;
+    case 'workflow_route_selected':
+      summary.totals.workflowRoutesSelected += 1;
+      applyWorkflowRouteCounters(summary, event);
+      break;
+    case 'workflow_route_reused':
+      summary.totals.workflowRoutesReused += 1;
+      applyWorkflowRouteCounters(summary, event);
+      break;
+    case 'workflow_route_fallback':
+      summary.totals.workflowRoutesFallback += 1;
+      applyWorkflowRouteCounters(summary, event);
+      break;
     default:
       return;
+  }
+}
+
+function applyWorkflowRouteCounters(summary: ExecutionMetricsSummary, event: ExecutionMetricEvent): void {
+  if (event.workflowId) {
+    summary.workflowRoutesById[event.workflowId] = (summary.workflowRoutesById[event.workflowId] || 0) + 1;
+  }
+  if (event.routeMode) {
+    summary.workflowRoutesByMode[event.routeMode] = (summary.workflowRoutesByMode[event.routeMode] || 0) + 1;
   }
 }
 

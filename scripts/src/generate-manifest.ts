@@ -18,7 +18,7 @@ import {
   COMMANDS_TO_DISTRIBUTE,
   TASKBOOK_FILES_TO_DISTRIBUTE,
   WORKFLOWS_TO_DISTRIBUTE,
-  getScriptsForProfile,
+  getScriptArtifactsForProfile,
   isOrchestratorProfile,
 } from './lib/distribution-profiles';
 
@@ -122,7 +122,7 @@ function getPackSourcePaths(
     ...skillFiles.map(file => file.path),
     ...agentFiles.map(file => file.path),
     ...COMMANDS_TO_DISTRIBUTE.map(item => item.sourcePath),
-    ...getScriptsForProfile(profile).map(item => `scripts/dist/${item.file}`),
+    ...getScriptArtifactsForProfile(profile).map(file => `scripts/dist/${file}`),
   ];
 
   if (isOrchestratorProfile(profile)) {

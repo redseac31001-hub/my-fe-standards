@@ -9,6 +9,7 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import {
+  HandoffEntry,
   TaskBook,
   TaskItem,
   TaskExecutionResult,
@@ -20,7 +21,7 @@ import { isDirectCliEntry } from './lib/cli-entry';
 import { TaskBookManager } from './taskbook-manager';
 import { collectContext, formatContextAsMarkdown } from './context-collector';
 import { AgentRuntime, createAgentRuntime } from './agent-runtime';
-import { AgentContext, AgentTaskSnapshot } from './types/agent-runtime';
+import { AgentContext, AgentTaskHandoff, AgentTaskSnapshot } from './types/agent-runtime';
 import { aggregateAndPersist } from './result-aggregator';
 import {
   getProjectAgentRootCandidates,
@@ -35,7 +36,12 @@ import {
   inferCompletedExecutionMode,
   inferPlannedExecutionMode,
   recordExecutionMetric,
+  recordWorkflowRoutingMetric,
 } from './lib/execution-metrics';
+import {
+  WorkflowRouteDetails,
+  selectWorkflowForTaskBook,
+} from './lib/workflow-routing-selection';
 
 interface ExecuteTasksOptions {
   allowedTaskTypes?: Array<TaskItem['type']>;
@@ -56,6 +62,7 @@ interface WorkflowRunnerOptions {
   workflowPath?: string;
   approvedGates?: Set<string>;
   maxParallelTasks?: number;
+  showWorkflowRoute?: boolean;
 }
 
 type GateResult = {
@@ -88,8 +95,18 @@ const DEFAULT_CONFIG: TaskExecutorConfig = {
 
 const AGENT_CALLS_DIR = '.codebuddy/agent-calls';
 const AGENT_CALL_MARKER = '[agent-call]';
+const AGENT_CALL_RESULT_MARKER = '[agent-call-result]';
 const DEFAULT_MANUAL_AGENT_ID = 'task-orchestrator';
 const MANUAL_AGENT_ID_ENV = 'CODEBUDDY_MANUAL_AGENT_ID';
+const REVIEW_REFLOW_TASK_TYPES = new Set<TaskItem['type']>(['test', 'implement', 'refactor', 'build-fix']);
+const FILE_DELETE_RETRY_CODES = new Set(['EBUSY', 'EMFILE', 'ENFILE', 'EPERM']);
+const FILE_DELETE_MAX_RETRIES = 6;
+const FILE_DELETE_RETRY_MS = 40;
+const SLEEP_INT32 = new Int32Array(new SharedArrayBuffer(4));
+
+function sleepSync(ms: number): void {
+  Atomics.wait(SLEEP_INT32, 0, 0, ms);
+}
 
 function buildTaskRoutingText(task: TaskItem): string {
   return [
@@ -162,6 +179,16 @@ function selectManualAgentId(task: TaskItem): string {
   }
 }
 
+function normalizeAgentIdentity(agentId: string | undefined, fallbackTask?: TaskItem): string {
+  const trimmed = (agentId || '').trim();
+  if (trimmed.startsWith('worker-executor:')) {
+    const normalized = trimmed.slice('worker-executor:'.length).trim();
+    if (normalized) return normalized;
+  }
+  if (trimmed) return trimmed;
+  return fallbackTask ? selectManualAgentId(fallbackTask) : '';
+}
+
 function tryExtractAgentIdFromPrompt(promptMd: string): string | null {
   const m = promptMd.match(/```json\s*([\s\S]*?)\s*```/);
   if (!m) return null;
@@ -200,6 +227,13 @@ type AgentCallResult = {
   completedAt?: string;
 };
 
+type AgentCallResultState = {
+  requestId: string;
+  status: Exclude<AgentCallStatus, 'success'>;
+  completedAt?: string;
+  message: string;
+};
+
 type AgentTaskOutput = {
   actualWork: string;
 };
@@ -215,6 +249,95 @@ type TaskDispatchResult = {
     completedAt?: string;
   };
 };
+
+function collectTaskDeliverables(
+  task: TaskItem,
+  artifacts?: Array<{ type: string; path: string }>
+): string[] | undefined {
+  const values = new Set<string>();
+
+  for (const filePath of task.scope?.files ?? []) {
+    if (typeof filePath === 'string' && filePath.trim()) {
+      values.add(filePath.trim());
+    }
+  }
+
+  for (const artifact of artifacts ?? []) {
+    if (artifact && typeof artifact.path === 'string' && artifact.path.trim()) {
+      values.add(artifact.path.trim());
+    }
+  }
+
+  return values.size > 0 ? Array.from(values) : undefined;
+}
+
+function summarizeActualWork(actualWork: string): string {
+  const singleLine = actualWork.replace(/\s+/g, ' ').trim();
+  if (!singleLine) return '';
+  return singleLine.length > 180 ? `${singleLine.slice(0, 177)}...` : singleLine;
+}
+
+function selectBuildFixHandoffAnchorTasks(taskBook: TaskBook): TaskItem[] {
+  return taskBook.tasks.filter(task => task.type === 'build-fix' && task.status !== 'skipped');
+}
+
+function buildBuildFixFailureContext(
+  gateResult: GateResult | undefined,
+  retryCount: number,
+  maxRounds: number,
+  escalated: boolean,
+): string {
+  const parts = [
+    gateResult?.gateId ? `Quality gate ${gateResult.gateId} failed during build_and_fix.` : 'Quality gate failed during build_and_fix.',
+    gateResult?.message ? `Reason: ${gateResult.message}` : '',
+    gateResult?.evidencePath ? `Evidence: ${gateResult.evidencePath}` : '',
+    `Attempt: ${retryCount}/${maxRounds}.`,
+    escalated ? 'Retries exhausted; escalate to orchestrator/human review.' : 'Build-fix retry required.',
+  ];
+
+  return parts.filter(Boolean).join(' ');
+}
+
+function appendBuildFixFailureHandoffs(
+  manager: TaskBookManager,
+  taskBookId: string,
+  type: HandoffEntry['type'],
+  gateResult: GateResult | undefined,
+  retryCount: number,
+  maxRounds: number,
+): void {
+  const taskBook = manager.load(taskBookId);
+  if (!taskBook) return;
+
+  const anchors = selectBuildFixHandoffAnchorTasks(taskBook);
+  if (anchors.length === 0) return;
+
+  const timestamp = new Date().toISOString();
+  const context = buildBuildFixFailureContext(gateResult, retryCount, maxRounds, type === 'escalation');
+
+  for (const task of anchors) {
+    const deliverables = collectTaskDeliverables(task);
+    const handoff: HandoffEntry = type === 'qa_fail'
+      ? {
+        from: 'quality-gate',
+        to: selectManualAgentId(task),
+        type,
+        timestamp,
+        context,
+        deliverables,
+      }
+      : {
+        from: selectManualAgentId(task),
+        to: DEFAULT_MANUAL_AGENT_ID,
+        type,
+        timestamp,
+        context,
+        deliverables,
+      };
+
+    manager.appendTaskHandoffs(taskBookId, task.id, [handoff]);
+  }
+}
 
 type ConflictStrategy = 'allow' | 'deny_same_file_set';
 
@@ -303,6 +426,20 @@ export class TaskExecutor {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.runtime = config.runtime || null;
     this.workerExecutor = config.workerExecutor ?? createConfiguredWorkerExecutor();
+  }
+
+  private getProjectRoot(): string {
+    return this.manager.getProjectRoot();
+  }
+
+  private resolveProjectPath(filePath: string): string {
+    return path.resolve(this.getProjectRoot(), filePath);
+  }
+
+  private getCurrentTaskAttemptKey(taskBookId: string, task: TaskItem): string | undefined {
+    const taskBook = this.manager.load(taskBookId);
+    const currentTask = taskBook?.tasks.find(candidate => candidate.id === task.id);
+    return currentTask?.startedAt ?? task.startedAt;
   }
 
   /**
@@ -470,6 +607,320 @@ export class TaskExecutor {
     return { status: 'blocked', taskBook: this.manager.load(taskBookId), message: '执行被暂停/停止' };
   }
 
+  private buildCompletionHandoffs(
+    taskBookId: string,
+    task: TaskItem,
+    executedBy: string,
+    actualWork: string,
+    artifacts?: Array<{ type: string; path: string }>
+  ): HandoffEntry[] {
+    const taskBook = this.manager.load(taskBookId);
+    if (!taskBook) return [];
+
+    const deliverables = collectTaskDeliverables(task, artifacts);
+    const handoffType: HandoffEntry['type'] = task.type === 'review' ? 'qa_pass' : 'standard';
+    const actualWorkSummary = summarizeActualWork(actualWork);
+    const handoffs: HandoffEntry[] = [];
+
+    for (const candidate of taskBook.tasks) {
+      if (candidate.id === task.id || !candidate.dependencies.includes(task.id)) {
+        continue;
+      }
+
+      const targetAgentId = selectManualAgentId(candidate);
+      if (!targetAgentId || targetAgentId === executedBy) {
+        continue;
+      }
+
+      const context = [
+        `${task.title} completed; ready for ${candidate.id} (${candidate.title}).`,
+        actualWorkSummary ? `Summary: ${actualWorkSummary}` : '',
+      ].filter(Boolean).join(' ');
+
+      handoffs.push({
+        from: executedBy,
+        to: targetAgentId,
+        type: handoffType,
+        timestamp: new Date().toISOString(),
+        context,
+        deliverables,
+      });
+    }
+
+    return handoffs;
+  }
+
+  private recordCompletionHandoffs(
+    taskBookId: string,
+    task: TaskItem,
+    executedBy: string,
+    actualWork: string,
+    artifacts?: Array<{ type: string; path: string }>
+  ): void {
+    const handoffs = this.buildCompletionHandoffs(taskBookId, task, executedBy, actualWork, artifacts);
+    if (handoffs.length === 0) return;
+    this.manager.appendTaskHandoffs(taskBookId, task.id, handoffs);
+  }
+
+  private buildAgentCallFailureHandoffs(
+    taskBookId: string,
+    task: TaskItem,
+    agentId: string,
+    status: Exclude<AgentCallStatus, 'success'>,
+    reason: string,
+    artifacts?: Array<{ type: string; path: string }>
+  ): HandoffEntry[] {
+    const timestamp = new Date().toISOString();
+    const deliverables = collectTaskDeliverables(task, artifacts);
+    const normalizedAgentId = normalizeAgentIdentity(agentId, task);
+    const reasonSummary = summarizeActualWork(reason) || reason;
+
+    if (task.type === 'review' && status === 'failed') {
+      const taskBook = this.manager.load(taskBookId);
+      if (!taskBook) return [];
+
+      const handoffs: HandoffEntry[] = [];
+      for (const dependencyId of task.dependencies) {
+        const dependencyTask = taskBook.tasks.find(candidate => candidate.id === dependencyId);
+        if (!dependencyTask) continue;
+
+        const targetAgentId = normalizeAgentIdentity(dependencyTask.executedBy, dependencyTask);
+        if (!targetAgentId || targetAgentId === normalizedAgentId) {
+          continue;
+        }
+
+        handoffs.push({
+          from: normalizedAgentId,
+          to: targetAgentId,
+          type: 'qa_fail',
+          timestamp,
+          context: `Review task ${task.id} (${task.title}) failed. Reason: ${reasonSummary}`,
+          deliverables,
+        });
+      }
+
+      if (handoffs.length > 0) {
+        return handoffs;
+      }
+    }
+
+    return [{
+      from: normalizedAgentId || selectManualAgentId(task),
+      to: DEFAULT_MANUAL_AGENT_ID,
+      type: 'escalation',
+      timestamp,
+      context: `Agent call for ${task.id} (${task.title}) reported ${status}. Reason: ${reasonSummary}`,
+      deliverables,
+    }];
+  }
+
+  private recordAgentCallFailure(
+    taskBookId: string,
+    task: TaskItem,
+    meta: AgentCallMeta,
+    result: AgentCallResult,
+    reason: string,
+  ): void {
+    const status = result.status === 'blocked' ? 'blocked' : 'failed';
+    const handoffs = this.buildAgentCallFailureHandoffs(taskBookId, task, meta.agentId, status, reason, result.artifacts);
+    if (handoffs.length > 0) {
+      this.manager.appendTaskHandoffs(taskBookId, task.id, handoffs);
+    }
+
+    const nextBlockedReason = appendAgentCallResultState(task.blockedReason, {
+      requestId: meta.requestId,
+      status,
+      completedAt: result.completedAt,
+      message: reason,
+    });
+
+    this.manager.updateTask(taskBookId, task.id, {
+      blockedReason: nextBlockedReason,
+    });
+
+    this.manager.logChange(taskBookId, task.id, 'modified', `agent-call reported ${status}: ${meta.requestId}`, undefined, {
+      event: 'agent-call',
+      action: 'reported_failure',
+      requestId: meta.requestId,
+      agentId: meta.agentId,
+      kind: result.kind ?? meta.kind,
+      status,
+      completedAt: result.completedAt,
+      promptPath: meta.promptPath,
+      resultPath: meta.resultPath,
+      artifacts: result.artifacts,
+      reason,
+      handoffTypes: handoffs.map(handoff => handoff.type),
+    });
+
+    recordExecutionMetric({
+      projectRoot: this.getProjectRoot(),
+      eventType: 'agent_call_applied',
+      taskBookId,
+      taskId: task.id,
+      taskType: task.type,
+      taskTitle: task.title,
+      executionMode: 'agent-call',
+      agentId: meta.agentId,
+      requestId: meta.requestId,
+      status,
+      durationMs: computeDurationMs(meta.createdAt, result.completedAt),
+      blockedReasonCode: classifyBlockedReason(reason),
+      blockedReason: truncateMetricText(reason),
+    });
+
+    this.tryAutoReflowFromQaFailure(taskBookId, task, meta, status, reason);
+  }
+
+  private removeAgentCallFiles(paths: string[]): void {
+    const uniquePaths = [...new Set(paths.filter(Boolean).map(filePath => this.resolveProjectPath(filePath)))];
+
+    for (const filePath of uniquePaths) {
+      for (let attempt = 0; attempt <= FILE_DELETE_MAX_RETRIES; attempt++) {
+        try {
+          fs.unlinkSync(filePath);
+          break;
+        } catch (error) {
+          const code = error && typeof error === 'object' && 'code' in error
+            ? String((error as { code?: unknown }).code ?? '')
+            : '';
+
+          if (code === 'ENOENT') {
+            break;
+          }
+
+          if (attempt >= FILE_DELETE_MAX_RETRIES || !FILE_DELETE_RETRY_CODES.has(code)) {
+            try {
+              fs.rmSync(filePath, { force: true });
+            } catch {
+              // ignore cleanup failures; next run should rotate request IDs instead of reusing stale files
+            }
+            break;
+          }
+
+          sleepSync(FILE_DELETE_RETRY_MS * (attempt + 1));
+        }
+      }
+    }
+  }
+
+  private clearAgentCallArtifacts(taskBookId: string, task: TaskItem): void {
+    const requestId = computeAgentCallRequestId(taskBookId, task.id, this.getCurrentTaskAttemptKey(taskBookId, task));
+    this.removeAgentCallFiles([
+      toPosixPath(`${AGENT_CALLS_DIR}/${requestId}.prompt.md`),
+      toPosixPath(`${AGENT_CALLS_DIR}/${requestId}.result.json`),
+    ]);
+  }
+
+  private tryAutoReflowFromQaFailure(
+    taskBookId: string,
+    task: TaskItem,
+    meta: AgentCallMeta,
+    status: Exclude<AgentCallStatus, 'success'>,
+    reason: string,
+  ): boolean {
+    if (task.type !== 'review' || status !== 'failed') {
+      return false;
+    }
+
+    const taskBook = this.manager.load(taskBookId);
+    if (!taskBook) return false;
+
+    const reopenedTasks = task.dependencies
+      .map(dependencyId => taskBook.tasks.find(candidate => candidate.id === dependencyId))
+      .filter((candidate): candidate is TaskItem => {
+        if (!candidate) return false;
+        return candidate.status === 'done' && REVIEW_REFLOW_TASK_TYPES.has(candidate.type);
+      });
+
+    if (reopenedTasks.length === 0) {
+      return false;
+    }
+
+    for (const reopenedTask of reopenedTasks) {
+      this.clearAgentCallArtifacts(taskBookId, reopenedTask);
+      this.manager.updateTask(taskBookId, reopenedTask.id, {
+        status: 'pending',
+      });
+    }
+
+    this.removeAgentCallFiles([
+      meta.promptPath,
+      meta.resultPath,
+    ]);
+    this.manager.updateTask(taskBookId, task.id, {
+      status: 'pending',
+      blockedReason: '',
+    });
+
+    this.manager.logChange(taskBookId, task.id, 'modified', `qa_fail auto reflow: reopened ${reopenedTasks.map(item => item.id).join(', ')}`, undefined, {
+      event: 'qa_fail_reflow',
+      reviewTaskId: task.id,
+      reopenedTaskIds: reopenedTasks.map(item => item.id),
+      reopenedTaskTypes: reopenedTasks.map(item => item.type),
+      reason,
+    });
+
+    return true;
+  }
+
+  private collectIncomingHandoffs(
+    taskBook: TaskBook,
+    task: TaskItem,
+    targetAgentId: string
+  ): AgentTaskHandoff[] {
+    if (!targetAgentId) {
+      return [];
+    }
+
+    const dependencyIds = new Set(task.dependencies);
+    const incoming: AgentTaskHandoff[] = [];
+
+    for (const candidate of taskBook.tasks) {
+      if (!dependencyIds.has(candidate.id) || !Array.isArray(candidate.handoffs)) {
+        continue;
+      }
+
+      for (const handoff of candidate.handoffs) {
+        if (handoff.to !== targetAgentId) {
+          continue;
+        }
+
+        incoming.push({
+          ...handoff,
+          sourceTaskId: candidate.id,
+          sourceTaskTitle: candidate.title,
+          sourceTaskType: candidate.type,
+          sourceTaskStatus: candidate.status,
+          sourceTaskExecutedBy: candidate.executedBy,
+        });
+      }
+    }
+
+    for (const candidate of taskBook.tasks) {
+      if (!candidate.dependencies.includes(task.id) || !Array.isArray(candidate.handoffs)) {
+        continue;
+      }
+
+      for (const handoff of candidate.handoffs) {
+        if (handoff.to !== targetAgentId) {
+          continue;
+        }
+
+        incoming.push({
+          ...handoff,
+          sourceTaskId: candidate.id,
+          sourceTaskTitle: candidate.title,
+          sourceTaskType: candidate.type,
+          sourceTaskStatus: candidate.status,
+          sourceTaskExecutedBy: candidate.executedBy,
+        });
+      }
+    }
+
+    return incoming.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+  }
+
   /**
    * 执行单个任务
    */
@@ -485,6 +936,7 @@ export class TaskExecutor {
       ? undefined
       : selectManualAgentId(task);
     recordExecutionMetric({
+      projectRoot: this.getProjectRoot(),
       eventType: 'task_started',
       taskBookId,
       taskId: task.id,
@@ -522,6 +974,8 @@ export class TaskExecutor {
         // updateTask ????????executedBy?????
       }
 
+      this.recordCompletionHandoffs(taskBookId, task, executedBy, actualWork, dispatchResult.artifacts);
+
       this.lastRenderedPrompt = null;
 
       const result: TaskExecutionResult = {
@@ -532,6 +986,7 @@ export class TaskExecutor {
       };
 
       recordExecutionMetric({
+        projectRoot: this.getProjectRoot(),
         eventType: 'task_completed',
         taskBookId,
         taskId: task.id,
@@ -571,6 +1026,7 @@ export class TaskExecutor {
 
         const agentCallMeta = extractAgentCallMeta(blockedReason);
         recordExecutionMetric({
+          projectRoot: this.getProjectRoot(),
           eventType: 'task_blocked',
           taskBookId,
           taskId: task.id,
@@ -597,6 +1053,7 @@ export class TaskExecutor {
       console.error(`[TaskExecutor] 任务执行出错: ${task.title}`, error);
 
       recordExecutionMetric({
+        projectRoot: this.getProjectRoot(),
         eventType: 'task_failed',
         taskBookId,
         taskId: task.id,
@@ -620,13 +1077,14 @@ export class TaskExecutor {
   }
 
   private ensureManualTaskAgentCall(taskBookId: string, task: TaskItem, manualReason: string): string {
-    const requestId = computeAgentCallRequestId(taskBookId, task.id);
+    const requestId = computeAgentCallRequestId(taskBookId, task.id, this.getCurrentTaskAttemptKey(taskBookId, task));
+    const projectRoot = this.getProjectRoot();
 
     const promptPath = toPosixPath(`${AGENT_CALLS_DIR}/${requestId}.prompt.md`);
     const resultPath = toPosixPath(`${AGENT_CALLS_DIR}/${requestId}.result.json`);
 
-    const promptAbsPath = path.join(process.cwd(), promptPath);
-    const resultAbsPath = path.join(process.cwd(), resultPath);
+    const promptAbsPath = this.resolveProjectPath(promptPath);
+    const resultAbsPath = this.resolveProjectPath(resultPath);
     ensureDir(path.dirname(promptAbsPath));
 
     let agentId = selectManualAgentId(task);
@@ -651,9 +1109,9 @@ export class TaskExecutor {
       createdAt: new Date().toISOString(),
     };
 
-    const agentDef = loadAgentDefinition(process.cwd(), agentId);
+    const agentDef = loadAgentDefinition(projectRoot, agentId);
     const agentDefMissingNote = !agentDef
-      ? `\n\n[agent-call] agent definition missing: expected ${listAgentDefinitionCandidatePaths(process.cwd(), agentId).map(filePath => path.relative(process.cwd(), filePath).replace(/\\/g, '/')).join(' or ')}.`
+      ? `\n\n[agent-call] agent definition missing: expected ${listAgentDefinitionCandidatePaths(projectRoot, agentId).map(filePath => path.relative(projectRoot, filePath).replace(/\\/g, '/')).join(' or ')}.`
       : '';
 
     // 获取 AgentRuntime 渲染的 prompt（如果可用）
@@ -673,6 +1131,7 @@ export class TaskExecutor {
         agentDefinition: agentDef?.content ?? null,
         promptPath: meta.promptPath,
         resultPath: meta.resultPath,
+        projectRoot,
         runtimePrompt: runtimePrompt ?? undefined,
       });
 
@@ -691,6 +1150,7 @@ export class TaskExecutor {
       });
 
       recordExecutionMetric({
+        projectRoot: this.getProjectRoot(),
         eventType: 'agent_call_created',
         taskBookId,
         taskId: task.id,
@@ -728,7 +1188,7 @@ export class TaskExecutor {
       const meta = extractAgentCallMeta(task.blockedReason);
       if (!meta) continue;
 
-      const resultAbsPath = path.join(process.cwd(), meta.resultPath);
+      const resultAbsPath = this.resolveProjectPath(meta.resultPath);
       if (!fs.existsSync(resultAbsPath)) continue;
 
       let result: AgentCallResult;
@@ -747,7 +1207,21 @@ export class TaskExecutor {
 
       if (result.status !== 'success') {
         const reason = result.error?.message ?? `status=${result.status}`;
-        console.log(`[AgentCall] 未就绪: ${meta.requestId} ${reason}`);
+        const status = result.status === 'blocked' ? 'blocked' : 'failed';
+        const nextState: AgentCallResultState = {
+          requestId: meta.requestId,
+          status,
+          completedAt: result.completedAt,
+          message: reason,
+        };
+        if (isSameAgentCallResultState(extractAgentCallResultState(task.blockedReason), nextState)) {
+          console.log(`[AgentCall] 已记录失败结果: ${meta.requestId} ${reason}`);
+          continue;
+        }
+
+        console.log(`[AgentCall] 记录失败结果: ${meta.requestId} ${reason}`);
+        this.recordAgentCallFailure(taskBookId, task, meta, result, reason);
+        applied += 1;
         continue;
       }
 
@@ -764,7 +1238,10 @@ export class TaskExecutor {
         status: 'done',
         actualWork: output.actualWork,
         blockedReason: '',
+        executedBy: meta.agentId,
       });
+
+      this.recordCompletionHandoffs(taskBookId, task, meta.agentId, output.actualWork, result.artifacts);
 
       this.manager.logChange(taskBookId, task.id, 'modified', `agent-call applied: ${meta.requestId}`, undefined, {
         event: 'agent-call',
@@ -780,6 +1257,7 @@ export class TaskExecutor {
       });
 
       recordExecutionMetric({
+        projectRoot: this.getProjectRoot(),
         eventType: 'agent_call_applied',
         taskBookId,
         taskId: task.id,
@@ -878,12 +1356,12 @@ export class TaskExecutor {
   ): TaskDispatchResult | null {
     if (!this.workerExecutor) return null;
 
-    const requestId = computeAgentCallRequestId(taskBookId, task.id);
+    const requestId = computeAgentCallRequestId(taskBookId, task.id, task.startedAt);
     const workerResult = this.workerExecutor.execute({
       requestId,
       taskBookId,
       agentId,
-      projectRoot: process.cwd(),
+      projectRoot: this.getProjectRoot(),
       prompt: renderedPrompt,
       task,
       context,
@@ -914,6 +1392,13 @@ export class TaskExecutor {
    * 构建 Agent 执行上下文
    */
   private buildAgentContext(taskBookId: string, task: TaskItem): AgentContext {
+    const taskBook = this.manager.load(taskBookId);
+    const projectRoot = this.getProjectRoot();
+    const currentAgentId = selectManualAgentId(task);
+    const incomingHandoffs = taskBook
+      ? this.collectIncomingHandoffs(taskBook, task, currentAgentId)
+      : [];
+
     const taskSnapshot: AgentTaskSnapshot = {
       id: task.id,
       title: task.title,
@@ -922,17 +1407,18 @@ export class TaskExecutor {
       priority: task.priority,
       acceptanceCriteria: task.acceptanceCriteria || [],
       scope: task.scope,
+      incomingHandoffs: incomingHandoffs.length > 0 ? incomingHandoffs : undefined,
     };
 
     const context: AgentContext = {
       taskBookId,
       task: taskSnapshot,
-      projectRoot: process.cwd(),
+      projectRoot,
     };
 
     // 读取项目报告（如存在）
-    const archReport = path.join(process.cwd(), '.codebuddy/reports/architecture/latest.json');
-    const modulesReport = path.join(process.cwd(), '.codebuddy/reports/modules/latest.json');
+    const archReport = path.join(projectRoot, '.codebuddy/reports/architecture/latest.json');
+    const modulesReport = path.join(projectRoot, '.codebuddy/reports/modules/latest.json');
 
     if (fs.existsSync(archReport) || fs.existsSync(modulesReport)) {
       context.reports = {};
@@ -952,7 +1438,7 @@ export class TaskExecutor {
     if (task.scope?.files && task.scope.files.length > 0) {
       context.relatedFiles = [];
       for (const filePath of task.scope.files.slice(0, 10)) { // 最多 10 个文件，避免上下文过大
-        const absPath = path.resolve(process.cwd(), filePath);
+        const absPath = path.resolve(projectRoot, filePath);
         if (fs.existsSync(absPath)) {
           try {
             const content = fs.readFileSync(absPath, 'utf-8');
@@ -1185,7 +1671,8 @@ Task Executor - Workflow 驱动的任务执行器
   node .codebuddy/scripts/task-executor.js <taskBookId> [options]
 
 选项:
-  --workflow <path>     指定 workflow 文件（默认: .codebuddy/workflows/default.workflow.json）
+  --workflow <path|auto> 指定 workflow 文件；auto 时启用自动选路
+  --show-workflow-route 输出 workflow 路由理由
   --approve <gateId>    预先批准某个 gate（可重复）
   --max-parallel <n>    覆盖并行度（默认取 workflow.policies 或内置默认值）
   --tasks-only          不读取 workflow，直接执行所有任务（旧模式）
@@ -1195,6 +1682,22 @@ Task Executor - Workflow 驱动的任务执行器
   - workflow 早期主要用于约束/引导（产物、顺序、质量闸门），后期可扩展为强制编排引擎。
   - 若执行遇到 MANUAL_REQUIRED：将生成 .codebuddy/agent-calls/<requestId>.prompt.md，并把任务置为 blocked；当写回对应 result.json 后，重试执行会自动 apply 并继续。
 `);
+}
+
+function printWorkflowRoute(details: WorkflowRouteDetails, showReasons: boolean): void {
+  console.log(
+    `[Workflow] route: ${details.workflowId} (${details.mode}, confidence=${details.confidence}) -> ${details.workflowPath}`,
+  );
+  console.log(`[Workflow] route report: ${details.reportPath}`);
+
+  if (!showReasons) return;
+
+  for (const reason of details.reasons) {
+    console.log(`  - ${reason}`);
+  }
+  if (details.fallbackReason) {
+    console.log(`  fallback: ${details.fallbackReason}`);
+  }
 }
 
 function loadWorkflowSpec(workflowPath: string): WorkflowSpec {
@@ -1523,8 +2026,9 @@ function truncateMetricText(value: string, maxLength: number = 500): string {
   return `${trimmed.slice(0, maxLength)}...`;
 }
 
-function computeAgentCallRequestId(taskBookId: string, taskId: string): string {
-  const hash = createHash('sha1').update(`${taskBookId}:${taskId}`).digest('hex').slice(0, 10);
+function computeAgentCallRequestId(taskBookId: string, taskId: string, attemptKey?: string): string {
+  const normalizedAttemptKey = (attemptKey || 'initial').trim() || 'initial';
+  const hash = createHash('sha1').update(`${taskBookId}:${taskId}:${normalizedAttemptKey}`).digest('hex').slice(0, 10);
   return `req-${sanitizeForFilename(taskId)}-${hash}`;
 }
 
@@ -1540,6 +2044,72 @@ function buildAgentCallBlockedReason(message: string, meta: AgentCallMeta): stri
     createdAt: meta.createdAt,
   };
   return `${message}\n${AGENT_CALL_MARKER} ${JSON.stringify(payload)}`;
+}
+
+function appendAgentCallResultState(
+  blockedReason: string | undefined,
+  state: AgentCallResultState,
+): string {
+  const base = stripAgentCallResultState(blockedReason);
+  const lines = base ? base.split(/\r?\n/) : [];
+  const summary = `Agent result (${state.status}): ${state.message}`;
+  if (summary && !lines.some(line => line.trim() === summary)) {
+    lines.push(summary);
+  }
+  lines.push(`${AGENT_CALL_RESULT_MARKER} ${JSON.stringify(state)}`);
+  return lines.join('\n').trim();
+}
+
+function stripAgentCallResultState(blockedReason: string | undefined): string {
+  if (!blockedReason) return '';
+  return blockedReason
+    .split(/\r?\n/)
+    .filter(line => !line.trim().startsWith(AGENT_CALL_RESULT_MARKER))
+    .join('\n')
+    .trim();
+}
+
+function extractAgentCallResultState(blockedReason: string | undefined): AgentCallResultState | null {
+  if (!blockedReason) return null;
+  const lines = blockedReason.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || !line.startsWith(AGENT_CALL_RESULT_MARKER)) {
+      continue;
+    }
+
+    const jsonText = line.slice(AGENT_CALL_RESULT_MARKER.length).trim();
+    if (!jsonText) return null;
+
+    try {
+      const parsed = JSON.parse(jsonText) as Partial<AgentCallResultState>;
+      if (!parsed || typeof parsed !== 'object') return null;
+      if (typeof parsed.requestId !== 'string' || !parsed.requestId.trim()) return null;
+      if (parsed.status !== 'failed' && parsed.status !== 'blocked') return null;
+      if (typeof parsed.message !== 'string' || !parsed.message.trim()) return null;
+      return {
+        requestId: parsed.requestId,
+        status: parsed.status,
+        completedAt: typeof parsed.completedAt === 'string' ? parsed.completedAt : undefined,
+        message: parsed.message,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function isSameAgentCallResultState(
+  left: AgentCallResultState | null,
+  right: AgentCallResultState,
+): boolean {
+  if (!left) return false;
+  return left.requestId === right.requestId
+    && left.status === right.status
+    && (left.completedAt || '') === (right.completedAt || '')
+    && left.message === right.message;
 }
 
 function extractAgentCallMeta(blockedReason: string | undefined): AgentCallMeta | null {
@@ -1731,6 +2301,7 @@ function buildManualTaskPrompt(args: {
   agentDefinition: string | null;
   promptPath: string;
   resultPath: string;
+  projectRoot: string;
   runtimePrompt?: string;
 }): string {
   const agentVersion = args.agentDefinition ? extractAgentVersion(args.agentDefinition) : undefined;
@@ -1774,7 +2345,7 @@ function buildManualTaskPrompt(args: {
     '```',
     '',
     ...(() => {
-      const promptTemplate = loadAgentPromptTemplate(process.cwd(), args.meta.agentId, args.task.type);
+      const promptTemplate = loadAgentPromptTemplate(args.projectRoot, args.meta.agentId, args.task.type);
       if (!promptTemplate) return [];
       return [
         '## Prompt Template (弱模型引导)',
@@ -1797,7 +2368,7 @@ function buildManualTaskPrompt(args: {
     // 自动收集的上下文（文件内容、引用追踪、关联测试、Git 历史）
     ...(() => {
       try {
-        const ctx = collectContext(args.task, process.cwd());
+        const ctx = collectContext(args.task, args.projectRoot);
         const md = formatContextAsMarkdown(ctx);
         if (md) return [md];
       } catch {
@@ -2244,7 +2815,58 @@ function runShellCommand(command: string): ShellRunResult {
   };
 }
 
-async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): Promise<{ taskBook: TaskBook | null; gateResults: GateResult[] }> {
+function findStepIndexByType(steps: WorkflowStep[], type: string): number {
+  return steps.findIndex(step => step.type === type);
+}
+
+function findReviewReflowStepIndex(steps: WorkflowStep[], taskBook: TaskBook, currentIndex: number): number {
+  const hasPendingBuildFix = taskBook.tasks.some(task => task.status === 'pending' && task.type === 'build-fix');
+  if (hasPendingBuildFix) {
+    const buildFixIndex = findStepIndexByType(steps, 'build_and_fix');
+    if (buildFixIndex >= 0 && buildFixIndex < currentIndex) {
+      return buildFixIndex;
+    }
+  }
+
+  const hasPendingImplementLike = taskBook.tasks.some(task =>
+    task.status === 'pending'
+    && (task.type === 'test' || task.type === 'implement' || task.type === 'refactor'),
+  );
+  if (hasPendingImplementLike) {
+    const implementIndex = findStepIndexByType(steps, 'tdd_implement');
+    if (implementIndex >= 0 && implementIndex < currentIndex) {
+      return implementIndex;
+    }
+  }
+
+  return -1;
+}
+
+function logWorkflowRoutingDecision(
+  manager: TaskBookManager,
+  taskBookId: string,
+  details: WorkflowRouteDetails,
+): void {
+  const reason = details.mode === 'reused'
+    ? `workflow routing reused: ${details.workflowId}`
+    : (details.mode === 'fallback'
+      ? `workflow routing fallback: ${details.workflowId}`
+      : `workflow routing selected: ${details.workflowId}`);
+
+  manager.logChange(taskBookId, null, 'modified', reason, undefined, {
+    event: 'workflow-routing',
+    workflowId: details.workflowId,
+    workflowPath: details.workflowPath,
+    mode: details.mode,
+    confidence: details.confidence,
+    reportPath: details.reportPath,
+    fallbackReason: details.fallbackReason,
+    reusedFromTaskBook: details.reusedFromTaskBook,
+    reasons: details.reasons,
+  });
+}
+
+export async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): Promise<{ taskBook: TaskBook | null; gateResults: GateResult[]; workflowRoute?: WorkflowRouteDetails }> {
   const manager = new TaskBookManager(process.cwd());
   const taskBook = manager.load(taskBookId);
   if (!taskBook) {
@@ -2255,7 +2877,26 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
     throw new Error(`TaskBook 必须是 confirmed/executing 才能执行。当前状态: ${taskBook.status}`);
   }
 
-  const workflowPath = options.workflowPath ?? path.join(process.cwd(), '.codebuddy/workflows/default.workflow.json');
+  let workflowRouteDetails: WorkflowRouteDetails | undefined;
+  const shouldAutoRoute = typeof options.workflowPath === 'string' && options.workflowPath.trim().toLowerCase() === 'auto';
+  const workflowPath = shouldAutoRoute
+    ? (() => {
+        const selection = selectWorkflowForTaskBook({
+          projectRoot: process.cwd(),
+          taskBook,
+          explicitWorkflowPath: 'auto',
+        });
+        workflowRouteDetails = selection.details;
+        logWorkflowRoutingDecision(manager, taskBookId, selection.details);
+        recordWorkflowRoutingMetric({
+          projectRoot: process.cwd(),
+          taskBook,
+          decision: selection.decision,
+        });
+        printWorkflowRoute(selection.details, Boolean(options.showWorkflowRoute));
+        return selection.workflowPath;
+      })()
+    : (options.workflowPath ?? path.join(process.cwd(), '.codebuddy/workflows/default.workflow.json'));
   if (!fs.existsSync(workflowPath)) {
     throw new Error(`workflow 文件不存在: ${workflowPath}`);
   }
@@ -2333,7 +2974,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
         });
         if (result.status !== 'completed') {
           console.log(`[Workflow] requirement_and_prd 未完成: ${result.status} ${result.message ?? ''}`);
-          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
       }
       stepIdx++;
@@ -2353,13 +2994,13 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
         });
         if (result.status !== 'completed') {
           console.log(`[Workflow] implement_tasks 未完成: ${result.status} ${result.message ?? ''}`);
-          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
 
         if (hasStepGates) {
           const { ok } = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults);
           if (!ok) {
-            return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+            return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
           }
         }
 
@@ -2378,7 +3019,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
       while (true) {
         const current = manager.load(taskBookId);
         if (!current) {
-          return { taskBook: null, gateResults: Array.from(gateResults.values()) };
+          return { taskBook: null, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
 
         const pendingAllowed = current.tasks.filter(t => t.status === 'pending' && allowedTaskTypes.has(t.type));
@@ -2391,12 +3032,12 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
               eventContext: 'no_tasks',
               riskTier,
             });
-            if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+            if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
           }
 
           if (blockedAllowed.length > 0) {
             console.log(`[Workflow] implement_tasks 存在阻塞任务（${blockedAllowed.length}）`);
-            return { taskBook: current, gateResults: Array.from(gateResults.values()) };
+            return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
           }
           break;
         }
@@ -2409,7 +3050,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
         const runnable = pendingAllowed.filter(t => t.dependencies.every(depId => completedTaskIds.has(depId)));
         if (runnable.length === 0) {
           console.log('[Workflow] implement_tasks 没有可执行任务（等待依赖完成）');
-          return { taskBook: current, gateResults: Array.from(gateResults.values()) };
+          return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
 
         const batchTasks = selectBatchTasks(runnable, maxFiles);
@@ -2441,7 +3082,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
 
         if (result.status !== 'completed') {
           console.log(`[Workflow] implement_tasks batch 未完成: ${result.status} ${result.message ?? ''}`);
-          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
 
         batchesSinceGate += 1;
@@ -2453,7 +3094,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
             batchIndex,
             riskTier,
           });
-          if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
           batchesSinceGate = 0;
         }
       }
@@ -2473,16 +3114,19 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
         });
         if (result.status !== 'completed') {
           console.log(`[Workflow] build_and_fix 任务未完成: ${result.status} ${result.message ?? ''}`);
-          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
       }
 
-      const { ok } = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
+      const gateRun = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
         eventContext: 'build_and_fix_gate',
       });
+      const failedGate = [...gateRun.gateResults].reverse().find(result => !result.passed);
 
-      if (!ok) {
-        buildFixRetryCount++;
+      if (!gateRun.ok) {
+        const nextRetryCount = buildFixRetryCount + 1;
+        appendBuildFixFailureHandoffs(manager, taskBookId, 'qa_fail', failedGate, nextRetryCount, buildFixPolicy.maxRounds);
+        buildFixRetryCount = nextRetryCount;
         const retryTargetId = buildFixPolicy.retryFromStep;
         const retryTargetIdx = orderedSteps.findIndex(s => s.id === retryTargetId);
 
@@ -2496,12 +3140,13 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
         }
 
         if (buildFixPolicy.escalateToHuman) {
+          appendBuildFixFailureHandoffs(manager, taskBookId, 'escalation', failedGate, buildFixRetryCount, buildFixPolicy.maxRounds);
           console.log(`[Workflow] ⛔ 构建修复已达最大重试次数（${buildFixPolicy.maxRounds}），需要人工介入`);
           manager.logChange(taskBookId, null, 'modified',
             `build_and_fix 达到最大重试次数 ${buildFixPolicy.maxRounds}，升级为人工处理`,
             undefined, { event: 'build_fix_escalate', retryCount: buildFixRetryCount });
         }
-        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
 
       // gate 通过，重置重试计数
@@ -2514,13 +3159,13 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
       const tasksResult = await executor.executeTasks(taskBookId, { allowedTaskTypes: ['test'], maxParallel, conflictStrategy });
       if (tasksResult.status !== 'completed') {
         console.log(`[Workflow] test 任务未完成: ${tasksResult.status} ${tasksResult.message ?? ''}`);
-        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
 
       const { ok } = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
         eventContext: 'run_tests_gate',
       });
-      if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+      if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
 
       stepIdx++;
       continue;
@@ -2529,8 +3174,24 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
     if (step.type === 'code_review') {
       const tasksResult = await executor.executeTasks(taskBookId, { allowedTaskTypes: ['review'], maxParallel, conflictStrategy });
       if (tasksResult.status !== 'completed') {
+        const current = manager.load(taskBookId);
+        const reflowIdx = current ? findReviewReflowStepIndex(orderedSteps, current, stepIdx) : -1;
+        if ((tasksResult.status === 'waiting' || tasksResult.status === 'blocked') && reflowIdx >= 0) {
+          const reflowStep = orderedSteps[reflowIdx];
+          console.log(`[Workflow] ↩ review 阶段检测到返工任务，回流到 ${reflowStep.id}`);
+          manager.logChange(taskBookId, null, 'modified', `review reflow -> ${reflowStep.id}`, undefined, {
+            event: 'review_reflow',
+            fromStepId: step.id,
+            toStepId: reflowStep.id,
+            resultStatus: tasksResult.status,
+            message: tasksResult.message,
+          });
+          stepIdx = reflowIdx;
+          continue;
+        }
+
         console.log(`[Workflow] review 任务未完成: ${tasksResult.status} ${tasksResult.message ?? ''}`);
-        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
 
       const gates = getStepGates(spec, step);
@@ -2547,7 +3208,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
         // review gate 先保持人工批准，后续可接入 lint/typecheck 等自动化
         gateResults.set(gate.id, { gateId: gate.id, passed: false, message: 'manual review required' });
         console.log(`[Gate] ⏸ ${gate.id} 需要人工审查。可使用 --approve ${gate.id} 继续。`);
-        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
 
       stepIdx++;
@@ -2561,7 +3222,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
       const allDone = current.tasks.every(t => t.status === 'done' || t.status === 'skipped');
       if (!allDone) {
         console.log('[Workflow] 仍有未完成任务，无法验收归档。');
-        return { taskBook: current, gateResults: Array.from(gateResults.values()) };
+        return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
 
       // required gates must be passed
@@ -2569,7 +3230,7 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
       const failedRequired = requiredGates.filter(g => !gateResults.get(g.id)?.passed && !approved.has(g.id));
       if (failedRequired.length > 0) {
         console.log(`[Workflow] 仍有未通过的质量闸门: ${failedRequired.map(g => g.id).join(', ')}`);
-        return { taskBook: current, gateResults: Array.from(gateResults.values()) };
+        return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
 
       // 生成验收报告并归档
@@ -2584,14 +3245,14 @@ async function runWorkflow(taskBookId: string, options: WorkflowRunnerOptions): 
 
       manager.updateStatus(taskBookId, 'completed');
       console.log('[Workflow] ✅ TaskBook 已完成并归档到 history');
-      return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+      return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
     }
 
     console.log(`[Workflow] ⚠ 未识别的 step.type: ${step.type}（跳过）`);
     stepIdx++;
   }
 
-  return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+  return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
 }
 
 /**
@@ -2628,7 +3289,15 @@ function createDefaultRuntime(): AgentRuntime | undefined {
   }
 }
 
-function parseCliArgs(args: string[]): { help: boolean; taskBookId: string | null; workflowPath?: string; approvedGates: Set<string>; maxParallel?: number; tasksOnly: boolean } {
+function parseCliArgs(args: string[]): {
+  help: boolean;
+  taskBookId: string | null;
+  workflowPath?: string;
+  approvedGates: Set<string>;
+  maxParallel?: number;
+  tasksOnly: boolean;
+  showWorkflowRoute: boolean;
+} {
   const parsed = {
     help: false,
     taskBookId: null as string | null,
@@ -2636,6 +3305,7 @@ function parseCliArgs(args: string[]): { help: boolean; taskBookId: string | nul
     approvedGates: new Set<string>(),
     maxParallel: undefined as number | undefined,
     tasksOnly: false,
+    showWorkflowRoute: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -2663,6 +3333,11 @@ function parseCliArgs(args: string[]): { help: boolean; taskBookId: string | nul
 
     if (arg === '--tasks-only') {
       parsed.tasksOnly = true;
+      continue;
+    }
+
+    if (arg === '--show-workflow-route') {
+      parsed.showWorkflowRoute = true;
       continue;
     }
 
@@ -2701,6 +3376,7 @@ async function main(): Promise<void> {
       workflowPath: parsed.workflowPath,
       approvedGates: parsed.approvedGates,
       maxParallelTasks: parsed.maxParallel,
+      showWorkflowRoute: parsed.showWorkflowRoute,
     });
 
     if (taskBook?.status === 'completed') {

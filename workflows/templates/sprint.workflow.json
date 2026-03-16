@@ -1,0 +1,183 @@
+{
+  "id": "sprint",
+  "version": "1.0.0",
+  "name": "Sprint Workflow (5-step feature loop)",
+  "description": "Mid-weight 5-step workflow for feature sprints and moderate refactoring: analyze -> plan -> TDD implement (batched) -> review -> acceptance. Skips PRD generation and separate build-fix step.",
+  "steps": [
+    {
+      "id": "analyze",
+      "type": "analyze_project",
+      "title": "Analyze project structure/modules",
+      "description": "Generate architecture/module reports to support planning and impact analysis.",
+      "toolHints": {
+        "recommended": [
+          "script:structure-analyzer",
+          "script:module-mapper"
+        ]
+      },
+      "outputs": {
+        "reports": [
+          ".codebuddy/reports/architecture/latest.json",
+          ".codebuddy/reports/modules/latest.json"
+        ]
+      }
+    },
+    {
+      "id": "plan",
+      "type": "create_taskbook",
+      "title": "Create TaskBook (tasks + acceptance criteria)",
+      "description": "Break requirements into executable tasks with dependencies and acceptance criteria.",
+      "toolHints": {
+        "recommended": [
+          "agent:planner",
+          "script:taskbook-manager"
+        ]
+      },
+      "outputs": {
+        "taskbook": ".codebuddy/taskbooks/active/tb-*.json"
+      }
+    },
+    {
+      "id": "tdd_implement",
+      "type": "tdd_implement",
+      "title": "Test-first implementation (TDD batched)",
+      "description": "Execute tasks using TDD cycle (RED->GREEN->REFACTOR) in batches. Includes inline build-fix: on failure, auto-diagnose up to 3 rounds before escalating.",
+      "gates": [
+        "contracts_valid",
+        "smoke_passed"
+      ],
+      "toolHints": {
+        "recommended": [
+          "agent:tdd-driver",
+          "agent:build-fix",
+          "human"
+        ]
+      }
+    },
+    {
+      "id": "review",
+      "type": "code_review",
+      "title": "Code review gate",
+      "description": "Perform code review. Security and performance reviews are optional add-ons.",
+      "gates": [
+        "review_passed"
+      ],
+      "toolHints": {
+        "recommended": [
+          "agent:code-reviewer",
+          "human"
+        ]
+      }
+    },
+    {
+      "id": "acceptance",
+      "type": "acceptance_and_archive",
+      "title": "Acceptance & Archive",
+      "description": "Run full build, generate acceptance report, archive TaskBook to history.",
+      "gates": [
+        "full_passed"
+      ],
+      "toolHints": {
+        "recommended": [
+          "script:taskbook-manager",
+          "human"
+        ]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "analyze", "to": "plan" },
+    { "from": "plan", "to": "tdd_implement" },
+    { "from": "tdd_implement", "to": "review" },
+    { "from": "review", "to": "acceptance" }
+  ],
+  "gates": [
+    {
+      "id": "contracts_valid",
+      "type": "checks",
+      "title": "Contracts (TaskBook/Workflow) validated",
+      "required": true,
+      "params": {
+        "commands": [
+          "node .codebuddy/scripts/contract-validator.js --workflows --taskbooks --check-batching-scope"
+        ]
+      }
+    },
+    {
+      "id": "smoke_passed",
+      "type": "checks",
+      "title": "Smoke tests passed",
+      "required": true,
+      "params": {
+        "budgetMinutes": 5,
+        "commands": ["npm test"]
+      }
+    },
+    {
+      "id": "full_passed",
+      "type": "checks",
+      "title": "Full build passed",
+      "required": true,
+      "params": {
+        "budgetMinutes": 20,
+        "commands": ["npm run build"],
+        "npmScripts": ["test"],
+        "failIfMissing": false
+      }
+    },
+    {
+      "id": "review_passed",
+      "type": "review",
+      "title": "Review passed",
+      "required": true,
+      "params": {
+        "checklist": [
+          "self-verification",
+          "defensive-coding",
+          "clean-code"
+        ]
+      }
+    }
+  ],
+  "policies": {
+    "concurrency": {
+      "maxParallelTasks": 2,
+      "conflictStrategy": "deny_same_file_set"
+    },
+    "blocking": {
+      "onGateFail": "blocked",
+      "requiresHumanToUnblock": true
+    },
+    "testing": {
+      "budgetsMinutes": {
+        "smoke": 5,
+        "full": 20
+      },
+      "batching": {
+        "strategy": "risk_tiered",
+        "riskTiers": {
+          "high": {
+            "maxFiles": 5,
+            "maxChangedLines": 300,
+            "smokeEveryBatches": 1
+          },
+          "medium": {
+            "maxFiles": 15,
+            "maxChangedLines": 1000,
+            "smokeEveryBatches": 1
+          },
+          "low": {
+            "maxFiles": 30,
+            "maxChangedLines": 2500,
+            "smokeEveryBatches": 2
+          }
+        }
+      }
+    },
+    "buildFix": {
+      "maxRounds": 3,
+      "retryFromStep": "tdd_implement",
+      "escalateToHuman": true
+    }
+  }
+}

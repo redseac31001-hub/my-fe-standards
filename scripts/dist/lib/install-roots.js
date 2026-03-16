@@ -37,11 +37,14 @@ exports.resolveInstalledSkillsRootDir = resolveInstalledSkillsRootDir;
 exports.resolveInstalledSkillsSnapshotRetention = resolveInstalledSkillsSnapshotRetention;
 exports.resolveInstalledAgentsRootDir = resolveInstalledAgentsRootDir;
 exports.resolveInstalledAgentsSnapshotRetention = resolveInstalledAgentsSnapshotRetention;
+exports.resolveInstalledRulesCacheRootDir = resolveInstalledRulesCacheRootDir;
 exports.getProjectInstallState = getProjectInstallState;
 exports.getProjectAgentRootCandidates = getProjectAgentRootCandidates;
 exports.getProjectSkillRootCandidates = getProjectSkillRootCandidates;
+exports.getProjectRuleRootCandidates = getProjectRuleRootCandidates;
 exports.getProjectAgentRootCandidatePaths = getProjectAgentRootCandidatePaths;
 exports.getProjectSkillRootCandidatePaths = getProjectSkillRootCandidatePaths;
+exports.getProjectRuleRootCandidatePaths = getProjectRuleRootCandidatePaths;
 exports.listAgentDefinitionCandidatePaths = listAgentDefinitionCandidatePaths;
 exports.listAgentPromptCandidatePaths = listAgentPromptCandidatePaths;
 const path = __importStar(require("path"));
@@ -93,6 +96,14 @@ function resolveInstalledAgentsSnapshotRetention(installState) {
     }
     return resolveInstalledAgentsRootDir(installState) ? 3 : null;
 }
+function resolveInstalledRulesCacheRootDir(installState) {
+    if (!installState)
+        return null;
+    const hasInstalledRuleCache = installState.stats.layer1Rules > 0
+        || installState.stats.layer2Indexes > 0
+        || installState.stats.layer3Indexes > 0;
+    return hasInstalledRuleCache ? '.codebuddy/rules_cache' : null;
+}
 function getProjectInstallState(projectRoot) {
     return (0, install_sync_1.readInstallState)(projectRoot);
 }
@@ -117,12 +128,26 @@ function getProjectSkillRootCandidates(projectRoot, installState) {
         'custom-skills',
     ]);
 }
+function getProjectRuleRootCandidates(projectRoot, installState) {
+    const resolvedInstallState = typeof installState === 'undefined'
+        ? getProjectInstallState(projectRoot)
+        : installState;
+    return dedupeRelativeRoots([
+        resolveInstalledRulesCacheRootDir(resolvedInstallState),
+        '.codebuddy/rules_cache',
+        'rules',
+    ]);
+}
 function getProjectAgentRootCandidatePaths(projectRoot, installState) {
     return getProjectAgentRootCandidates(projectRoot, installState)
         .map(relativeRoot => path.join(projectRoot, relativeRoot));
 }
 function getProjectSkillRootCandidatePaths(projectRoot, installState) {
     return getProjectSkillRootCandidates(projectRoot, installState)
+        .map(relativeRoot => path.join(projectRoot, relativeRoot));
+}
+function getProjectRuleRootCandidatePaths(projectRoot, installState) {
+    return getProjectRuleRootCandidates(projectRoot, installState)
         .map(relativeRoot => path.join(projectRoot, relativeRoot));
 }
 function listAgentDefinitionCandidatePaths(projectRoot, agentId, installState) {

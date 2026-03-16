@@ -5,6 +5,8 @@ date: 2026-02-02
 
 # Workflow Spec 使用指南
 
+> 在产品入口里，这份文档主要对应两条路径：`启动闭环` 与 `接管 / 继续执行`。
+
 Workflow Spec（工作流规范）用于描述“步骤依赖（DAG）+ 产物（artifacts）+ 质量闸门（gates）+ 策略（policies）”。
 
 它的定位是：**工具/模型无关的工作流契约**。
@@ -141,6 +143,9 @@ node .codebuddy/scripts/task-executor.js <taskBookId>
 # 指定 workflow 文件
 node .codebuddy/scripts/task-executor.js <taskBookId> --workflow .codebuddy/workflows/default.workflow.json
 
+# 显式启用自动 workflow 路由（无参数默认行为保持不变）
+node .codebuddy/scripts/task-executor.js <taskBookId> --workflow auto --show-workflow-route
+
 # 人工审查 gate（当前为手动 gate），可用 approve 继续
 node .codebuddy/scripts/task-executor.js <taskBookId> --approve review_passed
 
@@ -151,6 +156,38 @@ node .codebuddy/scripts/task-executor.js <taskBookId> --tasks-only
 说明：
 - 遇到 `MANUAL_REQUIRED` 的任务类型（例如设计/实现/审查），会将任务标记为 `blocked` 并暂停，等待人工或 Agent 介入。
 - `smoke_passed`/`full_passed` gate（例如 `npm test` / `npm run build`）失败会阻塞后续步骤；必要时可用 `--approve <gateId>` 临时跳过。
+- `task-orchestrator` 在未显式指定 `--workflow` 时会自动选择 `micro / sprint / default`；`task-executor` 只有显式传 `--workflow auto` 时才启用自动路由。
+
+## 查看自动路由结果
+
+如果你想知道本次为什么选到某个 workflow，可直接输出路由理由：
+
+```bash
+# task-orchestrator：未显式指定 --workflow 时会自动路由
+node .codebuddy/scripts/task-orchestrator.js --taskbook <taskBookId> --show-workflow-route --json
+
+# task-executor：显式传入 --workflow auto 才启用自动路由
+node .codebuddy/scripts/task-executor.js <taskBookId> --workflow auto --show-workflow-route
+```
+
+路由决策会写入：
+
+```text
+.codebuddy/reports/workflow-routing/<taskBookId>.routing.json
+```
+
+相关可见性入口：
+
+```bash
+# 查看最近一次路由是否存在 fallback / low confidence / 文件缺失
+node .codebuddy/scripts/codebuddy-loader.js doctor --json
+
+# 在 reports 状态页里查看最近一次 Route
+node .codebuddy/scripts/report-manager.js status
+
+# 导出 Markdown 报告（包含“最近一次 Workflow 路由”章节）
+node .codebuddy/scripts/report-manager.js export
+```
 
 配合 TaskBook 管理命令可以完成“人工介入后继续推进”：
 

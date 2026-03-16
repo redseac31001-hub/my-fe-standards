@@ -4,6 +4,8 @@
  * 定义 AgentRuntime 系统的核心接口，用于子 Agent 的自动加载、调用和结果收集。
  */
 
+import type { HandoffEntry, TaskStatus, TaskType } from './index';
+
 // ============ Agent 加载相关 ============
 
 /**
@@ -73,6 +75,14 @@ export interface AgentContext {
     parentResults?: Record<string, AgentResult>;
 }
 
+export interface AgentTaskHandoff extends HandoffEntry {
+    sourceTaskId: string;
+    sourceTaskTitle: string;
+    sourceTaskType: TaskType;
+    sourceTaskStatus?: TaskStatus;
+    sourceTaskExecutedBy?: string;
+}
+
 /**
  * 任务快照（传递给 Agent 的精简版本）
  */
@@ -88,6 +98,7 @@ export interface AgentTaskSnapshot {
         modules?: string[];
         tags?: string[];
     };
+    incomingHandoffs?: AgentTaskHandoff[];
 }
 
 // ============ 调用与结果 ============

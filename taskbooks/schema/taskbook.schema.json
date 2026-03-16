@@ -137,7 +137,32 @@
         "blockedReason": { "type": "string" },
         "executedBy": { "type": "string" },
         "startedAt": { "type": "string", "format": "date-time" },
-        "completedAt": { "type": "string", "format": "date-time" }
+        "completedAt": { "type": "string", "format": "date-time" },
+        "handoffs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/handoffEntry" }
+        }
+      }
+    },
+    "handoffEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "type", "timestamp"],
+      "properties": {
+        "from": { "type": "string", "minLength": 1, "description": "来源 Agent ID" },
+        "to": { "type": "string", "minLength": 1, "description": "目标 Agent ID" },
+        "type": {
+          "type": "string",
+          "enum": ["standard", "qa_pass", "qa_fail", "escalation"],
+          "description": "交接类型"
+        },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "context": { "type": "string", "description": "交接上下文摘要" },
+        "deliverables": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "交付物文件列表"
+        }
       }
     },
     "taskScope": {

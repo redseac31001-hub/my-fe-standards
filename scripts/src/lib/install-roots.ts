@@ -52,6 +52,14 @@ export function resolveInstalledAgentsSnapshotRetention(installState: InstallSta
   return resolveInstalledAgentsRootDir(installState) ? 3 : null;
 }
 
+export function resolveInstalledRulesCacheRootDir(installState: InstallState | null): string | null {
+  if (!installState) return null;
+  const hasInstalledRuleCache = installState.stats.layer1Rules > 0
+    || installState.stats.layer2Indexes > 0
+    || installState.stats.layer3Indexes > 0;
+  return hasInstalledRuleCache ? '.codebuddy/rules_cache' : null;
+}
+
 export function getProjectInstallState(projectRoot: string): InstallState | null {
   return readInstallState(projectRoot);
 }
@@ -79,6 +87,17 @@ export function getProjectSkillRootCandidates(projectRoot: string, installState?
   ]);
 }
 
+export function getProjectRuleRootCandidates(projectRoot: string, installState?: InstallState | null): string[] {
+  const resolvedInstallState = typeof installState === 'undefined'
+    ? getProjectInstallState(projectRoot)
+    : installState;
+  return dedupeRelativeRoots([
+    resolveInstalledRulesCacheRootDir(resolvedInstallState),
+    '.codebuddy/rules_cache',
+    'rules',
+  ]);
+}
+
 export function getProjectAgentRootCandidatePaths(projectRoot: string, installState?: InstallState | null): string[] {
   return getProjectAgentRootCandidates(projectRoot, installState)
     .map(relativeRoot => path.join(projectRoot, relativeRoot));
@@ -86,6 +105,11 @@ export function getProjectAgentRootCandidatePaths(projectRoot: string, installSt
 
 export function getProjectSkillRootCandidatePaths(projectRoot: string, installState?: InstallState | null): string[] {
   return getProjectSkillRootCandidates(projectRoot, installState)
+    .map(relativeRoot => path.join(projectRoot, relativeRoot));
+}
+
+export function getProjectRuleRootCandidatePaths(projectRoot: string, installState?: InstallState | null): string[] {
+  return getProjectRuleRootCandidates(projectRoot, installState)
     .map(relativeRoot => path.join(projectRoot, relativeRoot));
 }
 
@@ -103,4 +127,3 @@ export function listAgentPromptCandidatePaths(
   return getProjectAgentRootCandidatePaths(projectRoot, installState)
     .map(rootDir => path.join(rootDir, agentId, 'prompts', promptFileName));
 }
-

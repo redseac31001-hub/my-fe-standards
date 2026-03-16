@@ -385,6 +385,46 @@ export interface WorkflowSpec {
   artifacts?: WorkflowArtifact[];
 }
 
+export type BuiltinWorkflowId = 'micro' | 'sprint' | 'default';
+
+export interface WorkflowRoutingSignal {
+  id: string;
+  matched: boolean;
+  weight?: number;
+  detail?: string;
+}
+
+export interface WorkflowRoutingInput {
+  taskBookId: string;
+  taskType: TaskBookType | null;
+  taskCount: number;
+  maxDependencyDepth: number;
+  hasRequirementOrPrdTasks: boolean;
+  hasDesignTasks: boolean;
+  hasReviewTasks: boolean;
+  hasBuildFixTasks: boolean;
+  hasHighPriorityTasks: boolean;
+  scopedFileCount: number;
+  scopedModuleCount: number;
+  workspaceProjectCount: number;
+  selectedProjectCount: number;
+  projectKinds: string[];
+  routeHints: string[];
+}
+
+export interface WorkflowRoutingDecision {
+  mode: 'explicit' | 'reused' | 'auto' | 'fallback';
+  selectedWorkflowId: string;
+  canonicalWorkflowId: BuiltinWorkflowId | null;
+  selectedWorkflowPath: string;
+  confidence: 'high' | 'medium' | 'low';
+  reasons: string[];
+  signals: WorkflowRoutingSignal[];
+  reusedFromTaskBook?: boolean;
+  fallbackReason?: string;
+  generatedAt: string;
+}
+
 // ============ TaskBook 系统类型 ============
 
 /**
@@ -447,6 +487,17 @@ export interface TaskScope {
   tags?: string[];
 }
 
+export type HandoffType = 'standard' | 'qa_pass' | 'qa_fail' | 'escalation';
+
+export interface HandoffEntry {
+  from: string;
+  to: string;
+  type: HandoffType;
+  timestamp: string;
+  context?: string;
+  deliverables?: string[];
+}
+
 /**
  * 单个任务定义
  */
@@ -465,6 +516,7 @@ export interface TaskItem {
   executedBy?: string;
   startedAt?: string;
   completedAt?: string;
+  handoffs?: HandoffEntry[];
 }
 
 /**

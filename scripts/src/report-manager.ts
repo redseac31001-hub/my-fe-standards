@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { isDirectCliEntry } from './lib/cli-entry';
+import { readLatestWorkflowRoutingReport } from './lib/workflow-routing-selection';
 import {
   ReportsManifest,
   ReportMeta,
@@ -394,6 +395,7 @@ function calculateTrends(dataPoints: HealthDataPoint[]): HealthTimeline['trends'
  */
 function showStatus(targetDir: string): void {
   const manifest = readManifest(targetDir);
+  const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
 
   console.log('');
   console.log('┌─────────────────────────────────────────────────────┐');
@@ -434,6 +436,14 @@ function showStatus(targetDir: string): void {
     console.log('│ Active Task:   Yes                                  │');
   } else {
     console.log('│ Active Task:   None                                 │');
+  }
+
+  if (workflowRouting) {
+    const routeAge = formatAge(workflowRouting.generatedAt);
+    const routeText = `Route: ${workflowRouting.decision.selectedWorkflowId} (${workflowRouting.decision.mode}, ${routeAge})`;
+    console.log(`│ ${routeText}`.padEnd(52) + '│');
+  } else {
+    console.log('│ Route:         No workflow routing report           │');
   }
 
   console.log('└─────────────────────────────────────────────────────┘');
@@ -483,6 +493,7 @@ function cleanup(targetDir: string, cacheOnly: boolean = false): void {
  */
 function exportMarkdown(targetDir: string): void {
   const manifest = readManifest(targetDir);
+  const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
   const lines: string[] = [];
 
   lines.push('# CodeBuddy 项目报告');
@@ -532,6 +543,25 @@ function exportMarkdown(targetDir: string): void {
     lines.push(`- **趋势**: ${health.trends.direction}`);
     lines.push(`- **变化率**: ${health.trends.changeRate}%/周`);
     lines.push(`- **数据点**: ${health.dataPoints.length} 天`);
+    lines.push('');
+  }
+
+  if (workflowRouting) {
+    lines.push('## 最近一次 Workflow 路由');
+    lines.push('');
+    lines.push(`- **TaskBook**: ${workflowRouting.taskBookId}`);
+    lines.push(`- **Workflow**: ${workflowRouting.decision.selectedWorkflowId}`);
+    lines.push(`- **Mode**: ${workflowRouting.decision.mode}`);
+    lines.push(`- **Confidence**: ${workflowRouting.decision.confidence}`);
+    if (workflowRouting.decision.fallbackReason) {
+      lines.push(`- **Fallback Reason**: ${workflowRouting.decision.fallbackReason}`);
+    }
+    if (workflowRouting.decision.reasons.length > 0) {
+      lines.push('- **Reasons**:');
+      for (const reason of workflowRouting.decision.reasons.slice(0, 6)) {
+        lines.push(`  - ${reason}`);
+      }
+    }
     lines.push('');
   }
 
@@ -1418,6 +1448,12 @@ Report Manager - 报告管理器
 
 用法: node report-manager.js <command> [options]
 
+产品路径:
+  1. 观察 / 当前状态     node report-manager.js status
+  2. 观察 / 导出汇报     node report-manager.js export
+  3. 观察 / 热点定位     node report-manager.js hotspots --top 10
+  4. 观察 / 深入分析     node report-manager.js inspect --module "src/features/user"
+
 命令:
   status              查看报告状态
   cleanup             清理过期报告
@@ -1449,6 +1485,10 @@ Report Manager - 报告管理器
   node report-manager.js inspect --module "src/features/user"
   node report-manager.js inspect --file "src/features/user/index.ts"
   node report-manager.js hotspots --top 15
+
+说明:
+  - 这是“观察 / 汇报”入口，不负责安装或执行闭环。
+  - 安装 / 诊断优先走 codebuddy-loader；启动闭环优先走 task-orchestrator。
 `);
 }
 

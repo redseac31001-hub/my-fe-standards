@@ -1,6 +1,6 @@
 # ROADMAP
 
-> Last updated: 2026-03-07
+> Last updated: 2026-03-16
 > Type: living roadmap
 > Scope: loader, skills, agents, orchestrator, execution layer
 
@@ -68,6 +68,7 @@ Current strategic focus:
 - make install and sync easier to operate
 - preserve local file-based knowledge delivery
 - keep the current single-worker execution path stable
+- turn existing workflow templates into a self-amplifying routing layer
 - defer weak-model/strong-model routing until it becomes a real requirement
 
 ## Global Done Criteria
@@ -96,6 +97,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 | P7 Worker Executor | DONE | Medium | L | Convert rendered prompt into real execution | Observability baseline is now in place via `P9` |
 | P8 Model Router | DEFERRED | Medium | L | Split cheap routing from expensive implementation | Revisit only if multi-tier model routing becomes necessary |
 | P9 Evaluation and Metrics | DONE | Medium | M | Measure failure points and optimization impact | Extend metrics only when a concrete operational question appears |
+| P10 Workflow Router | DONE | High | M | Turn `micro / sprint / default` into an automatic execution amplifier | Keep routing heuristics stable; revisit only when metrics show a real mismatch or optimization gap |
 
 ## Milestone 1: Loader Consolidation
 
@@ -362,7 +364,38 @@ If an item changes packaging or skill lifecycle behavior, also verify:
   - Execution metrics now write to `.codebuddy/reports/metrics/execution-events.jsonl` and `.codebuddy/reports/metrics/latest-summary.json`.
   - Current hook points cover task start/success/block/failure, `agent-call` creation, and `agent-call` resume success.
   - Regression now validates both the `worker-executor` path and the `agent-call -> resume` path.
-  - Usage details live in [docs/reference/execution-metrics.md](./docs/reference/execution-metrics.md).
+- Usage details live in [docs/reference/execution-metrics.md](./docs/reference/execution-metrics.md).
+
+## Milestone 6: Workflow Amplification
+
+### P10. Workflow Router
+
+- Status: DONE
+- Priority: High
+- Estimate: M
+- Started: 2026-03-14
+- Completed: 2026-03-16
+- Blocked By: P7, P9
+- Goal: make existing workflow templates produce compound value by selecting the right execution path automatically instead of asking the user or toolchain to decide manually every time.
+- Deliverables:
+  - shared workflow-routing library
+  - `task-orchestrator` auto workflow selection
+  - `task-executor --workflow auto`
+  - routing report artifact
+  - routing metrics and regression coverage
+- Acceptance:
+  - When the user does not explicitly choose a workflow, the orchestrator selects `micro / sprint / default` deterministically from TaskBook and project signals.
+  - Explicit `--workflow <path>` remains the highest-priority override.
+  - Direct `task-executor` invocation keeps current default behavior unless `--workflow auto` is explicitly used.
+  - Fallback to `default.workflow.json` remains safe and does not block the main path.
+- Next Action: keep the current routing surface stable and extend heuristics only when routing metrics or real project outcomes show a concrete gap.
+- Notes:
+  - This is not a model router.
+  - This item must respect `docs/reference/architecture-constraints.md`.
+  - The purpose is amplification, not feature count growth.
+  - The shared routing library, orchestrator auto route, explicit `task-executor --workflow auto`, routing report, metrics hooks, doctor/report-manager visibility, and workflow guide are all present in the repository.
+  - Workflow routing regression coverage already exists in baseline, correctness, and `test/run-tests.js`.
+  - The Windows-only dead-process lock correctness follow-up is tracked separately as a deferred operational item and does not change the mainline status of P10.
 
 ## Recommended Execution Order
 
@@ -374,7 +407,28 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 6. P6 Remote Content Pack
 7. P7 Worker Executor
 8. P9 Evaluation and Metrics
-9. P8 Model Router (deferred)
+9. P10 Workflow Router
+10. P8 Model Router (deferred)
+
+## Deferred Operational Follow-ups
+
+### Windows Correctness Stability: Dead-Process Lock Reclaim
+
+- Status: DEFERRED
+- Priority: Medium
+- Scope:
+  - `scripts/src/taskbook-manager.ts`
+  - `test/test-correctness-regressions.mjs`
+- Why Deferred:
+  - The current issue is isolated to Windows local correctness regression stability.
+  - It does not block the default install path, `.codebuddy` protocol surface, `agent-call` contract, or AI IDE mainline usage.
+  - This iteration should not keep spending execution budget on a non-gating platform-specific test loop.
+- Resume When:
+  - Windows `npm run test:correctness` must become a hard release gate again.
+  - A dedicated debugging slot is available to finish targeted validation for dead-process lock reclaim.
+- Current Notes:
+  - The suite now supports filtered correctness runs, so this item can resume with a single targeted regression instead of the whole suite.
+  - The remaining work is to verify the Windows-specific lock cleanup path end-to-end, not to redesign the main TaskBook or orchestrator flow.
 
 ## Explicit Non-Goals For Now
 
@@ -399,6 +453,9 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 - 2026-03-07: Completed P7 by adding a pluggable `worker-executor` contract, wiring `task-executor` to auto-run rendered prompts through an external command, preserving manual `agent-call` fallback, and documenting the worker payload/output contract.
 - 2026-03-07: Deferred P8 by decision; the roadmap now keeps a single worker execution tier and moves the next focus to P9 observability.
 - 2026-03-07: Completed P9 by adding local execution metrics files, task-execution instrumentation, summary aggregation, and regression coverage for both worker and agent-call resume flows.
+- 2026-03-14: Added P10 `Workflow Router` as the next execution-layer optimization, with a dedicated detailed plan in `docs/plans/automatic-workflow-routing-plan.md`.
+- 2026-03-16: Deferred the Windows-only dead-process lock correctness follow-up as a non-blocking operational item; keep main install and AI IDE paths moving and resume only with a dedicated targeted validation pass.
+- 2026-03-16: Marked P10 `Workflow Router` as DONE to reflect the implemented routing library, orchestrator/executor auto-routing, routing reports, metrics/doctor/report visibility, workflow guide updates, and E2E coverage already present in the codebase.
 
 ## Short Version
 

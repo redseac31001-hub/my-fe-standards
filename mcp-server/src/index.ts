@@ -10,6 +10,7 @@ import {
 import { z } from 'zod'
 import * as fs from 'fs/promises'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
 import { execFileSync, execSync } from 'child_process'
 
 // ============================================================
@@ -35,6 +36,19 @@ const PrdConfigSchema = z.object({
 
 type UserStory = z.infer<typeof UserStorySchema>
 type PrdConfig = z.infer<typeof PrdConfigSchema>
+const currentModuleFile = fileURLToPath(import.meta.url)
+const currentModuleDir = path.dirname(currentModuleFile)
+
+export function resolveBundledScriptPath(relativePath: string): string {
+  return path.resolve(currentModuleDir, relativePath)
+}
+
+function isDirectExecutionEntry(): boolean {
+  if (!process.argv[1]) {
+    return false
+  }
+  return path.resolve(process.argv[1]) === currentModuleFile
+}
 
 // 工具参数 Schema
 const RalphInitArgsSchema = z.object({
@@ -1554,7 +1568,7 @@ ${next.notes ? `\n备注: ${next.notes}` : ''}
 
         try {
           // 获取 structure-analyzer 脚本路径
-          const scriptPath = path.resolve(__dirname, '../../scripts/dist/structure-analyzer.js')
+          const scriptPath = resolveBundledScriptPath('../../scripts/dist/structure-analyzer.js')
 
           // 构建命令
           const cmd = `node "${scriptPath}" "${validation.resolved}" --mode ${mode} --max-depth ${maxDepth} --limit ${limitTopFiles} --output json`
@@ -1848,4 +1862,6 @@ async function main() {
   console.error('FE Standards MCP Server 已启动')
 }
 
-main().catch(console.error)
+if (isDirectExecutionEntry()) {
+  main().catch(console.error)
+}

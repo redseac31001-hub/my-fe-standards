@@ -1,0 +1,98 @@
+{
+  "id": "micro",
+  "version": "1.0.0",
+  "name": "Micro Workflow (3-step fast loop)",
+  "description": "Lightweight 3-step workflow for hotfixes, single-file changes, and small tasks: plan -> implement -> verify. No review or separate build-fix step.",
+  "steps": [
+    {
+      "id": "plan",
+      "type": "create_taskbook",
+      "title": "Quick plan (inline task decomposition)",
+      "description": "Create a minimal TaskBook with 1-3 tasks. Skip PRD and deep analysis — rely on user context and quick file scan.",
+      "toolHints": {
+        "recommended": [
+          "agent:planner",
+          "human"
+        ]
+      },
+      "outputs": {
+        "taskbook": ".codebuddy/taskbooks/active/tb-*.json"
+      }
+    },
+    {
+      "id": "implement",
+      "type": "tdd_implement",
+      "title": "Implement with inline smoke",
+      "description": "Execute tasks using TDD or direct implementation. Run smoke test after each task.",
+      "gates": [
+        "smoke_passed"
+      ],
+      "toolHints": {
+        "recommended": [
+          "agent:tdd-driver",
+          "agent:build-fix",
+          "shell:npm test"
+        ]
+      }
+    },
+    {
+      "id": "verify",
+      "type": "acceptance_and_archive",
+      "title": "Verify & close",
+      "description": "Run full build, confirm tests pass, archive TaskBook. No formal review — user accepts inline.",
+      "gates": [
+        "full_passed"
+      ],
+      "toolHints": {
+        "recommended": [
+          "shell:npm run build",
+          "shell:npm test",
+          "human"
+        ]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "plan", "to": "implement" },
+    { "from": "implement", "to": "verify" }
+  ],
+  "gates": [
+    {
+      "id": "smoke_passed",
+      "type": "checks",
+      "title": "Smoke tests passed",
+      "required": true,
+      "params": {
+        "budgetMinutes": 3,
+        "commands": ["npm test"]
+      }
+    },
+    {
+      "id": "full_passed",
+      "type": "checks",
+      "title": "Full build passed",
+      "required": true,
+      "params": {
+        "budgetMinutes": 10,
+        "commands": ["npm run build"],
+        "npmScripts": ["test"],
+        "failIfMissing": false
+      }
+    }
+  ],
+  "policies": {
+    "concurrency": {
+      "maxParallelTasks": 1,
+      "conflictStrategy": "deny_same_file_set"
+    },
+    "blocking": {
+      "onGateFail": "blocked",
+      "requiresHumanToUnblock": false
+    },
+    "buildFix": {
+      "maxRounds": 2,
+      "retryFromStep": "implement",
+      "escalateToHuman": true
+    }
+  }
+}

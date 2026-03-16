@@ -21,6 +21,7 @@
 - [PROJECT.md](./PROJECT.md)：能力与结构真理源
 - [ROADMAP.md](./ROADMAP.md)：执行状态、优先级、里程碑
 - [ARCHITECTURE.md](./ARCHITECTURE.md)：目标架构与分层边界
+- [架构约束清单](./docs/reference/architecture-constraints.md)：新增能力时的兼容性与复杂度边界
 
 ## 快速开始
 
@@ -55,10 +56,38 @@ curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/gl
 npm run smoke:business-remote
 ```
 
-### 全量回归
+### 快速正确性回归
 
 ```bash
-node test/run-tests.js
+npm test
+```
+
+`npm test` 默认执行仓库内的轻量正确性套件（`test:lib` + `test:correctness`），适合 workflow 的 smoke gate 和本地快速回归。
+
+### 全量 E2E 回归
+
+```bash
+npm run test:full
+```
+
+> `test:full` 依赖 Node 允许 `child_process` 再次拉起子进程；受限沙箱会直接 fail-fast 提示环境限制。
+> 仓库已提供手动触发的 GitHub Actions workflow `Full E2E`，适合在正常 CI 环境下执行整套回归。
+
+## 产品入口
+
+如果你不想先理解内部结构，直接按产品入口走：
+
+- 安装 / 同步：`node scripts/dist/codebuddy-loader.js`
+- 启动闭环：`node .codebuddy/scripts/task-orchestrator.js "<需求描述>"`
+- 接管 / 继续：`node .codebuddy/scripts/task-executor.js <taskBookId>`
+- 观察 / 诊断：`node .codebuddy/scripts/codebuddy-loader.js doctor --json` 和 `node .codebuddy/scripts/report-manager.js status`
+
+完整入口说明见 [Product Surface Guide](./docs/guides/product-surface-guide.md)。
+
+### 多工具格式转换
+
+```bash
+npm run tool:convert -- --tool cursor
 ```
 
 ## 常用命令
@@ -66,13 +95,18 @@ node test/run-tests.js
 ```bash
 npm run build
 npm run build:release
+npm run tool:convert -- --tool all
+npm test
+npm run ci:correctness
+npm run ci:full
+npm run doctor:mcp-server-deps
 npm run codebuddy
 npm run remote
 npm run remote:full
 npm run smoke:business-remote
 node scripts/dist/codebuddy-loader.js --workspace-scope project-targeted --project mcp-server --role backend
 node scripts/dist/skill-validator.js check
-node test/run-tests.js
+npm run test:full
 ```
 
 ## 仓库结构
@@ -97,6 +131,8 @@ my-fe-standards/
 ## 文档索引
 
 - [文档总索引](./docs/README.md)
+- [产品入口指南](./docs/guides/product-surface-guide.md)
+- [业务项目 Quickstart](./docs/guides/business-project-quickstart.md)
 - [业务项目使用指南](./docs/guides/business-project-guide.md)
 - [业务项目试点方案](./docs/guides/business-pilot-plan.md)
 - [交接说明](./docs/guides/HANDOFF.md)
@@ -108,6 +144,7 @@ my-fe-standards/
 - [Workflow 使用指南](./docs/guides/workflows-guide.md)
 - [Agent Call 远程写回](./docs/guides/agent-call-remote.md)
 - [TaskBook 并发协作 SOP](./docs/guides/taskbook-collaboration-sop.md)
+- [架构约束清单](./docs/reference/architecture-constraints.md)
 - [Skills 索引](./custom-skills/skills-index.md)
 - [技能系统说明（legacy）](./custom-skills/custom-skills-guide.md)
 

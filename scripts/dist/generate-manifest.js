@@ -126,7 +126,7 @@ function getPackSourcePaths(profile, ruleFiles, skillFiles, agentFiles) {
         ...skillFiles.map(file => file.path),
         ...agentFiles.map(file => file.path),
         ...distribution_profiles_1.COMMANDS_TO_DISTRIBUTE.map(item => item.sourcePath),
-        ...(0, distribution_profiles_1.getScriptsForProfile)(profile).map(item => `scripts/dist/${item.file}`),
+        ...(0, distribution_profiles_1.getScriptArtifactsForProfile)(profile).map(file => `scripts/dist/${file}`),
     ];
     if ((0, distribution_profiles_1.isOrchestratorProfile)(profile)) {
         sourcePaths.push(...distribution_profiles_1.WORKFLOWS_TO_DISTRIBUTE.map(item => item.sourcePath), ...distribution_profiles_1.TASKBOOK_FILES_TO_DISTRIBUTE.map(item => item.sourcePath), ...distribution_profiles_1.AGENT_CALL_FILES_TO_DISTRIBUTE.map(item => item.sourcePath));

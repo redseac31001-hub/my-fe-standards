@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-03-11T02:21:26.680Z",
+  "generatedAt": "2026-03-16T06:57:03.217Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -1101,6 +1101,13 @@
       "encoding": "utf8"
     },
     {
+      "path": "agents/handoff-templates.md",
+      "name": "handoff-templates",
+      "size": 5895,
+      "mtime": "2026-03-13T05:38:54.664Z",
+      "encoding": "utf8"
+    },
+    {
       "path": "agents/performance-profiler/AGENT.md",
       "name": "AGENT",
       "size": 5133,
@@ -1243,15 +1250,15 @@
     {
       "path": "workflows/README.md",
       "name": "README",
-      "size": 1329,
-      "mtime": "2026-01-31T16:29:22.905Z",
+      "size": 2425,
+      "mtime": "2026-03-13T05:44:20.192Z",
       "encoding": "utf8"
     },
     {
       "path": "workflows/schema/workflow.schema.json",
       "name": "workflow.schema",
-      "size": 2802,
-      "mtime": "2026-01-30T18:11:15.349Z",
+      "size": 2975,
+      "mtime": "2026-03-13T05:44:20.084Z",
       "encoding": "utf8"
     },
     {
@@ -1259,6 +1266,20 @@
       "name": "default.workflow",
       "size": 7271,
       "mtime": "2026-02-27T05:59:09.020Z",
+      "encoding": "utf8"
+    },
+    {
+      "path": "workflows/templates/micro.workflow.json",
+      "name": "micro.workflow",
+      "size": 2616,
+      "mtime": "2026-03-13T05:38:54.587Z",
+      "encoding": "utf8"
+    },
+    {
+      "path": "workflows/templates/sprint.workflow.json",
+      "name": "sprint.workflow",
+      "size": 4968,
+      "mtime": "2026-03-13T05:38:54.634Z",
       "encoding": "utf8"
     },
     {
@@ -1271,8 +1292,8 @@
     {
       "path": "taskbooks/schema/taskbook.schema.json",
       "name": "taskbook.schema",
-      "size": 5033,
-      "mtime": "2026-02-10T02:55:48.992Z",
+      "size": 5961,
+      "mtime": "2026-03-13T05:44:20.107Z",
       "encoding": "utf8"
     }
   ],
@@ -1281,45 +1302,45 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "c1a22dd8ea0008b6171a5b71d5c9d0c9461b8c8c4177304c6ea3c83b19459e6b",
-      "size": 823782,
-      "entryCount": 151,
-      "generatedAt": "2026-03-11T02:21:26.465Z"
+      "sha256": "9c0c39b1dfae1e85536bb84ffbf5a67d8934a4c45ca0a95d21b501ed418ba977",
+      "size": 836434,
+      "entryCount": 153,
+      "generatedAt": "2026-03-16T06:57:02.981Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "04243d0f86b345eeb152783cf6c3242bb61b2161259c0b8b5d578bc948f64647",
-      "size": 1065606,
-      "entryCount": 154,
-      "generatedAt": "2026-03-11T02:21:26.521Z"
+      "sha256": "e67ea8f4989e7e120650e82b5a066e8028827dd29c1bff2296f702f031561a3e",
+      "size": 1150054,
+      "entryCount": 162,
+      "generatedAt": "2026-03-16T06:57:03.035Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "3b49fb9a03854788d023545e3eab41f36e2e40da82b4fd12301d8b612cf19685",
-      "size": 1551827,
-      "entryCount": 165,
-      "generatedAt": "2026-03-11T02:21:26.589Z"
+      "sha256": "07e17e19bb5b6a089361bf932f4e1a72e362de6c2923ce2cd4e2bb33f0597e55",
+      "size": 1866814,
+      "entryCount": 181,
+      "generatedAt": "2026-03-16T06:57:03.117Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "74e543b8cbc81d6a232f5301b2d98891891e9fd775f5e1743260add22b36df5e",
-      "size": 1567718,
-      "entryCount": 166,
-      "generatedAt": "2026-03-11T02:21:26.660Z"
+      "sha256": "de8c66e489d642743e97ab9dc5a47c7b5ff6e0b774431180ba6b92810da050b9",
+      "size": 1882705,
+      "entryCount": 182,
+      "generatedAt": "2026-03-16T06:57:03.194Z"
     }
   },
   "stats": {
-    "totalFiles": 152,
+    "totalFiles": 155,
     "ruleFiles": 23,
     "skillFiles": 97,
-    "agentFiles": 27,
-    "workflowFiles": 3,
+    "agentFiles": 28,
+    "workflowFiles": 5,
     "taskbookFiles": 2
   }
 }

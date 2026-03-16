@@ -13,7 +13,10 @@ date: 2026-02-07
 - 2026-02-02 已验证通过：`npm run build` + `node test/run-tests.js`
 - 2026-02-04 已验证通过：`npm run build` + `node test/run-tests.js`（含 `task-orchestrator --watch` + `agent-call-manager serve /orchestrate` E2E + validators）
 - 2026-02-07 已验证通过：`npm run build` + `node test/run-tests.js`（Workflow v2.0.0 七步闭环 + 3 个新 Agent + Prompt 模板体系）
+- 2026-03-12 已重新验证通过：`npm run build` + `npm run test:correctness` + `npm run test:full`
+- 2026-03-12 已确认主链路失败根因不是 `EPERM`，而是业务项目内 `.codebuddy/scripts/*.js` 缺少随脚本一起分发的 `scripts/dist/lib/*.js` 运行时依赖；该问题已修复并通过本地/远程 E2E 回归
 - 2026-02-02 MCP Server 已对齐 CLI：新增 `taskbook_report` / `taskbook_unblock`
+- 2026-03-12 `npm run doctor:mcp-server-deps` 仍会提示 `mcp-server` 依赖基线漂移与缺少 `package-lock.json`；这是独立于主链路的环境整洁问题，不影响当前 loader / orchestrator / E2E 主链路结果
 - 2026-02-02 TaskBook 并发协作 SOP 已落地：`docs/guides/taskbook-collaboration-sop.md`（含可选强制模式 `CODEBUDDY_TASKBOOK_REQUIRE_IF_REV=1` / `--require-if-rev`）
 - 2026-02-02 Reports 查询入口已落地：`report-manager.js inspect/hotspots` + MCP `reports_inspect/reports_hotspots`
 - 2026-02-02 质量门禁 gates 已扩大：lint/typecheck/security/perf（`default.workflow.json@1.3.0`，默认 optional；证据落盘到 `.codebuddy/reports/gates/<taskBookId>/...`，并在验收报告 `gates[].evidencePath` 汇总）
@@ -22,6 +25,51 @@ date: 2026-02-07
   - `README.md`：快速入口与命令
   - `docs/guides/workflows-guide.md`：Workflow Spec 与闭环执行方式
   - `docs/guides/e2e-validation-playbook.md`：业务项目端到端验收脚本（remote 加载 → 闭环）
+
+### 2026-03-16 当前主线交付边界
+
+本轮主线目标是：**完成产品面整理，不改变业务项目执行契约**。
+
+建议纳入本轮交付的文件：
+
+- `README.md`
+- `ROADMAP.md`
+- `docs/README.md`
+- `docs/guides/product-surface-guide.md`
+- `docs/guides/business-project-quickstart.md`
+- `docs/guides/workflows-guide.md`
+- `scripts/src/lib/prompt-builder.ts`
+- `scripts/src/codebuddy-loader.ts`
+- `scripts/src/task-orchestrator.ts`
+- `scripts/src/report-manager.ts`
+
+这些改动的共同特征：
+
+- 不新增安装步骤
+- 不改变 `.codebuddy/` 契约
+- 不改变 `agent-call` prompt/result 文件协议
+- 主要收口入口、帮助信息、安装后生成的 README、以及主线路线图状态
+
+不建议混入本轮交付的文件：
+
+- `package.json`
+- `scripts/src/taskbook-manager.ts`
+- `test/test-correctness-regressions.mjs`
+
+原因：
+
+- 这三处属于已封存的 Windows correctness 稳定性尝试性改动
+- 目前不应和“纯产品面整理”一起发布
+- 如需继续推进，应单独作为 `Windows correctness stability` 跟踪项恢复
+
+当前主线最小验证结果：
+
+- `npm run build:scripts` 通过
+
+当前未作为本轮交付门槛的项目：
+
+- Windows 下 `dead-process lock reclaim` correctness 回归稳定性
+- 任何需要把封存项重新纳入发布的额外验证
 
 > Codex 不会继承你同事的对话上下文，所以“进度”必须落在仓库文件里（本文 + PROJECT/README）。
 
@@ -32,14 +80,22 @@ date: 2026-02-07
 ```bash
 npm i
 npm run build
-node test/run-tests.js
+npm run doctor:mcp-server-deps
+npm run test:correctness
+npm run test:full
 ```
 
 预期：
 
 - `npm run build` 成功（会编译 `scripts/src/*` 并生成 `manifest.json`）
-- `node test/run-tests.js` 全部通过（会在 mock projects 中跑通单任务闭环 + batching + gates）
+- `npm run doctor:mcp-server-deps` 理想情况下输出为 `ok`；若输出为 `needs_attention`，先区分它是否阻塞你当前任务：
+  - 如果当前任务是 loader / rules / skills / agents / TaskBook / orchestrator 主链路，并且 `npm run test:correctness` 与 `npm run test:full` 已通过，可先继续开发
+  - 如果当前任务涉及 `mcp-server` 本身、准备做 handoff / release、或要让别人从干净环境直接使用 MCP Server，则不要跳过，需在联网环境执行 `cd mcp-server && npm install` 后提交刷新后的依赖基线
+  - 离线环境不能可靠模拟“干净安装 + 正确 lockfile 刷新”的场景；当前工作区在 `2026-03-12` 用 `npm install --package-lock-only --offline --ignore-scripts --dry-run` 实测返回 `ENOTCACHED`
+- `npm run test:correctness` 通过（覆盖已知高优先级正确性缺陷回归）
+- `npm run test:full` 全部通过（会在 mock projects 中跑通单任务闭环 + batching + gates）
 
+> `test:full` 依赖 Node 允许 `child_process` 再次拉起子进程；若当前终端/沙箱受限，会直接 fail-fast 给出环境提示。
 > 如果你只改了 docs，可跳过测试；但准备交接/合并前建议完整跑一遍。
 
 ## 3) 交接时怎么“提交未完成任务”（WIP 最佳实践）

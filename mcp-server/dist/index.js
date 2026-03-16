@@ -5,6 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, ListResourcesRequestSche
 import { z } from 'zod';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { execFileSync, execSync } from 'child_process';
 // ============================================================
 // Schema 定义（运行时类型验证）
@@ -24,6 +25,17 @@ const PrdConfigSchema = z.object({
     description: z.string(),
     userStories: z.array(UserStorySchema),
 });
+const currentModuleFile = fileURLToPath(import.meta.url);
+const currentModuleDir = path.dirname(currentModuleFile);
+export function resolveBundledScriptPath(relativePath) {
+    return path.resolve(currentModuleDir, relativePath);
+}
+function isDirectExecutionEntry() {
+    if (!process.argv[1]) {
+        return false;
+    }
+    return path.resolve(process.argv[1]) === currentModuleFile;
+}
 // 工具参数 Schema
 const RalphInitArgsSchema = z.object({
     project: z.string().min(1, '项目名称不能为空'),
@@ -63,7 +75,19 @@ const AnalyzeProjectStructureArgsSchema = z.object({
 // CodeBuddy TaskBook / Workflow 工具 Schema
 // ============================================================
 const TaskBookTypeSchema = z.enum(['new-feature', 'refactoring', 'debugging', 'testing', 'code-review']);
-const TaskTypeSchema = z.enum(['analysis', 'design', 'test', 'implement', 'review']);
+const TASK_TYPE_VALUES = [
+    'requirement',
+    'prd',
+    'analysis',
+    'design',
+    'test',
+    'implement',
+    'refactor',
+    'review',
+    'build-fix',
+    'acceptance',
+];
+const TaskTypeSchema = z.enum(TASK_TYPE_VALUES);
 const TaskStatusSchema = z.enum(['pending', 'in_progress', 'done', 'blocked', 'skipped']);
 const TaskPrioritySchema = z.enum(['critical', 'high', 'medium', 'low']);
 const CodebuddySetWorkdirArgsSchema = z.object({
@@ -557,7 +581,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     title: { type: 'string', description: '任务标题' },
                     type: {
                         type: 'string',
-                        enum: ['analysis', 'design', 'test', 'implement', 'review'],
+                        enum: [...TASK_TYPE_VALUES],
                         description: '任务类型',
                     },
                     priority: {
@@ -1396,7 +1420,7 @@ ${next.notes ? `\n备注: ${next.notes}` : ''}
                 }
                 try {
                     // 获取 structure-analyzer 脚本路径
-                    const scriptPath = path.resolve(__dirname, '../../scripts/dist/structure-analyzer.js');
+                    const scriptPath = resolveBundledScriptPath('../../scripts/dist/structure-analyzer.js');
                     // 构建命令
                     const cmd = `node "${scriptPath}" "${validation.resolved}" --mode ${mode} --max-depth ${maxDepth} --limit ${limitTopFiles} --output json`;
                     // 执行分析
@@ -1659,5 +1683,7 @@ async function main() {
     await server.connect(transport);
     console.error('FE Standards MCP Server 已启动');
 }
-main().catch(console.error);
+if (isDirectExecutionEntry()) {
+    main().catch(console.error);
+}
 //# sourceMappingURL=index.js.map

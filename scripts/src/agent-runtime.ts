@@ -31,7 +31,10 @@ import {
     parseYamlList,
     splitFrontmatterDocument,
 } from './lib/frontmatter-utils';
-import { getProjectSkillRootCandidatePaths } from './lib/install-roots';
+import {
+    getProjectRuleRootCandidatePaths,
+    getProjectSkillRootCandidatePaths,
+} from './lib/install-roots';
 
 // ============ 日志工具 ============
 
@@ -120,6 +123,184 @@ function parseAgentFrontmatter(yaml: string): AgentFrontmatter | null {
         dependencies,
         model: extractYamlScalar(yaml, 'model'),
     };
+}
+
+type RuleCandidate = {
+    kind: 'file' | 'directory';
+    path: string;
+};
+
+const RULE_CACHE_LAYER_ROOTS: Record<string, string> = {
+    layer1_base: 'layer1_reference',
+    layer2_business: 'layer2_business',
+    layer3_action: 'layer3_action',
+};
+
+function dedupeRuleCandidates(candidates: RuleCandidate[]): RuleCandidate[] {
+    const seen = new Set<string>();
+    const result: RuleCandidate[] = [];
+
+    for (const candidate of candidates) {
+        const normalizedPath = path.normalize(candidate.path);
+        if (seen.has(normalizedPath)) continue;
+        seen.add(normalizedPath);
+        result.push(candidate);
+    }
+
+    return result;
+}
+
+function normalizeRuleName(ruleName: string): string {
+    return ruleName.replace(/\\/g, '/').replace(/\.md$/i, '').replace(/^\/+|\/+$/g, '');
+}
+
+function findRuleFileByBasename(rootDir: string, fileName: string): string | null {
+    if (!fs.existsSync(rootDir) || !fs.statSync(rootDir).isDirectory()) {
+        return null;
+    }
+
+    const matches: string[] = [];
+    const stack = [rootDir];
+
+    while (stack.length > 0) {
+        const currentDir = stack.pop()!;
+        let entries: string[];
+
+        try {
+            entries = fs.readdirSync(currentDir);
+        } catch {
+            continue;
+        }
+
+        for (const entry of entries) {
+            const fullPath = path.join(currentDir, entry);
+            let stat: fs.Stats;
+
+            try {
+                stat = fs.statSync(fullPath);
+            } catch {
+                continue;
+            }
+
+            if (stat.isDirectory()) {
+                stack.push(fullPath);
+                continue;
+            }
+
+            if (stat.isFile() && entry === fileName) {
+                matches.push(fullPath);
+            }
+        }
+    }
+
+    if (matches.length === 0) {
+        return null;
+    }
+
+    matches.sort((left, right) => {
+        const leftSegments = left.split(path.sep).length;
+        const rightSegments = right.split(path.sep).length;
+        if (leftSegments !== rightSegments) return leftSegments - rightSegments;
+        return left.localeCompare(right);
+    });
+
+    return matches[0];
+}
+
+function buildRuleCandidates(ruleRoot: string, layer: string, ruleName: string): RuleCandidate[] {
+    const normalizedRuleName = normalizeRuleName(ruleName);
+    const basename = path.posix.basename(normalizedRuleName);
+    const fileName = `${basename}.md`;
+    const isCacheRoot = path.basename(ruleRoot) === 'rules_cache';
+    const baseRoot = isCacheRoot
+        ? path.join(ruleRoot, RULE_CACHE_LAYER_ROOTS[layer] || layer)
+        : path.join(ruleRoot, layer);
+
+    const candidates: RuleCandidate[] = [
+        {
+            kind: 'directory',
+            path: path.join(baseRoot, normalizedRuleName),
+        },
+        {
+            kind: 'file',
+            path: path.join(baseRoot, `${normalizedRuleName}.md`),
+        },
+    ];
+
+    if (!normalizedRuleName.includes('/')) {
+        const recursiveMatch = findRuleFileByBasename(baseRoot, fileName);
+        if (recursiveMatch) {
+            candidates.push({
+                kind: 'file',
+                path: recursiveMatch,
+            });
+        }
+    }
+
+    return dedupeRuleCandidates(candidates);
+}
+
+function formatIncomingHandoffs(context: AgentContext): string {
+    const handoffs = context.task.incomingHandoffs ?? [];
+    if (handoffs.length === 0) {
+        return '(无上游 handoff)';
+    }
+
+    return handoffs.map((handoff, index) => {
+        const lines = [
+            `${index + 1}. ${handoff.sourceTaskId} ${handoff.sourceTaskTitle} [${handoff.sourceTaskType}] -> ${handoff.to} (${handoff.type})`,
+            `   from: ${handoff.from}${handoff.sourceTaskExecutedBy ? ` / executedBy: ${handoff.sourceTaskExecutedBy}` : ''}`,
+            `   status: ${handoff.sourceTaskStatus ?? 'unknown'} / at: ${handoff.timestamp}`,
+        ];
+
+        if (handoff.context) {
+            lines.push(`   context: ${handoff.context}`);
+        }
+
+        if (handoff.deliverables && handoff.deliverables.length > 0) {
+            lines.push(`   deliverables: ${handoff.deliverables.join(', ')}`);
+        }
+
+        return lines.join('\n');
+    }).join('\n');
+}
+
+function buildIncomingHandoffSection(context: AgentContext): string {
+    const handoffs = context.task.incomingHandoffs ?? [];
+    if (handoffs.length === 0) {
+        return '';
+    }
+
+    const handoffParts = handoffs.map((handoff, index) => {
+        const lines = [
+            `### Handoff ${index + 1}: ${handoff.sourceTaskTitle}`,
+            '',
+            `- Source Task: ${handoff.sourceTaskId} (${handoff.sourceTaskType})`,
+            `- From: ${handoff.from}${handoff.sourceTaskExecutedBy ? ` / executedBy: ${handoff.sourceTaskExecutedBy}` : ''}`,
+            `- Status: ${handoff.sourceTaskStatus ?? 'unknown'}`,
+            `- Type: ${handoff.type}`,
+            `- Timestamp: ${handoff.timestamp}`,
+        ];
+
+        if (handoff.context) {
+            lines.push(`- Context: ${handoff.context}`);
+        }
+
+        if (handoff.deliverables && handoff.deliverables.length > 0) {
+            lines.push(`- Deliverables: ${handoff.deliverables.join(', ')}`);
+        }
+
+        return lines.join('\n');
+    });
+
+    return [
+        '## Incoming Handoffs',
+        '',
+        '> 以下是上游任务交接给当前 Agent 的最新上下文，请优先吸收这些信息。',
+        '',
+        ...handoffParts,
+        '',
+    ].join('\n');
 }
 
 // ============ 核心类 ============
@@ -399,6 +580,8 @@ export class AgentRuntime {
             '',
         ].join('\n');
 
+        const handoffSection = buildIncomingHandoffSection(context);
+
         // 注入 Skill 知识
         let skillSection = '';
         if (Object.keys(agent.skills).length > 0) {
@@ -431,7 +614,7 @@ export class AgentRuntime {
             ].join('\n');
         }
 
-        return header + skillSection + ruleSection + rendered;
+        return header + handoffSection + skillSection + ruleSection + rendered;
     }
 
     /** 构建模板变量表 */
@@ -449,6 +632,8 @@ export class AgentRuntime {
             'task.acceptanceCriteria': task.acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n'),
             'task.scope.files': task.scope?.files?.join(', ') || '(未指定)',
             'task.scope.modules': task.scope?.modules?.join(', ') || '(未指定)',
+            'task.incomingHandoffs': formatIncomingHandoffs(context),
+            'task.incomingHandoffCount': String(task.incomingHandoffs?.length ?? 0),
             'taskBook.id': context.taskBookId,
             'agent.name': agent.metadata.name,
             'agent.id': agent.id,
@@ -464,6 +649,8 @@ export class AgentRuntime {
         } else {
             vars['context.files'] = '(无预加载文件)';
         }
+
+        vars['context.handoffs'] = formatIncomingHandoffs(context);
 
         return vars;
     }
@@ -579,13 +766,14 @@ export class AgentRuntime {
      * 加载 Agent 声明的 Rules 内容
      *
      * 从 dependencies 中解析 layer/rule-name，
-     * 在 rules/<layer>/<rule-name>/ 目录或 rules/<layer>/<rule-name>.md 中查找
+     * 优先读取 .codebuddy/rules_cache 中的已安装规则，再回退到源码 rules/ 目录
      */
     private loadDeclaredRules(metadata: AgentFrontmatter): Record<string, string> {
         const rules: Record<string, string> = {};
         if (!metadata.dependencies) return rules;
 
         const root = this.config.projectRoot;
+        const ruleRoots = getProjectRuleRootCandidatePaths(root);
 
         for (const [layer, ruleNames] of Object.entries(metadata.dependencies)) {
             if (!Array.isArray(ruleNames)) continue;
@@ -593,34 +781,49 @@ export class AgentRuntime {
             for (const ruleName of ruleNames) {
                 const key = `${layer}/${ruleName}`;
 
-                // 搜索顺序：目录 → 单文件
-                const dirPath = path.join(root, 'rules', layer, ruleName);
-                const filePath = path.join(root, 'rules', layer, `${ruleName}.md`);
-
-                if (fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
-                    // 目录模式：拼接所有 .md 文件
-                    try {
-                        const mdFiles = fs.readdirSync(dirPath).filter(f => f.endsWith('.md')).sort();
-                        if (mdFiles.length > 0) {
-                            const combined = mdFiles.map(f => {
-                                const content = fs.readFileSync(path.join(dirPath, f), 'utf-8');
-                                return `<!-- ${f} -->\n${content}`;
-                            }).join('\n\n');
-                            rules[key] = combined;
-                            rtDebug(`已加载 Rule: ${key} (${mdFiles.length} 个文件)`);
+                let found = false;
+                for (const ruleRoot of ruleRoots) {
+                    for (const candidate of buildRuleCandidates(ruleRoot, layer, ruleName)) {
+                        if (!fs.existsSync(candidate.path)) {
+                            continue;
                         }
-                    } catch {
-                        // 读取失败跳过
+
+                        if (candidate.kind === 'directory' && fs.statSync(candidate.path).isDirectory()) {
+                            try {
+                                const mdFiles = fs.readdirSync(candidate.path).filter(f => f.endsWith('.md')).sort();
+                                if (mdFiles.length === 0) {
+                                    continue;
+                                }
+                                rules[key] = mdFiles.map(f => {
+                                    const content = fs.readFileSync(path.join(candidate.path, f), 'utf-8');
+                                    return `<!-- ${f} -->\n${content}`;
+                                }).join('\n\n');
+                                rtDebug(`已加载 Rule: ${key} (${candidate.path}, ${mdFiles.length} 个文件)`);
+                                found = true;
+                                break;
+                            } catch {
+                                // 读取失败，尝试下一个候选
+                            }
+                        }
+
+                        if (candidate.kind === 'file' && fs.statSync(candidate.path).isFile()) {
+                            try {
+                                rules[key] = fs.readFileSync(candidate.path, 'utf-8');
+                                rtDebug(`已加载 Rule: ${key} (${candidate.path})`);
+                                found = true;
+                                break;
+                            } catch {
+                                // 读取失败，尝试下一个候选
+                            }
+                        }
                     }
-                } else if (fs.existsSync(filePath)) {
-                    // 单文件模式
-                    try {
-                        rules[key] = fs.readFileSync(filePath, 'utf-8');
-                        rtDebug(`已加载 Rule: ${key}`);
-                    } catch {
-                        // 读取失败跳过
+
+                    if (found) {
+                        break;
                     }
-                } else {
+                }
+
+                if (!found) {
                     rtDebug(`Rule '${key}' 未找到，跳过`);
                 }
             }

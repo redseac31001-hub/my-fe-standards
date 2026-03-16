@@ -24,7 +24,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { createHash } from 'crypto';
 import {
   Context,
   Manifest,
@@ -36,13 +35,9 @@ import {
   SkillRole,
   AgentMetadata,
   PackageJson,
-  ProjectLang,
-  ProjectKind,
   SubProject,
   WorkspaceInfo,
   WorkspaceIndex,
-  InstallManagedFile,
-  InstallState,
   WorkspaceScope,
 } from './types';
 import { Logger, createLogger, logError } from './lib/logger';
@@ -64,8 +59,6 @@ import {
   getManagedFiles,
   listFilesRecursive,
   readInstallState,
-  removeManagedPath,
-  toProjectRelativePath,
   writeManagedFile,
 } from './lib/install-sync';
 import {
@@ -75,6 +68,23 @@ import {
   inspectInstallState,
   summarizeDoctorChecks,
 } from './lib/install-health';
+import {
+  buildInstallState,
+  createInstallSnapshotId,
+  gcSnapshotEntries,
+  writeInstallState,
+} from './lib/install-state';
+import {
+  checkVueProfile,
+  createScopedWorkspaceInfo,
+  detectProjectLangFromDir,
+  detectProjectMetadata,
+  discoverWorkspace,
+} from './lib/project-detection';
+import {
+  collectMatchedBusinessRules,
+  shouldIncludeSkill,
+} from './lib/context-targeting';
 import { ensureRemoteContentPack, readRemoteAsset, readRemoteTextAsset } from './lib/remote-content-pack';
 import { parseSkillMetadata, parseAgentMetadata } from './lib/metadata-parser';
 import {
@@ -106,7 +116,6 @@ const DEFAULT_TIMEOUT: number = 10000;
 const DEFAULT_THRESHOLD: number = 0.5;
 const DEFAULT_RULE_LEVEL: Context['ruleLevel'] = 'full';
 const DEFAULT_PROFILE: Context['profile'] = 'analysis';
-const INSTALL_STATE_SCHEMA_VERSION = '1.2.0';
 const SKILL_SNAPSHOT_RETAIN_COUNT = 3;
 const AGENT_SNAPSHOT_RETAIN_COUNT = 3;
 const COMMANDS = new Set(['install', 'status', 'doctor']);
@@ -134,6 +143,11 @@ function showHelp(): void {
 
 用法：
   node codebuddy-loader.js [command] [options]
+
+产品路径：
+  1. 安装 / 同步         node codebuddy-loader.js
+  2. 诊断 / 状态查看     node codebuddy-loader.js status
+  3. 诊断 / 问题排查     node codebuddy-loader.js doctor --json
 
 命令：
   install              安装/同步 CodeBuddy 规则和运行时（默认）
@@ -267,1124 +281,6 @@ function getLoaderVersion(ctx: Readonly<Context>, logger: Logger): string {
     logger.warn(`读取 loader package.json 失败: ${(error as Error).message}`);
     return '0.0.0';
   }
-}
-
-function createInstallSnapshotId(): string {
-  const timestamp = new Date()
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace(/\.\d+Z$/, 'Z');
-  const entropy = createHash('sha256')
-    .update(`${process.pid}-${Math.random()}-${Date.now()}`)
-    .digest('hex')
-    .slice(0, 8);
-  return `${timestamp}-${entropy}`;
-}
-
-interface SnapshotEntry {
-  name: string;
-  absolutePath: string;
-  relativePath: string;
-  sortKey: string;
-}
-
-function buildSnapshotSortKey(name: string, absolutePath: string): string {
-  if (/^\d{8}T\d{6}Z-[a-f0-9]+$/i.test(name)) {
-    return `0-${name}`;
-  }
-
-  try {
-    const stat = fs.statSync(absolutePath);
-    return `1-${String(Math.trunc(stat.mtimeMs)).padStart(16, '0')}-${name}`;
-  } catch {
-    return `2-${name}`;
-  }
-}
-
-function listSnapshotEntries(targetDir: string, snapshotRootDir: string): SnapshotEntry[] {
-  const snapshotsRoot = path.join(targetDir, snapshotRootDir);
-  if (!fs.existsSync(snapshotsRoot)) {
-    return [];
-  }
-
-  return fs.readdirSync(snapshotsRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => {
-      const absolutePath = path.join(snapshotsRoot, entry.name);
-      return {
-        name: entry.name,
-        absolutePath,
-        relativePath: toProjectRelativePath(targetDir, absolutePath),
-        sortKey: buildSnapshotSortKey(entry.name, absolutePath),
-      };
-    })
-    .sort((left, right) => right.sortKey.localeCompare(left.sortKey));
-}
-
-function gcSnapshotEntries(
-  targetDir: string,
-  snapshotRootDir: string,
-  activeRootDir: string | null,
-  retainCount: number,
-  logger: Logger,
-): string[] {
-  if (!activeRootDir) {
-    return [];
-  }
-
-  const normalizedRetainCount = Math.max(1, retainCount);
-  const entries = listSnapshotEntries(targetDir, snapshotRootDir);
-  if (entries.length <= normalizedRetainCount) {
-    return [];
-  }
-
-  const keep = new Set<string>();
-  const activeEntry = entries.find(entry => entry.relativePath === activeRootDir);
-  if (activeEntry) {
-    keep.add(activeEntry.relativePath);
-  } else {
-    keep.add(activeRootDir);
-  }
-
-  for (const entry of entries) {
-    if (keep.has(entry.relativePath)) {
-      continue;
-    }
-    keep.add(entry.relativePath);
-    if (keep.size >= normalizedRetainCount) {
-      break;
-    }
-  }
-
-  const removed: string[] = [];
-  for (const entry of entries) {
-    if (keep.has(entry.relativePath)) {
-      continue;
-    }
-    try {
-      if (removeManagedPath(targetDir, entry.absolutePath)) {
-        removed.push(entry.relativePath);
-      }
-    } catch (error) {
-      logger.warn(`清理旧技能快照失败: ${entry.relativePath} - ${(error as Error).message}`);
-    }
-  }
-
-  return removed.sort();
-}
-
-function buildInstallState(params: {
-  ctx: Readonly<Context>;
-  logger: Logger;
-  targetDir: string;
-  outputPath: string;
-  workspaceIndexPath: string | null;
-  skillsRootDir: string | null;
-  skillsSnapshotRetention: number | null;
-  agentsRootDir: string | null;
-  agentsSnapshotRetention: number | null;
-  layer1RulesCount: number;
-  layer2IndexCount: number;
-  layer3IndexCount: number;
-  skillsCount: number;
-  agentsCount: number;
-  distributedScripts: string[];
-  distributedWorkflows: string[];
-  distributedTaskBooks: string[];
-  distributedAgentCalls: string[];
-  distributedCommands: string[];
-  managedFiles: InstallManagedFile[];
-  workspaceInfo: WorkspaceInfo;
-}): InstallState {
-  const {
-    ctx,
-    logger,
-    targetDir,
-    outputPath,
-    workspaceIndexPath,
-    skillsRootDir,
-    skillsSnapshotRetention,
-    agentsRootDir,
-    agentsSnapshotRetention,
-    layer1RulesCount,
-    layer2IndexCount,
-    layer3IndexCount,
-    skillsCount,
-    agentsCount,
-    distributedScripts,
-    distributedWorkflows,
-    distributedTaskBooks,
-    distributedAgentCalls,
-    distributedCommands,
-    managedFiles,
-    workspaceInfo,
-  } = params;
-
-  const version = getLoaderVersion(ctx, logger);
-  const installedAt = new Date().toISOString();
-  const profile: InstallState['profile'] = ctx.profile;
-  const mode: InstallState['mode'] = ctx.isRemote ? 'remote' : 'local';
-  const rulesFile = toProjectRelativePath(targetDir, outputPath);
-  const workspaceIndexFile = workspaceIndexPath
-    ? toProjectRelativePath(targetDir, workspaceIndexPath)
-    : null;
-  const normalizedManagedFiles = managedFiles
-    .map(file => ({ path: file.path, sha256: file.sha256, size: file.size }))
-    .sort((left, right) => left.path.localeCompare(right.path));
-  const stableManagedFiles = normalizedManagedFiles.filter(file => file.path !== rulesFile && file.path !== workspaceIndexFile);
-
-  const hashPayload = {
-    version,
-    mode,
-    profile,
-    enableOrchestrator: ctx.enableOrchestrator,
-    source: {
-      remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
-      manifestVersion: ctx.remoteManifest?.version || null,
-      contentPackFile: ctx.remoteContentPack?.file || null,
-      contentPackFormat: ctx.remoteContentPack?.format || null,
-      contentPackSha256: ctx.remoteContentPack?.sha256 || null,
-    },
-    options: {
-      taskType: ctx.taskType,
-      ruleLevel: ctx.ruleLevel,
-      strictRemotePack: ctx.strictRemotePack,
-      relevanceThreshold: ctx.relevanceThreshold,
-      workspaceDiscovery: !ctx.disableWorkspace,
-      workspaceScope: ctx.workspaceScope,
-      targetProject: ctx.targetProject,
-      targetRole: ctx.targetRole,
-    },
-    outputs: {
-      rulesFile,
-      workspaceIndexFile,
-      skillsRootDir,
-      skillsSnapshotRetention,
-      agentsRootDir,
-      agentsSnapshotRetention,
-    },
-    managedFiles: stableManagedFiles,
-    stats: {
-      layer1Rules: layer1RulesCount,
-      layer2Indexes: layer2IndexCount,
-      layer3Indexes: layer3IndexCount,
-      skills: skillsCount,
-      agents: agentsCount,
-      scripts: distributedScripts.slice().sort(),
-      workflows: distributedWorkflows.slice().sort(),
-      taskbooks: distributedTaskBooks.slice().sort(),
-      agentCalls: distributedAgentCalls.slice().sort(),
-      commands: distributedCommands.slice().sort(),
-      workspaceProjects: workspaceInfo.projects.map(project => project.relativePath).sort(),
-    },
-  };
-
-  const contentHash = createHash('sha256')
-    .update(JSON.stringify(hashPayload))
-    .digest('hex');
-
-  return {
-    schemaVersion: INSTALL_STATE_SCHEMA_VERSION,
-    version,
-    installedAt,
-    mode,
-    profile,
-    enableOrchestrator: ctx.enableOrchestrator,
-    contentHash,
-    source: {
-      remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
-      manifestVersion: ctx.remoteManifest?.version || null,
-      contentPackFile: ctx.remoteContentPack?.file || null,
-      contentPackFormat: ctx.remoteContentPack?.format || null,
-      contentPackSha256: ctx.remoteContentPack?.sha256 || null,
-    },
-    options: {
-      taskType: ctx.taskType,
-      ruleLevel: ctx.ruleLevel,
-      strictRemotePack: ctx.strictRemotePack,
-      relevanceThreshold: ctx.relevanceThreshold,
-      workspaceDiscovery: !ctx.disableWorkspace,
-      workspaceScope: ctx.workspaceScope,
-      targetProject: ctx.targetProject,
-      targetRole: ctx.targetRole,
-    },
-    outputs: {
-      rulesFile,
-      workspaceIndexFile,
-      skillsRootDir,
-      skillsSnapshotRetention,
-      agentsRootDir,
-      agentsSnapshotRetention,
-    },
-    managedFiles: normalizedManagedFiles,
-    stats: {
-      layer1Rules: layer1RulesCount,
-      layer2Indexes: layer2IndexCount,
-      layer3Indexes: layer3IndexCount,
-      skills: skillsCount,
-      agents: agentsCount,
-      scripts: distributedScripts.length,
-      workflows: distributedWorkflows.length,
-      taskbooks: distributedTaskBooks.length,
-      agentCalls: distributedAgentCalls.length,
-      commands: distributedCommands.length,
-      workspaceProjects: workspaceInfo.projects.length,
-    },
-  };
-}
-
-function writeInstallState(targetDir: string, installState: InstallState): string {
-  const installStatePath = path.join(targetDir, '.codebuddy', 'install.json');
-  const installStateDir = path.dirname(installStatePath);
-  if (!fs.existsSync(installStateDir)) {
-    fs.mkdirSync(installStateDir, { recursive: true });
-  }
-  fs.writeFileSync(installStatePath, JSON.stringify(installState, null, 2), 'utf-8');
-  return installStatePath;
-}
-
-function checkVueProfile(dependencies: Record<string, string>): VueProfile | null {
-  const vueVersion = dependencies['vue'];
-  if (!vueVersion) return null;
-
-  if (vueVersion.startsWith('3') || vueVersion.startsWith('^3') || vueVersion.startsWith('~3')) {
-    return { version: 3, type: 'standard' };
-  }
-
-  if (vueVersion.startsWith('2') || vueVersion.startsWith('^2') || vueVersion.startsWith('~2')) {
-    if (dependencies['@vue/composition-api']) {
-      return { version: 2, type: 'composition' };
-    }
-    return { version: 2, type: 'options' };
-  }
-  return null;
-}
-
-interface DetectedProjectMetadata {
-  frameworkLabel: string;
-  uiLibLabels: string[];
-  projectKind: ProjectKind;
-  stackTags: string[];
-}
-
-// ============ Workspace 多项目发现 ============
-
-/** 应排除的目录名 */
-const WORKSPACE_EXCLUDE_DIRS = new Set([
-  'node_modules', 'dist', 'build', '.codebuddy', '.git',
-  'coverage', '.next', '.nuxt', '.output', '.cache',
-]);
-
-/** 最大发现子项目数 */
-const MAX_SUB_PROJECTS = 20;
-
-/**
- * 项目标志文件配置
- * 按优先级排序，匹配即停
- */
-interface ProjectMarker {
-  /** 标志文件名（任一存在即匹配） */
-  files: string[];
-  /** 语言标签 */
-  lang: ProjectLang;
-  /** 细化规则：匹配后可进一步细化语言 */
-  refinements?: Array<{ files: string[]; lang: ProjectLang }>;
-}
-
-const PROJECT_MARKERS: ProjectMarker[] = [
-  {
-    files: ['package.json'], lang: 'javascript', refinements: [
-      { files: ['tsconfig.json'], lang: 'typescript' },
-    ]
-  },
-  { files: ['pom.xml'], lang: 'java' },
-  { files: ['build.gradle', 'build.gradle.kts'], lang: 'java' },
-  { files: ['go.mod'], lang: 'go' },
-  { files: ['pyproject.toml', 'setup.py'], lang: 'python' },
-  { files: ['Cargo.toml'], lang: 'rust' },
-  // .NET: *.csproj 通过单独逻辑检测（通配符）
-];
-
-/**
- * 检测框架标签
- */
-/** 已知 UI 库映射（包名 → 显示名） */
-const KNOWN_UI_LIBS: Record<string, string> = {
-  'ant-design-vue': 'Ant Design Vue',
-  'vant': 'Vant',
-  'element-plus': 'Element Plus',
-  'element-ui': 'Element UI',
-  'naive-ui': 'Naive UI',
-  'vuetify': 'Vuetify',
-  '@arco-design/web-vue': 'Arco Design Vue',
-  'antd': 'Ant Design',
-  '@mui/material': 'MUI',
-};
-
-/**
- * 检测项目使用的 UI 库
- */
-function detectUILibs(deps: Record<string, string>): string[] {
-  const result: string[] = [];
-  for (const [pkg, label] of Object.entries(KNOWN_UI_LIBS)) {
-    if (deps[pkg]) {
-      result.push(label);
-    }
-  }
-  return result;
-}
-
-function normalizeStackTag(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
-function finalizeStackTags(values: Iterable<string>): string[] {
-  return [...new Set([...values].map(normalizeStackTag).filter(Boolean))].sort();
-}
-
-function readProjectFileIfExists(filePath: string): string {
-  try {
-    return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
-  } catch {
-    return '';
-  }
-}
-
-function detectNodePackageManagers(projectDir: string): string[] {
-  const markers: Array<{ file: string; tag: string }> = [
-    { file: 'pnpm-lock.yaml', tag: 'pnpm' },
-    { file: 'yarn.lock', tag: 'yarn' },
-    { file: 'package-lock.json', tag: 'npm' },
-    { file: 'bun.lockb', tag: 'bun' },
-    { file: 'bun.lock', tag: 'bun' },
-  ];
-
-  return markers
-    .filter(marker => fs.existsSync(path.join(projectDir, marker.file)))
-    .map(marker => marker.tag);
-}
-
-const NODE_BACKEND_STRONG_ENTRY_FILES = [
-  'src/server.ts',
-  'src/server.js',
-  'src/server.mjs',
-  'src/server.cjs',
-  'server.ts',
-  'server.js',
-  'server.mjs',
-  'server.cjs',
-];
-
-const NODE_BACKEND_WEAK_ENTRY_FILES = [
-  'src/main.ts',
-  'src/main.js',
-  'src/app.ts',
-  'src/app.js',
-  'main.ts',
-  'main.js',
-  'app.ts',
-  'app.js',
-  'index.ts',
-  'index.js',
-];
-
-const NODE_BACKEND_LAYOUT_DIRS = [
-  'src/routes',
-  'src/controllers',
-  'src/middleware',
-  'src/handlers',
-  'src/api',
-  'routes',
-  'controllers',
-  'middleware',
-  'handlers',
-  'api',
-];
-
-function detectGenericNodeBackendProject(projectDir: string, packageJson: PackageJson): boolean {
-  const scripts = packageJson.scripts || {};
-  const scriptValues = Object.values(scripts).filter((value): value is string => typeof value === 'string');
-  const hasBackendScript = scriptValues.some(command =>
-    /(node|nodemon|tsx|ts-node|ts-node-dev|bun|pm2)/i.test(command)
-    && /(server|api|listen|http)/i.test(command)
-  );
-
-  for (const relativePath of NODE_BACKEND_STRONG_ENTRY_FILES) {
-    if (fs.existsSync(path.join(projectDir, relativePath))) {
-      return true;
-    }
-  }
-
-  for (const relativePath of NODE_BACKEND_WEAK_ENTRY_FILES) {
-    const absolutePath = path.join(projectDir, relativePath);
-    if (!fs.existsSync(absolutePath)) {
-      continue;
-    }
-
-    const content = readProjectFileIfExists(absolutePath);
-    if (/(createServer|listen\s*\(|process\.env\.PORT|IncomingMessage|ServerResponse)/.test(content)) {
-      return true;
-    }
-  }
-
-  const layoutClues = NODE_BACKEND_LAYOUT_DIRS.filter(relativePath =>
-    fs.existsSync(path.join(projectDir, relativePath))
-  ).length;
-
-  if (layoutClues >= 2) {
-    return true;
-  }
-
-  return hasBackendScript && layoutClues >= 1;
-}
-
-function detectJavaProjectMetadata(projectDir: string): DetectedProjectMetadata {
-  const pomContent = readProjectFileIfExists(path.join(projectDir, 'pom.xml'));
-  const gradleContent =
-    readProjectFileIfExists(path.join(projectDir, 'build.gradle'))
-    || readProjectFileIfExists(path.join(projectDir, 'build.gradle.kts'));
-  const combinedContent = `${pomContent}\n${gradleContent}`.toLowerCase();
-
-  const stackTags = new Set<string>(['java']);
-  if (pomContent) stackTags.add('maven');
-  if (gradleContent) stackTags.add('gradle');
-
-  let frameworkLabel = '';
-  let projectKind: ProjectKind = 'library';
-
-  if (/org\.springframework\.boot|spring-boot/.test(combinedContent)) {
-    frameworkLabel = 'Spring Boot';
-    projectKind = 'backend';
-    stackTags.add('springboot');
-    stackTags.add('spring');
-  } else if (/io\.quarkus|quarkus/.test(combinedContent)) {
-    frameworkLabel = 'Quarkus';
-    projectKind = 'backend';
-    stackTags.add('quarkus');
-  } else if (/io\.micronaut|micronaut/.test(combinedContent)) {
-    frameworkLabel = 'Micronaut';
-    projectKind = 'backend';
-    stackTags.add('micronaut');
-  } else if (/jakarta\.ws\.rs|javax\.ws\.rs/.test(combinedContent)) {
-    frameworkLabel = 'Jakarta REST';
-    projectKind = 'backend';
-    stackTags.add('jakartarest');
-  }
-
-  if (/spring-data-jpa|starter-data-jpa|hibernate-core|jakarta\.persistence|javax\.persistence/.test(combinedContent)) {
-    stackTags.add('jpa');
-  }
-  if (/mybatis/.test(combinedContent)) {
-    stackTags.add('mybatis');
-  }
-
-  return {
-    frameworkLabel,
-    uiLibLabels: [],
-    projectKind,
-    stackTags: finalizeStackTags(stackTags),
-  };
-}
-
-function detectRustProjectMetadata(projectDir: string): DetectedProjectMetadata {
-  const cargoContent = readProjectFileIfExists(path.join(projectDir, 'Cargo.toml'));
-  const normalizedContent = cargoContent.toLowerCase();
-  const stackTags = new Set<string>(['rust', 'cargo']);
-
-  let frameworkLabel = '';
-  let projectKind: ProjectKind = 'library';
-
-  if (/\baxum\b/.test(normalizedContent)) {
-    frameworkLabel = 'Axum';
-    projectKind = 'backend';
-    stackTags.add('axum');
-  } else if (/actix-web/.test(normalizedContent)) {
-    frameworkLabel = 'Actix Web';
-    projectKind = 'backend';
-    stackTags.add('actixweb');
-  } else if (/\brocket\b/.test(normalizedContent)) {
-    frameworkLabel = 'Rocket';
-    projectKind = 'backend';
-    stackTags.add('rocket');
-  } else if (/\btonic\b/.test(normalizedContent)) {
-    frameworkLabel = 'Tonic';
-    projectKind = 'backend';
-    stackTags.add('tonic');
-  }
-
-  if (/\btokio\b/.test(normalizedContent)) stackTags.add('tokio');
-  if (/\bserde\b/.test(normalizedContent)) stackTags.add('serde');
-  if (/^\s*\[workspace\]/m.test(cargoContent)) stackTags.add('cargoworkspace');
-
-  return {
-    frameworkLabel,
-    uiLibLabels: [],
-    projectKind,
-    stackTags: finalizeStackTags(stackTags),
-  };
-}
-
-function detectDotnetProjectMetadata(projectDir: string): DetectedProjectMetadata {
-  const projectFiles = fs.readdirSync(projectDir)
-    .filter(entry => entry.endsWith('.csproj') || entry.endsWith('.fsproj'));
-  const combinedContent = projectFiles
-    .map(file => readProjectFileIfExists(path.join(projectDir, file)))
-    .join('\n')
-    .toLowerCase();
-
-  const stackTags = new Set<string>(['dotnet']);
-  let frameworkLabel = '';
-  let projectKind: ProjectKind = 'library';
-
-  if (/microsoft\.aspnetcore|aspnetcore/.test(combinedContent)) {
-    frameworkLabel = 'ASP.NET Core';
-    projectKind = 'backend';
-    stackTags.add('aspnetcore');
-  } else if (/microsoft\.aspnetcore\.components|blazor/.test(combinedContent)) {
-    frameworkLabel = 'Blazor';
-    projectKind = 'frontend';
-    stackTags.add('blazor');
-  }
-
-  return {
-    frameworkLabel,
-    uiLibLabels: [],
-    projectKind,
-    stackTags: finalizeStackTags(stackTags),
-  };
-}
-
-function detectGenericProjectMetadata(lang: ProjectLang): DetectedProjectMetadata {
-  return {
-    frameworkLabel: '',
-    uiLibLabels: [],
-    projectKind: 'unknown',
-    stackTags: finalizeStackTags([lang]),
-  };
-}
-
-function detectNodeProjectMetadata(projectDir: string, packageJson: PackageJson, lang: ProjectLang): {
-  dependencies: Record<string, string>;
-  vueProfile: VueProfile | null;
-} & DetectedProjectMetadata {
-  const dependencies: Record<string, string> = {
-    ...packageJson.dependencies,
-    ...packageJson.devDependencies,
-  };
-  const vueProfile = checkVueProfile(dependencies);
-  const uiLibLabels = detectUILibs(dependencies);
-  const stackTags = new Set<string>([lang, 'nodejs', ...detectNodePackageManagers(projectDir)]);
-  const detectedKinds = new Set<ProjectKind>();
-  let frameworkLabel = '';
-
-  const markFramework = (label: string, kind: ProjectKind, ...tags: string[]): void => {
-    if (!frameworkLabel) frameworkLabel = label;
-    detectedKinds.add(kind);
-    for (const tag of tags) stackTags.add(tag);
-  };
-
-  if (packageJson.type === 'module') stackTags.add('esm');
-  if (packageJson.workspaces) stackTags.add('monorepo');
-  if (dependencies['vite']) stackTags.add('vite');
-  if (dependencies['webpack']) stackTags.add('webpack');
-
-  if (dependencies['next']) markFramework('Next.js', 'fullstack', 'nextjs');
-  if (dependencies['nuxt'] || dependencies['nuxt3']) markFramework(frameworkLabel || 'Nuxt', 'fullstack', 'nuxt');
-  if (dependencies['@remix-run/node'] || dependencies['@remix-run/react']) {
-    markFramework(frameworkLabel || 'Remix', 'fullstack', 'remix');
-  }
-
-  if (dependencies['@nestjs/core']) markFramework(frameworkLabel || 'NestJS', 'backend', 'nestjs');
-  if (dependencies['express']) markFramework(frameworkLabel || 'Express', 'backend', 'express');
-  if (dependencies['fastify']) markFramework(frameworkLabel || 'Fastify', 'backend', 'fastify');
-  if (dependencies['koa']) markFramework(frameworkLabel || 'Koa', 'backend', 'koa');
-  if (dependencies['hono']) markFramework(frameworkLabel || 'Hono', 'backend', 'hono');
-
-  if (dependencies['vue']) {
-    const vueTags = vueProfile?.version === 3
-      ? ['vue', 'vue3']
-      : vueProfile?.version === 2
-        ? ['vue', 'vue2']
-        : ['vue'];
-    markFramework(frameworkLabel || (vueProfile?.version === 3 ? 'Vue 3' : vueProfile?.version === 2 ? 'Vue 2' : 'Vue'), 'frontend', ...vueTags);
-  }
-  if (dependencies['react']) markFramework(frameworkLabel || 'React', 'frontend', 'react');
-  if (dependencies['@angular/core']) markFramework(frameworkLabel || 'Angular', 'frontend', 'angular');
-  if (dependencies['svelte']) markFramework(frameworkLabel || 'Svelte', 'frontend', 'svelte');
-
-  if (!detectedKinds.has('backend') && !detectedKinds.has('frontend') && detectGenericNodeBackendProject(projectDir, packageJson)) {
-    markFramework(frameworkLabel || 'Node Service', 'backend', 'nodeservice');
-  }
-
-  for (const uiLibLabel of uiLibLabels) {
-    stackTags.add(uiLibLabel);
-  }
-
-  let projectKind: ProjectKind = 'library';
-  if (detectedKinds.has('fullstack') || (detectedKinds.has('frontend') && detectedKinds.has('backend'))) {
-    projectKind = 'fullstack';
-  } else if (detectedKinds.has('backend')) {
-    projectKind = 'backend';
-  } else if (detectedKinds.has('frontend')) {
-    projectKind = 'frontend';
-  }
-
-  return {
-    dependencies,
-    vueProfile,
-    frameworkLabel,
-    uiLibLabels,
-    projectKind,
-    stackTags: finalizeStackTags(stackTags),
-  };
-}
-
-function detectProjectMetadata(projectDir: string, lang: ProjectLang, packageJson?: PackageJson): {
-  dependencies: Record<string, string>;
-  vueProfile: VueProfile | null;
-} & DetectedProjectMetadata {
-  if (packageJson) {
-    return detectNodeProjectMetadata(projectDir, packageJson, lang);
-  }
-
-  const metadata = (() => {
-    switch (lang) {
-      case 'java':
-        return detectJavaProjectMetadata(projectDir);
-      case 'rust':
-        return detectRustProjectMetadata(projectDir);
-      case 'dotnet':
-        return detectDotnetProjectMetadata(projectDir);
-      default:
-        return detectGenericProjectMetadata(lang);
-    }
-  })();
-
-  return {
-    dependencies: {},
-    vueProfile: null,
-    ...metadata,
-  };
-}
-
-/**
- * 从 targetDir 递归扫描子项目
- *
- * - 最多扫描 2 层深度
- * - 排除 node_modules、dist 等目录
- * - 防循环：维护 visited Set（处理 symlink）
- * - 超过 MAX_SUB_PROJECTS 截断并警告
- */
-function discoverWorkspace(logger: Logger, targetDir: string): WorkspaceInfo {
-  const projects: SubProject[] = [];
-  const visited = new Set<string>();
-
-  /**
-   * 递归扫描目录
-   * @param dir 当前目录
-   * @param depth 当前深度（0 = targetDir 本身）
-   */
-  function scan(dir: string, depth: number): void {
-    if (depth > 2) return;
-    if (projects.length >= MAX_SUB_PROJECTS) return;
-
-    // 防循环：解析真实路径
-    let realDir: string;
-    try {
-      realDir = fs.realpathSync(dir);
-    } catch {
-      return;
-    }
-    if (visited.has(realDir)) return;
-    visited.add(realDir);
-
-    // 检测当前目录是否为项目（多语言标志文件检测）
-    const relativePath = path.relative(targetDir, dir).replace(/\\/g, '/') || '.';
-    let detected = false;
-
-    // 按 PROJECT_MARKERS 优先级逐个检测
-    for (const marker of PROJECT_MARKERS) {
-      const markerFile = marker.files.find(f => fs.existsSync(path.join(dir, f)));
-      if (!markerFile) continue;
-
-      // 匹配到标志文件
-      let lang = marker.lang;
-
-      // 细化语言（如 JS → TS）
-      if (marker.refinements) {
-        for (const ref of marker.refinements) {
-          if (ref.files.some(f => fs.existsSync(path.join(dir, f)))) {
-            lang = ref.lang;
-            break;
-          }
-        }
-      }
-
-      if (markerFile === 'package.json') {
-        // JS/TS 项目：解析 package.json
-        try {
-          const pkgContent = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8')) as PackageJson;
-          const metadata = detectProjectMetadata(dir, lang, pkgContent);
-
-          projects.push({
-            name: pkgContent.name || path.basename(dir),
-            relativePath,
-            absolutePath: dir,
-            lang,
-            packageJson: pkgContent,
-            vueProfile: metadata.vueProfile,
-            dependencies: metadata.dependencies,
-            matchedLayer2Rules: [],
-            frameworkLabel: metadata.frameworkLabel,
-            uiLibLabels: metadata.uiLibLabels,
-            projectKind: metadata.projectKind,
-            stackTags: metadata.stackTags,
-          });
-        } catch {
-          logger.warn(`解析 package.json 失败: ${path.join(dir, 'package.json')}`);
-        }
-      } else {
-        // 非 JS 项目：用目录名作为项目名
-        const metadata = detectProjectMetadata(dir, lang);
-        projects.push({
-          name: path.basename(dir),
-          relativePath,
-          absolutePath: dir,
-          lang,
-          vueProfile: metadata.vueProfile,
-          dependencies: metadata.dependencies,
-          matchedLayer2Rules: [],
-          frameworkLabel: metadata.frameworkLabel,
-          uiLibLabels: metadata.uiLibLabels,
-          projectKind: metadata.projectKind,
-          stackTags: metadata.stackTags,
-        });
-      }
-
-      detected = true;
-      break; // 匹配即停
-    }
-
-    // .NET 项目特殊检测（通配符 *.csproj）
-    if (!detected) {
-      try {
-        const entries = fs.readdirSync(dir);
-        const hasCsproj = entries.some(e => e.endsWith('.csproj') || e.endsWith('.sln'));
-        if (hasCsproj) {
-          const metadata = detectProjectMetadata(dir, 'dotnet');
-          projects.push({
-            name: path.basename(dir),
-            relativePath,
-            absolutePath: dir,
-            lang: 'dotnet',
-            vueProfile: metadata.vueProfile,
-            dependencies: metadata.dependencies,
-            matchedLayer2Rules: [],
-            frameworkLabel: metadata.frameworkLabel,
-            uiLibLabels: metadata.uiLibLabels,
-            projectKind: metadata.projectKind,
-            stackTags: metadata.stackTags,
-          });
-          detected = true;
-        }
-      } catch {
-        // 无法访问，跳过
-      }
-    }
-
-    // 继续扫描子目录
-    if (depth < 2) {
-      let entries: string[];
-      try {
-        entries = fs.readdirSync(dir);
-      } catch {
-        return;
-      }
-      for (const entry of entries) {
-        // 排除隐藏目录和已知无关目录
-        if (entry.startsWith('.') || WORKSPACE_EXCLUDE_DIRS.has(entry)) continue;
-
-        const childPath = path.join(dir, entry);
-        try {
-          const stat = fs.statSync(childPath);
-          if (stat.isDirectory()) {
-            scan(childPath, depth + 1);
-          }
-        } catch {
-          // 无法访问的目录，跳过
-        }
-      }
-    }
-  }
-
-  scan(targetDir, 0);
-
-  if (projects.length >= MAX_SUB_PROJECTS) {
-    logger.warn(`子项目数量已达上限 ${MAX_SUB_PROJECTS}，后续子项目被截断`);
-  }
-
-  const isWorkspace = projects.length > 1;
-
-  if (isWorkspace) {
-    logger.log(`发现 Workspace 模式：${projects.length} 个子项目`);
-    for (const p of projects) {
-      const label = [p.lang, p.frameworkLabel, ...p.uiLibLabels].filter(Boolean).join(' + ');
-      logger.verbose(`  - ${p.relativePath} (${label || '无框架检测'})`);
-    }
-  }
-
-  return {
-    isWorkspace,
-    rootDir: targetDir,
-    projects,
-    discoveredAt: new Date().toISOString(),
-    scope: 'workspace-union',
-    selectedProject: null,
-    totalProjectCount: projects.length,
-  };
-}
-
-function normalizeSelector(value: string): string {
-  return value.trim().toLowerCase().replace(/\\/g, '/');
-}
-
-function normalizeStackLabel(value: string): string {
-  return normalizeStackTag(value);
-}
-
-function detectProjectLangFromDir(projectDir: string): ProjectLang {
-  for (const marker of PROJECT_MARKERS) {
-    const markerFile = marker.files.find(file => fs.existsSync(path.join(projectDir, file)));
-    if (!markerFile) continue;
-
-    let lang = marker.lang;
-    if (marker.refinements) {
-      for (const refinement of marker.refinements) {
-        if (refinement.files.some(file => fs.existsSync(path.join(projectDir, file)))) {
-          lang = refinement.lang;
-          break;
-        }
-      }
-    }
-
-    return lang;
-  }
-
-  try {
-    const entries = fs.readdirSync(projectDir);
-    if (entries.some(entry => entry.endsWith('.csproj') || entry.endsWith('.fsproj'))) {
-      return 'dotnet';
-    }
-  } catch {
-    return 'unknown';
-  }
-
-  return 'unknown';
-}
-
-function getProjectAliases(project: SubProject): string[] {
-  const aliases = new Set<string>();
-  aliases.add(project.relativePath);
-  aliases.add(project.name);
-  aliases.add(project.relativePath.split('/').pop() || project.relativePath);
-  if (project.relativePath === '.') {
-    aliases.add('root');
-    aliases.add('.');
-  }
-  return [...aliases].map(normalizeSelector).filter(Boolean);
-}
-
-function resolveTargetProject(workspaceInfo: WorkspaceInfo, selector: string): SubProject | null {
-  const normalizedSelector = normalizeSelector(selector);
-  if (!normalizedSelector) return null;
-
-  const exact = workspaceInfo.projects.find(project => getProjectAliases(project).includes(normalizedSelector));
-  if (exact) return exact;
-
-  const prefixMatches = workspaceInfo.projects.filter(project =>
-    normalizeSelector(project.relativePath).startsWith(normalizedSelector)
-  );
-  if (prefixMatches.length === 1) return prefixMatches[0];
-
-  const fuzzyMatches = workspaceInfo.projects.filter(project =>
-    getProjectAliases(project).some(alias => alias.includes(normalizedSelector))
-  );
-  if (fuzzyMatches.length === 1) return fuzzyMatches[0];
-
-  return null;
-}
-
-function createScopedWorkspaceInfo(
-  logger: Logger,
-  workspaceInfo: WorkspaceInfo,
-  workspaceScope: WorkspaceScope,
-  targetProjectSelector: string | null,
-): WorkspaceInfo {
-  if (!workspaceInfo.isWorkspace || workspaceInfo.projects.length <= 1) {
-    return {
-      ...workspaceInfo,
-      scope: workspaceScope,
-      selectedProject: workspaceInfo.projects[0]?.relativePath || null,
-      totalProjectCount: workspaceInfo.projects.length,
-    };
-  }
-
-  if (workspaceScope !== 'project-targeted') {
-    return {
-      ...workspaceInfo,
-      scope: 'workspace-union',
-      selectedProject: null,
-      totalProjectCount: workspaceInfo.projects.length,
-    };
-  }
-
-  if (!targetProjectSelector) {
-    logError('project-targeted 模式需要配合 --project <selector>');
-    process.exit(1);
-  }
-
-  const selectedProject = resolveTargetProject(workspaceInfo, targetProjectSelector);
-  if (!selectedProject) {
-    logError(`未找到匹配的子项目: ${targetProjectSelector}`);
-    process.exit(1);
-  }
-
-  logger.log(`Workspace 定向模式: ${selectedProject.name} (${selectedProject.relativePath})`);
-  return {
-    ...workspaceInfo,
-    isWorkspace: true,
-    projects: [selectedProject],
-    scope: 'project-targeted',
-    selectedProject: selectedProject.relativePath,
-    totalProjectCount: workspaceInfo.projects.length,
-  };
-}
-
-function collectSkillContextProjects(workspaceInfo: WorkspaceInfo): SubProject[] {
-  return workspaceInfo.projects;
-}
-
-function collectProjectFrameworkTags(project: SubProject): Set<string> {
-  const tags = new Set<string>(project.stackTags || []);
-  if (project.frameworkLabel) tags.add(normalizeStackLabel(project.frameworkLabel));
-  if (project.vueProfile) tags.add(`vue${project.vueProfile.version}`);
-  for (const uiLib of project.uiLibLabels) {
-    tags.add(normalizeStackLabel(uiLib));
-  }
-  return tags;
-}
-
-function matchesSkillLanguages(skill: SkillMetadata, projects: SubProject[]): boolean {
-  if (!skill.languages || skill.languages.length === 0) return true;
-  const languages = new Set(projects.map(project => project.lang));
-  return skill.languages.some(language => languages.has(language));
-}
-
-function matchesSkillFrameworks(skill: SkillMetadata, projects: SubProject[]): boolean {
-  if (!skill.frameworks || skill.frameworks.length === 0) return true;
-  const frameworkTags = new Set<string>();
-  for (const project of projects) {
-    for (const tag of collectProjectFrameworkTags(project)) {
-      frameworkTags.add(tag);
-    }
-  }
-  return skill.frameworks.some(framework => frameworkTags.has(normalizeStackLabel(framework)));
-}
-
-function matchesSkillStack(skill: SkillMetadata, projects: SubProject[]): boolean {
-  const hasLanguages = Boolean(skill.languages && skill.languages.length > 0);
-  const hasFrameworks = Boolean(skill.frameworks && skill.frameworks.length > 0);
-
-  if (!hasLanguages && !hasFrameworks) return true;
-  if (hasLanguages && hasFrameworks) {
-    return matchesSkillLanguages(skill, projects) || matchesSkillFrameworks(skill, projects);
-  }
-  if (hasLanguages) return matchesSkillLanguages(skill, projects);
-  return matchesSkillFrameworks(skill, projects);
-}
-
-function matchesSkillWorkspaceScope(skill: SkillMetadata, workspaceInfo: WorkspaceInfo): boolean {
-  if (!skill.workspaceScope || skill.workspaceScope === 'both') return true;
-  if (workspaceInfo.totalProjectCount <= 1) return true;
-  return skill.workspaceScope === workspaceInfo.scope;
-}
-
-function matchesSkillRole(skill: SkillMetadata, targetRole: SkillRole | null): boolean {
-  if (!targetRole || !skill.roles || skill.roles.length === 0) return true;
-  if (targetRole === 'fullstack') {
-    return skill.roles.includes('fullstack') || skill.roles.includes('frontend') || skill.roles.includes('backend');
-  }
-  return skill.roles.includes(targetRole);
-}
-
-function matchesBusinessRuleSelector(
-  project: Pick<SubProject, 'lang' | 'projectKind' | 'stackTags' | 'dependencies'>,
-  selector: string,
-): boolean {
-  const normalizedSelector = selector.trim();
-  if (!normalizedSelector) return false;
-
-  const separatorIndex = normalizedSelector.indexOf(':');
-  const selectorType = separatorIndex >= 0
-    ? normalizeStackTag(normalizedSelector.slice(0, separatorIndex))
-    : '';
-  const selectorValue = separatorIndex >= 0
-    ? normalizedSelector.slice(separatorIndex + 1).trim()
-    : normalizedSelector;
-
-  if (!selectorValue) return false;
-
-  const hasDependency = (packageName: string): boolean => Boolean(project.dependencies[packageName]);
-  const normalizedValue = normalizeStackTag(selectorValue);
-
-  switch (selectorType) {
-    case '':
-      return hasDependency(selectorValue);
-    case 'dependency':
-    case 'dep':
-    case 'package':
-    case 'pkg':
-      return hasDependency(selectorValue);
-    case 'stack':
-    case 'framework':
-    case 'uilib':
-      return project.stackTags.some(tag => normalizeStackTag(tag) === normalizedValue);
-    case 'lang':
-    case 'language':
-      return normalizeStackTag(project.lang) === normalizedValue;
-    case 'kind':
-    case 'projectkind':
-      return normalizeStackTag(project.projectKind) === normalizedValue;
-    default:
-      return false;
-  }
-}
-
-function collectMatchedBusinessRules(
-  project: Pick<SubProject, 'lang' | 'projectKind' | 'stackTags' | 'dependencies'>,
-  businessSelectors: Record<string, string[]>,
-): Array<{ selector: string; rule: string }> {
-  const matches: Array<{ selector: string; rule: string }> = [];
-  const seenRules = new Set<string>();
-
-  for (const [selector, ruleFolders] of Object.entries(businessSelectors)) {
-    if (!matchesBusinessRuleSelector(project, selector)) continue;
-
-    for (const rule of ruleFolders) {
-      if (seenRules.has(rule)) continue;
-      seenRules.add(rule);
-      matches.push({ selector, rule });
-    }
-  }
-
-  return matches;
-}
-
-function shouldIncludeSkill(skill: SkillMetadata, ctx: Readonly<Context>, workspaceInfo: WorkspaceInfo): boolean {
-  const projects = collectSkillContextProjects(workspaceInfo);
-  return matchesSkillWorkspaceScope(skill, workspaceInfo)
-    && matchesSkillStack(skill, projects)
-    && matchesSkillRole(skill, ctx.targetRole);
 }
 
 // ============ 规则加载 ============
@@ -1633,7 +529,7 @@ async function loadSkills(
     metadataFileName: 'SKILL.md',
     parseMetadata: parseSkillMetadata,
     label: '技能',
-    includeEntity: (metadata) => shouldIncludeSkill(metadata, ctx, workspaceInfo),
+    includeEntity: (metadata) => shouldIncludeSkill(metadata, workspaceInfo, ctx.targetRole),
   }, tracker, targetDir);
 }
 
@@ -1756,9 +652,11 @@ async function distributeWorkflows(
     readme: [
       '# Workflows', '',
       '本目录包含工作流规范（Workflow Spec）。', '',
-      '- `default.workflow.json`：默认单任务闭环工作流（分析→计划→实现→测试→审查→验收）。',
-      '- `workflow.schema.json`：Workflow Spec 的 JSON Schema，用于校验/CI/MCP/多工具适配。', '',
-      '说明：早期可将其作为 Agent 的执行约束与产物清单；后期可由 Task Executor 按步骤编排并强制执行 gates。', '',
+      '- `default.workflow.json`：完整 7 步闭环工作流（PRD→分析→计划→TDD→审查→构建→验收）。',
+      '- `sprint.workflow.json`：中档 5 步工作流（分析→计划→TDD→审查→验收）。',
+      '- `micro.workflow.json`：轻量 3 步工作流（计划→实现→验证）。',
+      '- `workflow.schema.json`：Workflow Spec 的 JSON Schema。', '',
+      '使用 `--workflow` 参数指定模板：`node task-executor.js <id> --workflow .codebuddy/workflows/micro.workflow.json`', '',
     ].join('\n'),
   });
 }
@@ -2202,9 +1100,21 @@ async function main(): Promise<void> {
     }
     : discoverWorkspace(logger, targetDir);
 
-  const workspaceInfo = ctx.disableWorkspace
-    ? discoveredWorkspaceInfo
-    : createScopedWorkspaceInfo(logger, discoveredWorkspaceInfo, ctx.workspaceScope, ctx.targetProject);
+  let workspaceInfo: WorkspaceInfo;
+  if (ctx.disableWorkspace) {
+    workspaceInfo = discoveredWorkspaceInfo;
+  } else {
+    try {
+      workspaceInfo = createScopedWorkspaceInfo(discoveredWorkspaceInfo, ctx.workspaceScope, ctx.targetProject);
+    } catch (error) {
+      logError((error as Error).message);
+      process.exit(1);
+    }
+  }
+
+  if (!ctx.disableWorkspace && workspaceInfo.scope === 'project-targeted' && workspaceInfo.projects[0]) {
+    logger.log(`Workspace 定向模式: ${workspaceInfo.projects[0].name} (${workspaceInfo.projects[0].relativePath})`);
+  }
 
   if (ctx.disableWorkspace) {
     logger.verbose('Workspace 发现已禁用（--no-workspace）');
@@ -2588,9 +1498,10 @@ updatedAt: ${updatedAt}
     },
     logger,
   );
+  const loaderVersion = getLoaderVersion(ctx, logger);
   const installState = buildInstallState({
+    version: loaderVersion,
     ctx,
-    logger,
     targetDir,
     outputPath,
     workspaceIndexPath,

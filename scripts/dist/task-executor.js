@@ -31,11 +31,12 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var task_executor_exports = {};
 __export(task_executor_exports, {
   TaskExecutor: () => TaskExecutor,
-  createTaskExecutor: () => createTaskExecutor
+  createTaskExecutor: () => createTaskExecutor,
+  runWorkflow: () => runWorkflow
 });
 module.exports = __toCommonJS(task_executor_exports);
-var fs8 = __toESM(require("fs"));
-var path10 = __toESM(require("path"));
+var fs10 = __toESM(require("fs"));
+var path13 = __toESM(require("path"));
 var import_child_process3 = require("child_process");
 var import_crypto = require("crypto");
 
@@ -99,6 +100,11 @@ function resolveInstalledAgentsRootDir(installState) {
   if (!installState) return null;
   return normalizeRelativeRoot(installState.outputs.agentsRootDir) || (installState.stats.agents > 0 ? ".codebuddy/agents" : null);
 }
+function resolveInstalledRulesCacheRootDir(installState) {
+  if (!installState) return null;
+  const hasInstalledRuleCache = installState.stats.layer1Rules > 0 || installState.stats.layer2Indexes > 0 || installState.stats.layer3Indexes > 0;
+  return hasInstalledRuleCache ? ".codebuddy/rules_cache" : null;
+}
 function getProjectInstallState(projectRoot) {
   return readInstallState(projectRoot);
 }
@@ -119,11 +125,22 @@ function getProjectSkillRootCandidates(projectRoot, installState) {
     "custom-skills"
   ]);
 }
+function getProjectRuleRootCandidates(projectRoot, installState) {
+  const resolvedInstallState = typeof installState === "undefined" ? getProjectInstallState(projectRoot) : installState;
+  return dedupeRelativeRoots([
+    resolveInstalledRulesCacheRootDir(resolvedInstallState),
+    ".codebuddy/rules_cache",
+    "rules"
+  ]);
+}
 function getProjectAgentRootCandidatePaths(projectRoot, installState) {
   return getProjectAgentRootCandidates(projectRoot, installState).map((relativeRoot) => path3.join(projectRoot, relativeRoot));
 }
 function getProjectSkillRootCandidatePaths(projectRoot, installState) {
   return getProjectSkillRootCandidates(projectRoot, installState).map((relativeRoot) => path3.join(projectRoot, relativeRoot));
+}
+function getProjectRuleRootCandidatePaths(projectRoot, installState) {
+  return getProjectRuleRootCandidates(projectRoot, installState).map((relativeRoot) => path3.join(projectRoot, relativeRoot));
 }
 function listAgentDefinitionCandidatePaths(projectRoot, agentId, installState) {
   return getProjectAgentRootCandidatePaths(projectRoot, installState).map((rootDir) => path3.join(rootDir, agentId, "AGENT.md"));
@@ -142,6 +159,9 @@ var AGENT_CALLS_DIR = ".codebuddy/agent-calls";
 var LOCK_STALE_MS = 2 * 60 * 1e3;
 var LOCK_TIMEOUT_MS = 10 * 1e3;
 var LOCK_RETRY_MS = 80;
+var TASKBOOK_FILE_DELETE_RETRY_MS = 80;
+var TASKBOOK_FILE_DELETE_MAX_RETRIES = 6;
+var TASKBOOK_FILE_DELETE_RETRY_CODES = /* @__PURE__ */ new Set(["EBUSY", "EMFILE", "ENFILE", "EPERM"]);
 var IN_PROCESS_LOCK_DEPTHS = /* @__PURE__ */ new Map();
 var SLEEP_INT32 = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) {
@@ -169,9 +189,17 @@ function ensureDir(dirPath) {
     fs2.mkdirSync(dirPath, { recursive: true });
   }
 }
+function isTerminalTaskBookStatus(status) {
+  return status === "completed" || status === "aborted";
+}
 var TaskBookManager = class {
-  constructor(projectRoot = process.cwd()) {
+  constructor(projectRoot = process.cwd(), options = {}) {
     this.baseDir = projectRoot;
+    this.lockTimeoutMs = options.lockTimeoutMs ?? LOCK_TIMEOUT_MS;
+    this.lockRetryMs = options.lockRetryMs ?? LOCK_RETRY_MS;
+  }
+  getProjectRoot() {
+    return this.baseDir;
   }
   /**
    * 获取活跃任务书目录
@@ -184,6 +212,12 @@ var TaskBookManager = class {
    */
   getHistoryDir() {
     return path4.join(this.baseDir, TASKBOOK_BASE_DIR, HISTORY_DIR);
+  }
+  getActiveFilePath(taskBookId) {
+    return path4.join(this.getActiveDir(), `${taskBookId}.json`);
+  }
+  getHistoryFilePath(taskBookId) {
+    return path4.join(this.getHistoryDir(), `${taskBookId}.json`);
   }
   /**
    * 获取上下文快照目录
@@ -201,7 +235,7 @@ var TaskBookManager = class {
     return path4.join(this.getLocksDir(), `${taskBookId}.lock`);
   }
   cleanupLockFile(lockPath) {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES; attempt++) {
       try {
         if (fs2.existsSync(lockPath)) {
           fs2.unlinkSync(lockPath);
@@ -209,13 +243,107 @@ var TaskBookManager = class {
         return;
       } catch (error) {
         const err = error;
-        if ((err?.code === "EPERM" || err?.code === "EBUSY") && attempt < 4) {
-          sleepSync(LOCK_RETRY_MS);
+        if (err?.code === "ENOENT") {
+          return;
+        }
+        if (TASKBOOK_FILE_DELETE_RETRY_CODES.has(err?.code || "") && attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES - 1) {
+          try {
+            fs2.rmSync(lockPath, { force: true });
+            return;
+          } catch (rmError) {
+            const rmErr = rmError;
+            if (rmErr?.code === "ENOENT") {
+              return;
+            }
+          }
+          sleepSync(TASKBOOK_FILE_DELETE_RETRY_MS);
           continue;
+        }
+        try {
+          fs2.rmSync(lockPath, { force: true });
+        } catch (rmError) {
+          const rmErr = rmError;
+          if (rmErr?.code === "ENOENT") {
+            return;
+          }
         }
         return;
       }
     }
+  }
+  cleanupArchivedActiveFile(filePath) {
+    for (let attempt = 0; attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES; attempt++) {
+      try {
+        if (!fs2.existsSync(filePath)) {
+          return true;
+        }
+        fs2.unlinkSync(filePath);
+        return true;
+      } catch (error) {
+        const err = error;
+        if (err?.code === "ENOENT") {
+          return true;
+        }
+        if (TASKBOOK_FILE_DELETE_RETRY_CODES.has(err?.code || "") && attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES - 1) {
+          try {
+            fs2.rmSync(filePath, { force: true });
+            return true;
+          } catch (rmError) {
+            const rmErr = rmError;
+            if (rmErr?.code === "ENOENT") {
+              return true;
+            }
+          }
+          sleepSync(TASKBOOK_FILE_DELETE_RETRY_MS);
+          continue;
+        }
+        try {
+          fs2.rmSync(filePath, { force: true });
+          return true;
+        } catch (rmError) {
+          const rmErr = rmError;
+          if (rmErr?.code === "ENOENT") {
+            return true;
+          }
+        }
+        return false;
+      }
+    }
+    return !fs2.existsSync(filePath);
+  }
+  readTaskBookFile(filePath) {
+    if (!fs2.existsSync(filePath)) {
+      return null;
+    }
+    try {
+      const content = fs2.readFileSync(filePath, "utf-8");
+      const parsed = JSON.parse(content);
+      return this.normalize(parsed);
+    } catch {
+      return null;
+    }
+  }
+  shouldPreferHistorySnapshot(activeTaskBook, historyTaskBook) {
+    if (!historyTaskBook) {
+      return false;
+    }
+    if (!activeTaskBook) {
+      return true;
+    }
+    const activeRevision = typeof activeTaskBook.revision === "number" ? activeTaskBook.revision : 0;
+    const historyRevision = typeof historyTaskBook.revision === "number" ? historyTaskBook.revision : 0;
+    if (historyRevision !== activeRevision) {
+      return historyRevision > activeRevision;
+    }
+    const activeUpdatedAt = Date.parse(activeTaskBook.updatedAt || activeTaskBook.createdAt || "");
+    const historyUpdatedAt = Date.parse(historyTaskBook.updatedAt || historyTaskBook.createdAt || "");
+    if (Number.isFinite(activeUpdatedAt) && Number.isFinite(historyUpdatedAt) && historyUpdatedAt !== activeUpdatedAt) {
+      return historyUpdatedAt > activeUpdatedAt;
+    }
+    if (isTerminalTaskBookStatus(historyTaskBook.status) && !isTerminalTaskBookStatus(activeTaskBook.status)) {
+      return true;
+    }
+    return false;
   }
   getInProcessLockDepth(taskBookId) {
     return IN_PROCESS_LOCK_DEPTHS.get(taskBookId) ?? 0;
@@ -235,9 +363,27 @@ var TaskBookManager = class {
     try {
       const raw = fs2.readFileSync(lockPath, "utf-8");
       const parsed = JSON.parse(raw);
-      return typeof parsed.pid === "number" ? parsed.pid : null;
+      if (typeof parsed.pid === "number") {
+        return parsed.pid;
+      }
+      return typeof parsed.ownerPid === "number" ? parsed.ownerPid : null;
     } catch {
       return null;
+    }
+  }
+  isProcessAlive(pid) {
+    if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
+      return false;
+    }
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      const err = error;
+      if (err?.code === "EPERM") {
+        return true;
+      }
+      return false;
     }
   }
   normalize(taskBook) {
@@ -275,7 +421,7 @@ var TaskBookManager = class {
       }
     }
     const startedAt = Date.now();
-    const timeoutMs = opts?.timeoutMs ?? LOCK_TIMEOUT_MS;
+    const timeoutMs = opts?.timeoutMs ?? this.lockTimeoutMs;
     while (true) {
       try {
         const fd = fs2.openSync(lockPath, "wx");
@@ -300,7 +446,8 @@ var TaskBookManager = class {
         if (err?.code !== "EEXIST") {
           throw error;
         }
-        if (this.readLockOwnerPid(lockPath) === process.pid) {
+        const ownerPid = this.readLockOwnerPid(lockPath);
+        if (ownerPid === process.pid) {
           this.enterInProcessLock(taskBookId);
           try {
             return fn();
@@ -308,6 +455,10 @@ var TaskBookManager = class {
             this.exitInProcessLock(taskBookId);
             this.cleanupLockFile(lockPath);
           }
+        }
+        if (ownerPid && !this.isProcessAlive(ownerPid)) {
+          this.cleanupLockFile(lockPath);
+          continue;
         }
         try {
           const stat = fs2.statSync(lockPath);
@@ -329,7 +480,7 @@ lock info:
 ${lockInfo}` : "";
           throw new Error(`TaskBook is locked: ${taskBookId} (waited ${timeoutMs}ms)${details}`);
         }
-        sleepSync(LOCK_RETRY_MS);
+        sleepSync(this.lockRetryMs);
       }
     }
   }
@@ -359,7 +510,7 @@ ${lockInfo}` : "";
    * 保存 TaskBook
    */
   save(taskBook) {
-    const dir = taskBook.status === "completed" || taskBook.status === "aborted" ? this.getHistoryDir() : this.getActiveDir();
+    const dir = isTerminalTaskBookStatus(taskBook.status) ? this.getHistoryDir() : this.getActiveDir();
     ensureDir(dir);
     const filePath = path4.join(dir, `${taskBook.id}.json`);
     fs2.writeFileSync(filePath, JSON.stringify(taskBook, null, 2), "utf-8");
@@ -368,19 +519,12 @@ ${lockInfo}` : "";
    * 读取 TaskBook
    */
   load(id) {
-    let filePath = path4.join(this.getActiveDir(), `${id}.json`);
-    if (fs2.existsSync(filePath)) {
-      const content = fs2.readFileSync(filePath, "utf-8");
-      const parsed = JSON.parse(content);
-      return this.normalize(parsed);
+    const activeTaskBook = this.readTaskBookFile(this.getActiveFilePath(id));
+    const historyTaskBook = this.readTaskBookFile(this.getHistoryFilePath(id));
+    if (this.shouldPreferHistorySnapshot(activeTaskBook, historyTaskBook)) {
+      return historyTaskBook;
     }
-    filePath = path4.join(this.getHistoryDir(), `${id}.json`);
-    if (fs2.existsSync(filePath)) {
-      const content = fs2.readFileSync(filePath, "utf-8");
-      const parsed = JSON.parse(content);
-      return this.normalize(parsed);
-    }
-    return null;
+    return activeTaskBook ?? historyTaskBook;
   }
   /**
    * 列出所有活跃的 TaskBook
@@ -391,11 +535,18 @@ ${lockInfo}` : "";
       return [];
     }
     const files = fs2.readdirSync(dir).filter((f) => f.endsWith(".json"));
-    return files.map((f) => {
-      const content = fs2.readFileSync(path4.join(dir, f), "utf-8");
-      const parsed = JSON.parse(content);
-      return this.normalize(parsed);
-    });
+    const activeTaskBooks = [];
+    for (const fileName of files) {
+      const activeTaskBook = this.readTaskBookFile(path4.join(dir, fileName));
+      if (!activeTaskBook) continue;
+      if (isTerminalTaskBookStatus(activeTaskBook.status)) continue;
+      const historyTaskBook = this.readTaskBookFile(this.getHistoryFilePath(activeTaskBook.id));
+      if (this.shouldPreferHistorySnapshot(activeTaskBook, historyTaskBook)) {
+        continue;
+      }
+      activeTaskBooks.push(activeTaskBook);
+    }
+    return activeTaskBooks;
   }
   /**
    * 更新 TaskBook 状态
@@ -420,14 +571,11 @@ ${lockInfo}` : "";
         before: { status: oldStatus },
         after: { status }
       });
-      if (status === "completed" || status === "aborted") {
-        const activeFilePath = path4.join(this.getActiveDir(), `${id}.json`);
-        if (fs2.existsSync(activeFilePath)) {
-          fs2.unlinkSync(activeFilePath);
-        }
-      }
       this.touch(taskBook);
       this.save(taskBook);
+      if (isTerminalTaskBookStatus(status)) {
+        this.cleanupArchivedActiveFile(this.getActiveFilePath(id));
+      }
       return taskBook;
     });
   }
@@ -454,7 +602,8 @@ ${lockInfo}` : "";
         blockedReason: task.blockedReason,
         executedBy: task.executedBy,
         startedAt: task.startedAt,
-        completedAt: task.completedAt
+        completedAt: task.completedAt,
+        handoffs: task.handoffs
       };
       taskBook.tasks.push(newTask);
       this.addChangelogEntry(taskBook, {
@@ -495,7 +644,8 @@ ${lockInfo}` : "";
           blockedReason: task.blockedReason,
           executedBy: task.executedBy,
           startedAt: task.startedAt,
-          completedAt: task.completedAt
+          completedAt: task.completedAt,
+          handoffs: task.handoffs
         };
         taskBook.tasks.push(newTask);
         taskIds.push(taskId);
@@ -561,7 +711,8 @@ ${lockInfo}` : "";
           priority: t.priority ?? "medium",
           dependencies: mappedDeps,
           acceptanceCriteria: t.acceptanceCriteria ?? [],
-          scope: t.scope
+          scope: t.scope,
+          handoffs: t.handoffs
         };
         taskBook.tasks.push(newTask);
         taskIds.push(taskId);
@@ -616,7 +767,8 @@ ${lockInfo}` : "";
         "blockedReason",
         "executedBy",
         "startedAt",
-        "completedAt"
+        "completedAt",
+        "handoffs"
       ];
       for (const key of updatable) {
         const value = patch[key];
@@ -685,6 +837,33 @@ ${text}` : text;
         reason: "\u8FFD\u52A0 actualWork",
         before: { actualWork: before },
         after: { actualWork: next }
+      });
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
+    });
+  }
+  appendTaskHandoffs(taskBookId, taskId, handoffs, expectedRevision) {
+    return this.withTaskBookLock(taskBookId, () => {
+      const taskBook = this.load(taskBookId);
+      if (!taskBook) return null;
+      this.assertRevision(taskBook, expectedRevision);
+      const task = taskBook.tasks.find((t) => t.id === taskId);
+      if (!task) return null;
+      if (!Array.isArray(handoffs) || handoffs.length === 0) return taskBook;
+      const normalized = handoffs.map((handoff) => ({
+        ...handoff,
+        deliverables: handoff.deliverables && handoff.deliverables.length > 0 ? Array.from(new Set(handoff.deliverables)) : void 0
+      }));
+      const before = Array.isArray(task.handoffs) ? [...task.handoffs] : [];
+      task.handoffs = [...before, ...normalized];
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId,
+        changeType: "modified",
+        reason: `\u8FFD\u52A0 handoff \u8BB0\u5F55 (${normalized.length})`,
+        before: { handoffs: before },
+        after: { handoffs: task.handoffs }
       });
       this.touch(taskBook);
       this.save(taskBook);
@@ -2852,6 +3031,146 @@ function parseAgentFrontmatter(yaml) {
     model: extractYamlScalar(yaml, "model")
   };
 }
+var RULE_CACHE_LAYER_ROOTS = {
+  layer1_base: "layer1_reference",
+  layer2_business: "layer2_business",
+  layer3_action: "layer3_action"
+};
+function dedupeRuleCandidates(candidates) {
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const candidate of candidates) {
+    const normalizedPath = path7.normalize(candidate.path);
+    if (seen.has(normalizedPath)) continue;
+    seen.add(normalizedPath);
+    result.push(candidate);
+  }
+  return result;
+}
+function normalizeRuleName(ruleName) {
+  return ruleName.replace(/\\/g, "/").replace(/\.md$/i, "").replace(/^\/+|\/+$/g, "");
+}
+function findRuleFileByBasename(rootDir, fileName) {
+  if (!fs5.existsSync(rootDir) || !fs5.statSync(rootDir).isDirectory()) {
+    return null;
+  }
+  const matches = [];
+  const stack = [rootDir];
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    let entries;
+    try {
+      entries = fs5.readdirSync(currentDir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path7.join(currentDir, entry);
+      let stat;
+      try {
+        stat = fs5.statSync(fullPath);
+      } catch {
+        continue;
+      }
+      if (stat.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+      if (stat.isFile() && entry === fileName) {
+        matches.push(fullPath);
+      }
+    }
+  }
+  if (matches.length === 0) {
+    return null;
+  }
+  matches.sort((left, right) => {
+    const leftSegments = left.split(path7.sep).length;
+    const rightSegments = right.split(path7.sep).length;
+    if (leftSegments !== rightSegments) return leftSegments - rightSegments;
+    return left.localeCompare(right);
+  });
+  return matches[0];
+}
+function buildRuleCandidates(ruleRoot, layer, ruleName) {
+  const normalizedRuleName = normalizeRuleName(ruleName);
+  const basename6 = path7.posix.basename(normalizedRuleName);
+  const fileName = `${basename6}.md`;
+  const isCacheRoot = path7.basename(ruleRoot) === "rules_cache";
+  const baseRoot = isCacheRoot ? path7.join(ruleRoot, RULE_CACHE_LAYER_ROOTS[layer] || layer) : path7.join(ruleRoot, layer);
+  const candidates = [
+    {
+      kind: "directory",
+      path: path7.join(baseRoot, normalizedRuleName)
+    },
+    {
+      kind: "file",
+      path: path7.join(baseRoot, `${normalizedRuleName}.md`)
+    }
+  ];
+  if (!normalizedRuleName.includes("/")) {
+    const recursiveMatch = findRuleFileByBasename(baseRoot, fileName);
+    if (recursiveMatch) {
+      candidates.push({
+        kind: "file",
+        path: recursiveMatch
+      });
+    }
+  }
+  return dedupeRuleCandidates(candidates);
+}
+function formatIncomingHandoffs(context) {
+  const handoffs = context.task.incomingHandoffs ?? [];
+  if (handoffs.length === 0) {
+    return "(\u65E0\u4E0A\u6E38 handoff)";
+  }
+  return handoffs.map((handoff, index) => {
+    const lines = [
+      `${index + 1}. ${handoff.sourceTaskId} ${handoff.sourceTaskTitle} [${handoff.sourceTaskType}] -> ${handoff.to} (${handoff.type})`,
+      `   from: ${handoff.from}${handoff.sourceTaskExecutedBy ? ` / executedBy: ${handoff.sourceTaskExecutedBy}` : ""}`,
+      `   status: ${handoff.sourceTaskStatus ?? "unknown"} / at: ${handoff.timestamp}`
+    ];
+    if (handoff.context) {
+      lines.push(`   context: ${handoff.context}`);
+    }
+    if (handoff.deliverables && handoff.deliverables.length > 0) {
+      lines.push(`   deliverables: ${handoff.deliverables.join(", ")}`);
+    }
+    return lines.join("\n");
+  }).join("\n");
+}
+function buildIncomingHandoffSection(context) {
+  const handoffs = context.task.incomingHandoffs ?? [];
+  if (handoffs.length === 0) {
+    return "";
+  }
+  const handoffParts = handoffs.map((handoff, index) => {
+    const lines = [
+      `### Handoff ${index + 1}: ${handoff.sourceTaskTitle}`,
+      "",
+      `- Source Task: ${handoff.sourceTaskId} (${handoff.sourceTaskType})`,
+      `- From: ${handoff.from}${handoff.sourceTaskExecutedBy ? ` / executedBy: ${handoff.sourceTaskExecutedBy}` : ""}`,
+      `- Status: ${handoff.sourceTaskStatus ?? "unknown"}`,
+      `- Type: ${handoff.type}`,
+      `- Timestamp: ${handoff.timestamp}`
+    ];
+    if (handoff.context) {
+      lines.push(`- Context: ${handoff.context}`);
+    }
+    if (handoff.deliverables && handoff.deliverables.length > 0) {
+      lines.push(`- Deliverables: ${handoff.deliverables.join(", ")}`);
+    }
+    return lines.join("\n");
+  });
+  return [
+    "## Incoming Handoffs",
+    "",
+    "> \u4EE5\u4E0B\u662F\u4E0A\u6E38\u4EFB\u52A1\u4EA4\u63A5\u7ED9\u5F53\u524D Agent \u7684\u6700\u65B0\u4E0A\u4E0B\u6587\uFF0C\u8BF7\u4F18\u5148\u5438\u6536\u8FD9\u4E9B\u4FE1\u606F\u3002",
+    "",
+    ...handoffParts,
+    ""
+  ].join("\n");
+}
 var AgentRuntime = class {
   constructor(config) {
     this.registry = /* @__PURE__ */ new Map();
@@ -3066,6 +3385,7 @@ var AgentRuntime = class {
       `> Task: ${context.task.title} (${context.task.type})`,
       ""
     ].join("\n");
+    const handoffSection = buildIncomingHandoffSection(context);
     let skillSection = "";
     if (Object.keys(agent.skills).length > 0) {
       const skillParts = Object.entries(agent.skills).map(
@@ -3098,7 +3418,7 @@ ${content.slice(0, 2e3)}`
         ""
       ].join("\n");
     }
-    return header + skillSection + ruleSection + rendered;
+    return header + handoffSection + skillSection + ruleSection + rendered;
   }
   /** 构建模板变量表 */
   buildTemplateVariables(agent, context) {
@@ -3112,6 +3432,8 @@ ${content.slice(0, 2e3)}`
       "task.acceptanceCriteria": task.acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join("\n"),
       "task.scope.files": task.scope?.files?.join(", ") || "(\u672A\u6307\u5B9A)",
       "task.scope.modules": task.scope?.modules?.join(", ") || "(\u672A\u6307\u5B9A)",
+      "task.incomingHandoffs": formatIncomingHandoffs(context),
+      "task.incomingHandoffCount": String(task.incomingHandoffs?.length ?? 0),
       "taskBook.id": context.taskBookId,
       "agent.name": agent.metadata.name,
       "agent.id": agent.id,
@@ -3126,6 +3448,7 @@ ${f.content}
     } else {
       vars["context.files"] = "(\u65E0\u9884\u52A0\u8F7D\u6587\u4EF6)";
     }
+    vars["context.handoffs"] = formatIncomingHandoffs(context);
     return vars;
   }
   // ============ 调用 ============
@@ -3219,39 +3542,55 @@ ${f.content}
    * 加载 Agent 声明的 Rules 内容
    *
    * 从 dependencies 中解析 layer/rule-name，
-   * 在 rules/<layer>/<rule-name>/ 目录或 rules/<layer>/<rule-name>.md 中查找
+   * 优先读取 .codebuddy/rules_cache 中的已安装规则，再回退到源码 rules/ 目录
    */
   loadDeclaredRules(metadata) {
     const rules = {};
     if (!metadata.dependencies) return rules;
     const root = this.config.projectRoot;
+    const ruleRoots = getProjectRuleRootCandidatePaths(root);
     for (const [layer, ruleNames] of Object.entries(metadata.dependencies)) {
       if (!Array.isArray(ruleNames)) continue;
       for (const ruleName of ruleNames) {
         const key = `${layer}/${ruleName}`;
-        const dirPath = path7.join(root, "rules", layer, ruleName);
-        const filePath = path7.join(root, "rules", layer, `${ruleName}.md`);
-        if (fs5.existsSync(dirPath) && fs5.statSync(dirPath).isDirectory()) {
-          try {
-            const mdFiles = fs5.readdirSync(dirPath).filter((f) => f.endsWith(".md")).sort();
-            if (mdFiles.length > 0) {
-              const combined = mdFiles.map((f) => {
-                const content = fs5.readFileSync(path7.join(dirPath, f), "utf-8");
-                return `<!-- ${f} -->
-${content}`;
-              }).join("\n\n");
-              rules[key] = combined;
-              rtDebug(`\u5DF2\u52A0\u8F7D Rule: ${key} (${mdFiles.length} \u4E2A\u6587\u4EF6)`);
+        let found = false;
+        for (const ruleRoot of ruleRoots) {
+          for (const candidate of buildRuleCandidates(ruleRoot, layer, ruleName)) {
+            if (!fs5.existsSync(candidate.path)) {
+              continue;
             }
-          } catch {
+            if (candidate.kind === "directory" && fs5.statSync(candidate.path).isDirectory()) {
+              try {
+                const mdFiles = fs5.readdirSync(candidate.path).filter((f) => f.endsWith(".md")).sort();
+                if (mdFiles.length === 0) {
+                  continue;
+                }
+                rules[key] = mdFiles.map((f) => {
+                  const content = fs5.readFileSync(path7.join(candidate.path, f), "utf-8");
+                  return `<!-- ${f} -->
+${content}`;
+                }).join("\n\n");
+                rtDebug(`\u5DF2\u52A0\u8F7D Rule: ${key} (${candidate.path}, ${mdFiles.length} \u4E2A\u6587\u4EF6)`);
+                found = true;
+                break;
+              } catch {
+              }
+            }
+            if (candidate.kind === "file" && fs5.statSync(candidate.path).isFile()) {
+              try {
+                rules[key] = fs5.readFileSync(candidate.path, "utf-8");
+                rtDebug(`\u5DF2\u52A0\u8F7D Rule: ${key} (${candidate.path})`);
+                found = true;
+                break;
+              } catch {
+              }
+            }
           }
-        } else if (fs5.existsSync(filePath)) {
-          try {
-            rules[key] = fs5.readFileSync(filePath, "utf-8");
-            rtDebug(`\u5DF2\u52A0\u8F7D Rule: ${key}`);
-          } catch {
+          if (found) {
+            break;
           }
-        } else {
+        }
+        if (!found) {
           rtDebug(`Rule '${key}' \u672A\u627E\u5230\uFF0C\u8DF3\u8FC7`);
         }
       }
@@ -3575,23 +3914,23 @@ function truncateMessage(message, maxLength = 500) {
 var fs7 = __toESM(require("fs"));
 var path9 = __toESM(require("path"));
 var METRICS_SCHEMA_VERSION = "1.0.0";
-var METRICS_DIR = path9.join(process.cwd(), ".codebuddy", "reports", "metrics");
-var EVENTS_FILE = path9.join(METRICS_DIR, "execution-events.jsonl");
-var SUMMARY_FILE = path9.join(METRICS_DIR, "latest-summary.json");
 function recordExecutionMetric(input) {
-  ensureMetricsDir();
+  const projectRoot = input.projectRoot || process.cwd();
+  const metricsPaths = getExecutionMetricsPaths(projectRoot);
+  ensureMetricsDir(metricsPaths.dir);
   const event = {
     ...input,
     schemaVersion: METRICS_SCHEMA_VERSION,
     recordedAt: input.recordedAt || (/* @__PURE__ */ new Date()).toISOString()
   };
-  fs7.appendFileSync(EVENTS_FILE, `${JSON.stringify(event)}
+  delete event.projectRoot;
+  fs7.appendFileSync(metricsPaths.eventsFile, `${JSON.stringify(event)}
 `, "utf-8");
-  const summary = loadExecutionMetricsSummary();
+  const summary = loadExecutionMetricsSummary(projectRoot);
   applyEvent(summary, event);
   summary.generatedAt = event.recordedAt;
   summary.lastEventAt = event.recordedAt;
-  fs7.writeFileSync(SUMMARY_FILE, JSON.stringify(summary, null, 2), "utf-8");
+  fs7.writeFileSync(metricsPaths.summaryFile, JSON.stringify(summary, null, 2), "utf-8");
   return event;
 }
 function loadExecutionMetricsSummary(projectRoot = process.cwd()) {
@@ -3605,6 +3944,26 @@ function loadExecutionMetricsSummary(projectRoot = process.cwd()) {
   } catch {
     return createEmptySummary(projectRoot);
   }
+}
+function getExecutionMetricsPaths(projectRoot = process.cwd()) {
+  return {
+    dir: path9.join(projectRoot, ".codebuddy", "reports", "metrics"),
+    eventsFile: path9.join(projectRoot, ".codebuddy", "reports", "metrics", "execution-events.jsonl"),
+    summaryFile: path9.join(projectRoot, ".codebuddy", "reports", "metrics", "latest-summary.json")
+  };
+}
+function recordWorkflowRoutingMetric(params) {
+  const eventType = params.decision.mode === "reused" ? "workflow_route_reused" : params.decision.mode === "fallback" ? "workflow_route_fallback" : "workflow_route_selected";
+  return recordExecutionMetric({
+    projectRoot: params.projectRoot,
+    eventType,
+    recordedAt: params.recordedAt,
+    taskBookId: params.taskBook.id,
+    workflowId: params.decision.selectedWorkflowId,
+    workflowPath: params.decision.selectedWorkflowPath,
+    routeMode: params.decision.mode,
+    routeConfidence: params.decision.confidence
+  });
 }
 function classifyBlockedReason(reason) {
   const text = String(reason || "").trim().toLowerCase();
@@ -3647,8 +4006,8 @@ function computeDurationMs(startedAt, completedAt) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return void 0;
   return end - start;
 }
-function ensureMetricsDir() {
-  fs7.mkdirSync(METRICS_DIR, { recursive: true });
+function ensureMetricsDir(metricsDir) {
+  fs7.mkdirSync(metricsDir, { recursive: true });
 }
 function createEmptySummary(projectRoot) {
   return {
@@ -3665,12 +4024,17 @@ function createEmptySummary(projectRoot) {
       agentCallsCreated: 0,
       agentCallsApplied: 0,
       workerExecutions: 0,
+      workflowRoutesSelected: 0,
+      workflowRoutesReused: 0,
+      workflowRoutesFallback: 0,
       totalDurationMs: 0,
       averageDurationMs: 0
     },
     byTaskType: {},
     byExecutionMode: {},
-    blockedReasons: {}
+    blockedReasons: {},
+    workflowRoutesById: {},
+    workflowRoutesByMode: {}
   };
 }
 function normalizeSummary(raw, projectRoot) {
@@ -3686,7 +4050,9 @@ function normalizeSummary(raw, projectRoot) {
     },
     byTaskType: normalizeAggregateMap(raw.byTaskType),
     byExecutionMode: normalizeAggregateMap(raw.byExecutionMode),
-    blockedReasons: normalizeCounterMap(raw.blockedReasons)
+    blockedReasons: normalizeCounterMap(raw.blockedReasons),
+    workflowRoutesById: normalizeCounterMap(raw.workflowRoutesById),
+    workflowRoutesByMode: normalizeCounterMap(raw.workflowRoutesByMode)
   };
 }
 function normalizeAggregateMap(raw) {
@@ -3717,15 +4083,17 @@ function normalizeAggregate(raw) {
   };
 }
 function applyEvent(summary, event) {
-  const taskTypeAggregate = ensureAggregate(summary.byTaskType, event.taskType);
+  const taskTypeAggregate = event.taskType ? ensureAggregate(summary.byTaskType, event.taskType) : null;
   const modeAggregate = event.executionMode ? ensureAggregate(summary.byExecutionMode, event.executionMode) : null;
   switch (event.eventType) {
     case "task_started":
+      if (!taskTypeAggregate) return;
       summary.totals.started += 1;
       taskTypeAggregate.started += 1;
       if (modeAggregate) modeAggregate.started += 1;
       break;
     case "task_completed":
+      if (!taskTypeAggregate) return;
       summary.totals.completed += 1;
       taskTypeAggregate.completed += 1;
       if (modeAggregate) modeAggregate.completed += 1;
@@ -3735,6 +4103,7 @@ function applyEvent(summary, event) {
       applyDuration(summary, taskTypeAggregate, modeAggregate, event.durationMs);
       break;
     case "task_blocked":
+      if (!taskTypeAggregate) return;
       summary.totals.blocked += 1;
       taskTypeAggregate.blocked += 1;
       if (modeAggregate) modeAggregate.blocked += 1;
@@ -3743,6 +4112,7 @@ function applyEvent(summary, event) {
       }
       break;
     case "task_failed":
+      if (!taskTypeAggregate) return;
       summary.totals.failed += 1;
       taskTypeAggregate.failed += 1;
       if (modeAggregate) modeAggregate.failed += 1;
@@ -3751,15 +4121,51 @@ function applyEvent(summary, event) {
       summary.totals.agentCallsCreated += 1;
       break;
     case "agent_call_applied":
+      if (!taskTypeAggregate) return;
       summary.totals.agentCallsApplied += 1;
+      if (event.status === "failed") {
+        summary.totals.failed += 1;
+        taskTypeAggregate.failed += 1;
+        if (modeAggregate) modeAggregate.failed += 1;
+        break;
+      }
+      if (event.status === "blocked") {
+        summary.totals.blocked += 1;
+        taskTypeAggregate.blocked += 1;
+        if (modeAggregate) modeAggregate.blocked += 1;
+        if (event.blockedReasonCode) {
+          summary.blockedReasons[event.blockedReasonCode] = (summary.blockedReasons[event.blockedReasonCode] || 0) + 1;
+        }
+        break;
+      }
       summary.totals.resumed += 1;
       summary.totals.completed += 1;
       taskTypeAggregate.completed += 1;
       if (modeAggregate) modeAggregate.completed += 1;
       applyDuration(summary, taskTypeAggregate, modeAggregate, event.durationMs);
       break;
+    case "workflow_route_selected":
+      summary.totals.workflowRoutesSelected += 1;
+      applyWorkflowRouteCounters(summary, event);
+      break;
+    case "workflow_route_reused":
+      summary.totals.workflowRoutesReused += 1;
+      applyWorkflowRouteCounters(summary, event);
+      break;
+    case "workflow_route_fallback":
+      summary.totals.workflowRoutesFallback += 1;
+      applyWorkflowRouteCounters(summary, event);
+      break;
     default:
       return;
+  }
+}
+function applyWorkflowRouteCounters(summary, event) {
+  if (event.workflowId) {
+    summary.workflowRoutesById[event.workflowId] = (summary.workflowRoutesById[event.workflowId] || 0) + 1;
+  }
+  if (event.routeMode) {
+    summary.workflowRoutesByMode[event.routeMode] = (summary.workflowRoutesByMode[event.routeMode] || 0) + 1;
   }
 }
 function applyDuration(summary, taskTypeAggregate, modeAggregate, durationMs) {
@@ -3787,14 +4193,949 @@ function ensureAggregate(map, key) {
   return map[key];
 }
 
+// scripts/src/lib/workflow-routing-selection.ts
+var fs9 = __toESM(require("fs"));
+var path12 = __toESM(require("path"));
+
+// scripts/src/lib/project-detection.ts
+var fs8 = __toESM(require("fs"));
+var path10 = __toESM(require("path"));
+var WORKSPACE_EXCLUDE_DIRS = /* @__PURE__ */ new Set([
+  "node_modules",
+  "dist",
+  "build",
+  ".codebuddy",
+  ".git",
+  "coverage",
+  ".next",
+  ".nuxt",
+  ".output",
+  ".cache"
+]);
+var MAX_SUB_PROJECTS = 20;
+var PROJECT_MARKERS = [
+  {
+    files: ["package.json"],
+    lang: "javascript",
+    refinements: [
+      { files: ["tsconfig.json"], lang: "typescript" }
+    ]
+  },
+  { files: ["pom.xml"], lang: "java" },
+  { files: ["build.gradle", "build.gradle.kts"], lang: "java" },
+  { files: ["go.mod"], lang: "go" },
+  { files: ["pyproject.toml", "setup.py"], lang: "python" },
+  { files: ["Cargo.toml"], lang: "rust" }
+];
+var KNOWN_UI_LIBS = {
+  "ant-design-vue": "Ant Design Vue",
+  "vant": "Vant",
+  "element-plus": "Element Plus",
+  "element-ui": "Element UI",
+  "naive-ui": "Naive UI",
+  "vuetify": "Vuetify",
+  "@arco-design/web-vue": "Arco Design Vue",
+  "antd": "Ant Design",
+  "@mui/material": "MUI"
+};
+var NODE_BACKEND_STRONG_ENTRY_FILES = [
+  "src/server.ts",
+  "src/server.js",
+  "src/server.mjs",
+  "src/server.cjs",
+  "server.ts",
+  "server.js",
+  "server.mjs",
+  "server.cjs"
+];
+var NODE_BACKEND_WEAK_ENTRY_FILES = [
+  "src/main.ts",
+  "src/main.js",
+  "src/app.ts",
+  "src/app.js",
+  "main.ts",
+  "main.js",
+  "app.ts",
+  "app.js",
+  "index.ts",
+  "index.js"
+];
+var NODE_BACKEND_LAYOUT_DIRS = [
+  "src/routes",
+  "src/controllers",
+  "src/middleware",
+  "src/handlers",
+  "src/api",
+  "routes",
+  "controllers",
+  "middleware",
+  "handlers",
+  "api"
+];
+function checkVueProfile(dependencies) {
+  const vueVersion = dependencies.vue;
+  if (!vueVersion) return null;
+  if (vueVersion.startsWith("3") || vueVersion.startsWith("^3") || vueVersion.startsWith("~3")) {
+    return { version: 3, type: "standard" };
+  }
+  if (vueVersion.startsWith("2") || vueVersion.startsWith("^2") || vueVersion.startsWith("~2")) {
+    if (dependencies["@vue/composition-api"]) {
+      return { version: 2, type: "composition" };
+    }
+    return { version: 2, type: "options" };
+  }
+  return null;
+}
+function normalizeStackTag(value) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+function finalizeStackTags(values) {
+  return [...new Set([...values].map(normalizeStackTag).filter(Boolean))].sort();
+}
+function readProjectFileIfExists(filePath) {
+  try {
+    return fs8.existsSync(filePath) ? fs8.readFileSync(filePath, "utf-8") : "";
+  } catch {
+    return "";
+  }
+}
+function detectUILibs(deps) {
+  const result = [];
+  for (const [pkg, label] of Object.entries(KNOWN_UI_LIBS)) {
+    if (deps[pkg]) {
+      result.push(label);
+    }
+  }
+  return result;
+}
+function detectNodePackageManagers(projectDir) {
+  const markers = [
+    { file: "pnpm-lock.yaml", tag: "pnpm" },
+    { file: "yarn.lock", tag: "yarn" },
+    { file: "package-lock.json", tag: "npm" },
+    { file: "bun.lockb", tag: "bun" },
+    { file: "bun.lock", tag: "bun" }
+  ];
+  return markers.filter((marker) => fs8.existsSync(path10.join(projectDir, marker.file))).map((marker) => marker.tag);
+}
+function detectGenericNodeBackendProject(projectDir, packageJson) {
+  const scripts = packageJson.scripts || {};
+  const scriptValues = Object.values(scripts).filter((value) => typeof value === "string");
+  const hasBackendScript = scriptValues.some(
+    (command) => /(node|nodemon|tsx|ts-node|ts-node-dev|bun|pm2)/i.test(command) && /(server|api|listen|http)/i.test(command)
+  );
+  for (const relativePath of NODE_BACKEND_STRONG_ENTRY_FILES) {
+    if (fs8.existsSync(path10.join(projectDir, relativePath))) {
+      return true;
+    }
+  }
+  for (const relativePath of NODE_BACKEND_WEAK_ENTRY_FILES) {
+    const absolutePath = path10.join(projectDir, relativePath);
+    if (!fs8.existsSync(absolutePath)) {
+      continue;
+    }
+    const content = readProjectFileIfExists(absolutePath);
+    if (/(createServer|listen\s*\(|process\.env\.PORT|IncomingMessage|ServerResponse)/.test(content)) {
+      return true;
+    }
+  }
+  const layoutClues = NODE_BACKEND_LAYOUT_DIRS.filter(
+    (relativePath) => fs8.existsSync(path10.join(projectDir, relativePath))
+  ).length;
+  if (layoutClues >= 2) {
+    return true;
+  }
+  return hasBackendScript && layoutClues >= 1;
+}
+function detectJavaProjectMetadata(projectDir) {
+  const pomContent = readProjectFileIfExists(path10.join(projectDir, "pom.xml"));
+  const gradleContent = readProjectFileIfExists(path10.join(projectDir, "build.gradle")) || readProjectFileIfExists(path10.join(projectDir, "build.gradle.kts"));
+  const combinedContent = `${pomContent}
+${gradleContent}`.toLowerCase();
+  const stackTags = /* @__PURE__ */ new Set(["java"]);
+  if (pomContent) stackTags.add("maven");
+  if (gradleContent) stackTags.add("gradle");
+  let frameworkLabel = "";
+  let projectKind = "library";
+  if (/org\.springframework\.boot|spring-boot/.test(combinedContent)) {
+    frameworkLabel = "Spring Boot";
+    projectKind = "backend";
+    stackTags.add("springboot");
+    stackTags.add("spring");
+  } else if (/io\.quarkus|quarkus/.test(combinedContent)) {
+    frameworkLabel = "Quarkus";
+    projectKind = "backend";
+    stackTags.add("quarkus");
+  } else if (/io\.micronaut|micronaut/.test(combinedContent)) {
+    frameworkLabel = "Micronaut";
+    projectKind = "backend";
+    stackTags.add("micronaut");
+  } else if (/jakarta\.ws\.rs|javax\.ws\.rs/.test(combinedContent)) {
+    frameworkLabel = "Jakarta REST";
+    projectKind = "backend";
+    stackTags.add("jakartarest");
+  }
+  if (/spring-data-jpa|starter-data-jpa|hibernate-core|jakarta\.persistence|javax\.persistence/.test(combinedContent)) {
+    stackTags.add("jpa");
+  }
+  if (/mybatis/.test(combinedContent)) {
+    stackTags.add("mybatis");
+  }
+  return {
+    frameworkLabel,
+    uiLibLabels: [],
+    projectKind,
+    stackTags: finalizeStackTags(stackTags)
+  };
+}
+function detectRustProjectMetadata(projectDir) {
+  const cargoContent = readProjectFileIfExists(path10.join(projectDir, "Cargo.toml"));
+  const normalizedContent = cargoContent.toLowerCase();
+  const stackTags = /* @__PURE__ */ new Set(["rust", "cargo"]);
+  let frameworkLabel = "";
+  let projectKind = "library";
+  if (/\baxum\b/.test(normalizedContent)) {
+    frameworkLabel = "Axum";
+    projectKind = "backend";
+    stackTags.add("axum");
+  } else if (/actix-web/.test(normalizedContent)) {
+    frameworkLabel = "Actix Web";
+    projectKind = "backend";
+    stackTags.add("actixweb");
+  } else if (/\brocket\b/.test(normalizedContent)) {
+    frameworkLabel = "Rocket";
+    projectKind = "backend";
+    stackTags.add("rocket");
+  } else if (/\btonic\b/.test(normalizedContent)) {
+    frameworkLabel = "Tonic";
+    projectKind = "backend";
+    stackTags.add("tonic");
+  }
+  if (/\btokio\b/.test(normalizedContent)) stackTags.add("tokio");
+  if (/\bserde\b/.test(normalizedContent)) stackTags.add("serde");
+  if (/^\s*\[workspace\]/m.test(cargoContent)) stackTags.add("cargoworkspace");
+  return {
+    frameworkLabel,
+    uiLibLabels: [],
+    projectKind,
+    stackTags: finalizeStackTags(stackTags)
+  };
+}
+function detectDotnetProjectMetadata(projectDir) {
+  const projectFiles = fs8.readdirSync(projectDir).filter((entry) => entry.endsWith(".csproj") || entry.endsWith(".fsproj"));
+  const combinedContent = projectFiles.map((file) => readProjectFileIfExists(path10.join(projectDir, file))).join("\n").toLowerCase();
+  const stackTags = /* @__PURE__ */ new Set(["dotnet"]);
+  let frameworkLabel = "";
+  let projectKind = "library";
+  if (/microsoft\.aspnetcore|aspnetcore/.test(combinedContent)) {
+    frameworkLabel = "ASP.NET Core";
+    projectKind = "backend";
+    stackTags.add("aspnetcore");
+  } else if (/microsoft\.aspnetcore\.components|blazor/.test(combinedContent)) {
+    frameworkLabel = "Blazor";
+    projectKind = "frontend";
+    stackTags.add("blazor");
+  }
+  return {
+    frameworkLabel,
+    uiLibLabels: [],
+    projectKind,
+    stackTags: finalizeStackTags(stackTags)
+  };
+}
+function detectGenericProjectMetadata(lang) {
+  return {
+    frameworkLabel: "",
+    uiLibLabels: [],
+    projectKind: "unknown",
+    stackTags: finalizeStackTags([lang])
+  };
+}
+function detectNodeProjectMetadata(projectDir, packageJson, lang) {
+  const dependencies = {
+    ...packageJson.dependencies,
+    ...packageJson.devDependencies
+  };
+  const vueProfile = checkVueProfile(dependencies);
+  const uiLibLabels = detectUILibs(dependencies);
+  const stackTags = /* @__PURE__ */ new Set([lang, "nodejs", ...detectNodePackageManagers(projectDir)]);
+  const detectedKinds = /* @__PURE__ */ new Set();
+  let frameworkLabel = "";
+  const markFramework = (label, kind, ...tags) => {
+    if (!frameworkLabel) frameworkLabel = label;
+    detectedKinds.add(kind);
+    for (const tag of tags) stackTags.add(tag);
+  };
+  if (packageJson.type === "module") stackTags.add("esm");
+  if (packageJson.workspaces) stackTags.add("monorepo");
+  if (dependencies.vite) stackTags.add("vite");
+  if (dependencies.webpack) stackTags.add("webpack");
+  if (dependencies.next) markFramework("Next.js", "fullstack", "nextjs");
+  if (dependencies.nuxt || dependencies.nuxt3) markFramework(frameworkLabel || "Nuxt", "fullstack", "nuxt");
+  if (dependencies["@remix-run/node"] || dependencies["@remix-run/react"]) {
+    markFramework(frameworkLabel || "Remix", "fullstack", "remix");
+  }
+  if (dependencies["@nestjs/core"]) markFramework(frameworkLabel || "NestJS", "backend", "nestjs");
+  if (dependencies.express) markFramework(frameworkLabel || "Express", "backend", "express");
+  if (dependencies.fastify) markFramework(frameworkLabel || "Fastify", "backend", "fastify");
+  if (dependencies.koa) markFramework(frameworkLabel || "Koa", "backend", "koa");
+  if (dependencies.hono) markFramework(frameworkLabel || "Hono", "backend", "hono");
+  if (dependencies.vue) {
+    const vueTags = vueProfile?.version === 3 ? ["vue", "vue3"] : vueProfile?.version === 2 ? ["vue", "vue2"] : ["vue"];
+    markFramework(frameworkLabel || (vueProfile?.version === 3 ? "Vue 3" : vueProfile?.version === 2 ? "Vue 2" : "Vue"), "frontend", ...vueTags);
+  }
+  if (dependencies.react) markFramework(frameworkLabel || "React", "frontend", "react");
+  if (dependencies["@angular/core"]) markFramework(frameworkLabel || "Angular", "frontend", "angular");
+  if (dependencies.svelte) markFramework(frameworkLabel || "Svelte", "frontend", "svelte");
+  if (!detectedKinds.has("backend") && !detectedKinds.has("frontend") && detectGenericNodeBackendProject(projectDir, packageJson)) {
+    markFramework(frameworkLabel || "Node Service", "backend", "nodeservice");
+  }
+  for (const uiLibLabel of uiLibLabels) {
+    stackTags.add(uiLibLabel);
+  }
+  let projectKind = "library";
+  if (detectedKinds.has("fullstack") || detectedKinds.has("frontend") && detectedKinds.has("backend")) {
+    projectKind = "fullstack";
+  } else if (detectedKinds.has("backend")) {
+    projectKind = "backend";
+  } else if (detectedKinds.has("frontend")) {
+    projectKind = "frontend";
+  }
+  return {
+    dependencies,
+    vueProfile,
+    frameworkLabel,
+    uiLibLabels,
+    projectKind,
+    stackTags: finalizeStackTags(stackTags)
+  };
+}
+function detectProjectMetadata(projectDir, lang, packageJson) {
+  if (packageJson) {
+    return detectNodeProjectMetadata(projectDir, packageJson, lang);
+  }
+  const metadata = (() => {
+    switch (lang) {
+      case "java":
+        return detectJavaProjectMetadata(projectDir);
+      case "rust":
+        return detectRustProjectMetadata(projectDir);
+      case "dotnet":
+        return detectDotnetProjectMetadata(projectDir);
+      default:
+        return detectGenericProjectMetadata(lang);
+    }
+  })();
+  return {
+    dependencies: {},
+    vueProfile: null,
+    ...metadata
+  };
+}
+function discoverWorkspace(logger, targetDir) {
+  const projects = [];
+  const visited = /* @__PURE__ */ new Set();
+  function scan(dir, depth) {
+    if (depth > 2) return;
+    if (projects.length >= MAX_SUB_PROJECTS) return;
+    let realDir;
+    try {
+      realDir = fs8.realpathSync(dir);
+    } catch {
+      return;
+    }
+    if (visited.has(realDir)) return;
+    visited.add(realDir);
+    const relativePath = path10.relative(targetDir, dir).replace(/\\/g, "/") || ".";
+    let detected = false;
+    for (const marker of PROJECT_MARKERS) {
+      const markerFile = marker.files.find((file) => fs8.existsSync(path10.join(dir, file)));
+      if (!markerFile) continue;
+      let lang = marker.lang;
+      if (marker.refinements) {
+        for (const refinement of marker.refinements) {
+          if (refinement.files.some((file) => fs8.existsSync(path10.join(dir, file)))) {
+            lang = refinement.lang;
+            break;
+          }
+        }
+      }
+      if (markerFile === "package.json") {
+        try {
+          const pkgContent = JSON.parse(fs8.readFileSync(path10.join(dir, "package.json"), "utf-8"));
+          const metadata = detectProjectMetadata(dir, lang, pkgContent);
+          projects.push({
+            name: pkgContent.name || path10.basename(dir),
+            relativePath,
+            absolutePath: dir,
+            lang,
+            packageJson: pkgContent,
+            vueProfile: metadata.vueProfile,
+            dependencies: metadata.dependencies,
+            matchedLayer2Rules: [],
+            frameworkLabel: metadata.frameworkLabel,
+            uiLibLabels: metadata.uiLibLabels,
+            projectKind: metadata.projectKind,
+            stackTags: metadata.stackTags
+          });
+        } catch {
+          logger.warn(`\u89E3\u6790 package.json \u5931\u8D25: ${path10.join(dir, "package.json")}`);
+        }
+      } else {
+        const metadata = detectProjectMetadata(dir, lang);
+        projects.push({
+          name: path10.basename(dir),
+          relativePath,
+          absolutePath: dir,
+          lang,
+          vueProfile: metadata.vueProfile,
+          dependencies: metadata.dependencies,
+          matchedLayer2Rules: [],
+          frameworkLabel: metadata.frameworkLabel,
+          uiLibLabels: metadata.uiLibLabels,
+          projectKind: metadata.projectKind,
+          stackTags: metadata.stackTags
+        });
+      }
+      detected = true;
+      break;
+    }
+    if (!detected) {
+      try {
+        const entries = fs8.readdirSync(dir);
+        const hasCsproj = entries.some((entry) => entry.endsWith(".csproj") || entry.endsWith(".sln"));
+        if (hasCsproj) {
+          const metadata = detectProjectMetadata(dir, "dotnet");
+          projects.push({
+            name: path10.basename(dir),
+            relativePath,
+            absolutePath: dir,
+            lang: "dotnet",
+            vueProfile: metadata.vueProfile,
+            dependencies: metadata.dependencies,
+            matchedLayer2Rules: [],
+            frameworkLabel: metadata.frameworkLabel,
+            uiLibLabels: metadata.uiLibLabels,
+            projectKind: metadata.projectKind,
+            stackTags: metadata.stackTags
+          });
+          detected = true;
+        }
+      } catch {
+        return;
+      }
+    }
+    if (depth < 2) {
+      let entries;
+      try {
+        entries = fs8.readdirSync(dir);
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.startsWith(".") || WORKSPACE_EXCLUDE_DIRS.has(entry)) continue;
+        const childPath = path10.join(dir, entry);
+        try {
+          if (fs8.statSync(childPath).isDirectory()) {
+            scan(childPath, depth + 1);
+          }
+        } catch {
+        }
+      }
+    }
+  }
+  scan(targetDir, 0);
+  if (projects.length >= MAX_SUB_PROJECTS) {
+    logger.warn(`\u5B50\u9879\u76EE\u6570\u91CF\u5DF2\u8FBE\u4E0A\u9650 ${MAX_SUB_PROJECTS}\uFF0C\u540E\u7EED\u5B50\u9879\u76EE\u88AB\u622A\u65AD`);
+  }
+  const isWorkspace = projects.length > 1;
+  if (isWorkspace) {
+    logger.log(`\u53D1\u73B0 Workspace \u6A21\u5F0F\uFF1A${projects.length} \u4E2A\u5B50\u9879\u76EE`);
+    for (const project of projects) {
+      const label = [project.lang, project.frameworkLabel, ...project.uiLibLabels].filter(Boolean).join(" + ");
+      logger.verbose(`  - ${project.relativePath} (${label || "\u65E0\u6846\u67B6\u68C0\u6D4B"})`);
+    }
+  }
+  return {
+    isWorkspace,
+    rootDir: targetDir,
+    projects,
+    discoveredAt: (/* @__PURE__ */ new Date()).toISOString(),
+    scope: "workspace-union",
+    selectedProject: null,
+    totalProjectCount: projects.length
+  };
+}
+
+// scripts/src/lib/workflow-routing.ts
+var path11 = __toESM(require("path"));
+var BUILTIN_WORKFLOW_RANK = {
+  micro: 1,
+  sprint: 2,
+  default: 3
+};
+var HOTFIX_SIGNAL = /(hotfix|quick fix|single[-\s]?file|单文件|快速修复|小\s*bug|小问题|补丁|patch)/i;
+var LARGE_SCOPE_SIGNAL = /(新功能|feature|需求|prd|架构|跨模块|跨项目|大规模|major|multi[-\s]?module|multi[-\s]?project)/i;
+function uniqStrings(values) {
+  return Array.from(new Set(values.filter((value) => typeof value === "string" && value.trim().length > 0)));
+}
+function inferWorkflowIdFromPath(workflowPath) {
+  const baseName = path11.basename(workflowPath).replace(/\.workflow\.json$/i, "").replace(/\.json$/i, "");
+  return baseName || "custom";
+}
+function asBuiltinWorkflowId(value) {
+  if (value === "micro" || value === "sprint" || value === "default") {
+    return value;
+  }
+  return null;
+}
+function getGeneratedAt(value) {
+  return value || (/* @__PURE__ */ new Date()).toISOString();
+}
+function getWorkflowRank(workflowId) {
+  return workflowId ? BUILTIN_WORKFLOW_RANK[workflowId] : Number.POSITIVE_INFINITY;
+}
+function getWorkflowBaseDir(options) {
+  return options?.workflowBaseDir || path11.join(".codebuddy", "workflows");
+}
+function normalizeWorkflowCatalog(options) {
+  const baseDir = getWorkflowBaseDir(options);
+  return {
+    default: options?.catalog?.default || path11.join(baseDir, "default.workflow.json"),
+    sprint: options?.catalog?.sprint || path11.join(baseDir, "sprint.workflow.json"),
+    micro: options?.catalog?.micro || path11.join(baseDir, "micro.workflow.json")
+  };
+}
+function normalizeAvailableWorkflowIds(options) {
+  const ids = options?.availableWorkflowIds ? Array.from(options.availableWorkflowIds) : ["default", "sprint", "micro"];
+  return new Set(ids.map((value) => value.trim()).filter(Boolean));
+}
+function createDecision(params) {
+  return {
+    mode: params.mode,
+    selectedWorkflowId: params.workflowId,
+    canonicalWorkflowId: params.canonicalWorkflowId,
+    selectedWorkflowPath: params.workflowPath,
+    confidence: params.confidence,
+    reasons: uniqStrings(params.reasons),
+    signals: params.signals ?? [],
+    reusedFromTaskBook: params.reusedFromTaskBook,
+    fallbackReason: params.fallbackReason,
+    generatedAt: getGeneratedAt(params.generatedAt)
+  };
+}
+function computeTaskDepth(taskId, tasksById, visiting, memo) {
+  const cached = memo.get(taskId);
+  if (typeof cached === "number") return cached;
+  if (visiting.has(taskId)) {
+    return 1;
+  }
+  visiting.add(taskId);
+  const task = tasksById.get(taskId);
+  const dependencies = task?.dependencies ?? [];
+  let depth = 1;
+  for (const dependencyId of dependencies) {
+    if (!tasksById.has(dependencyId)) continue;
+    depth = Math.max(depth, 1 + computeTaskDepth(dependencyId, tasksById, visiting, memo));
+  }
+  visiting.delete(taskId);
+  memo.set(taskId, depth);
+  return depth;
+}
+function computeMaxDependencyDepth(tasks) {
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  const memo = /* @__PURE__ */ new Map();
+  let maxDepth = 0;
+  for (const task of tasks) {
+    maxDepth = Math.max(maxDepth, computeTaskDepth(task.id, tasksById, /* @__PURE__ */ new Set(), memo));
+  }
+  return maxDepth;
+}
+function collectScopeCount(tasks, key) {
+  const values = /* @__PURE__ */ new Set();
+  for (const task of tasks) {
+    const items = task.scope?.[key] ?? [];
+    for (const item of items) {
+      if (typeof item === "string" && item.trim()) {
+        values.add(item.trim());
+      }
+    }
+  }
+  return values.size;
+}
+function collectRouteHints(taskBook) {
+  const values = [taskBook.title, taskBook.description];
+  for (const task of taskBook.tasks) {
+    values.push(task.title);
+    values.push(...task.acceptanceCriteria);
+    values.push(...task.scope?.tags ?? []);
+  }
+  return uniqStrings(values);
+}
+function buildSignal(id, matched, detail, weight) {
+  return { id, matched, detail, weight };
+}
+function decideAutomaticWorkflow(input, options) {
+  const catalog = normalizeWorkflowCatalog(options);
+  const availableWorkflowIds = normalizeAvailableWorkflowIds(options);
+  const routeText = input.routeHints.join(" ");
+  const hasHotfixSignal = HOTFIX_SIGNAL.test(routeText);
+  const hasLargeScopeSignal = LARGE_SCOPE_SIGNAL.test(routeText);
+  const hasCrossProjectScope = input.selectedProjectCount > 1;
+  const smallScope = input.scopedModuleCount <= 1 && (input.scopedFileCount === 0 || input.scopedFileCount <= 5);
+  const tinyScope = input.scopedModuleCount <= 1 && (input.scopedFileCount === 0 || input.scopedFileCount <= 2);
+  const signals = [
+    buildSignal("has_requirement_or_prd", input.hasRequirementOrPrdTasks, input.hasRequirementOrPrdTasks ? "TaskBook \u5305\u542B requirement/prd \u4EFB\u52A1" : void 0, 5),
+    buildSignal("has_design_tasks", input.hasDesignTasks, input.hasDesignTasks ? "TaskBook \u5305\u542B design \u4EFB\u52A1" : void 0, 4),
+    buildSignal("has_build_fix_tasks", input.hasBuildFixTasks, input.hasBuildFixTasks ? "TaskBook \u5305\u542B\u72EC\u7ACB build-fix \u4EFB\u52A1" : void 0, 4),
+    buildSignal("large_task_count", input.taskCount > 8, `taskCount=${input.taskCount}`, 4),
+    buildSignal("deep_dependency_graph", input.maxDependencyDepth > 4, `maxDependencyDepth=${input.maxDependencyDepth}`, 3),
+    buildSignal("cross_project_scope", hasCrossProjectScope, `selectedProjectCount=${input.selectedProjectCount}`, 5),
+    buildSignal("wide_module_scope", input.scopedModuleCount > 2, `scopedModuleCount=${input.scopedModuleCount}`, 3),
+    buildSignal("hotfix_signal", hasHotfixSignal, hasHotfixSignal ? "routeHints \u547D\u4E2D hotfix/quick-fix \u4FE1\u53F7" : void 0, 2),
+    buildSignal("small_scope", smallScope, `scopedFileCount=${input.scopedFileCount}, scopedModuleCount=${input.scopedModuleCount}`, 2),
+    buildSignal("has_review_tasks", input.hasReviewTasks, input.hasReviewTasks ? "TaskBook \u5305\u542B review \u4EFB\u52A1" : void 0, 2),
+    buildSignal("has_high_priority_tasks", input.hasHighPriorityTasks, input.hasHighPriorityTasks ? "\u5B58\u5728 critical/high \u4EFB\u52A1" : void 0, 2),
+    buildSignal("large_scope_signal", hasLargeScopeSignal, hasLargeScopeSignal ? "routeHints \u547D\u4E2D feature/refactor/architecture \u4FE1\u53F7" : void 0, 2)
+  ];
+  const defaultReasons = signals.filter((signal) => signal.matched && (signal.id === "has_requirement_or_prd" || signal.id === "has_design_tasks" || signal.id === "has_build_fix_tasks" || signal.id === "large_task_count" || signal.id === "deep_dependency_graph" || signal.id === "cross_project_scope" || signal.id === "wide_module_scope")).map((signal) => signal.detail || signal.id);
+  if (defaultReasons.length > 0) {
+    const selectedWorkflowId = "default";
+    return resolveAutomaticDecision(selectedWorkflowId, {
+      confidence: "high",
+      reasons: [
+        "\u68C0\u6D4B\u5230\u9AD8\u590D\u6742\u5EA6\u6216\u9AD8\u98CE\u9669\u4FE1\u53F7\uFF0C\u9009\u62E9 default.workflow.json \u4FDD\u6301\u5B8C\u6574\u95ED\u73AF\u3002",
+        ...defaultReasons
+      ],
+      signals,
+      catalog,
+      availableWorkflowIds,
+      generatedAt: options?.generatedAt
+    });
+  }
+  const microEligible = input.taskCount <= 3 && !input.hasRequirementOrPrdTasks && !input.hasDesignTasks && !input.hasReviewTasks && !input.hasBuildFixTasks && input.maxDependencyDepth <= 2 && smallScope;
+  if (microEligible && (hasHotfixSignal || tinyScope || input.taskType === "debugging" || input.taskType === "testing" || input.taskType === "code-review")) {
+    const selectedWorkflowId = "micro";
+    return resolveAutomaticDecision(selectedWorkflowId, {
+      confidence: hasHotfixSignal || tinyScope ? "high" : "medium",
+      reasons: [
+        "\u4EFB\u52A1\u89C4\u6A21\u8F83\u5C0F\u4E14\u4E0D\u9700\u8981 requirement/review/build-fix \u5168\u95ED\u73AF\uFF0C\u4F18\u5148\u9009\u62E9 micro.workflow.json\u3002",
+        `taskCount=${input.taskCount}`,
+        `maxDependencyDepth=${input.maxDependencyDepth}`,
+        `scopedFileCount=${input.scopedFileCount}`
+      ],
+      signals,
+      catalog,
+      availableWorkflowIds,
+      generatedAt: options?.generatedAt
+    });
+  }
+  const sprintEligible = input.taskCount <= 8 && input.maxDependencyDepth <= 4 && input.selectedProjectCount <= 1 && input.scopedModuleCount <= 2;
+  if (sprintEligible) {
+    const selectedWorkflowId = "sprint";
+    return resolveAutomaticDecision(selectedWorkflowId, {
+      confidence: input.hasReviewTasks || hasLargeScopeSignal ? "high" : "medium",
+      reasons: [
+        "\u4EFB\u52A1\u5C5E\u4E8E\u4E2D\u7B49\u89C4\u6A21\u8FED\u4EE3\uFF0C\u9002\u5408\u5206\u6790\u2192\u8BA1\u5212\u2192\u5B9E\u73B0\u2192\u5BA1\u67E5\u2192\u9A8C\u6536\u7684 sprint.workflow.json\u3002",
+        `taskCount=${input.taskCount}`,
+        `maxDependencyDepth=${input.maxDependencyDepth}`,
+        input.hasReviewTasks ? "TaskBook \u5DF2\u5305\u542B review \u4EFB\u52A1\u3002" : "\u65E0\u9700 requirement/prd/design \u7684\u6700\u91CD\u95ED\u73AF\u3002"
+      ],
+      signals,
+      catalog,
+      availableWorkflowIds,
+      generatedAt: options?.generatedAt
+    });
+  }
+  return resolveAutomaticDecision("default", {
+    confidence: "medium",
+    reasons: [
+      "\u8DEF\u7531\u4FE1\u53F7\u4E0D\u591F\u660E\u786E\uFF0C\u6309\u4FDD\u5B88\u7B56\u7565\u56DE\u9000\u5230 default.workflow.json\u3002"
+    ],
+    signals,
+    catalog,
+    availableWorkflowIds,
+    generatedAt: options?.generatedAt
+  });
+}
+function resolveAutomaticDecision(selectedWorkflowId, params) {
+  if (params.availableWorkflowIds.has(selectedWorkflowId)) {
+    return createDecision({
+      mode: "auto",
+      workflowId: selectedWorkflowId,
+      workflowPath: params.catalog[selectedWorkflowId],
+      canonicalWorkflowId: selectedWorkflowId,
+      confidence: params.confidence,
+      reasons: params.reasons,
+      signals: params.signals,
+      generatedAt: params.generatedAt
+    });
+  }
+  return createDecision({
+    mode: "fallback",
+    workflowId: "default",
+    workflowPath: params.catalog.default,
+    canonicalWorkflowId: "default",
+    confidence: "low",
+    reasons: [
+      ...params.reasons,
+      `\u76EE\u6807 workflow(${selectedWorkflowId}) \u5F53\u524D\u4E0D\u53EF\u7528\uFF0C\u56DE\u9000\u5230 default.workflow.json\u3002`
+    ],
+    signals: params.signals,
+    fallbackReason: `workflow_unavailable:${selectedWorkflowId}`,
+    generatedAt: params.generatedAt
+  });
+}
+function shouldReuseExistingDecision(automaticDecision, existingDecision) {
+  if (!existingDecision || !existingDecision.selectedWorkflowPath) {
+    return false;
+  }
+  const existingCanonical = existingDecision.canonicalWorkflowId;
+  if (!existingCanonical) {
+    return false;
+  }
+  return getWorkflowRank(existingCanonical) >= getWorkflowRank(automaticDecision.canonicalWorkflowId);
+}
+function toExplicitDecision(explicitWorkflowPath, options) {
+  const workflowId = inferWorkflowIdFromPath(explicitWorkflowPath);
+  const canonicalWorkflowId = asBuiltinWorkflowId(workflowId);
+  return createDecision({
+    mode: "explicit",
+    workflowId,
+    workflowPath: explicitWorkflowPath,
+    canonicalWorkflowId,
+    confidence: "high",
+    reasons: ["\u663E\u5F0F\u6307\u5B9A\u4E86 workflow\uFF0C\u8DF3\u8FC7\u81EA\u52A8\u8DEF\u7531\u3002"],
+    signals: [],
+    generatedAt: options?.generatedAt
+  });
+}
+function buildWorkflowRoutingInput(taskBook, workspaceInfo) {
+  const tasks = taskBook.tasks ?? [];
+  const selectedProjectCount = workspaceInfo?.scope === "project-targeted" ? 1 : workspaceInfo?.projects?.length || 1;
+  return {
+    taskBookId: taskBook.id,
+    taskType: taskBook.taskType ?? null,
+    taskCount: tasks.length,
+    maxDependencyDepth: computeMaxDependencyDepth(tasks),
+    hasRequirementOrPrdTasks: tasks.some((task) => task.type === "requirement" || task.type === "prd"),
+    hasDesignTasks: tasks.some((task) => task.type === "design"),
+    hasReviewTasks: tasks.some((task) => task.type === "review"),
+    hasBuildFixTasks: tasks.some((task) => task.type === "build-fix"),
+    hasHighPriorityTasks: tasks.some((task) => task.priority === "critical" || task.priority === "high"),
+    scopedFileCount: collectScopeCount(tasks, "files"),
+    scopedModuleCount: collectScopeCount(tasks, "modules"),
+    workspaceProjectCount: workspaceInfo?.totalProjectCount || workspaceInfo?.projects?.length || 1,
+    selectedProjectCount,
+    projectKinds: uniqStrings((workspaceInfo?.projects ?? []).map((project) => project.projectKind)),
+    routeHints: collectRouteHints(taskBook)
+  };
+}
+function buildWorkflowCatalog(workflowBaseDir = path11.join(".codebuddy", "workflows")) {
+  return {
+    default: path11.join(workflowBaseDir, "default.workflow.json"),
+    sprint: path11.join(workflowBaseDir, "sprint.workflow.json"),
+    micro: path11.join(workflowBaseDir, "micro.workflow.json")
+  };
+}
+function selectWorkflowRoutingDecision(input, options) {
+  const explicitWorkflowPath = options?.explicitWorkflowPath?.trim();
+  if (explicitWorkflowPath && explicitWorkflowPath.toLowerCase() !== "auto") {
+    return toExplicitDecision(explicitWorkflowPath, options);
+  }
+  const automaticDecision = decideAutomaticWorkflow(input, options);
+  const existingDecision = options?.existingDecision ?? null;
+  if (shouldReuseExistingDecision(automaticDecision, existingDecision)) {
+    const workflowPath = existingDecision?.selectedWorkflowPath || (existingDecision?.canonicalWorkflowId ? normalizeWorkflowCatalog(options)[existingDecision.canonicalWorkflowId] : automaticDecision.selectedWorkflowPath);
+    return createDecision({
+      mode: "reused",
+      workflowId: existingDecision?.selectedWorkflowId || automaticDecision.selectedWorkflowId,
+      workflowPath,
+      canonicalWorkflowId: existingDecision?.canonicalWorkflowId ?? automaticDecision.canonicalWorkflowId,
+      confidence: existingDecision?.confidence || automaticDecision.confidence,
+      reasons: [
+        "\u590D\u7528\u65E2\u6709 workflow \u51B3\u7B56\u4EE5\u4FDD\u6301 rerun/reflow \u7A33\u5B9A\u6027\u3002",
+        ...existingDecision?.reasons ?? automaticDecision.reasons
+      ],
+      signals: automaticDecision.signals,
+      reusedFromTaskBook: true,
+      generatedAt: options?.generatedAt
+    });
+  }
+  return automaticDecision;
+}
+
+// scripts/src/lib/workflow-routing-selection.ts
+function toPosixPath(value) {
+  return value.replace(/\\/g, "/");
+}
+function sanitizeForFilename(value) {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+function ensureDir2(dirPath) {
+  if (!fs9.existsSync(dirPath)) {
+    fs9.mkdirSync(dirPath, { recursive: true });
+  }
+}
+function createNoopLogger() {
+  const noop = () => {
+  };
+  return {
+    log: noop,
+    verbose: noop,
+    error: noop,
+    warn: noop
+  };
+}
+function readJsonFile(filePath) {
+  if (!fs9.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs9.readFileSync(filePath, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+function normalizeWorkflowRoutingDecision(decision) {
+  return {
+    ...decision,
+    selectedWorkflowPath: toPosixPath(decision.selectedWorkflowPath)
+  };
+}
+function workflowRoutingReportPath(projectRoot, taskBookId) {
+  return path12.join(
+    projectRoot,
+    ".codebuddy",
+    "reports",
+    "workflow-routing",
+    `${sanitizeForFilename(taskBookId)}.routing.json`
+  );
+}
+function readWorkflowRoutingReport(projectRoot, taskBookId) {
+  const parsed = readJsonFile(workflowRoutingReportPath(projectRoot, taskBookId));
+  if (!parsed || parsed.taskBookId !== taskBookId || !parsed.decision) return null;
+  return parsed;
+}
+function writeWorkflowRoutingReport(projectRoot, report) {
+  const reportPath = workflowRoutingReportPath(projectRoot, report.taskBookId);
+  try {
+    ensureDir2(path12.dirname(reportPath));
+    fs9.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}
+`, "utf-8");
+    return reportPath;
+  } catch {
+    return null;
+  }
+}
+function buildWorkflowRouteDetails(decision, reportPath) {
+  return {
+    mode: decision.mode,
+    workflowId: decision.selectedWorkflowId,
+    workflowPath: toPosixPath(decision.selectedWorkflowPath),
+    canonicalWorkflowId: decision.canonicalWorkflowId,
+    confidence: decision.confidence,
+    reasons: [...decision.reasons],
+    fallbackReason: decision.fallbackReason,
+    reusedFromTaskBook: decision.reusedFromTaskBook,
+    reportPath: toPosixPath(reportPath)
+  };
+}
+function buildWorkflowRoutingReport(params) {
+  return {
+    version: "1.0.0",
+    taskBookId: params.taskBook.id,
+    generatedAt: params.decision.generatedAt,
+    workspace: params.workspaceInfo,
+    input: params.input,
+    decision: normalizeWorkflowRoutingDecision(params.decision)
+  };
+}
+function selectWorkflowForTaskBook(params) {
+  const generatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const catalog = buildWorkflowCatalog();
+  const reportPath = workflowRoutingReportPath(params.projectRoot, params.taskBook.id);
+  const explicitWorkflowPath = params.explicitWorkflowPath?.trim();
+  const existingReport = readWorkflowRoutingReport(params.projectRoot, params.taskBook.id);
+  const existingDecision = !explicitWorkflowPath || explicitWorkflowPath.toLowerCase() === "auto" ? existingReport?.decision?.mode === "explicit" ? null : existingReport?.decision ?? null : null;
+  let input;
+  let decision;
+  let workspaceInfo = {
+    scope: "workspace-union",
+    selectedProject: null,
+    totalProjectCount: 1
+  };
+  try {
+    const workspace = discoverWorkspace(createNoopLogger(), params.projectRoot);
+    workspaceInfo = {
+      scope: workspace.scope,
+      selectedProject: workspace.selectedProject,
+      totalProjectCount: workspace.totalProjectCount || workspace.projects.length || 1
+    };
+    input = buildWorkflowRoutingInput(params.taskBook, workspace);
+    const availableWorkflowIds = Object.entries(catalog).filter(([, workflowRelativePath]) => fs9.existsSync(path12.join(params.projectRoot, workflowRelativePath))).map(([workflowId]) => workflowId);
+    decision = selectWorkflowRoutingDecision(input, {
+      explicitWorkflowPath,
+      existingDecision,
+      availableWorkflowIds,
+      generatedAt
+    });
+  } catch (error) {
+    input = buildWorkflowRoutingInput(params.taskBook, null);
+    if (explicitWorkflowPath && explicitWorkflowPath.toLowerCase() !== "auto") {
+      decision = selectWorkflowRoutingDecision(input, {
+        explicitWorkflowPath,
+        generatedAt
+      });
+    } else {
+      const message = error instanceof Error ? error.message : String(error);
+      decision = {
+        mode: "fallback",
+        selectedWorkflowId: "default",
+        canonicalWorkflowId: "default",
+        selectedWorkflowPath: catalog.default,
+        confidence: "low",
+        reasons: [
+          "\u81EA\u52A8 workflow \u8DEF\u7531\u5931\u8D25\uFF0C\u56DE\u9000\u5230 default.workflow.json\u3002",
+          message
+        ],
+        signals: [],
+        fallbackReason: "route_resolution_error",
+        generatedAt
+      };
+    }
+  }
+  const report = buildWorkflowRoutingReport({
+    taskBook: params.taskBook,
+    input,
+    decision,
+    workspaceInfo
+  });
+  const writtenReportPath = writeWorkflowRoutingReport(params.projectRoot, report) ?? reportPath;
+  return {
+    workflowPath: decision.selectedWorkflowPath,
+    reportPath: writtenReportPath,
+    report,
+    decision,
+    details: buildWorkflowRouteDetails(decision, writtenReportPath)
+  };
+}
+
 // scripts/src/task-executor.ts
 var DEFAULT_CONFIG = {
   maxParallel: 3
 };
 var AGENT_CALLS_DIR3 = ".codebuddy/agent-calls";
 var AGENT_CALL_MARKER = "[agent-call]";
+var AGENT_CALL_RESULT_MARKER = "[agent-call-result]";
 var DEFAULT_MANUAL_AGENT_ID = "task-orchestrator";
 var MANUAL_AGENT_ID_ENV = "CODEBUDDY_MANUAL_AGENT_ID";
+var REVIEW_REFLOW_TASK_TYPES = /* @__PURE__ */ new Set(["test", "implement", "refactor", "build-fix"]);
+var FILE_DELETE_RETRY_CODES = /* @__PURE__ */ new Set(["EBUSY", "EMFILE", "ENFILE", "EPERM"]);
+var FILE_DELETE_MAX_RETRIES = 6;
+var FILE_DELETE_RETRY_MS = 40;
+var SLEEP_INT322 = new Int32Array(new SharedArrayBuffer(4));
+function sleepSync2(ms) {
+  Atomics.wait(SLEEP_INT322, 0, 0, ms);
+}
 function buildTaskRoutingText(task) {
   return [
     task.title,
@@ -3854,6 +5195,15 @@ function selectManualAgentId(task) {
       return DEFAULT_MANUAL_AGENT_ID;
   }
 }
+function normalizeAgentIdentity(agentId, fallbackTask) {
+  const trimmed = (agentId || "").trim();
+  if (trimmed.startsWith("worker-executor:")) {
+    const normalized = trimmed.slice("worker-executor:".length).trim();
+    if (normalized) return normalized;
+  }
+  if (trimmed) return trimmed;
+  return fallbackTask ? selectManualAgentId(fallbackTask) : "";
+}
 function tryExtractAgentIdFromPrompt(promptMd) {
   const m = promptMd.match(/```json\s*([\s\S]*?)\s*```/);
   if (!m) return null;
@@ -3866,6 +5216,65 @@ function tryExtractAgentIdFromPrompt(promptMd) {
     return trimmed ? trimmed : null;
   } catch {
     return null;
+  }
+}
+function collectTaskDeliverables(task, artifacts) {
+  const values = /* @__PURE__ */ new Set();
+  for (const filePath of task.scope?.files ?? []) {
+    if (typeof filePath === "string" && filePath.trim()) {
+      values.add(filePath.trim());
+    }
+  }
+  for (const artifact of artifacts ?? []) {
+    if (artifact && typeof artifact.path === "string" && artifact.path.trim()) {
+      values.add(artifact.path.trim());
+    }
+  }
+  return values.size > 0 ? Array.from(values) : void 0;
+}
+function summarizeActualWork(actualWork) {
+  const singleLine = actualWork.replace(/\s+/g, " ").trim();
+  if (!singleLine) return "";
+  return singleLine.length > 180 ? `${singleLine.slice(0, 177)}...` : singleLine;
+}
+function selectBuildFixHandoffAnchorTasks(taskBook) {
+  return taskBook.tasks.filter((task) => task.type === "build-fix" && task.status !== "skipped");
+}
+function buildBuildFixFailureContext(gateResult, retryCount, maxRounds, escalated) {
+  const parts = [
+    gateResult?.gateId ? `Quality gate ${gateResult.gateId} failed during build_and_fix.` : "Quality gate failed during build_and_fix.",
+    gateResult?.message ? `Reason: ${gateResult.message}` : "",
+    gateResult?.evidencePath ? `Evidence: ${gateResult.evidencePath}` : "",
+    `Attempt: ${retryCount}/${maxRounds}.`,
+    escalated ? "Retries exhausted; escalate to orchestrator/human review." : "Build-fix retry required."
+  ];
+  return parts.filter(Boolean).join(" ");
+}
+function appendBuildFixFailureHandoffs(manager, taskBookId, type, gateResult, retryCount, maxRounds) {
+  const taskBook = manager.load(taskBookId);
+  if (!taskBook) return;
+  const anchors = selectBuildFixHandoffAnchorTasks(taskBook);
+  if (anchors.length === 0) return;
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const context = buildBuildFixFailureContext(gateResult, retryCount, maxRounds, type === "escalation");
+  for (const task of anchors) {
+    const deliverables = collectTaskDeliverables(task);
+    const handoff = type === "qa_fail" ? {
+      from: "quality-gate",
+      to: selectManualAgentId(task),
+      type,
+      timestamp,
+      context,
+      deliverables
+    } : {
+      from: selectManualAgentId(task),
+      to: DEFAULT_MANUAL_AGENT_ID,
+      type,
+      timestamp,
+      context,
+      deliverables
+    };
+    manager.appendTaskHandoffs(taskBookId, task.id, [handoff]);
   }
 }
 function priorityScore(priority) {
@@ -3931,6 +5340,17 @@ var TaskExecutor = class {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.runtime = config.runtime || null;
     this.workerExecutor = config.workerExecutor ?? createConfiguredWorkerExecutor();
+  }
+  getProjectRoot() {
+    return this.manager.getProjectRoot();
+  }
+  resolveProjectPath(filePath) {
+    return path13.resolve(this.getProjectRoot(), filePath);
+  }
+  getCurrentTaskAttemptKey(taskBookId, task) {
+    const taskBook = this.manager.load(taskBookId);
+    const currentTask = taskBook?.tasks.find((candidate) => candidate.id === task.id);
+    return currentTask?.startedAt ?? task.startedAt;
   }
   /**
    * 开始执行 TaskBook（兼容旧行为：任务完成后自动标记 TaskBook 为 completed）
@@ -4058,6 +5478,236 @@ var TaskExecutor = class {
     }
     return { status: "blocked", taskBook: this.manager.load(taskBookId), message: "\u6267\u884C\u88AB\u6682\u505C/\u505C\u6B62" };
   }
+  buildCompletionHandoffs(taskBookId, task, executedBy, actualWork, artifacts) {
+    const taskBook = this.manager.load(taskBookId);
+    if (!taskBook) return [];
+    const deliverables = collectTaskDeliverables(task, artifacts);
+    const handoffType = task.type === "review" ? "qa_pass" : "standard";
+    const actualWorkSummary = summarizeActualWork(actualWork);
+    const handoffs = [];
+    for (const candidate of taskBook.tasks) {
+      if (candidate.id === task.id || !candidate.dependencies.includes(task.id)) {
+        continue;
+      }
+      const targetAgentId = selectManualAgentId(candidate);
+      if (!targetAgentId || targetAgentId === executedBy) {
+        continue;
+      }
+      const context = [
+        `${task.title} completed; ready for ${candidate.id} (${candidate.title}).`,
+        actualWorkSummary ? `Summary: ${actualWorkSummary}` : ""
+      ].filter(Boolean).join(" ");
+      handoffs.push({
+        from: executedBy,
+        to: targetAgentId,
+        type: handoffType,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        context,
+        deliverables
+      });
+    }
+    return handoffs;
+  }
+  recordCompletionHandoffs(taskBookId, task, executedBy, actualWork, artifacts) {
+    const handoffs = this.buildCompletionHandoffs(taskBookId, task, executedBy, actualWork, artifacts);
+    if (handoffs.length === 0) return;
+    this.manager.appendTaskHandoffs(taskBookId, task.id, handoffs);
+  }
+  buildAgentCallFailureHandoffs(taskBookId, task, agentId, status, reason, artifacts) {
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    const deliverables = collectTaskDeliverables(task, artifacts);
+    const normalizedAgentId = normalizeAgentIdentity(agentId, task);
+    const reasonSummary = summarizeActualWork(reason) || reason;
+    if (task.type === "review" && status === "failed") {
+      const taskBook = this.manager.load(taskBookId);
+      if (!taskBook) return [];
+      const handoffs = [];
+      for (const dependencyId of task.dependencies) {
+        const dependencyTask = taskBook.tasks.find((candidate) => candidate.id === dependencyId);
+        if (!dependencyTask) continue;
+        const targetAgentId = normalizeAgentIdentity(dependencyTask.executedBy, dependencyTask);
+        if (!targetAgentId || targetAgentId === normalizedAgentId) {
+          continue;
+        }
+        handoffs.push({
+          from: normalizedAgentId,
+          to: targetAgentId,
+          type: "qa_fail",
+          timestamp,
+          context: `Review task ${task.id} (${task.title}) failed. Reason: ${reasonSummary}`,
+          deliverables
+        });
+      }
+      if (handoffs.length > 0) {
+        return handoffs;
+      }
+    }
+    return [{
+      from: normalizedAgentId || selectManualAgentId(task),
+      to: DEFAULT_MANUAL_AGENT_ID,
+      type: "escalation",
+      timestamp,
+      context: `Agent call for ${task.id} (${task.title}) reported ${status}. Reason: ${reasonSummary}`,
+      deliverables
+    }];
+  }
+  recordAgentCallFailure(taskBookId, task, meta, result, reason) {
+    const status = result.status === "blocked" ? "blocked" : "failed";
+    const handoffs = this.buildAgentCallFailureHandoffs(taskBookId, task, meta.agentId, status, reason, result.artifacts);
+    if (handoffs.length > 0) {
+      this.manager.appendTaskHandoffs(taskBookId, task.id, handoffs);
+    }
+    const nextBlockedReason = appendAgentCallResultState(task.blockedReason, {
+      requestId: meta.requestId,
+      status,
+      completedAt: result.completedAt,
+      message: reason
+    });
+    this.manager.updateTask(taskBookId, task.id, {
+      blockedReason: nextBlockedReason
+    });
+    this.manager.logChange(taskBookId, task.id, "modified", `agent-call reported ${status}: ${meta.requestId}`, void 0, {
+      event: "agent-call",
+      action: "reported_failure",
+      requestId: meta.requestId,
+      agentId: meta.agentId,
+      kind: result.kind ?? meta.kind,
+      status,
+      completedAt: result.completedAt,
+      promptPath: meta.promptPath,
+      resultPath: meta.resultPath,
+      artifacts: result.artifacts,
+      reason,
+      handoffTypes: handoffs.map((handoff) => handoff.type)
+    });
+    recordExecutionMetric({
+      projectRoot: this.getProjectRoot(),
+      eventType: "agent_call_applied",
+      taskBookId,
+      taskId: task.id,
+      taskType: task.type,
+      taskTitle: task.title,
+      executionMode: "agent-call",
+      agentId: meta.agentId,
+      requestId: meta.requestId,
+      status,
+      durationMs: computeDurationMs(meta.createdAt, result.completedAt),
+      blockedReasonCode: classifyBlockedReason(reason),
+      blockedReason: truncateMetricText(reason)
+    });
+    this.tryAutoReflowFromQaFailure(taskBookId, task, meta, status, reason);
+  }
+  removeAgentCallFiles(paths) {
+    const uniquePaths = [...new Set(paths.filter(Boolean).map((filePath) => this.resolveProjectPath(filePath)))];
+    for (const filePath of uniquePaths) {
+      for (let attempt = 0; attempt <= FILE_DELETE_MAX_RETRIES; attempt++) {
+        try {
+          fs10.unlinkSync(filePath);
+          break;
+        } catch (error) {
+          const code = error && typeof error === "object" && "code" in error ? String(error.code ?? "") : "";
+          if (code === "ENOENT") {
+            break;
+          }
+          if (attempt >= FILE_DELETE_MAX_RETRIES || !FILE_DELETE_RETRY_CODES.has(code)) {
+            try {
+              fs10.rmSync(filePath, { force: true });
+            } catch {
+            }
+            break;
+          }
+          sleepSync2(FILE_DELETE_RETRY_MS * (attempt + 1));
+        }
+      }
+    }
+  }
+  clearAgentCallArtifacts(taskBookId, task) {
+    const requestId = computeAgentCallRequestId(taskBookId, task.id, this.getCurrentTaskAttemptKey(taskBookId, task));
+    this.removeAgentCallFiles([
+      toPosixPath2(`${AGENT_CALLS_DIR3}/${requestId}.prompt.md`),
+      toPosixPath2(`${AGENT_CALLS_DIR3}/${requestId}.result.json`)
+    ]);
+  }
+  tryAutoReflowFromQaFailure(taskBookId, task, meta, status, reason) {
+    if (task.type !== "review" || status !== "failed") {
+      return false;
+    }
+    const taskBook = this.manager.load(taskBookId);
+    if (!taskBook) return false;
+    const reopenedTasks = task.dependencies.map((dependencyId) => taskBook.tasks.find((candidate) => candidate.id === dependencyId)).filter((candidate) => {
+      if (!candidate) return false;
+      return candidate.status === "done" && REVIEW_REFLOW_TASK_TYPES.has(candidate.type);
+    });
+    if (reopenedTasks.length === 0) {
+      return false;
+    }
+    for (const reopenedTask of reopenedTasks) {
+      this.clearAgentCallArtifacts(taskBookId, reopenedTask);
+      this.manager.updateTask(taskBookId, reopenedTask.id, {
+        status: "pending"
+      });
+    }
+    this.removeAgentCallFiles([
+      meta.promptPath,
+      meta.resultPath
+    ]);
+    this.manager.updateTask(taskBookId, task.id, {
+      status: "pending",
+      blockedReason: ""
+    });
+    this.manager.logChange(taskBookId, task.id, "modified", `qa_fail auto reflow: reopened ${reopenedTasks.map((item) => item.id).join(", ")}`, void 0, {
+      event: "qa_fail_reflow",
+      reviewTaskId: task.id,
+      reopenedTaskIds: reopenedTasks.map((item) => item.id),
+      reopenedTaskTypes: reopenedTasks.map((item) => item.type),
+      reason
+    });
+    return true;
+  }
+  collectIncomingHandoffs(taskBook, task, targetAgentId) {
+    if (!targetAgentId) {
+      return [];
+    }
+    const dependencyIds = new Set(task.dependencies);
+    const incoming = [];
+    for (const candidate of taskBook.tasks) {
+      if (!dependencyIds.has(candidate.id) || !Array.isArray(candidate.handoffs)) {
+        continue;
+      }
+      for (const handoff of candidate.handoffs) {
+        if (handoff.to !== targetAgentId) {
+          continue;
+        }
+        incoming.push({
+          ...handoff,
+          sourceTaskId: candidate.id,
+          sourceTaskTitle: candidate.title,
+          sourceTaskType: candidate.type,
+          sourceTaskStatus: candidate.status,
+          sourceTaskExecutedBy: candidate.executedBy
+        });
+      }
+    }
+    for (const candidate of taskBook.tasks) {
+      if (!candidate.dependencies.includes(task.id) || !Array.isArray(candidate.handoffs)) {
+        continue;
+      }
+      for (const handoff of candidate.handoffs) {
+        if (handoff.to !== targetAgentId) {
+          continue;
+        }
+        incoming.push({
+          ...handoff,
+          sourceTaskId: candidate.id,
+          sourceTaskTitle: candidate.title,
+          sourceTaskType: candidate.type,
+          sourceTaskStatus: candidate.status,
+          sourceTaskExecutedBy: candidate.executedBy
+        });
+      }
+    }
+    return incoming.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+  }
   /**
    * 执行单个任务
    */
@@ -4068,6 +5718,7 @@ var TaskExecutor = class {
     this.lastRenderedPrompt = null;
     const plannedAgentId = task.type === "analysis" || task.type === "acceptance" ? void 0 : selectManualAgentId(task);
     recordExecutionMetric({
+      projectRoot: this.getProjectRoot(),
       eventType: "task_started",
       taskBookId,
       taskId: task.id,
@@ -4097,6 +5748,7 @@ var TaskExecutor = class {
         this.manager.updateTask(taskBookId, task.id, { executedBy });
       } catch {
       }
+      this.recordCompletionHandoffs(taskBookId, task, executedBy, actualWork, dispatchResult.artifacts);
       this.lastRenderedPrompt = null;
       const result = {
         taskId: task.id,
@@ -4105,6 +5757,7 @@ var TaskExecutor = class {
         duration: Date.now() - startTime
       };
       recordExecutionMetric({
+        projectRoot: this.getProjectRoot(),
         eventType: "task_completed",
         taskBookId,
         taskId: task.id,
@@ -4138,6 +5791,7 @@ var TaskExecutor = class {
         this.config.onTaskBlocked?.(task, blockedReason);
         const agentCallMeta = extractAgentCallMeta(blockedReason);
         recordExecutionMetric({
+          projectRoot: this.getProjectRoot(),
           eventType: "task_blocked",
           taskBookId,
           taskId: task.id,
@@ -4160,6 +5814,7 @@ var TaskExecutor = class {
       }
       console.error(`[TaskExecutor] \u4EFB\u52A1\u6267\u884C\u51FA\u9519: ${task.title}`, error);
       recordExecutionMetric({
+        projectRoot: this.getProjectRoot(),
         eventType: "task_failed",
         taskBookId,
         taskId: task.id,
@@ -4181,16 +5836,17 @@ var TaskExecutor = class {
     }
   }
   ensureManualTaskAgentCall(taskBookId, task, manualReason) {
-    const requestId = computeAgentCallRequestId(taskBookId, task.id);
-    const promptPath = toPosixPath(`${AGENT_CALLS_DIR3}/${requestId}.prompt.md`);
-    const resultPath = toPosixPath(`${AGENT_CALLS_DIR3}/${requestId}.result.json`);
-    const promptAbsPath = path10.join(process.cwd(), promptPath);
-    const resultAbsPath = path10.join(process.cwd(), resultPath);
-    ensureDir2(path10.dirname(promptAbsPath));
+    const requestId = computeAgentCallRequestId(taskBookId, task.id, this.getCurrentTaskAttemptKey(taskBookId, task));
+    const projectRoot = this.getProjectRoot();
+    const promptPath = toPosixPath2(`${AGENT_CALLS_DIR3}/${requestId}.prompt.md`);
+    const resultPath = toPosixPath2(`${AGENT_CALLS_DIR3}/${requestId}.result.json`);
+    const promptAbsPath = this.resolveProjectPath(promptPath);
+    const resultAbsPath = this.resolveProjectPath(resultPath);
+    ensureDir3(path13.dirname(promptAbsPath));
     let agentId = selectManualAgentId(task);
-    if (fs8.existsSync(promptAbsPath)) {
+    if (fs10.existsSync(promptAbsPath)) {
       try {
-        const existing = fs8.readFileSync(promptAbsPath, "utf-8");
+        const existing = fs10.readFileSync(promptAbsPath, "utf-8");
         const parsedAgentId = tryExtractAgentIdFromPrompt(existing);
         if (parsedAgentId) agentId = parsedAgentId;
       } catch {
@@ -4206,12 +5862,12 @@ var TaskExecutor = class {
       resultPath,
       createdAt: (/* @__PURE__ */ new Date()).toISOString()
     };
-    const agentDef = loadAgentDefinition(process.cwd(), agentId);
+    const agentDef = loadAgentDefinition(projectRoot, agentId);
     const agentDefMissingNote = !agentDef ? `
 
-[agent-call] agent definition missing: expected ${listAgentDefinitionCandidatePaths(process.cwd(), agentId).map((filePath) => path10.relative(process.cwd(), filePath).replace(/\\/g, "/")).join(" or ")}.` : "";
+[agent-call] agent definition missing: expected ${listAgentDefinitionCandidatePaths(projectRoot, agentId).map((filePath) => path13.relative(projectRoot, filePath).replace(/\\/g, "/")).join(" or ")}.` : "";
     const runtimePrompt = this.lastRenderedPrompt;
-    if (!fs8.existsSync(promptAbsPath)) {
+    if (!fs10.existsSync(promptAbsPath)) {
       const tb = this.manager.load(taskBookId);
       if (!tb) throw new Error(`TaskBook not found: ${taskBookId}`);
       const enrichedManualReason = `${manualReason}${agentDefMissingNote}`;
@@ -4224,9 +5880,10 @@ var TaskExecutor = class {
         agentDefinition: agentDef?.content ?? null,
         promptPath: meta.promptPath,
         resultPath: meta.resultPath,
+        projectRoot,
         runtimePrompt: runtimePrompt ?? void 0
       });
-      fs8.writeFileSync(promptAbsPath, prompt, "utf-8");
+      fs10.writeFileSync(promptAbsPath, prompt, "utf-8");
       this.manager.logChange(taskBookId, task.id, "modified", `agent-call created: ${requestId}`, void 0, {
         event: "agent-call",
         action: "created",
@@ -4238,6 +5895,7 @@ var TaskExecutor = class {
         resultPath: meta.resultPath
       });
       recordExecutionMetric({
+        projectRoot: this.getProjectRoot(),
         eventType: "agent_call_created",
         taskBookId,
         taskId: task.id,
@@ -4251,7 +5909,7 @@ var TaskExecutor = class {
         blockedReason: truncateMetricText(manualReason)
       });
     }
-    if (!fs8.existsSync(resultAbsPath)) {
+    if (!fs10.existsSync(resultAbsPath)) {
     }
     return buildAgentCallBlockedReason(`${manualReason}${agentDefMissingNote}`, meta);
   }
@@ -4263,11 +5921,11 @@ var TaskExecutor = class {
       if (allowedTaskIds && !allowedTaskIds.has(task.id)) continue;
       const meta = extractAgentCallMeta(task.blockedReason);
       if (!meta) continue;
-      const resultAbsPath = path10.join(process.cwd(), meta.resultPath);
-      if (!fs8.existsSync(resultAbsPath)) continue;
+      const resultAbsPath = this.resolveProjectPath(meta.resultPath);
+      if (!fs10.existsSync(resultAbsPath)) continue;
       let result;
       try {
-        result = parseAgentCallResult2(fs8.readFileSync(resultAbsPath, "utf-8"));
+        result = parseAgentCallResult2(fs10.readFileSync(resultAbsPath, "utf-8"));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.log(`[AgentCall] \u89E3\u6790\u5931\u8D25: ${meta.requestId} ${msg}`);
@@ -4279,7 +5937,20 @@ var TaskExecutor = class {
       }
       if (result.status !== "success") {
         const reason = result.error?.message ?? `status=${result.status}`;
-        console.log(`[AgentCall] \u672A\u5C31\u7EEA: ${meta.requestId} ${reason}`);
+        const status = result.status === "blocked" ? "blocked" : "failed";
+        const nextState = {
+          requestId: meta.requestId,
+          status,
+          completedAt: result.completedAt,
+          message: reason
+        };
+        if (isSameAgentCallResultState(extractAgentCallResultState(task.blockedReason), nextState)) {
+          console.log(`[AgentCall] \u5DF2\u8BB0\u5F55\u5931\u8D25\u7ED3\u679C: ${meta.requestId} ${reason}`);
+          continue;
+        }
+        console.log(`[AgentCall] \u8BB0\u5F55\u5931\u8D25\u7ED3\u679C: ${meta.requestId} ${reason}`);
+        this.recordAgentCallFailure(taskBookId, task, meta, result, reason);
+        applied += 1;
         continue;
       }
       let output;
@@ -4293,8 +5964,10 @@ var TaskExecutor = class {
       this.manager.updateTask(taskBookId, task.id, {
         status: "done",
         actualWork: output.actualWork,
-        blockedReason: ""
+        blockedReason: "",
+        executedBy: meta.agentId
       });
+      this.recordCompletionHandoffs(taskBookId, task, meta.agentId, output.actualWork, result.artifacts);
       this.manager.logChange(taskBookId, task.id, "modified", `agent-call applied: ${meta.requestId}`, void 0, {
         event: "agent-call",
         action: "applied",
@@ -4308,6 +5981,7 @@ var TaskExecutor = class {
         artifacts: result.artifacts
       });
       recordExecutionMetric({
+        projectRoot: this.getProjectRoot(),
         eventType: "agent_call_applied",
         taskBookId,
         taskId: task.id,
@@ -4386,12 +6060,12 @@ var TaskExecutor = class {
   }
   tryDispatchWithWorker(taskBookId, task, agentId, context, renderedPrompt) {
     if (!this.workerExecutor) return null;
-    const requestId = computeAgentCallRequestId(taskBookId, task.id);
+    const requestId = computeAgentCallRequestId(taskBookId, task.id, task.startedAt);
     const workerResult = this.workerExecutor.execute({
       requestId,
       taskBookId,
       agentId,
-      projectRoot: process.cwd(),
+      projectRoot: this.getProjectRoot(),
       prompt: renderedPrompt,
       task,
       context
@@ -4419,6 +6093,10 @@ var TaskExecutor = class {
    * 构建 Agent 执行上下文
    */
   buildAgentContext(taskBookId, task) {
+    const taskBook = this.manager.load(taskBookId);
+    const projectRoot = this.getProjectRoot();
+    const currentAgentId = selectManualAgentId(task);
+    const incomingHandoffs = taskBook ? this.collectIncomingHandoffs(taskBook, task, currentAgentId) : [];
     const taskSnapshot = {
       id: task.id,
       title: task.title,
@@ -4426,23 +6104,24 @@ var TaskExecutor = class {
       description: task.actualWork || "",
       priority: task.priority,
       acceptanceCriteria: task.acceptanceCriteria || [],
-      scope: task.scope
+      scope: task.scope,
+      incomingHandoffs: incomingHandoffs.length > 0 ? incomingHandoffs : void 0
     };
     const context = {
       taskBookId,
       task: taskSnapshot,
-      projectRoot: process.cwd()
+      projectRoot
     };
-    const archReport = path10.join(process.cwd(), ".codebuddy/reports/architecture/latest.json");
-    const modulesReport = path10.join(process.cwd(), ".codebuddy/reports/modules/latest.json");
-    if (fs8.existsSync(archReport) || fs8.existsSync(modulesReport)) {
+    const archReport = path13.join(projectRoot, ".codebuddy/reports/architecture/latest.json");
+    const modulesReport = path13.join(projectRoot, ".codebuddy/reports/modules/latest.json");
+    if (fs10.existsSync(archReport) || fs10.existsSync(modulesReport)) {
       context.reports = {};
       try {
-        if (fs8.existsSync(archReport)) {
-          context.reports.architecture = JSON.parse(fs8.readFileSync(archReport, "utf-8"));
+        if (fs10.existsSync(archReport)) {
+          context.reports.architecture = JSON.parse(fs10.readFileSync(archReport, "utf-8"));
         }
-        if (fs8.existsSync(modulesReport)) {
-          context.reports.modules = JSON.parse(fs8.readFileSync(modulesReport, "utf-8"));
+        if (fs10.existsSync(modulesReport)) {
+          context.reports.modules = JSON.parse(fs10.readFileSync(modulesReport, "utf-8"));
         }
       } catch {
       }
@@ -4450,10 +6129,10 @@ var TaskExecutor = class {
     if (task.scope?.files && task.scope.files.length > 0) {
       context.relatedFiles = [];
       for (const filePath of task.scope.files.slice(0, 10)) {
-        const absPath = path10.resolve(process.cwd(), filePath);
-        if (fs8.existsSync(absPath)) {
+        const absPath = path13.resolve(projectRoot, filePath);
+        if (fs10.existsSync(absPath)) {
           try {
-            const content = fs8.readFileSync(absPath, "utf-8");
+            const content = fs10.readFileSync(absPath, "utf-8");
             if (content.length <= 5e4) {
               context.relatedFiles.push({ path: filePath, content });
             }
@@ -4469,17 +6148,17 @@ var TaskExecutor = class {
    */
   async executeAnalysisTask(task) {
     console.log(`[TaskExecutor] \u6267\u884C\u5206\u6790\u4EFB\u52A1: ${task.title}`);
-    const moduleMapper = path10.join(process.cwd(), ".codebuddy/scripts/module-mapper.js");
-    const structureAnalyzer = path10.join(process.cwd(), ".codebuddy/scripts/structure-analyzer.js");
+    const moduleMapper = path13.join(process.cwd(), ".codebuddy/scripts/module-mapper.js");
+    const structureAnalyzer = path13.join(process.cwd(), ".codebuddy/scripts/structure-analyzer.js");
     const ran = [];
-    if (fs8.existsSync(moduleMapper)) {
+    if (fs10.existsSync(moduleMapper)) {
       const result = runNodeScript(moduleMapper, [".", "--mode", "summary", "--output", "json"]);
       if (!result.ok) {
         throw new Error(`\u5206\u6790\u5931\u8D25(module-mapper): ${result.stderr || result.stdout}`);
       }
       ran.push("module-mapper");
     }
-    if (fs8.existsSync(structureAnalyzer)) {
+    if (fs10.existsSync(structureAnalyzer)) {
       const result = runNodeScript(structureAnalyzer, [".", "--mode", "summary", "--output", "json"]);
       if (!result.ok) {
         throw new Error(`\u5206\u6790\u5931\u8D25(structure-analyzer): ${result.stderr || result.stdout}`);
@@ -4639,7 +6318,8 @@ Task Executor - Workflow \u9A71\u52A8\u7684\u4EFB\u52A1\u6267\u884C\u5668
   node .codebuddy/scripts/task-executor.js <taskBookId> [options]
 
 \u9009\u9879:
-  --workflow <path>     \u6307\u5B9A workflow \u6587\u4EF6\uFF08\u9ED8\u8BA4: .codebuddy/workflows/default.workflow.json\uFF09
+  --workflow <path|auto> \u6307\u5B9A workflow \u6587\u4EF6\uFF1Bauto \u65F6\u542F\u7528\u81EA\u52A8\u9009\u8DEF
+  --show-workflow-route \u8F93\u51FA workflow \u8DEF\u7531\u7406\u7531
   --approve <gateId>    \u9884\u5148\u6279\u51C6\u67D0\u4E2A gate\uFF08\u53EF\u91CD\u590D\uFF09
   --max-parallel <n>    \u8986\u76D6\u5E76\u884C\u5EA6\uFF08\u9ED8\u8BA4\u53D6 workflow.policies \u6216\u5185\u7F6E\u9ED8\u8BA4\u503C\uFF09
   --tasks-only          \u4E0D\u8BFB\u53D6 workflow\uFF0C\u76F4\u63A5\u6267\u884C\u6240\u6709\u4EFB\u52A1\uFF08\u65E7\u6A21\u5F0F\uFF09
@@ -4650,8 +6330,21 @@ Task Executor - Workflow \u9A71\u52A8\u7684\u4EFB\u52A1\u6267\u884C\u5668
   - \u82E5\u6267\u884C\u9047\u5230 MANUAL_REQUIRED\uFF1A\u5C06\u751F\u6210 .codebuddy/agent-calls/<requestId>.prompt.md\uFF0C\u5E76\u628A\u4EFB\u52A1\u7F6E\u4E3A blocked\uFF1B\u5F53\u5199\u56DE\u5BF9\u5E94 result.json \u540E\uFF0C\u91CD\u8BD5\u6267\u884C\u4F1A\u81EA\u52A8 apply \u5E76\u7EE7\u7EED\u3002
 `);
 }
+function printWorkflowRoute(details, showReasons) {
+  console.log(
+    `[Workflow] route: ${details.workflowId} (${details.mode}, confidence=${details.confidence}) -> ${details.workflowPath}`
+  );
+  console.log(`[Workflow] route report: ${details.reportPath}`);
+  if (!showReasons) return;
+  for (const reason of details.reasons) {
+    console.log(`  - ${reason}`);
+  }
+  if (details.fallbackReason) {
+    console.log(`  fallback: ${details.fallbackReason}`);
+  }
+}
 function loadWorkflowSpec(workflowPath) {
-  const raw = fs8.readFileSync(workflowPath, "utf-8");
+  const raw = fs10.readFileSync(workflowPath, "utf-8");
   const parsed = JSON.parse(raw);
   if (!parsed || typeof parsed !== "object") {
     throw new Error("workflow \u6587\u4EF6\u4E0D\u662F\u6709\u6548\u7684 JSON \u5BF9\u8C61");
@@ -4874,10 +6567,10 @@ var GATE_EVIDENCE_OUTPUT_LIMIT = 2e4;
 function safeTimestampForFilename() {
   return (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
 }
-function sanitizeForFilename(value) {
+function sanitizeForFilename2(value) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "_");
 }
-function toPosixPath(value) {
+function toPosixPath2(value) {
   return value.replace(/\\/g, "/");
 }
 function truncateMetricText(value, maxLength = 500) {
@@ -4885,9 +6578,10 @@ function truncateMetricText(value, maxLength = 500) {
   if (trimmed.length <= maxLength) return trimmed;
   return `${trimmed.slice(0, maxLength)}...`;
 }
-function computeAgentCallRequestId(taskBookId, taskId) {
-  const hash = (0, import_crypto.createHash)("sha1").update(`${taskBookId}:${taskId}`).digest("hex").slice(0, 10);
-  return `req-${sanitizeForFilename(taskId)}-${hash}`;
+function computeAgentCallRequestId(taskBookId, taskId, attemptKey) {
+  const normalizedAttemptKey = (attemptKey || "initial").trim() || "initial";
+  const hash = (0, import_crypto.createHash)("sha1").update(`${taskBookId}:${taskId}:${normalizedAttemptKey}`).digest("hex").slice(0, 10);
+  return `req-${sanitizeForFilename2(taskId)}-${hash}`;
 }
 function buildAgentCallBlockedReason(message, meta) {
   const payload = {
@@ -4902,6 +6596,52 @@ function buildAgentCallBlockedReason(message, meta) {
   };
   return `${message}
 ${AGENT_CALL_MARKER} ${JSON.stringify(payload)}`;
+}
+function appendAgentCallResultState(blockedReason, state) {
+  const base = stripAgentCallResultState(blockedReason);
+  const lines = base ? base.split(/\r?\n/) : [];
+  const summary = `Agent result (${state.status}): ${state.message}`;
+  if (summary && !lines.some((line) => line.trim() === summary)) {
+    lines.push(summary);
+  }
+  lines.push(`${AGENT_CALL_RESULT_MARKER} ${JSON.stringify(state)}`);
+  return lines.join("\n").trim();
+}
+function stripAgentCallResultState(blockedReason) {
+  if (!blockedReason) return "";
+  return blockedReason.split(/\r?\n/).filter((line) => !line.trim().startsWith(AGENT_CALL_RESULT_MARKER)).join("\n").trim();
+}
+function extractAgentCallResultState(blockedReason) {
+  if (!blockedReason) return null;
+  const lines = blockedReason.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || !line.startsWith(AGENT_CALL_RESULT_MARKER)) {
+      continue;
+    }
+    const jsonText = line.slice(AGENT_CALL_RESULT_MARKER.length).trim();
+    if (!jsonText) return null;
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (!parsed || typeof parsed !== "object") return null;
+      if (typeof parsed.requestId !== "string" || !parsed.requestId.trim()) return null;
+      if (parsed.status !== "failed" && parsed.status !== "blocked") return null;
+      if (typeof parsed.message !== "string" || !parsed.message.trim()) return null;
+      return {
+        requestId: parsed.requestId,
+        status: parsed.status,
+        completedAt: typeof parsed.completedAt === "string" ? parsed.completedAt : void 0,
+        message: parsed.message
+      };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+function isSameAgentCallResultState(left, right) {
+  if (!left) return false;
+  return left.requestId === right.requestId && left.status === right.status && (left.completedAt || "") === (right.completedAt || "") && left.message === right.message;
 }
 function extractAgentCallMeta(blockedReason) {
   if (!blockedReason) return null;
@@ -4946,8 +6686,8 @@ function extractAgentCallMeta(blockedReason) {
     kind: kind === "planner" || kind === "manual-task" ? kind : void 0,
     taskBookId,
     taskId,
-    promptPath: toPosixPath(promptPath),
-    resultPath: toPosixPath(resultPath),
+    promptPath: toPosixPath2(promptPath),
+    resultPath: toPosixPath2(resultPath),
     createdAt: typeof createdAt === "string" ? createdAt : ""
   };
 }
@@ -4992,8 +6732,8 @@ function parseAgentTaskOutput(output) {
   return { actualWork: actualWork.trim() };
 }
 function readTextFileIfExists2(filePath) {
-  if (!fs8.existsSync(filePath)) return null;
-  return fs8.readFileSync(filePath, "utf-8");
+  if (!fs10.existsSync(filePath)) return null;
+  return fs10.readFileSync(filePath, "utf-8");
 }
 function extractAgentVersion2(agentMarkdown) {
   const fm = agentMarkdown.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
@@ -5089,7 +6829,7 @@ function buildManualTaskPrompt(args) {
     "```",
     "",
     ...(() => {
-      const promptTemplate = loadAgentPromptTemplate(process.cwd(), args.meta.agentId, args.task.type);
+      const promptTemplate = loadAgentPromptTemplate(args.projectRoot, args.meta.agentId, args.task.type);
       if (!promptTemplate) return [];
       return [
         "## Prompt Template (\u5F31\u6A21\u578B\u5F15\u5BFC)",
@@ -5112,7 +6852,7 @@ function buildManualTaskPrompt(args) {
     // 自动收集的上下文（文件内容、引用追踪、关联测试、Git 历史）
     ...(() => {
       try {
-        const ctx = collectContext(args.task, process.cwd());
+        const ctx = collectContext(args.task, args.projectRoot);
         const md = formatContextAsMarkdown(ctx);
         if (md) return [md];
       } catch {
@@ -5156,10 +6896,10 @@ function buildManualTaskPrompt(args) {
   ].join("\n");
 }
 function readPackageJsonScripts() {
-  const pkgPath = path10.join(process.cwd(), "package.json");
-  if (!fs8.existsSync(pkgPath)) return null;
+  const pkgPath = path13.join(process.cwd(), "package.json");
+  if (!fs10.existsSync(pkgPath)) return null;
   try {
-    const raw = fs8.readFileSync(pkgPath, "utf-8");
+    const raw = fs10.readFileSync(pkgPath, "utf-8");
     const parsed = JSON.parse(raw);
     const scripts = parsed?.scripts;
     if (typeof scripts !== "object" || scripts === null || Array.isArray(scripts)) return {};
@@ -5174,13 +6914,13 @@ function readPackageJsonScripts() {
 }
 function writeGateEvidence(taskBookId, stepId, gateId, payload) {
   try {
-    const safeTaskBookId = sanitizeForFilename(taskBookId);
-    const outDir = path10.join(process.cwd(), ".codebuddy", "reports", "gates", safeTaskBookId);
-    ensureDir2(outDir);
-    const fileName = `${safeTimestampForFilename()}.${sanitizeForFilename(stepId)}.${sanitizeForFilename(gateId)}.json`;
-    const absPath = path10.join(outDir, fileName);
-    fs8.writeFileSync(absPath, JSON.stringify(payload, null, 2), "utf-8");
-    return toPosixPath(path10.relative(process.cwd(), absPath));
+    const safeTaskBookId = sanitizeForFilename2(taskBookId);
+    const outDir = path13.join(process.cwd(), ".codebuddy", "reports", "gates", safeTaskBookId);
+    ensureDir3(outDir);
+    const fileName = `${safeTimestampForFilename()}.${sanitizeForFilename2(stepId)}.${sanitizeForFilename2(gateId)}.json`;
+    const absPath = path13.join(outDir, fileName);
+    fs10.writeFileSync(absPath, JSON.stringify(payload, null, 2), "utf-8");
+    return toPosixPath2(path13.relative(process.cwd(), absPath));
   } catch {
     return void 0;
   }
@@ -5470,9 +7210,9 @@ async function runCheckGatesForStep(spec, step, taskBookId, manager, approved, g
   }
   return { ok: true, gateResults: results };
 }
-function ensureDir2(dirPath) {
-  if (!fs8.existsSync(dirPath)) {
-    fs8.mkdirSync(dirPath, { recursive: true });
+function ensureDir3(dirPath) {
+  if (!fs10.existsSync(dirPath)) {
+    fs10.mkdirSync(dirPath, { recursive: true });
   }
 }
 function runNodeScript(scriptPath, args) {
@@ -5505,6 +7245,42 @@ function runShellCommand(command) {
     durationMs
   };
 }
+function findStepIndexByType(steps, type) {
+  return steps.findIndex((step) => step.type === type);
+}
+function findReviewReflowStepIndex(steps, taskBook, currentIndex) {
+  const hasPendingBuildFix = taskBook.tasks.some((task) => task.status === "pending" && task.type === "build-fix");
+  if (hasPendingBuildFix) {
+    const buildFixIndex = findStepIndexByType(steps, "build_and_fix");
+    if (buildFixIndex >= 0 && buildFixIndex < currentIndex) {
+      return buildFixIndex;
+    }
+  }
+  const hasPendingImplementLike = taskBook.tasks.some(
+    (task) => task.status === "pending" && (task.type === "test" || task.type === "implement" || task.type === "refactor")
+  );
+  if (hasPendingImplementLike) {
+    const implementIndex = findStepIndexByType(steps, "tdd_implement");
+    if (implementIndex >= 0 && implementIndex < currentIndex) {
+      return implementIndex;
+    }
+  }
+  return -1;
+}
+function logWorkflowRoutingDecision(manager, taskBookId, details) {
+  const reason = details.mode === "reused" ? `workflow routing reused: ${details.workflowId}` : details.mode === "fallback" ? `workflow routing fallback: ${details.workflowId}` : `workflow routing selected: ${details.workflowId}`;
+  manager.logChange(taskBookId, null, "modified", reason, void 0, {
+    event: "workflow-routing",
+    workflowId: details.workflowId,
+    workflowPath: details.workflowPath,
+    mode: details.mode,
+    confidence: details.confidence,
+    reportPath: details.reportPath,
+    fallbackReason: details.fallbackReason,
+    reusedFromTaskBook: details.reusedFromTaskBook,
+    reasons: details.reasons
+  });
+}
 async function runWorkflow(taskBookId, options) {
   const manager = new TaskBookManager(process.cwd());
   const taskBook = manager.load(taskBookId);
@@ -5514,8 +7290,25 @@ async function runWorkflow(taskBookId, options) {
   if (taskBook.status !== "confirmed" && taskBook.status !== "executing") {
     throw new Error(`TaskBook \u5FC5\u987B\u662F confirmed/executing \u624D\u80FD\u6267\u884C\u3002\u5F53\u524D\u72B6\u6001: ${taskBook.status}`);
   }
-  const workflowPath = options.workflowPath ?? path10.join(process.cwd(), ".codebuddy/workflows/default.workflow.json");
-  if (!fs8.existsSync(workflowPath)) {
+  let workflowRouteDetails;
+  const shouldAutoRoute = typeof options.workflowPath === "string" && options.workflowPath.trim().toLowerCase() === "auto";
+  const workflowPath = shouldAutoRoute ? (() => {
+    const selection = selectWorkflowForTaskBook({
+      projectRoot: process.cwd(),
+      taskBook,
+      explicitWorkflowPath: "auto"
+    });
+    workflowRouteDetails = selection.details;
+    logWorkflowRoutingDecision(manager, taskBookId, selection.details);
+    recordWorkflowRoutingMetric({
+      projectRoot: process.cwd(),
+      taskBook,
+      decision: selection.decision
+    });
+    printWorkflowRoute(selection.details, Boolean(options.showWorkflowRoute));
+    return selection.workflowPath;
+  })() : options.workflowPath ?? path13.join(process.cwd(), ".codebuddy/workflows/default.workflow.json");
+  if (!fs10.existsSync(workflowPath)) {
     throw new Error(`workflow \u6587\u4EF6\u4E0D\u5B58\u5728: ${workflowPath}`);
   }
   const spec = loadWorkflowSpec(workflowPath);
@@ -5543,13 +7336,13 @@ async function runWorkflow(taskBookId, options) {
       continue;
     }
     if (step.type === "analyze_project") {
-      const moduleMapper = path10.join(process.cwd(), ".codebuddy/scripts/module-mapper.js");
-      const structureAnalyzer = path10.join(process.cwd(), ".codebuddy/scripts/structure-analyzer.js");
-      if (fs8.existsSync(moduleMapper)) {
+      const moduleMapper = path13.join(process.cwd(), ".codebuddy/scripts/module-mapper.js");
+      const structureAnalyzer = path13.join(process.cwd(), ".codebuddy/scripts/structure-analyzer.js");
+      if (fs10.existsSync(moduleMapper)) {
         const r = runNodeScript(moduleMapper, [".", "--mode", "summary", "--output", "json"]);
         if (!r.ok) throw new Error(`module-mapper \u6267\u884C\u5931\u8D25: ${r.stderr || r.stdout}`);
       }
-      if (fs8.existsSync(structureAnalyzer)) {
+      if (fs10.existsSync(structureAnalyzer)) {
         const r = runNodeScript(structureAnalyzer, [".", "--mode", "summary", "--output", "json"]);
         if (!r.ok) throw new Error(`structure-analyzer \u6267\u884C\u5931\u8D25: ${r.stderr || r.stdout}`);
       }
@@ -5575,7 +7368,7 @@ async function runWorkflow(taskBookId, options) {
         });
         if (result.status !== "completed") {
           console.log(`[Workflow] requirement_and_prd \u672A\u5B8C\u6210: ${result.status} ${result.message ?? ""}`);
-          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
       }
       stepIdx++;
@@ -5593,12 +7386,12 @@ async function runWorkflow(taskBookId, options) {
         });
         if (result.status !== "completed") {
           console.log(`[Workflow] implement_tasks \u672A\u5B8C\u6210: ${result.status} ${result.message ?? ""}`);
-          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
         if (hasStepGates) {
           const { ok } = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults);
           if (!ok) {
-            return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+            return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
           }
         }
         stepIdx++;
@@ -5613,7 +7406,7 @@ async function runWorkflow(taskBookId, options) {
       while (true) {
         const current = manager.load(taskBookId);
         if (!current) {
-          return { taskBook: null, gateResults: Array.from(gateResults.values()) };
+          return { taskBook: null, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
         const pendingAllowed = current.tasks.filter((t) => t.status === "pending" && allowedTaskTypes.has(t.type));
         const blockedAllowed = current.tasks.filter((t) => t.status === "blocked" && allowedTaskTypes.has(t.type));
@@ -5623,11 +7416,11 @@ async function runWorkflow(taskBookId, options) {
               eventContext: "no_tasks",
               riskTier
             });
-            if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+            if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
           }
           if (blockedAllowed.length > 0) {
             console.log(`[Workflow] implement_tasks \u5B58\u5728\u963B\u585E\u4EFB\u52A1\uFF08${blockedAllowed.length}\uFF09`);
-            return { taskBook: current, gateResults: Array.from(gateResults.values()) };
+            return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
           }
           break;
         }
@@ -5637,7 +7430,7 @@ async function runWorkflow(taskBookId, options) {
         const runnable = pendingAllowed.filter((t) => t.dependencies.every((depId) => completedTaskIds.has(depId)));
         if (runnable.length === 0) {
           console.log("[Workflow] implement_tasks \u6CA1\u6709\u53EF\u6267\u884C\u4EFB\u52A1\uFF08\u7B49\u5F85\u4F9D\u8D56\u5B8C\u6210\uFF09");
-          return { taskBook: current, gateResults: Array.from(gateResults.values()) };
+          return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
         const batchTasks = selectBatchTasks(runnable, maxFiles);
         batchIndex += 1;
@@ -5664,7 +7457,7 @@ async function runWorkflow(taskBookId, options) {
         });
         if (result.status !== "completed") {
           console.log(`[Workflow] implement_tasks batch \u672A\u5B8C\u6210: ${result.status} ${result.message ?? ""}`);
-          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
         batchesSinceGate += 1;
         const pendingLeft = (manager.load(taskBookId)?.tasks ?? []).filter((t) => t.status === "pending" && allowedTaskTypes.has(t.type)).length;
@@ -5675,7 +7468,7 @@ async function runWorkflow(taskBookId, options) {
             batchIndex,
             riskTier
           });
-          if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
           batchesSinceGate = 0;
         }
       }
@@ -5692,14 +7485,17 @@ async function runWorkflow(taskBookId, options) {
         });
         if (result.status !== "completed") {
           console.log(`[Workflow] build_and_fix \u4EFB\u52A1\u672A\u5B8C\u6210: ${result.status} ${result.message ?? ""}`);
-          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+          return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
         }
       }
-      const { ok } = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
+      const gateRun = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
         eventContext: "build_and_fix_gate"
       });
-      if (!ok) {
-        buildFixRetryCount++;
+      const failedGate = [...gateRun.gateResults].reverse().find((result) => !result.passed);
+      if (!gateRun.ok) {
+        const nextRetryCount = buildFixRetryCount + 1;
+        appendBuildFixFailureHandoffs(manager, taskBookId, "qa_fail", failedGate, nextRetryCount, buildFixPolicy.maxRounds);
+        buildFixRetryCount = nextRetryCount;
         const retryTargetId = buildFixPolicy.retryFromStep;
         const retryTargetIdx = orderedSteps.findIndex((s) => s.id === retryTargetId);
         if (retryTargetIdx >= 0 && buildFixRetryCount < buildFixPolicy.maxRounds) {
@@ -5716,6 +7512,7 @@ async function runWorkflow(taskBookId, options) {
           continue;
         }
         if (buildFixPolicy.escalateToHuman) {
+          appendBuildFixFailureHandoffs(manager, taskBookId, "escalation", failedGate, buildFixRetryCount, buildFixPolicy.maxRounds);
           console.log(`[Workflow] \u26D4 \u6784\u5EFA\u4FEE\u590D\u5DF2\u8FBE\u6700\u5927\u91CD\u8BD5\u6B21\u6570\uFF08${buildFixPolicy.maxRounds}\uFF09\uFF0C\u9700\u8981\u4EBA\u5DE5\u4ECB\u5165`);
           manager.logChange(
             taskBookId,
@@ -5726,7 +7523,7 @@ async function runWorkflow(taskBookId, options) {
             { event: "build_fix_escalate", retryCount: buildFixRetryCount }
           );
         }
-        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
       buildFixRetryCount = 0;
       stepIdx++;
@@ -5736,20 +7533,35 @@ async function runWorkflow(taskBookId, options) {
       const tasksResult = await executor.executeTasks(taskBookId, { allowedTaskTypes: ["test"], maxParallel, conflictStrategy });
       if (tasksResult.status !== "completed") {
         console.log(`[Workflow] test \u4EFB\u52A1\u672A\u5B8C\u6210: ${tasksResult.status} ${tasksResult.message ?? ""}`);
-        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
       const { ok } = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
         eventContext: "run_tests_gate"
       });
-      if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+      if (!ok) return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       stepIdx++;
       continue;
     }
     if (step.type === "code_review") {
       const tasksResult = await executor.executeTasks(taskBookId, { allowedTaskTypes: ["review"], maxParallel, conflictStrategy });
       if (tasksResult.status !== "completed") {
+        const current = manager.load(taskBookId);
+        const reflowIdx = current ? findReviewReflowStepIndex(orderedSteps, current, stepIdx) : -1;
+        if ((tasksResult.status === "waiting" || tasksResult.status === "blocked") && reflowIdx >= 0) {
+          const reflowStep = orderedSteps[reflowIdx];
+          console.log(`[Workflow] \u21A9 review \u9636\u6BB5\u68C0\u6D4B\u5230\u8FD4\u5DE5\u4EFB\u52A1\uFF0C\u56DE\u6D41\u5230 ${reflowStep.id}`);
+          manager.logChange(taskBookId, null, "modified", `review reflow -> ${reflowStep.id}`, void 0, {
+            event: "review_reflow",
+            fromStepId: step.id,
+            toStepId: reflowStep.id,
+            resultStatus: tasksResult.status,
+            message: tasksResult.message
+          });
+          stepIdx = reflowIdx;
+          continue;
+        }
         console.log(`[Workflow] review \u4EFB\u52A1\u672A\u5B8C\u6210: ${tasksResult.status} ${tasksResult.message ?? ""}`);
-        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
       const gates = getStepGates(spec, step);
       for (const gate of gates) {
@@ -5762,7 +7574,7 @@ async function runWorkflow(taskBookId, options) {
         }
         gateResults.set(gate.id, { gateId: gate.id, passed: false, message: "manual review required" });
         console.log(`[Gate] \u23F8 ${gate.id} \u9700\u8981\u4EBA\u5DE5\u5BA1\u67E5\u3002\u53EF\u4F7F\u7528 --approve ${gate.id} \u7EE7\u7EED\u3002`);
-        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
       stepIdx++;
       continue;
@@ -5773,37 +7585,37 @@ async function runWorkflow(taskBookId, options) {
       const allDone = current.tasks.every((t) => t.status === "done" || t.status === "skipped");
       if (!allDone) {
         console.log("[Workflow] \u4ECD\u6709\u672A\u5B8C\u6210\u4EFB\u52A1\uFF0C\u65E0\u6CD5\u9A8C\u6536\u5F52\u6863\u3002");
-        return { taskBook: current, gateResults: Array.from(gateResults.values()) };
+        return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
       const requiredGates = (spec.gates ?? []).filter((g) => g.required !== false);
       const failedRequired = requiredGates.filter((g) => !gateResults.get(g.id)?.passed && !approved.has(g.id));
       if (failedRequired.length > 0) {
         console.log(`[Workflow] \u4ECD\u6709\u672A\u901A\u8FC7\u7684\u8D28\u91CF\u95F8\u95E8: ${failedRequired.map((g) => g.id).join(", ")}`);
-        return { taskBook: current, gateResults: Array.from(gateResults.values()) };
+        return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
       const report = manager.generateAcceptanceReport(taskBookId);
       if (report) {
-        const outDir = path10.join(process.cwd(), ".codebuddy/reports/taskbooks");
-        ensureDir2(outDir);
-        const outPath = path10.join(outDir, `${taskBookId}.acceptance.json`);
-        fs8.writeFileSync(outPath, JSON.stringify(report, null, 2), "utf-8");
+        const outDir = path13.join(process.cwd(), ".codebuddy/reports/taskbooks");
+        ensureDir3(outDir);
+        const outPath = path13.join(outDir, `${taskBookId}.acceptance.json`);
+        fs10.writeFileSync(outPath, JSON.stringify(report, null, 2), "utf-8");
         console.log(`[Workflow] \u2705 \u5DF2\u751F\u6210\u9A8C\u6536\u62A5\u544A: .codebuddy/reports/taskbooks/${taskBookId}.acceptance.json`);
       }
       manager.updateStatus(taskBookId, "completed");
       console.log("[Workflow] \u2705 TaskBook \u5DF2\u5B8C\u6210\u5E76\u5F52\u6863\u5230 history");
-      return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+      return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
     }
     console.log(`[Workflow] \u26A0 \u672A\u8BC6\u522B\u7684 step.type: ${step.type}\uFF08\u8DF3\u8FC7\uFF09`);
     stepIdx++;
   }
-  return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()) };
+  return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
 }
 function createDefaultRuntime() {
   const cwd = process.cwd();
   const existingCandidateRoots = getProjectAgentRootCandidates(cwd).map((relativeRoot) => ({
     relativeRoot,
-    absoluteRoot: path10.join(cwd, relativeRoot)
-  })).filter((candidate) => fs8.existsSync(candidate.absoluteRoot) && fs8.statSync(candidate.absoluteRoot).isDirectory());
+    absoluteRoot: path13.join(cwd, relativeRoot)
+  })).filter((candidate) => fs10.existsSync(candidate.absoluteRoot) && fs10.statSync(candidate.absoluteRoot).isDirectory());
   if (existingCandidateRoots.length === 0) {
     return void 0;
   }
@@ -5830,7 +7642,8 @@ function parseCliArgs(args) {
     workflowPath: void 0,
     approvedGates: /* @__PURE__ */ new Set(),
     maxParallel: void 0,
-    tasksOnly: false
+    tasksOnly: false,
+    showWorkflowRoute: false
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -5852,6 +7665,10 @@ function parseCliArgs(args) {
     }
     if (arg === "--tasks-only") {
       parsed.tasksOnly = true;
+      continue;
+    }
+    if (arg === "--show-workflow-route") {
+      parsed.showWorkflowRoute = true;
       continue;
     }
     if (!arg.startsWith("-") && !parsed.taskBookId) {
@@ -5882,7 +7699,8 @@ async function main4() {
     const { taskBook } = await runWorkflow(parsed.taskBookId, {
       workflowPath: parsed.workflowPath,
       approvedGates: parsed.approvedGates,
-      maxParallelTasks: parsed.maxParallel
+      maxParallelTasks: parsed.maxParallel,
+      showWorkflowRoute: parsed.showWorkflowRoute
     });
     if (taskBook?.status === "completed") {
       process.exit(0);
@@ -5905,5 +7723,6 @@ if (isDirectCliEntry("task-executor.js")) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   TaskExecutor,
-  createTaskExecutor
+  createTaskExecutor,
+  runWorkflow
 });

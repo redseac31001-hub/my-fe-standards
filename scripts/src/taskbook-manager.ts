@@ -15,6 +15,7 @@ import {
   TaskItem,
   TaskScope,
   ChangeEntry,
+  HandoffEntry,
   CreateTaskBookParams,
   AcceptanceReport,
   FinalReport,
@@ -30,7 +31,15 @@ const AGENT_CALLS_DIR = '.codebuddy/agent-calls';
 const LOCK_STALE_MS = 2 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 10 * 1000;
 const LOCK_RETRY_MS = 80;
+const TASKBOOK_FILE_DELETE_RETRY_MS = 80;
+const TASKBOOK_FILE_DELETE_MAX_RETRIES = 6;
+const TASKBOOK_FILE_DELETE_RETRY_CODES = new Set(['EBUSY', 'EMFILE', 'ENFILE', 'EPERM']);
 const IN_PROCESS_LOCK_DEPTHS = new Map<string, number>();
+
+type TaskBookManagerOptions = {
+  lockTimeoutMs?: number;
+  lockRetryMs?: number;
+};
 
 const SLEEP_INT32 = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms: number): void {
@@ -80,14 +89,26 @@ function ensureDir(dirPath: string): void {
   }
 }
 
+function isTerminalTaskBookStatus(status: TaskBookStatus | undefined): boolean {
+  return status === 'completed' || status === 'aborted';
+}
+
 /**
  * TaskBook 管理器类
  */
 export class TaskBookManager {
   private baseDir: string;
+  private lockTimeoutMs: number;
+  private lockRetryMs: number;
 
-  constructor(projectRoot: string = process.cwd()) {
+  constructor(projectRoot: string = process.cwd(), options: TaskBookManagerOptions = {}) {
     this.baseDir = projectRoot;
+    this.lockTimeoutMs = options.lockTimeoutMs ?? LOCK_TIMEOUT_MS;
+    this.lockRetryMs = options.lockRetryMs ?? LOCK_RETRY_MS;
+  }
+
+  getProjectRoot(): string {
+    return this.baseDir;
   }
 
   /**
@@ -102,6 +123,14 @@ export class TaskBookManager {
    */
   private getHistoryDir(): string {
     return path.join(this.baseDir, TASKBOOK_BASE_DIR, HISTORY_DIR);
+  }
+
+  private getActiveFilePath(taskBookId: string): string {
+    return path.join(this.getActiveDir(), `${taskBookId}.json`);
+  }
+
+  private getHistoryFilePath(taskBookId: string): string {
+    return path.join(this.getHistoryDir(), `${taskBookId}.json`);
   }
 
   /**
@@ -123,7 +152,7 @@ export class TaskBookManager {
   }
 
   private cleanupLockFile(lockPath: string): void {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES; attempt++) {
       try {
         if (fs.existsSync(lockPath)) {
           fs.unlinkSync(lockPath);
@@ -131,13 +160,121 @@ export class TaskBookManager {
         return;
       } catch (error) {
         const err = error as NodeJS.ErrnoException;
-        if ((err?.code === 'EPERM' || err?.code === 'EBUSY') && attempt < 4) {
-          sleepSync(LOCK_RETRY_MS);
+        if (err?.code === 'ENOENT') {
+          return;
+        }
+
+        if (TASKBOOK_FILE_DELETE_RETRY_CODES.has(err?.code || '') && attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES - 1) {
+          try {
+            fs.rmSync(lockPath, { force: true });
+            return;
+          } catch (rmError) {
+            const rmErr = rmError as NodeJS.ErrnoException;
+            if (rmErr?.code === 'ENOENT') {
+              return;
+            }
+          }
+          sleepSync(TASKBOOK_FILE_DELETE_RETRY_MS);
           continue;
+        }
+
+        try {
+          fs.rmSync(lockPath, { force: true });
+        } catch (rmError) {
+          const rmErr = rmError as NodeJS.ErrnoException;
+          if (rmErr?.code === 'ENOENT') {
+            return;
+          }
         }
         return;
       }
     }
+  }
+
+  private cleanupArchivedActiveFile(filePath: string): boolean {
+    for (let attempt = 0; attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES; attempt++) {
+      try {
+        if (!fs.existsSync(filePath)) {
+          return true;
+        }
+        fs.unlinkSync(filePath);
+        return true;
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err?.code === 'ENOENT') {
+          return true;
+        }
+
+        if (TASKBOOK_FILE_DELETE_RETRY_CODES.has(err?.code || '') && attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES - 1) {
+          try {
+            fs.rmSync(filePath, { force: true });
+            return true;
+          } catch (rmError) {
+            const rmErr = rmError as NodeJS.ErrnoException;
+            if (rmErr?.code === 'ENOENT') {
+              return true;
+            }
+          }
+          sleepSync(TASKBOOK_FILE_DELETE_RETRY_MS);
+          continue;
+        }
+
+        try {
+          fs.rmSync(filePath, { force: true });
+          return true;
+        } catch (rmError) {
+          const rmErr = rmError as NodeJS.ErrnoException;
+          if (rmErr?.code === 'ENOENT') {
+            return true;
+          }
+        }
+
+        return false;
+      }
+    }
+
+    return !fs.existsSync(filePath);
+  }
+
+  private readTaskBookFile(filePath: string): TaskBook | null {
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(content) as TaskBook;
+      return this.normalize(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  private shouldPreferHistorySnapshot(activeTaskBook: TaskBook | null, historyTaskBook: TaskBook | null): boolean {
+    if (!historyTaskBook) {
+      return false;
+    }
+    if (!activeTaskBook) {
+      return true;
+    }
+
+    const activeRevision = typeof activeTaskBook.revision === 'number' ? activeTaskBook.revision : 0;
+    const historyRevision = typeof historyTaskBook.revision === 'number' ? historyTaskBook.revision : 0;
+    if (historyRevision !== activeRevision) {
+      return historyRevision > activeRevision;
+    }
+
+    const activeUpdatedAt = Date.parse(activeTaskBook.updatedAt || activeTaskBook.createdAt || '');
+    const historyUpdatedAt = Date.parse(historyTaskBook.updatedAt || historyTaskBook.createdAt || '');
+    if (Number.isFinite(activeUpdatedAt) && Number.isFinite(historyUpdatedAt) && historyUpdatedAt !== activeUpdatedAt) {
+      return historyUpdatedAt > activeUpdatedAt;
+    }
+
+    if (isTerminalTaskBookStatus(historyTaskBook.status) && !isTerminalTaskBookStatus(activeTaskBook.status)) {
+      return true;
+    }
+
+    return false;
   }
 
   private getInProcessLockDepth(taskBookId: string): number {
@@ -160,10 +297,30 @@ export class TaskBookManager {
   private readLockOwnerPid(lockPath: string): number | null {
     try {
       const raw = fs.readFileSync(lockPath, 'utf-8');
-      const parsed = JSON.parse(raw) as { pid?: unknown };
-      return typeof parsed.pid === 'number' ? parsed.pid : null;
+      const parsed = JSON.parse(raw) as { pid?: unknown; ownerPid?: unknown };
+      if (typeof parsed.pid === 'number') {
+        return parsed.pid;
+      }
+      return typeof parsed.ownerPid === 'number' ? parsed.ownerPid : null;
     } catch {
       return null;
+    }
+  }
+
+  private isProcessAlive(pid: number | null): boolean {
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
+      return false;
+    }
+
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err?.code === 'EPERM') {
+        return true;
+      }
+      return false;
     }
   }
 
@@ -207,7 +364,7 @@ export class TaskBookManager {
     }
 
     const startedAt = Date.now();
-    const timeoutMs = opts?.timeoutMs ?? LOCK_TIMEOUT_MS;
+    const timeoutMs = opts?.timeoutMs ?? this.lockTimeoutMs;
 
     while (true) {
       try {
@@ -237,7 +394,8 @@ export class TaskBookManager {
           throw error;
         }
 
-        if (this.readLockOwnerPid(lockPath) === process.pid) {
+        const ownerPid = this.readLockOwnerPid(lockPath);
+        if (ownerPid === process.pid) {
           this.enterInProcessLock(taskBookId);
           try {
             return fn();
@@ -245,6 +403,11 @@ export class TaskBookManager {
             this.exitInProcessLock(taskBookId);
             this.cleanupLockFile(lockPath);
           }
+        }
+
+        if (ownerPid && !this.isProcessAlive(ownerPid)) {
+          this.cleanupLockFile(lockPath);
+          continue;
         }
 
         // lock exists: check staleness
@@ -270,7 +433,7 @@ export class TaskBookManager {
           throw new Error(`TaskBook is locked: ${taskBookId} (waited ${timeoutMs}ms)${details}`);
         }
 
-        sleepSync(LOCK_RETRY_MS);
+        sleepSync(this.lockRetryMs);
       }
     }
   }
@@ -304,7 +467,7 @@ export class TaskBookManager {
    * 保存 TaskBook
    */
   save(taskBook: TaskBook): void {
-    const dir = taskBook.status === 'completed' || taskBook.status === 'aborted'
+    const dir = isTerminalTaskBookStatus(taskBook.status)
       ? this.getHistoryDir()
       : this.getActiveDir();
 
@@ -317,23 +480,14 @@ export class TaskBookManager {
    * 读取 TaskBook
    */
   load(id: string): TaskBook | null {
-    // 先尝试从活跃目录读取
-    let filePath = path.join(this.getActiveDir(), `${id}.json`);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const parsed = JSON.parse(content) as TaskBook;
-      return this.normalize(parsed);
+    const activeTaskBook = this.readTaskBookFile(this.getActiveFilePath(id));
+    const historyTaskBook = this.readTaskBookFile(this.getHistoryFilePath(id));
+
+    if (this.shouldPreferHistorySnapshot(activeTaskBook, historyTaskBook)) {
+      return historyTaskBook;
     }
 
-    // 再尝试从历史目录读取
-    filePath = path.join(this.getHistoryDir(), `${id}.json`);
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const parsed = JSON.parse(content) as TaskBook;
-      return this.normalize(parsed);
-    }
-
-    return null;
+    return activeTaskBook ?? historyTaskBook;
   }
 
   /**
@@ -346,11 +500,22 @@ export class TaskBookManager {
     }
 
     const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
-    return files.map(f => {
-      const content = fs.readFileSync(path.join(dir, f), 'utf-8');
-      const parsed = JSON.parse(content) as TaskBook;
-      return this.normalize(parsed);
-    });
+    const activeTaskBooks: TaskBook[] = [];
+
+    for (const fileName of files) {
+      const activeTaskBook = this.readTaskBookFile(path.join(dir, fileName));
+      if (!activeTaskBook) continue;
+      if (isTerminalTaskBookStatus(activeTaskBook.status)) continue;
+
+      const historyTaskBook = this.readTaskBookFile(this.getHistoryFilePath(activeTaskBook.id));
+      if (this.shouldPreferHistorySnapshot(activeTaskBook, historyTaskBook)) {
+        continue;
+      }
+
+      activeTaskBooks.push(activeTaskBook);
+    }
+
+    return activeTaskBooks;
   }
 
   /**
@@ -383,17 +548,15 @@ export class TaskBookManager {
         after: { status },
       });
 
-      // 如果完成或中止，需要移动到历史目录
-      if (status === 'completed' || status === 'aborted') {
-        // 删除活跃目录中的文件
-        const activeFilePath = path.join(this.getActiveDir(), `${id}.json`);
-        if (fs.existsSync(activeFilePath)) {
-          fs.unlinkSync(activeFilePath);
-        }
-      }
-
       this.touch(taskBook);
       this.save(taskBook);
+
+      // Terminal TaskBooks are persisted to history first. Cleaning active/ is best-effort
+      // because Windows file locks can transiently block unlink during archival.
+      if (isTerminalTaskBookStatus(status)) {
+        this.cleanupArchivedActiveFile(this.getActiveFilePath(id));
+      }
+
       return taskBook;
     });
   }
@@ -428,6 +591,7 @@ export class TaskBookManager {
         executedBy: task.executedBy,
         startedAt: task.startedAt,
         completedAt: task.completedAt,
+        handoffs: task.handoffs,
       };
 
       taskBook.tasks.push(newTask);
@@ -480,6 +644,7 @@ export class TaskBookManager {
           executedBy: task.executedBy,
           startedAt: task.startedAt,
           completedAt: task.completedAt,
+          handoffs: task.handoffs,
         };
 
         taskBook.tasks.push(newTask);
@@ -563,6 +728,7 @@ export class TaskBookManager {
           dependencies: mappedDeps,
           acceptanceCriteria: t.acceptanceCriteria ?? [],
           scope: t.scope,
+          handoffs: t.handoffs,
         };
 
         taskBook.tasks.push(newTask);
@@ -635,6 +801,7 @@ export class TaskBookManager {
         'executedBy',
         'startedAt',
         'completedAt',
+        'handoffs',
       ];
 
       for (const key of updatable) {
@@ -717,6 +884,47 @@ export class TaskBookManager {
         reason: '追加 actualWork',
         before: { actualWork: before },
         after: { actualWork: next },
+      });
+
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
+    });
+  }
+
+  appendTaskHandoffs(
+    taskBookId: string,
+    taskId: string,
+    handoffs: HandoffEntry[],
+    expectedRevision?: number
+  ): TaskBook | null {
+    return this.withTaskBookLock(taskBookId, () => {
+      const taskBook = this.load(taskBookId);
+      if (!taskBook) return null;
+
+      this.assertRevision(taskBook, expectedRevision);
+
+      const task = taskBook.tasks.find(t => t.id === taskId);
+      if (!task) return null;
+      if (!Array.isArray(handoffs) || handoffs.length === 0) return taskBook;
+
+      const normalized = handoffs.map(handoff => ({
+        ...handoff,
+        deliverables: handoff.deliverables && handoff.deliverables.length > 0
+          ? Array.from(new Set(handoff.deliverables))
+          : undefined,
+      }));
+
+      const before = Array.isArray(task.handoffs) ? [...task.handoffs] : [];
+      task.handoffs = [...before, ...normalized];
+
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId,
+        changeType: 'modified',
+        reason: `追加 handoff 记录 (${normalized.length})`,
+        before: { handoffs: before },
+        after: { handoffs: task.handoffs },
       });
 
       this.touch(taskBook);
@@ -1256,6 +1464,7 @@ type PlannerPlanTask = {
   dependencies?: string[];
   acceptanceCriteria?: string[];
   scope?: TaskScope;
+  handoffs?: HandoffEntry[];
 };
 
 type AgentCallStatus = 'success' | 'failed' | 'blocked';

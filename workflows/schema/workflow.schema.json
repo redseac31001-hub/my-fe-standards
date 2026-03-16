@@ -94,6 +94,10 @@
         "toolHints": {
           "type": "object",
           "additionalProperties": true
+        },
+        "skipWhen": {
+          "type": "string",
+          "description": "条件表达式，满足时跳过此步骤（如 no_tasks_of_type:requirement,prd）"
         }
       }
     }

@@ -10,29 +10,50 @@ export interface StaticDistributionFile {
   destFile: string;
 }
 
+const CLI_ENTRY_DEPENDENCIES = ['lib/cli-entry.js'];
+const FRONTMATTER_DEPENDENCIES = ['lib/frontmatter-utils.js'];
+const INSTALL_ROOTS_DEPENDENCIES = ['lib/install-roots.js', 'lib/install-sync.js'];
+const MODULE_MAPPER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, 'types/module-mapper.js'];
+const STRUCTURE_ANALYZER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, 'types/structure-analyzer.js'];
+const WORKFLOW_ROUTING_DEPENDENCIES = [
+  'lib/project-detection.js',
+  'lib/workflow-routing.js',
+  'lib/workflow-routing-selection.js',
+];
+const TASK_EXECUTOR_DEPENDENCIES = [
+  ...CLI_ENTRY_DEPENDENCIES,
+  ...FRONTMATTER_DEPENDENCIES,
+  ...INSTALL_ROOTS_DEPENDENCIES,
+  ...WORKFLOW_ROUTING_DEPENDENCIES,
+  'agent-runtime.js',
+  'result-aggregator.js',
+  'lib/worker-executor.js',
+  'lib/execution-metrics.js',
+];
+
 export const CORE_SCRIPTS: ScriptDistributionFile[] = [
   { file: 'rule-validator.js' },
-  { file: 'skill-validator.js' },
+  { file: 'skill-validator.js', dependencies: FRONTMATTER_DEPENDENCIES },
 ];
 
 export const ANALYSIS_SCRIPTS: ScriptDistributionFile[] = [
-  { file: 'structure-analyzer.js' },
-  { file: 'module-mapper.js' },
-  { file: 'report-manager.js' },
+  { file: 'structure-analyzer.js', dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },
+  { file: 'module-mapper.js', dependencies: MODULE_MAPPER_DEPENDENCIES },
+  { file: 'report-manager.js', dependencies: [...CLI_ENTRY_DEPENDENCIES, ...WORKFLOW_ROUTING_DEPENDENCIES] },
 ];
 
 export const ORCHESTRATOR_SCRIPTS: ScriptDistributionFile[] = [
-  { file: 'agent-call-manager.js' },
-  { file: 'task-orchestrator.js' },
-  { file: 'taskbook-manager.js' },
-  { file: 'task-executor.js' },
+  { file: 'agent-call-manager.js', dependencies: CLI_ENTRY_DEPENDENCIES },
+  { file: 'task-orchestrator.js', dependencies: [...CLI_ENTRY_DEPENDENCIES, ...WORKFLOW_ROUTING_DEPENDENCIES, 'lib/execution-metrics.js'] },
+  { file: 'taskbook-manager.js', dependencies: INSTALL_ROOTS_DEPENDENCIES },
+  { file: 'task-executor.js', dependencies: TASK_EXECUTOR_DEPENDENCIES },
   { file: 'contract-validator.js' },
-  { file: 'reference-finder.js' },
-  { file: 'context-collector.js' },
+  { file: 'reference-finder.js', dependencies: CLI_ENTRY_DEPENDENCIES },
+  { file: 'context-collector.js', dependencies: CLI_ENTRY_DEPENDENCIES },
 ];
 
 export const FULL_SCRIPTS: ScriptDistributionFile[] = [
-  { file: 'agent-registry.js' },
+  { file: 'agent-registry.js', dependencies: [...FRONTMATTER_DEPENDENCIES, ...INSTALL_ROOTS_DEPENDENCIES] },
 ];
 
 export const COMMANDS_TO_DISTRIBUTE: StaticDistributionFile[] = [
@@ -43,6 +64,8 @@ export const COMMANDS_TO_DISTRIBUTE: StaticDistributionFile[] = [
 export const WORKFLOWS_TO_DISTRIBUTE: StaticDistributionFile[] = [
   { sourcePath: 'workflows/schema/workflow.schema.json', destFile: 'workflow.schema.json' },
   { sourcePath: 'workflows/templates/default.workflow.json', destFile: 'default.workflow.json' },
+  { sourcePath: 'workflows/templates/sprint.workflow.json', destFile: 'sprint.workflow.json' },
+  { sourcePath: 'workflows/templates/micro.workflow.json', destFile: 'micro.workflow.json' },
 ];
 
 export const TASKBOOK_FILES_TO_DISTRIBUTE: StaticDistributionFile[] = [
@@ -73,4 +96,17 @@ export function getScriptsForProfile(profile: Context['profile']): ScriptDistrib
   }
 
   return scripts;
+}
+
+export function getScriptArtifactsForProfile(profile: Context['profile']): string[] {
+  const artifacts = new Set<string>();
+
+  for (const script of getScriptsForProfile(profile)) {
+    artifacts.add(script.file);
+    for (const dependency of script.dependencies || []) {
+      artifacts.add(dependency);
+    }
+  }
+
+  return Array.from(artifacts).sort((left, right) => left.localeCompare(right));
 }

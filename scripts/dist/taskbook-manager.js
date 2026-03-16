@@ -117,6 +117,9 @@ var AGENT_CALLS_DIR = ".codebuddy/agent-calls";
 var LOCK_STALE_MS = 2 * 60 * 1e3;
 var LOCK_TIMEOUT_MS = 10 * 1e3;
 var LOCK_RETRY_MS = 80;
+var TASKBOOK_FILE_DELETE_RETRY_MS = 80;
+var TASKBOOK_FILE_DELETE_MAX_RETRIES = 6;
+var TASKBOOK_FILE_DELETE_RETRY_CODES = /* @__PURE__ */ new Set(["EBUSY", "EMFILE", "ENFILE", "EPERM"]);
 var IN_PROCESS_LOCK_DEPTHS = /* @__PURE__ */ new Map();
 var SLEEP_INT32 = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) {
@@ -144,9 +147,17 @@ function ensureDir(dirPath) {
     fs2.mkdirSync(dirPath, { recursive: true });
   }
 }
+function isTerminalTaskBookStatus(status) {
+  return status === "completed" || status === "aborted";
+}
 var TaskBookManager = class {
-  constructor(projectRoot = process.cwd()) {
+  constructor(projectRoot = process.cwd(), options = {}) {
     this.baseDir = projectRoot;
+    this.lockTimeoutMs = options.lockTimeoutMs ?? LOCK_TIMEOUT_MS;
+    this.lockRetryMs = options.lockRetryMs ?? LOCK_RETRY_MS;
+  }
+  getProjectRoot() {
+    return this.baseDir;
   }
   /**
    * 获取活跃任务书目录
@@ -159,6 +170,12 @@ var TaskBookManager = class {
    */
   getHistoryDir() {
     return path4.join(this.baseDir, TASKBOOK_BASE_DIR, HISTORY_DIR);
+  }
+  getActiveFilePath(taskBookId) {
+    return path4.join(this.getActiveDir(), `${taskBookId}.json`);
+  }
+  getHistoryFilePath(taskBookId) {
+    return path4.join(this.getHistoryDir(), `${taskBookId}.json`);
   }
   /**
    * 获取上下文快照目录
@@ -176,7 +193,7 @@ var TaskBookManager = class {
     return path4.join(this.getLocksDir(), `${taskBookId}.lock`);
   }
   cleanupLockFile(lockPath) {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES; attempt++) {
       try {
         if (fs2.existsSync(lockPath)) {
           fs2.unlinkSync(lockPath);
@@ -184,13 +201,107 @@ var TaskBookManager = class {
         return;
       } catch (error) {
         const err = error;
-        if ((err?.code === "EPERM" || err?.code === "EBUSY") && attempt < 4) {
-          sleepSync(LOCK_RETRY_MS);
+        if (err?.code === "ENOENT") {
+          return;
+        }
+        if (TASKBOOK_FILE_DELETE_RETRY_CODES.has(err?.code || "") && attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES - 1) {
+          try {
+            fs2.rmSync(lockPath, { force: true });
+            return;
+          } catch (rmError) {
+            const rmErr = rmError;
+            if (rmErr?.code === "ENOENT") {
+              return;
+            }
+          }
+          sleepSync(TASKBOOK_FILE_DELETE_RETRY_MS);
           continue;
+        }
+        try {
+          fs2.rmSync(lockPath, { force: true });
+        } catch (rmError) {
+          const rmErr = rmError;
+          if (rmErr?.code === "ENOENT") {
+            return;
+          }
         }
         return;
       }
     }
+  }
+  cleanupArchivedActiveFile(filePath) {
+    for (let attempt = 0; attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES; attempt++) {
+      try {
+        if (!fs2.existsSync(filePath)) {
+          return true;
+        }
+        fs2.unlinkSync(filePath);
+        return true;
+      } catch (error) {
+        const err = error;
+        if (err?.code === "ENOENT") {
+          return true;
+        }
+        if (TASKBOOK_FILE_DELETE_RETRY_CODES.has(err?.code || "") && attempt < TASKBOOK_FILE_DELETE_MAX_RETRIES - 1) {
+          try {
+            fs2.rmSync(filePath, { force: true });
+            return true;
+          } catch (rmError) {
+            const rmErr = rmError;
+            if (rmErr?.code === "ENOENT") {
+              return true;
+            }
+          }
+          sleepSync(TASKBOOK_FILE_DELETE_RETRY_MS);
+          continue;
+        }
+        try {
+          fs2.rmSync(filePath, { force: true });
+          return true;
+        } catch (rmError) {
+          const rmErr = rmError;
+          if (rmErr?.code === "ENOENT") {
+            return true;
+          }
+        }
+        return false;
+      }
+    }
+    return !fs2.existsSync(filePath);
+  }
+  readTaskBookFile(filePath) {
+    if (!fs2.existsSync(filePath)) {
+      return null;
+    }
+    try {
+      const content = fs2.readFileSync(filePath, "utf-8");
+      const parsed = JSON.parse(content);
+      return this.normalize(parsed);
+    } catch {
+      return null;
+    }
+  }
+  shouldPreferHistorySnapshot(activeTaskBook, historyTaskBook) {
+    if (!historyTaskBook) {
+      return false;
+    }
+    if (!activeTaskBook) {
+      return true;
+    }
+    const activeRevision = typeof activeTaskBook.revision === "number" ? activeTaskBook.revision : 0;
+    const historyRevision = typeof historyTaskBook.revision === "number" ? historyTaskBook.revision : 0;
+    if (historyRevision !== activeRevision) {
+      return historyRevision > activeRevision;
+    }
+    const activeUpdatedAt = Date.parse(activeTaskBook.updatedAt || activeTaskBook.createdAt || "");
+    const historyUpdatedAt = Date.parse(historyTaskBook.updatedAt || historyTaskBook.createdAt || "");
+    if (Number.isFinite(activeUpdatedAt) && Number.isFinite(historyUpdatedAt) && historyUpdatedAt !== activeUpdatedAt) {
+      return historyUpdatedAt > activeUpdatedAt;
+    }
+    if (isTerminalTaskBookStatus(historyTaskBook.status) && !isTerminalTaskBookStatus(activeTaskBook.status)) {
+      return true;
+    }
+    return false;
   }
   getInProcessLockDepth(taskBookId) {
     return IN_PROCESS_LOCK_DEPTHS.get(taskBookId) ?? 0;
@@ -210,9 +321,27 @@ var TaskBookManager = class {
     try {
       const raw = fs2.readFileSync(lockPath, "utf-8");
       const parsed = JSON.parse(raw);
-      return typeof parsed.pid === "number" ? parsed.pid : null;
+      if (typeof parsed.pid === "number") {
+        return parsed.pid;
+      }
+      return typeof parsed.ownerPid === "number" ? parsed.ownerPid : null;
     } catch {
       return null;
+    }
+  }
+  isProcessAlive(pid) {
+    if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
+      return false;
+    }
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      const err = error;
+      if (err?.code === "EPERM") {
+        return true;
+      }
+      return false;
     }
   }
   normalize(taskBook) {
@@ -250,7 +379,7 @@ var TaskBookManager = class {
       }
     }
     const startedAt = Date.now();
-    const timeoutMs = opts?.timeoutMs ?? LOCK_TIMEOUT_MS;
+    const timeoutMs = opts?.timeoutMs ?? this.lockTimeoutMs;
     while (true) {
       try {
         const fd = fs2.openSync(lockPath, "wx");
@@ -275,7 +404,8 @@ var TaskBookManager = class {
         if (err?.code !== "EEXIST") {
           throw error;
         }
-        if (this.readLockOwnerPid(lockPath) === process.pid) {
+        const ownerPid = this.readLockOwnerPid(lockPath);
+        if (ownerPid === process.pid) {
           this.enterInProcessLock(taskBookId);
           try {
             return fn();
@@ -283,6 +413,10 @@ var TaskBookManager = class {
             this.exitInProcessLock(taskBookId);
             this.cleanupLockFile(lockPath);
           }
+        }
+        if (ownerPid && !this.isProcessAlive(ownerPid)) {
+          this.cleanupLockFile(lockPath);
+          continue;
         }
         try {
           const stat = fs2.statSync(lockPath);
@@ -304,7 +438,7 @@ lock info:
 ${lockInfo}` : "";
           throw new Error(`TaskBook is locked: ${taskBookId} (waited ${timeoutMs}ms)${details}`);
         }
-        sleepSync(LOCK_RETRY_MS);
+        sleepSync(this.lockRetryMs);
       }
     }
   }
@@ -334,7 +468,7 @@ ${lockInfo}` : "";
    * 保存 TaskBook
    */
   save(taskBook) {
-    const dir = taskBook.status === "completed" || taskBook.status === "aborted" ? this.getHistoryDir() : this.getActiveDir();
+    const dir = isTerminalTaskBookStatus(taskBook.status) ? this.getHistoryDir() : this.getActiveDir();
     ensureDir(dir);
     const filePath = path4.join(dir, `${taskBook.id}.json`);
     fs2.writeFileSync(filePath, JSON.stringify(taskBook, null, 2), "utf-8");
@@ -343,19 +477,12 @@ ${lockInfo}` : "";
    * 读取 TaskBook
    */
   load(id) {
-    let filePath = path4.join(this.getActiveDir(), `${id}.json`);
-    if (fs2.existsSync(filePath)) {
-      const content = fs2.readFileSync(filePath, "utf-8");
-      const parsed = JSON.parse(content);
-      return this.normalize(parsed);
+    const activeTaskBook = this.readTaskBookFile(this.getActiveFilePath(id));
+    const historyTaskBook = this.readTaskBookFile(this.getHistoryFilePath(id));
+    if (this.shouldPreferHistorySnapshot(activeTaskBook, historyTaskBook)) {
+      return historyTaskBook;
     }
-    filePath = path4.join(this.getHistoryDir(), `${id}.json`);
-    if (fs2.existsSync(filePath)) {
-      const content = fs2.readFileSync(filePath, "utf-8");
-      const parsed = JSON.parse(content);
-      return this.normalize(parsed);
-    }
-    return null;
+    return activeTaskBook ?? historyTaskBook;
   }
   /**
    * 列出所有活跃的 TaskBook
@@ -366,11 +493,18 @@ ${lockInfo}` : "";
       return [];
     }
     const files = fs2.readdirSync(dir).filter((f) => f.endsWith(".json"));
-    return files.map((f) => {
-      const content = fs2.readFileSync(path4.join(dir, f), "utf-8");
-      const parsed = JSON.parse(content);
-      return this.normalize(parsed);
-    });
+    const activeTaskBooks = [];
+    for (const fileName of files) {
+      const activeTaskBook = this.readTaskBookFile(path4.join(dir, fileName));
+      if (!activeTaskBook) continue;
+      if (isTerminalTaskBookStatus(activeTaskBook.status)) continue;
+      const historyTaskBook = this.readTaskBookFile(this.getHistoryFilePath(activeTaskBook.id));
+      if (this.shouldPreferHistorySnapshot(activeTaskBook, historyTaskBook)) {
+        continue;
+      }
+      activeTaskBooks.push(activeTaskBook);
+    }
+    return activeTaskBooks;
   }
   /**
    * 更新 TaskBook 状态
@@ -395,14 +529,11 @@ ${lockInfo}` : "";
         before: { status: oldStatus },
         after: { status }
       });
-      if (status === "completed" || status === "aborted") {
-        const activeFilePath = path4.join(this.getActiveDir(), `${id}.json`);
-        if (fs2.existsSync(activeFilePath)) {
-          fs2.unlinkSync(activeFilePath);
-        }
-      }
       this.touch(taskBook);
       this.save(taskBook);
+      if (isTerminalTaskBookStatus(status)) {
+        this.cleanupArchivedActiveFile(this.getActiveFilePath(id));
+      }
       return taskBook;
     });
   }
@@ -429,7 +560,8 @@ ${lockInfo}` : "";
         blockedReason: task.blockedReason,
         executedBy: task.executedBy,
         startedAt: task.startedAt,
-        completedAt: task.completedAt
+        completedAt: task.completedAt,
+        handoffs: task.handoffs
       };
       taskBook.tasks.push(newTask);
       this.addChangelogEntry(taskBook, {
@@ -470,7 +602,8 @@ ${lockInfo}` : "";
           blockedReason: task.blockedReason,
           executedBy: task.executedBy,
           startedAt: task.startedAt,
-          completedAt: task.completedAt
+          completedAt: task.completedAt,
+          handoffs: task.handoffs
         };
         taskBook.tasks.push(newTask);
         taskIds.push(taskId);
@@ -536,7 +669,8 @@ ${lockInfo}` : "";
           priority: t.priority ?? "medium",
           dependencies: mappedDeps,
           acceptanceCriteria: t.acceptanceCriteria ?? [],
-          scope: t.scope
+          scope: t.scope,
+          handoffs: t.handoffs
         };
         taskBook.tasks.push(newTask);
         taskIds.push(taskId);
@@ -591,7 +725,8 @@ ${lockInfo}` : "";
         "blockedReason",
         "executedBy",
         "startedAt",
-        "completedAt"
+        "completedAt",
+        "handoffs"
       ];
       for (const key of updatable) {
         const value = patch[key];
@@ -660,6 +795,33 @@ ${text}` : text;
         reason: "\u8FFD\u52A0 actualWork",
         before: { actualWork: before },
         after: { actualWork: next }
+      });
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
+    });
+  }
+  appendTaskHandoffs(taskBookId, taskId, handoffs, expectedRevision) {
+    return this.withTaskBookLock(taskBookId, () => {
+      const taskBook = this.load(taskBookId);
+      if (!taskBook) return null;
+      this.assertRevision(taskBook, expectedRevision);
+      const task = taskBook.tasks.find((t) => t.id === taskId);
+      if (!task) return null;
+      if (!Array.isArray(handoffs) || handoffs.length === 0) return taskBook;
+      const normalized = handoffs.map((handoff) => ({
+        ...handoff,
+        deliverables: handoff.deliverables && handoff.deliverables.length > 0 ? Array.from(new Set(handoff.deliverables)) : void 0
+      }));
+      const before = Array.isArray(task.handoffs) ? [...task.handoffs] : [];
+      task.handoffs = [...before, ...normalized];
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId,
+        changeType: "modified",
+        reason: `\u8FFD\u52A0 handoff \u8BB0\u5F55 (${normalized.length})`,
+        before: { handoffs: before },
+        after: { handoffs: task.handoffs }
       });
       this.touch(taskBook);
       this.save(taskBook);

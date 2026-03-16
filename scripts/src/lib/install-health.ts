@@ -9,6 +9,7 @@ import {
   resolveInstalledSkillsSnapshotRetention,
 } from './install-roots';
 import { listFilesRecursive, toProjectRelativePath } from './install-sync';
+import { readLatestWorkflowRoutingReport } from './workflow-routing-selection';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 
@@ -39,7 +40,21 @@ export interface InstallInspection {
   unexpectedProfileFiles: string[];
 }
 
+type AgentCallPromptHeaderPaths = {
+  promptPath?: string;
+  resultPath?: string;
+};
+
 const SUPPORTED_INSTALL_STATE_SCHEMAS = new Set(['1.0.0', '1.1.0', '1.2.0']);
+const DEFAULT_WORKFLOW_STABLE_STEP_TYPES = [
+  'requirement_and_prd',
+  'analyze_project',
+  'create_taskbook',
+  'tdd_implement',
+  'code_review',
+  'build_and_fix',
+  'acceptance_and_archive',
+];
 const PROFILE_RESIDUAL_ARTIFACTS: Record<InstallState['profile'], string[]> = {
   core: [
     '.codebuddy/scripts/structure-analyzer.js',
@@ -116,6 +131,156 @@ function canRunCommand(command: string, args: string[]): boolean {
     timeout: 5000,
   });
   return !result.error && result.status === 0;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function readJsonFile(filePath: string): unknown | null {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function readTextFile(filePath: string): string | null {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+function parseFirstJsonCodeBlock(markdown: string): string | null {
+  const match = markdown.match(/```json\s*([\s\S]*?)\s*```/);
+  return match?.[1] ?? null;
+}
+
+function parseAgentCallPromptHeaderPaths(markdown: string): AgentCallPromptHeaderPaths | null {
+  const jsonText = parseFirstJsonCodeBlock(markdown);
+  if (!jsonText) return null;
+
+  try {
+    const parsed = JSON.parse(jsonText) as unknown;
+    if (!isPlainObject(parsed)) return null;
+    return parsed as AgentCallPromptHeaderPaths;
+  } catch {
+    return null;
+  }
+}
+
+function collectArchitectureConstraintDetails(inspection: InstallInspection): string[] {
+  const details: string[] = [];
+  const defaultWorkflowPath = path.join(inspection.targetDir, '.codebuddy', 'workflows', 'default.workflow.json');
+
+  if (fs.existsSync(defaultWorkflowPath)) {
+    const workflow = readJsonFile(defaultWorkflowPath);
+    if (isPlainObject(workflow)) {
+      const steps = Array.isArray(workflow.steps) ? workflow.steps : [];
+      if (steps.length > 7) {
+        details.push(`default workflow has ${steps.length} steps; documented stable baseline is 7`);
+      }
+
+      const stepTypes = new Set(
+        steps
+          .filter(isPlainObject)
+          .map(step => typeof step.type === 'string' ? step.type : '')
+          .filter(Boolean),
+      );
+      const missingStepTypes = DEFAULT_WORKFLOW_STABLE_STEP_TYPES.filter(type => !stepTypes.has(type));
+      if (missingStepTypes.length > 0) {
+        details.push(`default workflow is missing expected stable step types: ${missingStepTypes.join(', ')}`);
+      }
+    }
+  }
+
+  const agentCallsDir = path.join(inspection.targetDir, '.codebuddy', 'agent-calls');
+  if (fs.existsSync(agentCallsDir)) {
+    const requestIds = new Map<string, { promptFile: string | null; resultFile: string | null }>();
+    for (const entry of fs.readdirSync(agentCallsDir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const match = entry.name.match(/^(.*)\.(prompt\.md|result\.json)$/);
+      if (!match) continue;
+
+      const requestId = match[1];
+      const suffix = match[2];
+      const fileState = requestIds.get(requestId) ?? { promptFile: null, resultFile: null };
+      const filePath = path.join(agentCallsDir, entry.name);
+      if (suffix === 'prompt.md') fileState.promptFile = filePath;
+      if (suffix === 'result.json') fileState.resultFile = filePath;
+      requestIds.set(requestId, fileState);
+    }
+
+    for (const [requestId, fileState] of requestIds.entries()) {
+      const expectedPromptPath = `.codebuddy/agent-calls/${requestId}.prompt.md`;
+      const expectedResultPath = `.codebuddy/agent-calls/${requestId}.result.json`;
+
+      if (fileState.promptFile) {
+        const promptRelative = toProjectRelativePath(inspection.targetDir, fileState.promptFile);
+        if (promptRelative !== expectedPromptPath) {
+          details.push(`${requestId}: prompt file location ${promptRelative} differs from stable contract ${expectedPromptPath}`);
+        }
+
+        const promptContent = readTextFile(fileState.promptFile);
+        const promptHeader = promptContent ? parseAgentCallPromptHeaderPaths(promptContent) : null;
+        if (promptHeader) {
+          if (isNonEmptyString(promptHeader.promptPath) && promptHeader.promptPath.replace(/\\/g, '/') !== expectedPromptPath) {
+            details.push(`${requestId}: prompt header promptPath=${promptHeader.promptPath} differs from stable contract ${expectedPromptPath}`);
+          }
+          if (isNonEmptyString(promptHeader.resultPath) && promptHeader.resultPath.replace(/\\/g, '/') !== expectedResultPath) {
+            details.push(`${requestId}: prompt header resultPath=${promptHeader.resultPath} differs from stable contract ${expectedResultPath}`);
+          }
+        }
+      }
+
+      if (fileState.resultFile) {
+        const resultRelative = toProjectRelativePath(inspection.targetDir, fileState.resultFile);
+        if (resultRelative !== expectedResultPath) {
+          details.push(`${requestId}: result file location ${resultRelative} differs from stable contract ${expectedResultPath}`);
+        }
+      }
+    }
+  }
+
+  return Array.from(new Set(details));
+}
+
+function collectWorkflowRoutingReportDetails(inspection: InstallInspection): {
+  report: ReturnType<typeof readLatestWorkflowRoutingReport>;
+  details: string[];
+} {
+  const report = readLatestWorkflowRoutingReport(inspection.targetDir);
+  const details: string[] = [];
+
+  if (!report) {
+    return { report, details };
+  }
+
+  const selectedWorkflowPath = report.decision?.selectedWorkflowPath || '';
+  if (selectedWorkflowPath) {
+    const absoluteWorkflowPath = path.isAbsolute(selectedWorkflowPath)
+      ? selectedWorkflowPath
+      : path.join(inspection.targetDir, selectedWorkflowPath);
+    if (!fs.existsSync(absoluteWorkflowPath)) {
+      details.push(`latest route points to a missing workflow file: ${selectedWorkflowPath}`);
+    }
+  }
+
+  if (report.decision?.mode === 'fallback') {
+    details.push(`latest route fell back to ${report.decision.selectedWorkflowId}: ${report.decision.fallbackReason || 'unknown reason'}`);
+  }
+
+  if (report.decision?.confidence === 'low') {
+    details.push(`latest route confidence is low (${report.decision.selectedWorkflowId})`);
+  }
+
+  return { report, details: Array.from(new Set(details)) };
 }
 
 function detectPythonRuntime(): PythonRuntimeStatus {
@@ -387,6 +552,41 @@ export function buildDoctorChecks(inspection: InstallInspection): DoctorCheck[] 
         : `${installState.profile} profile 仍存在 ${inspection.unexpectedProfileFiles.length} 个越界残留文件`
           + (legacyArtifactCount > 0 ? `（其中 ${legacyArtifactCount} 个为编排契约残留）` : ''),
       details: inspection.unexpectedProfileFiles.slice(0, 10),
+    });
+  }
+
+  const architectureConstraintDetails = collectArchitectureConstraintDetails(inspection);
+  if (architectureConstraintDetails.length > 0) {
+    checks.push({
+      id: 'architecture-constraints',
+      status: 'warn',
+      message: `发现 ${architectureConstraintDetails.length} 个架构约束漂移信号`,
+      details: architectureConstraintDetails.slice(0, 10),
+    });
+  } else if (installState.enableOrchestrator || installState.stats.workflows > 0 || installState.stats.agentCalls > 0) {
+    checks.push({
+      id: 'architecture-constraints',
+      status: 'pass',
+      message: '未发现默认 workflow / agent-call 稳定契约漂移',
+    });
+  }
+
+  const workflowRoutingReport = collectWorkflowRoutingReportDetails(inspection);
+  if (workflowRoutingReport.report) {
+    checks.push({
+      id: 'workflow-routing-report',
+      status: workflowRoutingReport.details.length > 0 ? 'warn' : 'pass',
+      message: workflowRoutingReport.details.length > 0
+        ? `最近一次 workflow 路由存在 ${workflowRoutingReport.details.length} 个需关注信号`
+        : `最近一次 workflow 路由正常: ${workflowRoutingReport.report.decision.selectedWorkflowId} (${workflowRoutingReport.report.decision.mode})`,
+      details: workflowRoutingReport.details.length > 0
+        ? workflowRoutingReport.details.slice(0, 10)
+        : [
+            `taskBookId=${workflowRoutingReport.report.taskBookId}`,
+            `workflow=${workflowRoutingReport.report.decision.selectedWorkflowId}`,
+            `mode=${workflowRoutingReport.report.decision.mode}`,
+            `confidence=${workflowRoutingReport.report.decision.confidence}`,
+          ],
     });
   }
 

@@ -6,6 +6,7 @@
 ## Related Documents
 
 - Execution roadmap: [ROADMAP.md](./ROADMAP.md)
+- Architecture constraints: [docs/reference/architecture-constraints.md](./docs/reference/architecture-constraints.md)
 
 ## Purpose
 
@@ -26,6 +27,7 @@ It answers:
 - support remote delivery without rewriting local file references
 - support technology-stack-aware composition when remote delivery is enabled
 - keep execution concerns separate from delivery concerns
+- keep the default install and AI-tool integration path stable while allowing opt-in expansion
 
 ## System Layers
 

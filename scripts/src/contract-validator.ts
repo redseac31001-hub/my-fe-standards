@@ -20,6 +20,20 @@ type Issue = {
   message: string;
 };
 
+type ValidationReport = {
+  ok: boolean;
+  totals: {
+    files: {
+      workflows: number;
+      taskbooks: number;
+      agentCalls: number;
+    };
+    errors: number;
+    warnings: number;
+  };
+  issues: Issue[];
+};
+
 const TASKBOOK_STATUSES = new Set(['draft', 'confirmed', 'executing', 'completed', 'aborted']);
 const TASKBOOK_TYPES = new Set(['new-feature', 'refactoring', 'debugging', 'testing', 'code-review']);
 const TASK_TYPES = new Set(['analysis', 'design', 'test', 'implement', 'review']);
@@ -32,6 +46,9 @@ const AGENT_CALL_STATUSES = new Set(['success', 'failed', 'blocked']);
 const KNOWN_WORKFLOW_STEP_TYPES = new Set([
   'analyze_project',
   'create_taskbook',
+  'requirement_and_prd',
+  'tdd_implement',
+  'build_and_fix',
   'implement_tasks',
   'run_tests',
   'code_review',
@@ -474,6 +491,37 @@ function validateTaskBook(data: unknown, file: string): Issue[] {
         if ('completedAt' in t && typeof t.completedAt !== 'undefined' && !isValidDateTime(t.completedAt)) {
           error(`tasks[${index}].completedAt must be an ISO date-time string (when provided)`);
         }
+        if ('handoffs' in t && typeof t.handoffs !== 'undefined') {
+          if (!Array.isArray(t.handoffs)) {
+            error(`tasks[${index}].handoffs must be an array (when provided)`);
+          } else {
+            for (const [handoffIndex, handoff] of t.handoffs.entries()) {
+              if (!isPlainObject(handoff)) {
+                error(`tasks[${index}].handoffs[${handoffIndex}] must be an object`);
+                continue;
+              }
+
+              if (!isNonEmptyString(handoff.from)) {
+                error(`tasks[${index}].handoffs[${handoffIndex}].from must be a non-empty string`);
+              }
+              if (!isNonEmptyString(handoff.to)) {
+                error(`tasks[${index}].handoffs[${handoffIndex}].to must be a non-empty string`);
+              }
+              if (!isNonEmptyString(handoff.type) || !new Set(['standard', 'qa_pass', 'qa_fail', 'escalation']).has(handoff.type)) {
+                error(`tasks[${index}].handoffs[${handoffIndex}].type must be one of: standard, qa_pass, qa_fail, escalation`);
+              }
+              if (!isValidDateTime(handoff.timestamp)) {
+                error(`tasks[${index}].handoffs[${handoffIndex}].timestamp must be an ISO date-time string`);
+              }
+              if ('context' in handoff && typeof handoff.context !== 'undefined' && typeof handoff.context !== 'string') {
+                error(`tasks[${index}].handoffs[${handoffIndex}].context must be a string (when provided)`);
+              }
+              if ('deliverables' in handoff && typeof handoff.deliverables !== 'undefined' && !isStringArray(handoff.deliverables)) {
+                error(`tasks[${index}].handoffs[${handoffIndex}].deliverables must be an array of strings (when provided)`);
+              }
+            }
+          }
+        }
       }
 
       // dependency check
@@ -659,6 +707,7 @@ type ParsedArgs = {
   strict: boolean;
   checkBatchingScope: boolean;
   strictBatchingScope: boolean;
+  checkArchitectureConstraints: boolean;
   json: boolean;
   quiet: boolean;
 };
@@ -674,6 +723,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     strict: false,
     checkBatchingScope: false,
     strictBatchingScope: false,
+    checkArchitectureConstraints: false,
     json: false,
     quiet: false,
   };
@@ -689,6 +739,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     else if (a === '--strict') parsed.strict = true;
     else if (a === '--check-batching-scope') parsed.checkBatchingScope = true;
     else if (a === '--strict-batching-scope') parsed.strictBatchingScope = true;
+    else if (a === '--check-architecture-constraints') parsed.checkArchitectureConstraints = true;
     else if (a === '--json') parsed.json = true;
     else if (a === '--quiet') parsed.quiet = true;
     else if (a === '--help' || a === '-h') {
@@ -737,6 +788,8 @@ Options:
   --strict                    treat unknown workflow step/gate types as errors
   --check-batching-scope      warn when batching is enabled but tasks lack scope.files/modules
   --strict-batching-scope     error when batching is enabled but tasks lack scope.files/modules
+  --check-architecture-constraints
+                              warn when workflow / agent-call files drift from the documented stable contract
   --json                      output machine-readable JSON
   --quiet                     only output errors (text mode)
 `);
@@ -806,6 +859,314 @@ function batchingScopeIssues(
   return issues;
 }
 
+function toPosixRelative(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
+function validateArchitectureConstraintsForWorkflow(data: unknown, file: string): Issue[] {
+  const issues: Issue[] = [];
+  if (!isPlainObject(data)) return issues;
+
+  const workflowId = typeof data.id === 'string' ? data.id : '';
+  const fileName = path.basename(file);
+  const isDefaultWorkflow = workflowId === 'default' || fileName === 'default.workflow.json';
+  if (!isDefaultWorkflow) return issues;
+
+  const steps = Array.isArray(data.steps) ? data.steps : [];
+  if (steps.length > 7) {
+    issues.push({
+      level: 'warning',
+      file,
+      message: `Architecture constraints: default workflow has ${steps.length} steps; documented stable baseline is 7. Prefer opt-in workflow variants over increasing default operator burden.`,
+    });
+  }
+
+  const stepTypes = new Set(
+    steps
+      .filter(isPlainObject)
+      .map(step => typeof step.type === 'string' ? step.type : '')
+      .filter(Boolean)
+  );
+  const expectedStepTypes = [
+    'requirement_and_prd',
+    'analyze_project',
+    'create_taskbook',
+    'tdd_implement',
+    'code_review',
+    'build_and_fix',
+    'acceptance_and_archive',
+  ];
+  const missing = expectedStepTypes.filter(type => !stepTypes.has(type));
+  if (missing.length > 0) {
+    issues.push({
+      level: 'warning',
+      file,
+      message: `Architecture constraints: default workflow is missing expected stable step types: ${missing.join(', ')}. If this is intentional, treat it as an architecture-level change rather than a routine edit.`,
+    });
+  }
+
+  return issues;
+}
+
+function validateArchitectureConstraintsForAgentCall(
+  requestId: string,
+  promptFile: string | null,
+  resultFile: string | null,
+  promptHeader: AgentCallPromptHeader | null
+): Issue[] {
+  const issues: Issue[] = [];
+  if (!promptHeader) return issues;
+
+  const expectedPromptPath = `.codebuddy/agent-calls/${requestId}.prompt.md`;
+  const expectedResultPath = `.codebuddy/agent-calls/${requestId}.result.json`;
+
+  if (isNonEmptyString(promptHeader.promptPath) && toPosixRelative(promptHeader.promptPath) !== expectedPromptPath) {
+    issues.push({
+      level: 'warning',
+      file: promptFile ?? resultFile ?? requestId,
+      message: `Architecture constraints: prompt header promptPath=${promptHeader.promptPath} differs from stable contract ${expectedPromptPath}.`,
+    });
+  }
+
+  if (isNonEmptyString(promptHeader.resultPath) && toPosixRelative(promptHeader.resultPath) !== expectedResultPath) {
+    issues.push({
+      level: 'warning',
+      file: promptFile ?? resultFile ?? requestId,
+      message: `Architecture constraints: prompt header resultPath=${promptHeader.resultPath} differs from stable contract ${expectedResultPath}.`,
+    });
+  }
+
+  const promptRelative = promptFile ? toPosixRelative(path.relative(process.cwd(), promptFile)) : null;
+  if (promptRelative && promptRelative !== expectedPromptPath) {
+    issues.push({
+      level: 'warning',
+      file: promptFile ?? requestId,
+      message: `Architecture constraints: prompt file location ${promptRelative} differs from stable contract ${expectedPromptPath}.`,
+    });
+  }
+
+  const resultRelative = resultFile ? toPosixRelative(path.relative(process.cwd(), resultFile)) : null;
+  if (resultRelative && resultRelative !== expectedResultPath) {
+    issues.push({
+      level: 'warning',
+      file: resultFile ?? requestId,
+      message: `Architecture constraints: result file location ${resultRelative} differs from stable contract ${expectedResultPath}.`,
+    });
+  }
+
+  return issues;
+}
+
+export function runContractValidation(argv: string[], cwd: string = process.cwd()): ValidationReport {
+  const originalCwd = process.cwd();
+  if (originalCwd !== cwd) {
+    process.chdir(cwd);
+  }
+
+  try {
+    const args = parseArgs(argv);
+    const issues: Issue[] = [];
+
+    // workflows
+    const workflowFiles: string[] = [];
+    if (args.workflowPaths.length > 0) {
+      for (const p of args.workflowPaths) workflowFiles.push(path.resolve(process.cwd(), p));
+    } else if (args.validateWorkflows) {
+      const dir = path.join(process.cwd(), '.codebuddy', 'workflows');
+      workflowFiles.push(...listJsonFiles(dir, { exclude: new Set(['workflow.schema.json']) }));
+    }
+
+    // If batching-scope checks are enabled, we need workflow policies even when --workflows wasn't requested.
+    if (args.checkBatchingScope && workflowFiles.length === 0) {
+      const dir = path.join(process.cwd(), '.codebuddy', 'workflows');
+      workflowFiles.push(...listJsonFiles(dir, { exclude: new Set(['workflow.schema.json']) }));
+    }
+
+    const workflowData: Array<{ file: string; data: unknown }> = [];
+    for (const f of workflowFiles) {
+      const r = readJsonFile(f);
+      if (!r.ok) {
+        issues.push({ level: 'error', file: f, message: `Failed to read/parse JSON: ${r.error}` });
+        continue;
+      }
+      workflowData.push({ file: f, data: r.data });
+      issues.push(...validateWorkflowSpec(r.data, f, { strict: args.strict }));
+      if (args.checkArchitectureConstraints) {
+        issues.push(...validateArchitectureConstraintsForWorkflow(r.data, f));
+      }
+    }
+
+    // taskbooks
+    const taskBookFiles: string[] = [];
+    if (args.taskBookIds.length > 0) {
+      for (const id of args.taskBookIds) {
+        const active = path.join(process.cwd(), '.codebuddy', 'taskbooks', 'active', `${id}.json`);
+        const history = path.join(process.cwd(), '.codebuddy', 'taskbooks', 'history', `${id}.json`);
+        if (fs.existsSync(active)) taskBookFiles.push(active);
+        else if (fs.existsSync(history)) taskBookFiles.push(history);
+        else issues.push({ level: 'error', file: id, message: 'TaskBook not found in active/history' });
+      }
+    } else if (args.validateTaskbooks) {
+      const dir = path.join(process.cwd(), '.codebuddy', 'taskbooks', 'active');
+      taskBookFiles.push(...listJsonFiles(dir));
+    }
+
+    if (args.checkBatchingScope && taskBookFiles.length === 0 && args.taskBookIds.length === 0) {
+      const dir = path.join(process.cwd(), '.codebuddy', 'taskbooks', 'active');
+      taskBookFiles.push(...listJsonFiles(dir));
+    }
+
+    const taskBookData: Array<{ file: string; data: unknown }> = [];
+    for (const f of taskBookFiles) {
+      const r = readJsonFile(f);
+      if (!r.ok) {
+        issues.push({ level: 'error', file: f, message: `Failed to read/parse JSON: ${r.error}` });
+        continue;
+      }
+      taskBookData.push({ file: f, data: r.data });
+      issues.push(...validateTaskBook(r.data, f));
+    }
+
+    if (args.checkBatchingScope) {
+      const batchingEnabled = workflowData.some(w => workflowHasRiskTieredBatching(w.data));
+      if (batchingEnabled) {
+        for (const tb of taskBookData) {
+          issues.push(...batchingScopeIssues(tb.data, tb.file, { strict: args.strictBatchingScope }));
+        }
+      }
+    }
+
+    // agent-calls
+    const agentCallsDir = path.join(process.cwd(), '.codebuddy', 'agent-calls');
+    const agentCallItems: Array<{ requestId: string; promptFile: string | null; resultFile: string | null }> = [];
+
+    if (args.agentCallRequestIds.length > 0) {
+      for (const id of args.agentCallRequestIds) {
+        const promptFile = path.join(agentCallsDir, `${id}.prompt.md`);
+        const resultFile = path.join(agentCallsDir, `${id}.result.json`);
+        if (!fs.existsSync(resultFile)) {
+          issues.push({ level: 'error', file: id, message: 'agent-call result.json not found under .codebuddy/agent-calls' });
+          continue;
+        }
+        agentCallItems.push({
+          requestId: id,
+          promptFile: fs.existsSync(promptFile) ? promptFile : null,
+          resultFile,
+        });
+      }
+    } else if (args.validateAgentCalls) {
+      if (fs.existsSync(agentCallsDir)) {
+        const entries = fs.readdirSync(agentCallsDir, { withFileTypes: true });
+        const requestIds = new Map<string, { promptFile: string | null; resultFile: string | null }>();
+        for (const e of entries) {
+          if (!e.isFile()) continue;
+          const m = e.name.match(/^(.*)\.(prompt\.md|result\.json)$/);
+          if (!m) continue;
+          const requestId = m[1];
+          const kind = m[2];
+          const existing = requestIds.get(requestId) ?? { promptFile: null, resultFile: null };
+          const absPath = path.join(agentCallsDir, e.name);
+          if (kind === 'prompt.md') existing.promptFile = absPath;
+          if (kind === 'result.json') existing.resultFile = absPath;
+          requestIds.set(requestId, existing);
+        }
+
+        for (const [requestId, files] of Array.from(requestIds.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+          agentCallItems.push({ requestId, promptFile: files.promptFile, resultFile: files.resultFile });
+        }
+      }
+    }
+
+    for (const it of agentCallItems) {
+      if (it.promptFile && !it.resultFile) {
+        issues.push({
+          level: 'warning',
+          file: it.promptFile,
+          message: `agent-call result.json missing (requestId=${it.requestId})`,
+        });
+        continue;
+      }
+      if (it.resultFile && !it.promptFile) {
+        issues.push({
+          level: 'warning',
+          file: it.resultFile,
+          message: `agent-call prompt.md missing (requestId=${it.requestId})`,
+        });
+      }
+      if (!it.resultFile) continue;
+
+      const prompt = it.promptFile ? readTextFile(it.promptFile) : null;
+      const promptHeader = prompt && prompt.ok ? parseAgentCallPromptHeader(prompt.data) : null;
+
+      if (prompt && !prompt.ok) {
+        issues.push({ level: 'warning', file: it.promptFile ?? it.resultFile, message: `Failed to read prompt.md: ${prompt.error}` });
+      }
+      if (prompt && prompt.ok && promptHeader && !promptHeader.ok) {
+        issues.push({ level: 'warning', file: it.promptFile ?? it.resultFile, message: `Invalid prompt.md header: ${promptHeader.error}` });
+      }
+
+      const r = readJsonFile(it.resultFile);
+      if (!r.ok) {
+        issues.push({ level: 'error', file: it.resultFile, message: `Failed to read/parse JSON: ${r.error}` });
+        continue;
+      }
+
+      const kindFromPrompt = prompt && prompt.ok ? inferAgentCallKind(prompt.data, promptHeader && promptHeader.ok ? promptHeader.header : null) : 'unknown';
+      const kindFromResult = parseAgentCallResultKind(r.data);
+
+      if (kindFromPrompt !== 'unknown' && kindFromResult && kindFromPrompt !== kindFromResult) {
+        issues.push({
+          level: 'error',
+          file: it.resultFile,
+          message: `agent-call kind mismatch: prompt=${kindFromPrompt} result=${kindFromResult}`,
+        });
+      }
+
+      if (isPlainObject(r.data) && typeof r.data.kind !== 'undefined' && !kindFromResult) {
+        issues.push({
+          level: 'warning',
+          file: it.resultFile,
+          message: `agent-call kind is present but not recognized: ${String(r.data.kind)}`,
+        });
+      }
+
+      const kind: AgentCallKind = kindFromPrompt !== 'unknown' ? kindFromPrompt : (kindFromResult ?? 'unknown');
+
+      issues.push(...validateAgentCallResult(r.data, it.resultFile, {
+        requestIdFromFile: it.requestId,
+        promptHeader: promptHeader && promptHeader.ok ? promptHeader.header : null,
+        kind,
+      }));
+
+      if (args.checkArchitectureConstraints) {
+        issues.push(...validateArchitectureConstraintsForAgentCall(
+          it.requestId,
+          it.promptFile,
+          it.resultFile,
+          promptHeader && promptHeader.ok ? promptHeader.header : null,
+        ));
+      }
+    }
+
+    const errors = issues.filter(i => i.level === 'error');
+    const warnings = issues.filter(i => i.level === 'warning');
+
+    return {
+      ok: errors.length === 0,
+      totals: {
+        files: { workflows: workflowFiles.length, taskbooks: taskBookFiles.length, agentCalls: agentCallItems.length },
+        errors: errors.length,
+        warnings: warnings.length,
+      },
+      issues,
+    };
+  } finally {
+    if (process.cwd() !== originalCwd) {
+      process.chdir(originalCwd);
+    }
+  }
+}
+
 function main(): void {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -814,204 +1175,21 @@ function main(): void {
   }
 
   const args = parseArgs(argv);
-  const issues: Issue[] = [];
-
-  // workflows
-  const workflowFiles: string[] = [];
-  if (args.workflowPaths.length > 0) {
-    for (const p of args.workflowPaths) workflowFiles.push(path.resolve(process.cwd(), p));
-  } else if (args.validateWorkflows) {
-    const dir = path.join(process.cwd(), '.codebuddy', 'workflows');
-    workflowFiles.push(...listJsonFiles(dir, { exclude: new Set(['workflow.schema.json']) }));
-  }
-
-  // If batching-scope checks are enabled, we need workflow policies even when --workflows wasn't requested.
-  if (args.checkBatchingScope && workflowFiles.length === 0) {
-    const dir = path.join(process.cwd(), '.codebuddy', 'workflows');
-    workflowFiles.push(...listJsonFiles(dir, { exclude: new Set(['workflow.schema.json']) }));
-  }
-
-  const workflowData: Array<{ file: string; data: unknown }> = [];
-  for (const f of workflowFiles) {
-    const r = readJsonFile(f);
-    if (!r.ok) {
-      issues.push({ level: 'error', file: f, message: `Failed to read/parse JSON: ${r.error}` });
-      continue;
-    }
-    workflowData.push({ file: f, data: r.data });
-    issues.push(...validateWorkflowSpec(r.data, f, { strict: args.strict }));
-  }
-
-  // taskbooks
-  const taskBookFiles: string[] = [];
-  if (args.taskBookIds.length > 0) {
-    for (const id of args.taskBookIds) {
-      const active = path.join(process.cwd(), '.codebuddy', 'taskbooks', 'active', `${id}.json`);
-      const history = path.join(process.cwd(), '.codebuddy', 'taskbooks', 'history', `${id}.json`);
-      if (fs.existsSync(active)) taskBookFiles.push(active);
-      else if (fs.existsSync(history)) taskBookFiles.push(history);
-      else issues.push({ level: 'error', file: id, message: 'TaskBook not found in active/history' });
-    }
-  } else if (args.validateTaskbooks) {
-    const dir = path.join(process.cwd(), '.codebuddy', 'taskbooks', 'active');
-    taskBookFiles.push(...listJsonFiles(dir));
-  }
-
-  if (args.checkBatchingScope && taskBookFiles.length === 0 && args.taskBookIds.length === 0) {
-    const dir = path.join(process.cwd(), '.codebuddy', 'taskbooks', 'active');
-    taskBookFiles.push(...listJsonFiles(dir));
-  }
-
-  const taskBookData: Array<{ file: string; data: unknown }> = [];
-  for (const f of taskBookFiles) {
-    const r = readJsonFile(f);
-    if (!r.ok) {
-      issues.push({ level: 'error', file: f, message: `Failed to read/parse JSON: ${r.error}` });
-      continue;
-    }
-    taskBookData.push({ file: f, data: r.data });
-    issues.push(...validateTaskBook(r.data, f));
-  }
-
-  if (args.checkBatchingScope) {
-    const batchingEnabled = workflowData.some(w => workflowHasRiskTieredBatching(w.data));
-    if (batchingEnabled) {
-      for (const tb of taskBookData) {
-        issues.push(...batchingScopeIssues(tb.data, tb.file, { strict: args.strictBatchingScope }));
-      }
-    }
-  }
-
-  // agent-calls
-  const agentCallsDir = path.join(process.cwd(), '.codebuddy', 'agent-calls');
-  const agentCallItems: Array<{ requestId: string; promptFile: string | null; resultFile: string | null }> = [];
-
-  if (args.agentCallRequestIds.length > 0) {
-    for (const id of args.agentCallRequestIds) {
-      const promptFile = path.join(agentCallsDir, `${id}.prompt.md`);
-      const resultFile = path.join(agentCallsDir, `${id}.result.json`);
-      if (!fs.existsSync(resultFile)) {
-        issues.push({ level: 'error', file: id, message: 'agent-call result.json not found under .codebuddy/agent-calls' });
-        continue;
-      }
-      agentCallItems.push({
-        requestId: id,
-        promptFile: fs.existsSync(promptFile) ? promptFile : null,
-        resultFile,
-      });
-    }
-  } else if (args.validateAgentCalls) {
-    if (fs.existsSync(agentCallsDir)) {
-      const entries = fs.readdirSync(agentCallsDir, { withFileTypes: true });
-      const requestIds = new Map<string, { promptFile: string | null; resultFile: string | null }>();
-      for (const e of entries) {
-        if (!e.isFile()) continue;
-        const m = e.name.match(/^(.*)\.(prompt\.md|result\.json)$/);
-        if (!m) continue;
-        const requestId = m[1];
-        const kind = m[2];
-        const existing = requestIds.get(requestId) ?? { promptFile: null, resultFile: null };
-        const absPath = path.join(agentCallsDir, e.name);
-        if (kind === 'prompt.md') existing.promptFile = absPath;
-        if (kind === 'result.json') existing.resultFile = absPath;
-        requestIds.set(requestId, existing);
-      }
-
-      for (const [requestId, files] of Array.from(requestIds.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
-        agentCallItems.push({ requestId, promptFile: files.promptFile, resultFile: files.resultFile });
-      }
-    }
-  }
-
-  for (const it of agentCallItems) {
-    if (it.promptFile && !it.resultFile) {
-      issues.push({
-        level: 'warning',
-        file: it.promptFile,
-        message: `agent-call result.json missing (requestId=${it.requestId})`,
-      });
-      continue;
-    }
-    if (it.resultFile && !it.promptFile) {
-      issues.push({
-        level: 'warning',
-        file: it.resultFile,
-        message: `agent-call prompt.md missing (requestId=${it.requestId})`,
-      });
-    }
-    if (!it.resultFile) continue;
-
-    const prompt = it.promptFile ? readTextFile(it.promptFile) : null;
-    const promptHeader = prompt && prompt.ok ? parseAgentCallPromptHeader(prompt.data) : null;
-
-    if (prompt && !prompt.ok) {
-      issues.push({ level: 'warning', file: it.promptFile ?? it.resultFile, message: `Failed to read prompt.md: ${prompt.error}` });
-    }
-    if (prompt && prompt.ok && promptHeader && !promptHeader.ok) {
-      issues.push({ level: 'warning', file: it.promptFile ?? it.resultFile, message: `Invalid prompt.md header: ${promptHeader.error}` });
-    }
-
-    const r = readJsonFile(it.resultFile);
-    if (!r.ok) {
-      issues.push({ level: 'error', file: it.resultFile, message: `Failed to read/parse JSON: ${r.error}` });
-      continue;
-    }
-
-    const kindFromPrompt = prompt && prompt.ok ? inferAgentCallKind(prompt.data, promptHeader && promptHeader.ok ? promptHeader.header : null) : 'unknown';
-    const kindFromResult = parseAgentCallResultKind(r.data);
-
-    if (kindFromPrompt !== 'unknown' && kindFromResult && kindFromPrompt !== kindFromResult) {
-      issues.push({
-        level: 'error',
-        file: it.resultFile,
-        message: `agent-call kind mismatch: prompt=${kindFromPrompt} result=${kindFromResult}`,
-      });
-    }
-
-    if (isPlainObject(r.data) && typeof r.data.kind !== 'undefined' && !kindFromResult) {
-      issues.push({
-        level: 'warning',
-        file: it.resultFile,
-        message: `agent-call kind is present but not recognized: ${String(r.data.kind)}`,
-      });
-    }
-
-    const kind: AgentCallKind = kindFromPrompt !== 'unknown' ? kindFromPrompt : (kindFromResult ?? 'unknown');
-
-    issues.push(...validateAgentCallResult(r.data, it.resultFile, {
-      requestIdFromFile: it.requestId,
-      promptHeader: promptHeader && promptHeader.ok ? promptHeader.header : null,
-      kind,
-    }));
-  }
-
-  const errors = issues.filter(i => i.level === 'error');
-  const warnings = issues.filter(i => i.level === 'warning');
-
-  const ok = errors.length === 0;
+  const report = runContractValidation(argv, process.cwd());
 
   if (args.json) {
-    // do not include huge content, only summary
-    console.log(JSON.stringify({
-      ok,
-      totals: {
-        files: { workflows: workflowFiles.length, taskbooks: taskBookFiles.length, agentCalls: agentCallItems.length },
-        errors: errors.length,
-        warnings: warnings.length,
-      },
-      issues,
-    }, null, 2));
+    console.log(JSON.stringify(report, null, 2));
   } else {
-    if (ok) {
+    if (report.ok) {
       if (!args.quiet) {
-        const agentCallsPart = args.validateAgentCalls || args.agentCallRequestIds.length > 0 ? ` agentcalls=${agentCallItems.length}` : '';
-        console.log(`[OK] contracts valid | workflows=${workflowFiles.length} taskbooks=${taskBookFiles.length}${agentCallsPart} warnings=${warnings.length}`);
+        const agentCallsPart = args.validateAgentCalls || args.agentCallRequestIds.length > 0 ? ` agentcalls=${report.totals.files.agentCalls}` : '';
+        console.log(`[OK] contracts valid | workflows=${report.totals.files.workflows} taskbooks=${report.totals.files.taskbooks}${agentCallsPart} warnings=${report.totals.warnings}`);
       }
     } else {
-      console.error(`[FAIL] contract validation failed | errors=${errors.length} warnings=${warnings.length}`);
+      console.error(`[FAIL] contract validation failed | errors=${report.totals.errors} warnings=${report.totals.warnings}`);
     }
 
-    for (const i of issues) {
+    for (const i of report.issues) {
       if (args.quiet && i.level !== 'error') continue;
       const prefix = i.level === 'error' ? 'ERROR' : 'WARN ';
       const out = `${prefix} ${i.file}: ${i.message}`;
@@ -1020,7 +1198,7 @@ function main(): void {
     }
   }
 
-  process.exit(ok ? 0 : 1);
+  process.exit(report.ok ? 0 : 1);
 }
 
 if (require.main === module) {

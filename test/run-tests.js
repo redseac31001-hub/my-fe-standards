@@ -27,11 +27,104 @@ function splitCommandArgs(argString) {
 }
 
 function buildExecError(command, result) {
-  const error = new Error(`Command failed: ${command}\n${result.stderr || result.stdout || ''}`.trim());
+  const details = [];
+  if (result.error) {
+    const code = result.error.code ? `${result.error.code}: ` : '';
+    details.push(`spawnError: ${code}${result.error.message}`);
+  }
+  if (result.stderr) details.push(result.stderr);
+  if (!result.stderr && result.stdout) details.push(result.stdout);
+
+  const error = new Error(`Command failed: ${command}\n${details.join('\n')}`.trim());
   error.status = result.status;
   error.stdout = result.stdout;
   error.stderr = result.stderr;
+  error.spawnError = result.error || null;
   return error;
+}
+
+function canSpawnChildNodeProcess() {
+  const result = spawnSync(process.execPath, ['-e', 'process.exit(0)'], {
+    stdio: 'pipe',
+    encoding: 'utf-8',
+  });
+
+  if (result.error) {
+    const code = result.error.code ? `${result.error.code}: ` : '';
+    return {
+      ok: false,
+      reason: `${code}${result.error.message}`,
+    };
+  }
+
+  if (result.status !== 0) {
+    return {
+      ok: false,
+      reason: `exit=${result.status}${result.stderr ? `, stderr=${result.stderr}` : ''}`,
+    };
+  }
+
+  return { ok: true, reason: null };
+}
+
+function parseCliOptions(argv) {
+  const allowedSuites = new Set(['all', 'local', 'remote']);
+  const suites = new Set();
+  let showHelp = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--help' || arg === '-h') {
+      showHelp = true;
+      continue;
+    }
+
+    let suiteValue = null;
+    if (arg === '--suite' && argv[i + 1]) {
+      suiteValue = argv[++i];
+    } else if (arg.startsWith('--suite=')) {
+      suiteValue = arg.slice('--suite='.length);
+    }
+
+    if (!suiteValue) {
+      continue;
+    }
+
+    for (const item of suiteValue.split(',').map(s => s.trim()).filter(Boolean)) {
+      if (!allowedSuites.has(item)) {
+        throw new Error(`unknown suite: ${item}`);
+      }
+      suites.add(item);
+    }
+  }
+
+  if (suites.size === 0 || suites.has('all')) {
+    return {
+      showHelp,
+      suites: new Set(['local', 'remote']),
+      label: 'all',
+    };
+  }
+
+  return {
+    showHelp,
+    suites,
+    label: Array.from(suites).join(','),
+  };
+}
+
+function showHelp() {
+  console.log(`
+CodeBuddy Loader Test Suite
+
+Usage:
+  node test/run-tests.js [--suite all|local|remote]
+
+Suites:
+  all      run all local and remote E2E tests (default)
+  local    run mock-project/workspace/profile tests only
+  remote   run remote content-pack / installer wrapper tests only
+`.trim());
 }
 
 function execSync(command, options = {}) {
@@ -2306,6 +2399,124 @@ Use [Shared guide](../../../shared/shared-guide.md "Shared reference") before co
       allPassed = false;
     }
 
+    // E2E: task-orchestrator auto route + observability
+    if (testCase.dir === 'vue3-project') {
+      try {
+        const tbRaw = execSync(
+          'node ".codebuddy/scripts/taskbook-manager.js" create --title "E2E Auto Route" --description "verify route report/doctor/report-manager" --type debugging --json',
+          { cwd: projectDir, stdio: 'pipe', encoding: 'utf-8' }
+        );
+        const taskBookId = JSON.parse(tbRaw).id;
+
+        execSync(
+          `node ".codebuddy/scripts/taskbook-manager.js" add-task ${taskBookId} --title "Analyze quick-fix scope" --type analysis --files "package.json" --tags "quick-fix" --json`,
+          { cwd: projectDir, stdio: 'pipe', encoding: 'utf-8' }
+        );
+
+        execSync(
+          `node ".codebuddy/scripts/taskbook-manager.js" confirm ${taskBookId} --json`,
+          { cwd: projectDir, stdio: 'pipe', encoding: 'utf-8' }
+        );
+
+        const run = spawnSync(process.execPath, [
+          '.codebuddy/scripts/task-orchestrator.js',
+          '--taskbook', taskBookId,
+          '--approve', 'review_passed',
+          '--show-workflow-route',
+          '--json',
+        ], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+
+        if (run.status !== 0) {
+          throw new Error(`orchestrator auto route exit=${run.status}, stderr=${run.stderr}`);
+        }
+
+        const completed = JSON.parse(run.stdout);
+        if (!completed || completed.status !== 'completed' || completed.taskBookId !== taskBookId) {
+          throw new Error('orchestrator auto route completed output invalid');
+        }
+
+        const workflowRoute = completed.details && completed.details.workflowRoute;
+        if (!workflowRoute || !workflowRoute.workflowId) {
+          throw new Error('orchestrator auto route details missing workflowRoute');
+        }
+        if (workflowRoute.workflowId !== 'default') {
+          throw new Error(`orchestrator auto route expected default workflow in installed fixture, got ${workflowRoute.workflowId}`);
+        }
+
+        const routeReportPath = path.join(projectDir, '.codebuddy', 'reports', 'workflow-routing', `${taskBookId}.routing.json`);
+        if (!fs.existsSync(routeReportPath)) {
+          throw new Error(`workflow routing report missing: ${routeReportPath}`);
+        }
+        const routeReport = JSON.parse(fs.readFileSync(routeReportPath, 'utf-8'));
+        if (!routeReport || !routeReport.decision || !routeReport.decision.selectedWorkflowId) {
+          throw new Error('workflow routing report invalid');
+        }
+        if (routeReport.decision.selectedWorkflowId !== workflowRoute.workflowId) {
+          throw new Error(`workflow route mismatch: outcome=${workflowRoute.workflowId}, report=${routeReport.decision.selectedWorkflowId}`);
+        }
+
+        const metricsSummaryPath = path.join(projectDir, '.codebuddy', 'reports', 'metrics', 'latest-summary.json');
+        if (!fs.existsSync(metricsSummaryPath)) {
+          throw new Error(`workflow routing metrics missing: ${metricsSummaryPath}`);
+        }
+        const metricsSummary = JSON.parse(fs.readFileSync(metricsSummaryPath, 'utf-8'));
+        if ((metricsSummary?.totals?.workflowRoutesSelected || 0) < 1) {
+          throw new Error('workflow routing metrics summary missing workflowRoutesSelected');
+        }
+
+        const doctorRaw = execSync(
+          `node "${RULE_LOADER_PATH}" doctor --json`,
+          { cwd: projectDir, stdio: 'pipe', encoding: 'utf-8' }
+        );
+        const doctor = JSON.parse(doctorRaw);
+        const routeCheck = Array.isArray(doctor?.checks)
+          ? doctor.checks.find(check => check && check.id === 'workflow-routing-report')
+          : null;
+        if (!routeCheck || !['pass', 'warn'].includes(routeCheck.status)) {
+          throw new Error(`doctor workflow-routing-report check missing: ${doctorRaw.slice(0, 1200)}`);
+        }
+
+        const reportStatus = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'status'], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+        if (reportStatus.status !== 0) {
+          throw new Error(`report-manager status exit=${reportStatus.status}, stderr=${reportStatus.stderr}`);
+        }
+        if (!String(reportStatus.stdout || '').includes('Route:')) {
+          throw new Error('report-manager status missing workflow route line');
+        }
+
+        const reportExport = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'export'], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+        if (reportExport.status !== 0) {
+          throw new Error(`report-manager export exit=${reportExport.status}, stderr=${reportExport.stderr}`);
+        }
+
+        const exportPath = path.join(projectDir, '.codebuddy', 'reports', 'export.md');
+        if (!fs.existsSync(exportPath)) {
+          throw new Error(`report-manager export missing: ${exportPath}`);
+        }
+        const exportMarkdown = fs.readFileSync(exportPath, 'utf-8');
+        if (!/Workflow/.test(exportMarkdown) || !/TaskBook/.test(exportMarkdown)) {
+          throw new Error('report-manager export missing workflow routing section');
+        }
+
+        logSuccess('task-orchestrator auto route observability passed');
+      } catch (e) {
+        logError(`task-orchestrator auto route observability E2E 婵犵數濮烽弫鍛婃叏娴兼潙鍨傛繛宸簻绾惧潡鏌ゅù瀣珔闁搞劍绻堥弻娑㈠箻濡も偓鐎氼剟寮? ${e.message}`);
+        allPassed = false;
+      }
+    }
+
     // E2E: task-orchestrator --watch (auto-resume without manual rerun; run once for speed)
     if (testCase.dir === 'vue3-project') {
       try {
@@ -2432,8 +2643,23 @@ Use [Shared guide](../../../shared/shared-guide.md "Shared reference") before co
 /**
  * 婵犵數濮烽弫鎼佸磻閻愬搫鍨傞柛顐ｆ礀缁犳彃銆掑锝呬壕濡炪們鍨烘穱娲囬崷顓涘亾鐟欏嫭绀堥柡浣割煼瀵宕卞Δ濠傛倯闂佸憡渚楅崰姘跺焵? */
 function main() {
+  let options;
+  try {
+    options = parseCliOptions(process.argv.slice(2));
+  } catch (error) {
+    logError(error instanceof Error ? error.message : String(error));
+    showHelp();
+    process.exit(1);
+  }
+
+  if (options.showHelp) {
+    showHelp();
+    process.exit(0);
+  }
+
   log(`
 ${colors.bold}CodeBuddy Loader Test Suite${colors.reset}`);
+  logInfo(`selected suite: ${options.label}`);
 
   if (!fs.existsSync(RULE_LOADER_PATH)) {
     logError(`rule loader not found: ${RULE_LOADER_PATH}`);
@@ -2441,29 +2667,40 @@ ${colors.bold}CodeBuddy Loader Test Suite${colors.reset}`);
     process.exit(1);
   }
 
+  const spawnCheck = canSpawnChildNodeProcess();
+  if (!spawnCheck.ok) {
+    logError(`nested child_process spawn unavailable: ${spawnCheck.reason}`);
+    logInfo('run this suite in a normal terminal/session that allows Node to spawn child processes');
+    process.exit(1);
+  }
+
   let passed = 0;
   let failed = 0;
 
-  for (const testCase of TEST_CASES) {
-    const result = runTestCase(testCase);
-    if (result) passed++;
+  if (options.suites.has('local')) {
+    for (const testCase of TEST_CASES) {
+      const result = runTestCase(testCase);
+      if (result) passed++;
+      else failed++;
+    }
+
+    if (runProfileMatrixSmoke()) passed++;
+    else failed++;
+
+    if (runMultiStackWorkspaceSmoke()) passed++;
+    else failed++;
+
+    if (runProjectTargetedWorkspaceSmoke()) passed++;
     else failed++;
   }
 
-  if (runProfileMatrixSmoke()) passed++;
-  else failed++;
+  if (options.suites.has('remote')) {
+    if (runRemoteContentPackSmoke()) passed++;
+    else failed++;
 
-  if (runMultiStackWorkspaceSmoke()) passed++;
-  else failed++;
-
-  if (runProjectTargetedWorkspaceSmoke()) passed++;
-  else failed++;
-
-  if (runRemoteContentPackSmoke()) passed++;
-  else failed++;
-
-  if (runRemoteInstallerWrapperSmoke()) passed++;
-  else failed++;
+    if (runRemoteInstallerWrapperSmoke()) passed++;
+    else failed++;
+  }
 
   log(`
 ${colors.bold}Summary${colors.reset}`);

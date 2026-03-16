@@ -1,6 +1,6 @@
 # Docs Index
 
-> Last updated: 2026-03-07
+> Last updated: 2026-03-16
 > Scope: repository documentation layout
 
 ## Structure
@@ -11,8 +11,20 @@
 - `plans/`: active internal optimization plans
 - `design/`: design-specific supporting material
 
+## Start Here
+
+- Want the shortest product entry path: [Product Surface Guide](./guides/product-surface-guide.md)
+- Want the shortest business-project path: [Business Project Quickstart](./guides/business-project-quickstart.md)
+- Want to install into a business project: [Business Project Guide](./guides/business-project-guide.md)
+- Want to run workflow/task execution: [Workflows Guide](./guides/workflows-guide.md)
+- Want deployment or remote distribution: [Private Deployment Guide](./guides/private-deployment-guide.md), [Remote Usage Guide](./guides/remote-usage-guide.md)
+- Want observability and reports: [Execution Metrics](./reference/execution-metrics.md), `report-manager`
+- Want architectural guardrails before expanding capability: [Architecture Constraints](./reference/architecture-constraints.md)
+
 ## Guides
 
+- [Product Surface Guide](./guides/product-surface-guide.md)
+- [Business Project Quickstart](./guides/business-project-quickstart.md)
 - [Business Project Guide](./guides/business-project-guide.md)
 - [Business Pilot Plan](./guides/business-pilot-plan.md)
 - [Handoff](./guides/HANDOFF.md)
@@ -26,6 +38,7 @@
 
 ## Reference
 
+- [Architecture Constraints](./reference/architecture-constraints.md)
 - [CodeBuddy Config Specification](./reference/codebuddy-config-specification.md)
 - [CodeBuddy System Prompt CN](./reference/codebuddy-system-prompt-cn.md)
 - [Execution Metrics](./reference/execution-metrics.md)
@@ -37,6 +50,8 @@
 ## Plans
 
 - [Project Rules Optimization Plan](./plans/project-rules-optimization-plan.md)
+- [Automatic Workflow Routing Plan](./plans/automatic-workflow-routing-plan.md)
+- [Next Iteration Correctness Stabilization Plan](./plans/next-iteration-correctness-stabilization-plan.md)
 
 ## History
 
