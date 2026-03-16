@@ -1668,6 +1668,59 @@ function runTestCase(testCase) {
         throw new Error(`skill-validator 闂傚倸鍊风粈渚€骞栭位鍥敍閻愭潙浜辨繝鐢靛Т濞层倗绮绘导瀛樼厵闂傚倸顕ˇ锕傛煕濮樻剚娼愰柕鍥у楠炴﹢宕￠悙鍏告偅缂傚倷绶￠崑鍕矓瑜版帒钃熼柨婵嗘啒閻旂厧绠伴幖杈剧到濞懷勭節? ${skillRaw.slice(0, 1200)}`);
       }
 
+      const ruleWarningRoot = path.join(projectDir, '.codebuddy', 'tmp-rule-validator');
+      const ruleWarningDir = path.join(ruleWarningRoot, 'layer1');
+      fs.rmSync(ruleWarningRoot, { recursive: true, force: true });
+      fs.mkdirSync(ruleWarningDir, { recursive: true });
+      fs.writeFileSync(path.join(ruleWarningDir, 'missing-metadata.md'), [
+        '# Missing metadata',
+        '',
+        '## Context',
+        '',
+        'Rule fixture used to verify strict validator exit semantics.',
+        '',
+        '## The Rule',
+        '',
+        'Do the thing.',
+        '',
+        '## Reasoning',
+        '',
+        'Because validator strict mode should fail on warnings.',
+        '',
+        '## Examples',
+        '',
+        '```ts',
+        'export const demo = true;',
+        '```',
+      ].join('\n'), 'utf-8');
+
+      const ruleWarningRaw = execSync('node ".codebuddy/scripts/rule-validator.js" check --dir ".codebuddy/tmp-rule-validator" --json', {
+        cwd: projectDir,
+        stdio: 'pipe',
+        encoding: 'utf-8',
+      });
+      const ruleWarningReport = JSON.parse(ruleWarningRaw);
+      if (!ruleWarningReport || ruleWarningReport.ok !== true || (ruleWarningReport.warningCount || 0) < 1 || ruleWarningReport.effectiveOk !== true) {
+        throw new Error(`rule-validator warning fixture should pass in non-strict mode: ${ruleWarningRaw.slice(0, 1200)}`);
+      }
+
+      let strictRuleFixtureReport = null;
+      let strictRuleFixtureRaw = '';
+      try {
+        strictRuleFixtureRaw = execSync('node ".codebuddy/scripts/rule-validator.js" check --dir ".codebuddy/tmp-rule-validator" --strict --json', {
+          cwd: projectDir,
+          stdio: 'pipe',
+          encoding: 'utf-8',
+        });
+        throw new Error(`rule-validator strict fixture should have failed: ${strictRuleFixtureRaw.slice(0, 1200)}`);
+      } catch (error) {
+        strictRuleFixtureRaw = String(error && error.stdout ? error.stdout : '');
+        strictRuleFixtureReport = strictRuleFixtureRaw ? JSON.parse(strictRuleFixtureRaw) : null;
+      }
+      if (!strictRuleFixtureReport || strictRuleFixtureReport.ok !== true || strictRuleFixtureReport.effectiveOk !== false || (strictRuleFixtureReport.warningCount || 0) < 1) {
+        throw new Error(`rule-validator strict fixture should fail on warnings: ${strictRuleFixtureRaw.slice(0, 1200)}`);
+      }
+
       logSuccess('rule-validator / skill-validator passed');
     } catch (e) {
       logError(`validator E2E 婵犵數濮烽弫鍛婃叏娴兼潙鍨傛繛宸簻绾惧潡鏌ゅù瀣珔闁搞劍绻堥弻娑㈠箻濡も偓鐎氼剟寮? ${e.message}`);
@@ -1747,6 +1800,49 @@ Use [Shared guide](../../../shared/shared-guide.md "Shared reference") before co
       }
       if ((validFixtureReport.checkedFileCount || 0) < 2) {
         throw new Error(`skill-validator should scan nested markdown files: ${validFixtureRaw.slice(0, 1200)}`);
+      }
+
+      const skillValidatorWarningRoot = path.join(skillValidatorFixtureRoot, 'warning-root');
+      const skillValidatorWarningSkillDir = path.join(skillValidatorWarningRoot, 'warning-skill');
+      fs.mkdirSync(path.join(skillValidatorWarningSkillDir, 'references'), { recursive: true });
+      fs.mkdirSync(path.join(skillValidatorWarningSkillDir, 'scripts'), { recursive: true });
+      fs.writeFileSync(path.join(skillValidatorWarningSkillDir, 'SKILL.md'), `---
+name: warning-skill
+description: Validate that strict mode fails on warning-only skill issues.
+---
+
+# Warning Skill
+
+- Read [references/used.md](references/used.md)
+`, 'utf-8');
+      fs.writeFileSync(path.join(skillValidatorWarningSkillDir, 'references', 'used.md'), '# Used\n', 'utf-8');
+      fs.writeFileSync(path.join(skillValidatorWarningSkillDir, 'scripts', 'helper.py'), 'print("hello")\n', 'utf-8');
+
+      const warningFixtureRaw = execSync('node ".codebuddy/scripts/skill-validator.js" check --dir ".codebuddy/tmp-skill-validator/warning-root" --json', {
+        cwd: projectDir,
+        stdio: 'pipe',
+        encoding: 'utf-8',
+      });
+      const warningFixtureReport = JSON.parse(warningFixtureRaw);
+      if (!warningFixtureReport.ok || (warningFixtureReport.warningCount || 0) < 1 || warningFixtureReport.effectiveOk !== true) {
+        throw new Error(`skill-validator warning fixture should pass in non-strict mode: ${warningFixtureRaw.slice(0, 1200)}`);
+      }
+
+      let strictWarningFixtureReport = null;
+      let strictWarningFixtureRaw = '';
+      try {
+        strictWarningFixtureRaw = execSync('node ".codebuddy/scripts/skill-validator.js" check --dir ".codebuddy/tmp-skill-validator/warning-root" --strict --json', {
+          cwd: projectDir,
+          stdio: 'pipe',
+          encoding: 'utf-8',
+        });
+        throw new Error(`skill-validator strict warning fixture should have failed: ${strictWarningFixtureRaw.slice(0, 1200)}`);
+      } catch (error) {
+        strictWarningFixtureRaw = String(error && error.stdout ? error.stdout : '');
+        strictWarningFixtureReport = strictWarningFixtureRaw ? JSON.parse(strictWarningFixtureRaw) : null;
+      }
+      if (!strictWarningFixtureReport || strictWarningFixtureReport.ok !== true || strictWarningFixtureReport.effectiveOk !== false || (strictWarningFixtureReport.warningCount || 0) < 1) {
+        throw new Error(`skill-validator strict warning fixture should fail on warnings: ${strictWarningFixtureRaw.slice(0, 1200)}`);
       }
 
       logSuccess('skill-validator link integrity fixtures passed');

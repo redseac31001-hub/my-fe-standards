@@ -6,8 +6,8 @@
  * - Supports project mode: ./.codebuddy/rules_cache (after codebuddy-loader)
  *
  * Notes:
- * - This is intentionally lightweight and non-blocking by default: it reports issues,
- *   but only exits non-zero when there are "error" issues (or when --strict is used).
+ * - By default, this stays warning-tolerant and exits non-zero only on "error" issues.
+ * - With --strict, warnings are promoted to a release gate and also produce a non-zero exit.
  */
 
 import * as fs from 'fs';
@@ -29,6 +29,11 @@ type ValidationPayload = {
   errorCount: number;
   warningCount: number;
   issues: Issue[];
+};
+
+type ValidationReport = ValidationPayload & {
+  strictMode: boolean;
+  effectiveOk: boolean;
 };
 
 type ParsedCli = {
@@ -94,7 +99,7 @@ Rule Validator - 规则 Markdown 基础校验
 选项:
   --dir, --root <path>         规则目录（默认: ./rules 或 ./.codebuddy/rules_cache 自动探测）
   --json                       输出 JSON
-  --strict                     存在 error 时 exit=1（默认也是如此；保留该开关便于对齐其它脚本）
+  --strict                     存在 warning/error 时 exit=1；默认仅 error 才 exit=1
   --help, -h                   显示帮助
 `.trim());
 }
@@ -313,6 +318,14 @@ export function validateRulesDir(rootDir: string): ValidationPayload {
   };
 }
 
+export function finalizeRuleValidation(payload: ValidationPayload, strict: boolean): ValidationReport {
+  return {
+    ...payload,
+    strictMode: strict,
+    effectiveOk: strict ? payload.errorCount === 0 && payload.warningCount === 0 : payload.ok,
+  };
+}
+
 function main(): void {
   const parsed = parseCli(process.argv.slice(2));
 
@@ -342,7 +355,7 @@ function main(): void {
     process.exit(1);
   }
 
-  const payload = validateRulesDir(rootDir);
+  const payload = finalizeRuleValidation(validateRulesDir(rootDir), strict);
 
   if (json) {
     console.log(JSON.stringify(payload, null, 2));
@@ -355,8 +368,7 @@ function main(): void {
     }
   }
 
-  if (strict && payload.errorCount > 0) process.exit(1);
-  if (!strict && payload.errorCount > 0) process.exit(1);
+  if (!payload.effectiveOk) process.exit(1);
 }
 
 if (require.main === module) {

@@ -37,6 +37,11 @@ type ValidationPayload = {
   issues: Issue[];
 };
 
+type ValidationReport = ValidationPayload & {
+  strictMode: boolean;
+  effectiveOk: boolean;
+};
+
 type MarkdownLink = {
   text: string;
   target: string;
@@ -107,7 +112,7 @@ Skill Validator - Skills 基础校验
 选项:
   --dir, --root <path>         skills 目录（默认: ./custom-skills 或 install.json 记录的 active skills root 自动探测）
   --json                       输出 JSON
-  --strict                     存在 error 时 exit=1（默认也是如此；保留该开关便于对齐其它脚本）
+  --strict                     存在 warning/error 时 exit=1；默认仅 error 才 exit=1
   --help, -h                   显示帮助
 
 说明:
@@ -608,6 +613,14 @@ export function validateSkillsDir(skillsDir: string): ValidationPayload {
   };
 }
 
+export function finalizeSkillValidation(payload: ValidationPayload, strict: boolean): ValidationReport {
+  return {
+    ...payload,
+    strictMode: strict,
+    effectiveOk: strict ? payload.errorCount === 0 && payload.warningCount === 0 : payload.ok,
+  };
+}
+
 function main(): void {
   const parsed = parseCli(process.argv.slice(2));
 
@@ -637,7 +650,7 @@ function main(): void {
     process.exit(1);
   }
 
-  const payload = validateSkillsDir(skillsDir);
+  const payload = finalizeSkillValidation(validateSkillsDir(skillsDir), strict);
 
   if (json) {
     console.log(JSON.stringify(payload, null, 2));
@@ -653,8 +666,7 @@ function main(): void {
     }
   }
 
-  if (strict && payload.errorCount > 0) process.exit(1);
-  if (!strict && payload.errorCount > 0) process.exit(1);
+  if (!payload.effectiveOk) process.exit(1);
 }
 
 if (require.main === module) {

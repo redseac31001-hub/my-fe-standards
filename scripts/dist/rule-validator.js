@@ -30,6 +30,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // scripts/src/rule-validator.ts
 var rule_validator_exports = {};
 __export(rule_validator_exports, {
+  finalizeRuleValidation: () => finalizeRuleValidation,
   validateRulesDir: () => validateRulesDir
 });
 module.exports = __toCommonJS(rule_validator_exports);
@@ -84,7 +85,7 @@ Rule Validator - \u89C4\u5219 Markdown \u57FA\u7840\u6821\u9A8C
 \u9009\u9879:
   --dir, --root <path>         \u89C4\u5219\u76EE\u5F55\uFF08\u9ED8\u8BA4: ./rules \u6216 ./.codebuddy/rules_cache \u81EA\u52A8\u63A2\u6D4B\uFF09
   --json                       \u8F93\u51FA JSON
-  --strict                     \u5B58\u5728 error \u65F6 exit=1\uFF08\u9ED8\u8BA4\u4E5F\u662F\u5982\u6B64\uFF1B\u4FDD\u7559\u8BE5\u5F00\u5173\u4FBF\u4E8E\u5BF9\u9F50\u5176\u5B83\u811A\u672C\uFF09
+  --strict                     \u5B58\u5728 warning/error \u65F6 exit=1\uFF1B\u9ED8\u8BA4\u4EC5 error \u624D exit=1
   --help, -h                   \u663E\u793A\u5E2E\u52A9
 `.trim());
 }
@@ -269,6 +270,13 @@ function validateRulesDir(rootDir) {
     issues
   };
 }
+function finalizeRuleValidation(payload, strict) {
+  return {
+    ...payload,
+    strictMode: strict,
+    effectiveOk: strict ? payload.errorCount === 0 && payload.warningCount === 0 : payload.ok
+  };
+}
 function main() {
   const parsed = parseCli(process.argv.slice(2));
   if (parsed.flags.help || parsed.command === "help") {
@@ -293,7 +301,7 @@ function main() {
     }
     process.exit(1);
   }
-  const payload = validateRulesDir(rootDir);
+  const payload = finalizeRuleValidation(validateRulesDir(rootDir), strict);
   if (json) {
     console.log(JSON.stringify(payload, null, 2));
   } else {
@@ -304,13 +312,13 @@ function main() {
       console.log(`- ${prefix} ${it.file}: ${it.message}`);
     }
   }
-  if (strict && payload.errorCount > 0) process.exit(1);
-  if (!strict && payload.errorCount > 0) process.exit(1);
+  if (!payload.effectiveOk) process.exit(1);
 }
 if (require.main === module) {
   main();
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  finalizeRuleValidation,
   validateRulesDir
 });

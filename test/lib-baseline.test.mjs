@@ -1175,7 +1175,7 @@ async function testContractValidatorArchitectureWarnings() {
 
 async function testRuleValidatorMetadataWarnings() {
   assertBuiltArtifactExists(ruleValidatorDistPath, 'npm run build:scripts');
-  const { validateRulesDir } = require(ruleValidatorDistPath);
+  const { validateRulesDir, finalizeRuleValidation } = require(ruleValidatorDistPath);
 
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-rule-validator-'));
   try {
@@ -1212,6 +1212,15 @@ async function testRuleValidatorMetadataWarnings() {
     assert.equal(report.errorCount, 0);
     assert.equal(report.issues.some(issue => String(issue.message || '').includes('> Tags:')), true);
     assert.equal(report.issues.some(issue => String(issue.message || '').includes('> Priority:')), true);
+
+    const nonStrictReport = finalizeRuleValidation(report, false);
+    assert.equal(nonStrictReport.strictMode, false);
+    assert.equal(nonStrictReport.effectiveOk, true);
+
+    const strictReport = finalizeRuleValidation(report, true);
+    assert.equal(strictReport.strictMode, true);
+    assert.equal(strictReport.ok, true, 'base ok should stay backward-compatible');
+    assert.equal(strictReport.effectiveOk, false, 'strict mode should fail on warnings');
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
@@ -1219,7 +1228,7 @@ async function testRuleValidatorMetadataWarnings() {
 
 async function testSkillValidatorBundledReferenceWarnings() {
   assertBuiltArtifactExists(skillValidatorDistPath, 'npm run build:scripts');
-  const { validateSkillsDir } = require(skillValidatorDistPath);
+  const { validateSkillsDir, finalizeSkillValidation } = require(skillValidatorDistPath);
 
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-skill-validator-'));
   try {
@@ -1250,6 +1259,15 @@ async function testSkillValidatorBundledReferenceWarnings() {
     assert.equal(report.errorCount, 0);
     assert.equal(report.issues.some(issue => String(issue.message || '').includes('references/orphan.md')), true);
     assert.equal(report.issues.some(issue => String(issue.message || '').includes('scripts/helper.py')), true);
+
+    const nonStrictReport = finalizeSkillValidation(report, false);
+    assert.equal(nonStrictReport.strictMode, false);
+    assert.equal(nonStrictReport.effectiveOk, true);
+
+    const strictReport = finalizeSkillValidation(report, true);
+    assert.equal(strictReport.strictMode, true);
+    assert.equal(strictReport.ok, true, 'base ok should stay backward-compatible');
+    assert.equal(strictReport.effectiveOk, false, 'strict mode should fail on warnings');
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
