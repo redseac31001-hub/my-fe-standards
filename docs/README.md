@@ -20,6 +20,7 @@
 - Want deployment or remote distribution: [Private Deployment Guide](./guides/private-deployment-guide.md), [Remote Usage Guide](./guides/remote-usage-guide.md)
 - Want observability and reports: [Execution Metrics](./reference/execution-metrics.md), `report-manager`
 - Want architectural guardrails before expanding capability: [Architecture Constraints](./reference/architecture-constraints.md)
+- Want to create or release a reusable skill: [Skill Release Guide](./guides/skill-release-guide.md)
 
 ## Guides
 
@@ -35,6 +36,7 @@
 - [Workflows Guide](./guides/workflows-guide.md)
 - [Agent Call Remote](./guides/agent-call-remote.md)
 - [TaskBook Collaboration SOP](./guides/taskbook-collaboration-sop.md)
+- [Skill Release Guide](./guides/skill-release-guide.md)
 
 ## Reference
 

@@ -165,8 +165,9 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-02-04）新增 `rule-validator` / `skill-validator`（可在业务项目直接运行，默认非阻塞；JSON 输出可消费）
 - ✅（2026-02-04）`codebuddy-loader --rule-level summary|quick|full`：裁剪 Layer1 Eager 内容（rules_cache 保持 full 以便按需读取）
 - ✅（2026-02-04）manual-task 的 agentId 选择更灵活：按任务类型/关键词做轻量路由；可用 `CODEBUDDY_MANUAL_AGENT_ID` 强制覆盖
-- ⬜（可选）进一步统一 rules frontmatter（最小字段：name/description/tags/priority/alwaysApply），并在 CI 中启用 `--strict`
-- ⬜（可选）为 Skills 增加"引用完整性"更强校验（支持链接标题/相对路径白名单），并补一份简洁的 Skill 模板/发布流程
+- ✅（2026-03-17）已把 `rule-validator` 扩展到推荐元数据提示（`tags/priority/alwaysApply`），并把当前仓库 rules warning 清到 0
+- ⬜（可选）若后续需要把规则元数据真正升级为强约束，再单独评估 CI 中启用 `rule-validator --strict`
+- ✅（2026-03-17）已把 `skill-validator` 扩展到更强的引用完整性检查（含 bundled file discoverability），并补充简洁的 Skill 发布流程文档 `docs/guides/skill-release-guide.md`
 
 P6（开发闭环流程优化：11 步→7 步）
 - ✅（2026-02-07）Workflow v2.0.0：7 步闭环（需求澄清+PRD → 项目分析 → 任务分解 → TDD 实现 → 代码审查 → 构建修复 → 验收提交）

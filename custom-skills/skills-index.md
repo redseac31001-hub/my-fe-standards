@@ -1,6 +1,6 @@
 # Skills Index
 
-> Updated: 2026-03-10
+> Updated: 2026-03-17
 > Scope: current `custom-skills/` inventory, routing, and maintenance conventions
 
 This file is the current entry point for the repository's custom skills. Use each skill's `SKILL.md` and bundled `references/`, `scripts/`, and `assets/` for execution details.
@@ -145,6 +145,7 @@ Release references:
 
 - Minimal template: `custom-skills/skill-creator/assets/minimal-skill-template/SKILL.md`
 - Release flow: `custom-skills/skill-creator/references/release-workflow.md`
+- Concise release checklist: `docs/guides/skill-release-guide.md`
 
 ## Relationship to Agents
 
