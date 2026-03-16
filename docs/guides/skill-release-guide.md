@@ -61,12 +61,35 @@ Use `Codex`, `agent`, or `host` unless behavior is truly host-specific. Avoid un
 
 ## Validation Flow
 
+### Choose the mode first
+
+Use validator modes intentionally:
+
+- default mode: development-time feedback, warning-tolerant
+- `--strict`: release/review gate, warning-intolerant
+
+Behavior summary:
+
+- default mode exits non-zero only on `error`
+- `--strict` exits non-zero on both `warning` and `error`
+- JSON output exposes:
+  - `strictMode`
+  - `effectiveOk`
+
+Treat `effectiveOk` as the final pass/fail signal for the chosen mode.
+
 ### 1. Repository-level integrity check
 
 Validate the whole skill tree:
 
 ```bash
-node scripts/dist/skill-validator.js check --dir custom-skills
+npm run validate:skills
+```
+
+Recommended development-time variant:
+
+```bash
+node scripts/dist/skill-validator.js check --dir custom-skills --json
 ```
 
 What this catches:
@@ -96,17 +119,60 @@ python custom-skills/skill-creator/scripts/package_skill.py custom-skills/<skill
 
 This is the closest local proxy to release-readiness.
 
+### 4. Pre-release strict gate
+
+Before merge or release, rerun the validator in strict mode:
+
+```bash
+npm run validate:skills:strict
+node scripts/dist/skill-validator.js check --dir custom-skills --strict --json
+```
+
+Expected interpretation:
+
+- if `warningCount > 0`, strict mode should fail
+- `ok` may still stay `true` for backward compatibility
+- `effectiveOk` must be `true` before treating the release check as passed
+
 ## Release Checklist
 
 Before considering a skill change complete:
 
 1. `SKILL.md` is still short and routeable.
 2. All bundled `references/`, `assets/`, and `scripts/` are discoverable through Markdown links.
-3. `node scripts/dist/skill-validator.js check --dir custom-skills` passes without new errors.
-4. `python custom-skills/skill-creator/scripts/quick_validate.py custom-skills/<skill-name>` passes.
-5. `python custom-skills/skill-creator/scripts/package_skill.py custom-skills/<skill-name> <output-dir>` passes.
-6. If the repository inventory changed, update `custom-skills/skills-index.md`.
-7. If released repository content changed, regenerate `manifest.json` and content packs.
+3. `npm run validate:skills` passes without new errors.
+4. `npm run validate:skills:strict` passes before release/review gate.
+5. `node scripts/dist/skill-validator.js check --dir custom-skills --strict --json` shows `effectiveOk: true` when you need machine-readable proof.
+6. `python custom-skills/skill-creator/scripts/quick_validate.py custom-skills/<skill-name>` passes.
+7. `python custom-skills/skill-creator/scripts/package_skill.py custom-skills/<skill-name> <output-dir>` passes.
+8. If the repository inventory changed, update `custom-skills/skills-index.md`.
+9. If released repository content changed, regenerate `manifest.json` and content packs.
+
+## Example Sequences
+
+### Development-time check
+
+```bash
+npm run validate:skills
+python custom-skills/skill-creator/scripts/quick_validate.py custom-skills/<skill-name>
+```
+
+Interpretation:
+
+- warnings can be fixed iteratively
+- only hard errors should block active development
+
+### Pre-release check
+
+```bash
+npm run validate:skills:strict
+python custom-skills/skill-creator/scripts/package_skill.py custom-skills/<skill-name> <output-dir>
+```
+
+Interpretation:
+
+- warning-only skills are not considered release-ready in strict mode
+- packaging is the final portability check
 
 ## Useful References
 

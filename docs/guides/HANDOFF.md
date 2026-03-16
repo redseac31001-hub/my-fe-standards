@@ -168,6 +168,26 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-03-17）已把 `rule-validator` 扩展到推荐元数据提示（`tags/priority/alwaysApply`），并把当前仓库 rules warning 清到 0
 - ⬜（可选）若后续需要把规则元数据真正升级为强约束，再单独评估 CI 中启用 `rule-validator --strict`
 - ✅（2026-03-17）已把 `skill-validator` 扩展到更强的引用完整性检查（含 bundled file discoverability），并补充简洁的 Skill 发布流程文档 `docs/guides/skill-release-guide.md`
+- ⬜（进行中规划）`rule-validator` / `skill-validator` 的 strict 模式产品化与审查清单，见 `docs/plans/validator-strict-productization-plan.md`
+
+### 2026-03-17 Validator 审查顺序
+
+推荐把 validator 用法分成两层：
+
+1. 开发期默认检查
+   - `npm run validate:all`
+   - 目标：尽快暴露 warning，但不因为 warning 阻断本地迭代
+2. 发布前 / 审查前严格检查
+   - `npm run validate:all:strict`
+   - 目标：把 warning 和 error 一起提升为 gate
+3. 需要机器可读证明时，再补 JSON 版：
+   - `node scripts/dist/rule-validator.js check --strict --json`
+   - `node scripts/dist/skill-validator.js check --strict --json`
+
+当前约束：
+
+- 默认 `npm test` 仍不自动包含 strict validator gate
+- strict validator 目前是显式 opt-in，用于 release/review，而不是每次本地改动都强制执行
 
 P6（开发闭环流程优化：11 步→7 步）
 - ✅（2026-02-07）Workflow v2.0.0：7 步闭环（需求澄清+PRD → 项目分析 → 任务分解 → TDD 实现 → 代码审查 → 构建修复 → 验收提交）

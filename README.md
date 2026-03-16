@@ -109,6 +109,50 @@ node scripts/dist/skill-validator.js check
 npm run test:full
 ```
 
+## Validator 模式
+
+仓库当前有两个轻量 validator：
+
+- `rule-validator`：检查 `rules/` 的元数据和结构完整性
+- `skill-validator`：检查 `custom-skills/` 的 frontmatter、Markdown 链接和 bundled file discoverability
+
+默认模式用于开发期回看，不会因为 warning 中断本地流：
+
+```bash
+npm run validate:rules
+npm run validate:skills
+```
+
+默认模式语义：
+
+- `error` 会导致非零退出
+- `warning` 只会报告，不会导致非零退出
+
+`--strict` 用于发布前、审查前或后续可选 CI gate：
+
+```bash
+npm run validate:rules:strict
+npm run validate:skills:strict
+```
+
+`--strict` 语义：
+
+- `warning` 和 `error` 都会导致非零退出
+- JSON 输出会带 `strictMode` 和 `effectiveOk`
+- `ok` 保持基础兼容语义，`effectiveOk` 才是当前模式下的最终通过结果
+
+推荐顺序：
+
+1. 日常开发先跑默认模式，快速看 warning
+2. 准备发布、收口仓库内容或做审查 gate 时，再跑 `--strict`
+
+如果需要一次性执行两类 validator：
+
+```bash
+npm run validate:all
+npm run validate:all:strict
+```
+
 ## 仓库结构
 
 ```text
