@@ -2,6 +2,8 @@
 
 > Layer: Business
 > Context: Java backend services (Spring Boot / Quarkus / Micronaut / Jakarta REST)
+> Tags: #Java #Backend #ServiceDesign
+> Priority: High
 
 <!-- @level:summary -->
 ## Summary (摘要)

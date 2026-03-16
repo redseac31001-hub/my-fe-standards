@@ -2,6 +2,8 @@
 
 > Layer: Business
 > Context: UI Component Library Usage (Vue 3 + Ant Design Vue 4.x / Vue 2 + Ant Design Vue 1.x)
+> Tags: #Vue #AntDesignVue #UIComponents
+> Priority: High
 
 <!-- @level:summary -->
 ## Summary (摘要)

@@ -2,6 +2,8 @@
 
 > Layer: Business
 > Context: Shared backend service rules across HTTP / RPC services
+> Tags: #Backend #ServiceDesign #API
+> Priority: High
 
 <!-- @level:summary -->
 ## Summary (摘要)

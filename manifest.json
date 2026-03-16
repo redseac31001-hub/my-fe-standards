@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-03-16T08:46:16.454Z",
+  "generatedAt": "2026-03-16T09:08:07.490Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -221,15 +221,15 @@
     {
       "path": "rules/layer1_base/code-quality/clean-code.md",
       "name": "clean-code",
-      "size": 14251,
-      "mtime": "2026-01-30T07:05:42.348Z",
+      "size": 14321,
+      "mtime": "2026-03-16T08:57:18.892Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer1_base/typescript/api-request.md",
       "name": "api-request",
-      "size": 14908,
-      "mtime": "2026-01-09T08:29:48.810Z",
+      "size": 14959,
+      "mtime": "2026-03-16T09:07:38.368Z",
       "encoding": "utf8"
     },
     {
@@ -277,99 +277,99 @@
     {
       "path": "rules/layer2_business/antdv.md",
       "name": "antdv",
-      "size": 5818,
-      "mtime": "2026-01-07T10:49:40.315Z",
+      "size": 5872,
+      "mtime": "2026-03-16T09:07:38.371Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/backend-service.md",
       "name": "backend-service",
-      "size": 3078,
-      "mtime": "2026-03-08T13:08:18.638Z",
+      "size": 3132,
+      "mtime": "2026-03-16T09:07:38.372Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/java-backend.md",
       "name": "java-backend",
-      "size": 3032,
-      "mtime": "2026-03-08T13:08:18.639Z",
+      "size": 3087,
+      "mtime": "2026-03-16T09:07:38.374Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/node-backend.md",
       "name": "node-backend",
-      "size": 3278,
-      "mtime": "2026-03-08T13:08:18.638Z",
+      "size": 3332,
+      "mtime": "2026-03-16T09:07:38.375Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/rust-backend.md",
       "name": "rust-backend",
-      "size": 3120,
-      "mtime": "2026-03-08T13:08:18.639Z",
+      "size": 3175,
+      "mtime": "2026-03-16T09:07:38.376Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer2_business/vant.md",
       "name": "vant",
-      "size": 7446,
-      "mtime": "2026-01-07T10:48:17.338Z",
+      "size": 7488,
+      "mtime": "2026-03-16T09:07:38.377Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/context-management.md",
       "name": "context-management",
-      "size": 5384,
-      "mtime": "2026-03-02T08:10:47.910Z",
+      "size": 5474,
+      "mtime": "2026-03-16T08:57:18.895Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/debugging.md",
       "name": "debugging",
-      "size": 4535,
-      "mtime": "2026-03-02T08:26:47.821Z",
+      "size": 4620,
+      "mtime": "2026-03-16T08:57:18.895Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/defensive-coding.md",
       "name": "defensive-coding",
-      "size": 8852,
-      "mtime": "2026-01-24T05:48:13.678Z",
+      "size": 8940,
+      "mtime": "2026-03-16T08:57:18.896Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/refactoring.md",
       "name": "refactoring",
-      "size": 4444,
-      "mtime": "2026-01-24T05:45:32.727Z",
+      "size": 4531,
+      "mtime": "2026-03-16T08:57:18.897Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/self-verification.md",
       "name": "self-verification",
-      "size": 14502,
-      "mtime": "2026-01-24T05:47:04.139Z",
+      "size": 14589,
+      "mtime": "2026-03-16T08:57:18.897Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/system-design-documentation.md",
       "name": "system-design-documentation",
-      "size": 3175,
-      "mtime": "2026-03-10T08:24:07.544Z",
+      "size": 3266,
+      "mtime": "2026-03-16T08:57:18.898Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/layer3_action/testing.md",
       "name": "testing",
-      "size": 4434,
-      "mtime": "2026-01-13T09:25:58.963Z",
+      "size": 4508,
+      "mtime": "2026-03-16T09:04:32.833Z",
       "encoding": "utf8"
     },
     {
       "path": "rules/skills/skills-refactoring.md",
       "name": "skills-refactoring",
-      "size": 5653,
-      "mtime": "2026-01-12T06:38:05.982Z",
+      "size": 6229,
+      "mtime": "2026-03-16T09:07:38.378Z",
       "encoding": "utf8"
     },
     {
@@ -557,8 +557,8 @@
     {
       "path": "custom-skills/component-refactoring/SKILL.md",
       "name": "SKILL",
-      "size": 2961,
-      "mtime": "2026-03-08T10:25:23.824Z",
+      "size": 3538,
+      "mtime": "2026-03-16T08:55:23.176Z",
       "encoding": "utf8"
     },
     {
@@ -662,8 +662,8 @@
     {
       "path": "custom-skills/frontend-testing/SKILL.md",
       "name": "SKILL",
-      "size": 2386,
-      "mtime": "2026-03-08T10:25:23.826Z",
+      "size": 3402,
+      "mtime": "2026-03-16T08:55:37.360Z",
       "encoding": "utf8"
     },
     {
@@ -1302,37 +1302,37 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "9933cd710ac19d7945f5ce3ece29f5694210e0dcfba9633949f5fa308e7451e3",
-      "size": 843153,
+      "sha256": "9570eb91d7b434e211c7110f474355256d671b0768e0d8d6cda0deb8b3b34b99",
+      "size": 846409,
       "entryCount": 153,
-      "generatedAt": "2026-03-16T08:46:16.285Z"
+      "generatedAt": "2026-03-16T09:08:07.317Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "b0ccc99aa1f950bcceeadaca0643556bae43c7faecca0b04ca629a12e82e65e3",
-      "size": 1156773,
+      "sha256": "99c477c65bb77bc9c370b938c3d361d9dc612509cc4168c9be8c9efdfd991c26",
+      "size": 1160029,
       "entryCount": 162,
-      "generatedAt": "2026-03-16T08:46:16.329Z"
+      "generatedAt": "2026-03-16T09:08:07.359Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "1739060d2c5ceb96fc8d486d0909d918fe0e0978c41e8c0b21c6a1f3c4db2fa6",
-      "size": 1873533,
+      "sha256": "0dddd865aa31029fbbb59c3d5e6d0d76f3e6ee20ab8812a03e89ed81ffe8fd5c",
+      "size": 1876789,
       "entryCount": 181,
-      "generatedAt": "2026-03-16T08:46:16.377Z"
+      "generatedAt": "2026-03-16T09:08:07.411Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "8825fc561530b1015694047ba62848f7ffd57d7ea47de3339ac61cab6ed1e38f",
-      "size": 1889424,
+      "sha256": "fcae8410c854e2140cf103ca610b5df8be4d1d3c4a7e2e1d1c27f192dcbde1f9",
+      "size": 1892680,
       "entryCount": 182,
-      "generatedAt": "2026-03-16T08:46:16.434Z"
+      "generatedAt": "2026-03-16T09:08:07.470Z"
     }
   },
   "stats": {

@@ -1,6 +1,12 @@
 ---
 name: Context Management
 description: 上下文裁剪分级策略。为所有 Agent 提供统一的文件读取预算控制和依赖图驱动的优先级排序。
+tags:
+  - ContextManagement
+  - LargeCodebase
+  - Navigation
+priority: High
+alwaysApply: true
 ---
 
 # Context Management Strategy

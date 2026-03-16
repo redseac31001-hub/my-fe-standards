@@ -1,6 +1,12 @@
 ---
 name: Self-Verification Protocol
 description: AI 自我验证协议。RCI 递归批评改进、提交前检查清单、安全审查。
+tags:
+  - SelfVerification
+  - QualityGate
+  - Review
+priority: Critical
+alwaysApply: true
 ---
 
 # Self-Verification Protocol (自我验证协议)

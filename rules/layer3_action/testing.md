@@ -1,6 +1,12 @@
 ---
 name: Testing Strategy
 description: 测试策略与检查清单。涵盖测试金字塔、优先级、常见模式。用于确定测试范围和验收标准。
+tags:
+  - Testing
+  - Quality
+  - Acceptance
+priority: High
+alwaysApply: true
 ---
 
 # Testing Strategy & Checklist

@@ -1,6 +1,12 @@
 ---
 name: Refactoring Checklist
 description: 重构检查清单与策略。关注可读性、可测试性、代码整洁度。
+tags:
+  - Refactoring
+  - CodeQuality
+  - Maintainability
+priority: High
+alwaysApply: true
 ---
 
 # Refactoring Checklist & Strategy

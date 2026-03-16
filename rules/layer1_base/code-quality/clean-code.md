@@ -1,6 +1,11 @@
 ---
 name: Clean Code Principles
 description: 整洁代码核心原则。基于《代码整洁之道》《重构》《程序员修炼之道》等经典著作，适用于所有编码、审查、重构任务。
+tags:
+  - CleanCode
+  - Readability
+  - Maintainability
+priority: Critical
 alwaysApply: true
 ---
 

@@ -56,8 +56,14 @@ If these project-specific commands do not exist, inspect file size, branch depth
 3. **Execute**: Apply changes incrementally.
 4. **Verify**: Functionality check + Type check.
 
+### Shared Refactoring References
+
+- **Complexity triage**: Read [references/complexity-patterns.md](references/complexity-patterns.md) before choosing a split boundary.
+- **Component boundary split**: Use [references/component-splitting.md](references/component-splitting.md) when deciding what stays in the parent vs. moves out.
+- **Logic extraction**: Use [references/hook-extraction.md](references/hook-extraction.md) when the refactor should move state/effects into hooks or composables.
+
 ### React Specifics
-See React Hook Extraction and React Component Splitting patterns for detailed guidance.
+See [references/hook-extraction.md](references/hook-extraction.md) and [references/component-splitting.md](references/component-splitting.md) for the default React moves.
 
 ### Vue Specifics
 See [references/vue/component-splitting.md](references/vue/component-splitting.md) for general splitting advice.

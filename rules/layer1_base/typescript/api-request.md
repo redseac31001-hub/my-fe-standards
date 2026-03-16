@@ -2,6 +2,8 @@
 
 > Layer: Base
 > Context: HTTP Request Management (Axios/Fetch + TypeScript)
+> Tags: #TypeScript #HTTP #APIRequest
+> Priority: High
 
 <!-- @level:summary -->
 ## Summary (摘要)

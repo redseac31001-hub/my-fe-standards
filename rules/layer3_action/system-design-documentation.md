@@ -1,6 +1,12 @@
 ---
 name: System Design Documentation
 description: 生成系统设计文档时的统一约束，适用于概要设计和后续详细设计文档能力。
+tags:
+  - SystemDesign
+  - Documentation
+  - Architecture
+priority: High
+alwaysApply: true
 ---
 
 # System Design Documentation (系统设计文档生成规范)

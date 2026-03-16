@@ -2,6 +2,8 @@
 
 > Layer: Business
 > Context: Rust backend services (Axum / Actix Web / Rocket / Tonic)
+> Tags: #Rust #Backend #ServiceDesign
+> Priority: High
 
 <!-- @level:summary -->
 ## Summary (摘要)

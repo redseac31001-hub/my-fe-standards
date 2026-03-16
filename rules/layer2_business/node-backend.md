@@ -2,6 +2,8 @@
 
 > Layer: Business
 > Context: Node.js / TypeScript backend services (NestJS / Express / Fastify / Koa / Hono)
+> Tags: #NodeJS #TypeScript #Backend
+> Priority: High
 
 <!-- @level:summary -->
 ## Summary (摘要)

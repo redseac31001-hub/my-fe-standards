@@ -2,6 +2,8 @@
 
 > Layer: Business
 > Context: Mobile UI Component Library Usage (Vue 3 + Vant 4.x / Vue 2 + Vant 2.x)
+> Tags: #Vue #Vant #MobileUI
+> Priority: High
 
 <!-- @level:summary -->
 ## Summary (摘要)

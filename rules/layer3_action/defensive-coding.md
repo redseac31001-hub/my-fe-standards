@@ -1,6 +1,12 @@
 ---
 name: Defensive Coding Guide
 description: 防御性编程边界指南。明确何时需要防御性编程，何时不需要，避免过度防御。
+tags:
+  - DefensiveCoding
+  - ErrorHandling
+  - Validation
+priority: High
+alwaysApply: true
 ---
 
 # Defensive Coding Guide (防御性编程指南)

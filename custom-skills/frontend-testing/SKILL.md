@@ -43,6 +43,14 @@ Generate high-quality frontend tests for React & Vue components.
 2. **Act**: Trigger events (`fireEvent`, `userEvent`, `wrapper.trigger`).
 3. **Assert**: Check DOM state, emitted events, or store state.
 
+### Shared References
+
+- **Execution order**: Start with [references/workflow.md](references/workflow.md) when you need a stable arrange/act/assert sequence across stacks.
+- **Mock strategy**: Read [references/mocking.md](references/mocking.md) before mocking network, router, store, or timers.
+- **Async behavior**: Use [references/async-testing.md](references/async-testing.md) for `nextTick`, promises, timers, and retryable assertions.
+- **Complex domain components**: Use [references/domain-components.md](references/domain-components.md) when the component depends on stores, providers, or feature context.
+- **Final checklist**: End with [references/checklist.md](references/checklist.md) before claiming the test is complete.
+
 ### React Testing (RTL)
 
 Focus on **User-centric** testing using `screen.getByRole` and `userEvent`.
@@ -63,6 +71,12 @@ See [references/vue/common-patterns.md](references/vue/common-patterns.md) for s
 - **Branches**: >95% (Test logic paths)
 - **Functions**: 100% (Test handlers)
 - **Lines**: >95%
+
+## Templates
+
+- React component template: [assets/component-test.template.tsx](assets/component-test.template.tsx)
+- Hook template: [assets/hook-test.template.ts](assets/hook-test.template.ts)
+- Utility template: [assets/utility-test.template.ts](assets/utility-test.template.ts)
 
 ## Common Mistakes
 
