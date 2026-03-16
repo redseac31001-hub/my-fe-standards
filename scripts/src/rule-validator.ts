@@ -21,6 +21,16 @@ type Issue = {
   message: string;
 };
 
+type ValidationPayload = {
+  ok: boolean;
+  rootDir: string;
+  checkedFileCount: number;
+  issueCount: number;
+  errorCount: number;
+  warningCount: number;
+  issues: Issue[];
+};
+
 type ParsedCli = {
   command: string | null;
   positionals: string[];
@@ -153,6 +163,27 @@ function parseSimpleYamlObject(yaml: string): Record<string, string> {
   return obj;
 }
 
+function hasYamlKey(yaml: string, key: string): boolean {
+  const pattern = new RegExp(`^${key}\\s*:`, 'm');
+  return pattern.test(yaml);
+}
+
+function extractBlockquoteMetadata(raw: string, key: string): string {
+  const pattern = new RegExp(`^>\\s*${key}:\\s*(.+)$`, 'im');
+  const match = raw.match(pattern);
+  return match?.[1]?.trim() ?? '';
+}
+
+function validatePriorityValue(value: string, file: string): Issue | null {
+  if (!value) return null;
+  if (/\b(critical|high|medium|low)\b/i.test(value)) return null;
+  return {
+    level: 'warning',
+    file,
+    message: `priority 建议使用 Critical/High/Medium/Low 之一，当前为: ${value}`,
+  };
+}
+
 function detectDefaultRulesDir(cwd: string): string | null {
   const candidates = [
     path.join(cwd, 'rules'),
@@ -193,6 +224,34 @@ function validateRuleFile(filePath: string, rootDir: string): Issue[] {
     const description = (meta.description ?? '').trim();
     if (!name) issues.push({ level: 'error', file: rel, message: 'frontmatter 缺少 name' });
     if (!description) issues.push({ level: 'error', file: rel, message: 'frontmatter 缺少 description' });
+
+    const hasTags = hasYamlKey(fm.frontmatter, 'tags');
+    const hasPriority = hasYamlKey(fm.frontmatter, 'priority');
+    const hasAlwaysApply = hasYamlKey(fm.frontmatter, 'alwaysApply');
+    if (!hasTags) {
+      issues.push({ level: 'warning', file: rel, message: 'frontmatter 建议补充 tags，便于统一规则索引与路由' });
+    }
+    if (!hasPriority) {
+      issues.push({ level: 'warning', file: rel, message: 'frontmatter 建议补充 priority，便于统一规则排序与治理' });
+    }
+    if (!hasAlwaysApply) {
+      issues.push({ level: 'warning', file: rel, message: 'frontmatter 建议显式声明 alwaysApply，便于后续统一规则规范' });
+    }
+
+    const priorityIssue = validatePriorityValue((meta.priority ?? '').trim(), rel);
+    if (priorityIssue) issues.push(priorityIssue);
+  } else {
+    const tags = extractBlockquoteMetadata(raw, 'Tags');
+    const priority = extractBlockquoteMetadata(raw, 'Priority');
+    if (!tags) {
+      issues.push({ level: 'warning', file: rel, message: '建议补充 > Tags: 元数据，便于规则检索与分层治理' });
+    }
+    if (!priority) {
+      issues.push({ level: 'warning', file: rel, message: '建议补充 > Priority: 元数据，便于规则排序与裁剪' });
+    } else {
+      const priorityIssue = validatePriorityValue(priority, rel);
+      if (priorityIssue) issues.push(priorityIssue);
+    }
   }
 
   // Code fences should be balanced.
@@ -233,6 +292,27 @@ function validateRuleFile(filePath: string, rootDir: string): Issue[] {
   return issues;
 }
 
+export function validateRulesDir(rootDir: string): ValidationPayload {
+  const files = listMarkdownFiles(rootDir);
+  const issues: Issue[] = [];
+  for (const f of files) {
+    issues.push(...validateRuleFile(f, rootDir));
+  }
+
+  const errorCount = issues.filter(i => i.level === 'error').length;
+  const warningCount = issues.filter(i => i.level === 'warning').length;
+
+  return {
+    ok: errorCount === 0,
+    rootDir: toPosixPath(path.relative(process.cwd(), rootDir) || '.'),
+    checkedFileCount: files.length,
+    issueCount: issues.length,
+    errorCount,
+    warningCount,
+    issues,
+  };
+}
+
 function main(): void {
   const parsed = parseCli(process.argv.slice(2));
 
@@ -262,39 +342,23 @@ function main(): void {
     process.exit(1);
   }
 
-  const files = listMarkdownFiles(rootDir);
-  const issues: Issue[] = [];
-  for (const f of files) {
-    issues.push(...validateRuleFile(f, rootDir));
-  }
-
-  const errorCount = issues.filter(i => i.level === 'error').length;
-  const warningCount = issues.filter(i => i.level === 'warning').length;
-
-  const payload = {
-    ok: errorCount === 0,
-    rootDir: toPosixPath(path.relative(process.cwd(), rootDir) || '.'),
-    checkedFileCount: files.length,
-    issueCount: issues.length,
-    errorCount,
-    warningCount,
-    issues,
-  };
+  const payload = validateRulesDir(rootDir);
 
   if (json) {
     console.log(JSON.stringify(payload, null, 2));
   } else {
     console.log(`[rule-validator] root: ${payload.rootDir}`);
     console.log(`[rule-validator] checked: ${payload.checkedFileCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`);
-    for (const it of issues) {
+    for (const it of payload.issues) {
       const prefix = it.level === 'error' ? 'ERROR' : 'WARN';
       console.log(`- ${prefix} ${it.file}: ${it.message}`);
     }
   }
 
-  if (strict && errorCount > 0) process.exit(1);
-  if (!strict && errorCount > 0) process.exit(1);
+  if (strict && payload.errorCount > 0) process.exit(1);
+  if (!strict && payload.errorCount > 0) process.exit(1);
 }
 
-main();
-
+if (require.main === module) {
+  main();
+}

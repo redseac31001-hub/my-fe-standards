@@ -21,6 +21,8 @@ const installStateDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'inst
 const installRootsDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'install-roots.js');
 const projectDetectionDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'project-detection.js');
 const workflowRoutingDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'workflow-routing.js');
+const ruleValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'rule-validator.js');
+const skillValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'skill-validator.js');
 
 function assertBuiltArtifactExists(filePath, hintCommand) {
   if (!fs.existsSync(filePath)) {
@@ -1171,6 +1173,88 @@ async function testContractValidatorArchitectureWarnings() {
   }
 }
 
+async function testRuleValidatorMetadataWarnings() {
+  assertBuiltArtifactExists(ruleValidatorDistPath, 'npm run build:scripts');
+  const { validateRulesDir } = require(ruleValidatorDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-rule-validator-'));
+  try {
+    const rulesDir = path.join(tempDir, 'rules');
+    await fsp.mkdir(path.join(rulesDir, 'layer1'), { recursive: true });
+    await fsp.writeFile(
+      path.join(rulesDir, 'layer1', 'missing-metadata.md'),
+      [
+        '# Missing metadata',
+        '',
+        '## Context',
+        '',
+        'Used to verify soft warnings for missing tags/priority metadata.',
+        '',
+        '## The Rule',
+        '',
+        'Do the thing.',
+        '',
+        '## Reasoning',
+        '',
+        'Because consistency matters.',
+        '',
+        '## Examples',
+        '',
+        '```ts',
+        'export const demo = true;',
+        '```',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const report = validateRulesDir(rulesDir);
+    assert.equal(report.ok, true);
+    assert.equal(report.errorCount, 0);
+    assert.equal(report.issues.some(issue => String(issue.message || '').includes('> Tags:')), true);
+    assert.equal(report.issues.some(issue => String(issue.message || '').includes('> Priority:')), true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testSkillValidatorBundledReferenceWarnings() {
+  assertBuiltArtifactExists(skillValidatorDistPath, 'npm run build:scripts');
+  const { validateSkillsDir } = require(skillValidatorDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-skill-validator-'));
+  try {
+    const skillsRoot = path.join(tempDir, 'skills');
+    const skillDir = path.join(skillsRoot, 'demo-skill');
+    await fsp.mkdir(path.join(skillDir, 'references'), { recursive: true });
+    await fsp.mkdir(path.join(skillDir, 'scripts'), { recursive: true });
+    await fsp.writeFile(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: demo-skill',
+        'description: fixture skill',
+        '---',
+        '',
+        '# Demo Skill',
+        '',
+        '- Read [references/used.md](references/used.md)',
+      ].join('\n'),
+      'utf-8',
+    );
+    await fsp.writeFile(path.join(skillDir, 'references', 'used.md'), '# Used\n', 'utf-8');
+    await fsp.writeFile(path.join(skillDir, 'references', 'orphan.md'), '# Orphan\n', 'utf-8');
+    await fsp.writeFile(path.join(skillDir, 'scripts', 'helper.py'), 'print("hello")\n', 'utf-8');
+
+    const report = validateSkillsDir(skillsRoot);
+    assert.equal(report.ok, true);
+    assert.equal(report.errorCount, 0);
+    assert.equal(report.issues.some(issue => String(issue.message || '').includes('references/orphan.md')), true);
+    assert.equal(report.issues.some(issue => String(issue.message || '').includes('scripts/helper.py')), true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const tests = [
     ['frontmatter utils parse and extract structured YAML content', testFrontmatterUtils],
@@ -1179,6 +1263,8 @@ async function main() {
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],
     ['contract validator architecture drift checks stay opt-in and additive', testContractValidatorArchitectureWarnings],
+    ['rule validator warns when recommended metadata is missing', testRuleValidatorMetadataWarnings],
+    ['skill validator warns on bundled files that are never linked from markdown', testSkillValidatorBundledReferenceWarnings],
     ['context targeting keeps skill and business-rule matching stable', testContextTargeting],
     ['project detection recognizes workspace structure and target selection', testProjectDetection],
     ['install state helpers keep snapshot retention and hashing stable', testInstallStateHelpers],

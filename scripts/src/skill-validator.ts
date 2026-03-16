@@ -25,6 +25,18 @@ type Issue = {
   message: string;
 };
 
+type ValidationPayload = {
+  ok: boolean;
+  skillsDir: string;
+  checkedSkillCount: number;
+  checkedFileCount: number;
+  checkedLinkCount: number;
+  issueCount: number;
+  errorCount: number;
+  warningCount: number;
+  issues: Issue[];
+};
+
 type MarkdownLink = {
   text: string;
   target: string;
@@ -205,6 +217,45 @@ function listMarkdownFiles(rootDir: string): string[] {
   return files.sort((a, b) => a.localeCompare(b));
 }
 
+function listBundledFiles(skillDir: string): string[] {
+  const files: string[] = [];
+  const ignoredDirNames = new Set(['.git', 'node_modules', '__pycache__']);
+  const bundledDirNames = ['references', 'scripts', 'assets'];
+
+  for (const bundledDirName of bundledDirNames) {
+    const bundledDir = path.join(skillDir, bundledDirName);
+    if (!fs.existsSync(bundledDir)) continue;
+
+    const queue = [bundledDir];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) continue;
+
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        const fullPath = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          if (ignoredDirNames.has(entry.name)) continue;
+          queue.push(fullPath);
+          continue;
+        }
+        if (entry.isFile()) {
+          files.push(fullPath);
+        }
+      }
+    }
+  }
+
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
 function stripMarkdownCode(markdown: string): string {
   return markdown
     .replace(/```[\s\S]*?```/g, block => block.replace(/[^\n]/g, ' '))
@@ -362,6 +413,61 @@ function validateMarkdownFile(
   return { issues, checkedLinkCount: links.length };
 }
 
+function collectReferencedSkillFiles(skillDir: string, markdownFiles: string[]): Set<string> {
+  const referenced = new Set<string>();
+
+  for (const markdownFile of markdownFiles) {
+    const read = readText(markdownFile);
+    if (!read.ok) continue;
+
+    const links = parseMarkdownLinks(read.data);
+    for (const link of links) {
+      const localTarget = normalizeLocalMarkdownTarget(link.target);
+      if (!localTarget || isSkippableLink(localTarget)) continue;
+      if (localTarget.startsWith('/')) continue;
+      if (path.isAbsolute(localTarget)) continue;
+
+      const resolved = path.resolve(path.dirname(markdownFile), localTarget);
+      if (!fs.existsSync(resolved)) continue;
+      if (!isSubPath(skillDir, resolved)) continue;
+
+      let stats: fs.Stats;
+      try {
+        stats = fs.statSync(resolved);
+      } catch {
+        continue;
+      }
+
+      if (stats.isFile()) {
+        referenced.add(path.resolve(resolved));
+      }
+    }
+  }
+
+  return referenced;
+}
+
+function validateBundledFileReferences(skillId: string, skillDir: string, markdownFiles: string[]): Issue[] {
+  const issues: Issue[] = [];
+  const bundledFiles = listBundledFiles(skillDir);
+  if (bundledFiles.length === 0) return issues;
+
+  const referencedFiles = collectReferencedSkillFiles(skillDir, markdownFiles);
+  for (const bundledFile of bundledFiles) {
+    const resolvedBundledFile = path.resolve(bundledFile);
+    if (referencedFiles.has(resolvedBundledFile)) continue;
+
+    issues.push({
+      level: 'warning',
+      skillId,
+      file: toPosixPath(path.relative(process.cwd(), bundledFile)),
+      message: `bundled file 未被任何 Markdown 链接引用: ${toPosixPath(path.relative(skillDir, bundledFile))}`,
+    });
+  }
+
+  return issues;
+}
+
 function isSkippableLink(url: string): boolean {
   if (url.startsWith('#')) return true;
   if (url.startsWith('http://') || url.startsWith('https://')) return true;
@@ -467,7 +573,39 @@ function validateSkillDir(skillId: string, skillDir: string): { issues: Issue[];
     issues.push(...result.issues);
   }
 
+  issues.push(...validateBundledFileReferences(skillId, skillDir, markdownFiles));
+
   return { issues, checkedFileCount: markdownFiles.length, checkedLinkCount };
+}
+
+export function validateSkillsDir(skillsDir: string): ValidationPayload {
+  const skillDirs = listSkillDirs(skillsDir);
+  const issues: Issue[] = [];
+  let checkedFileCount = 0;
+  let checkedLinkCount = 0;
+
+  for (const skillId of skillDirs) {
+    const abs = path.join(skillsDir, skillId);
+    const res = validateSkillDir(skillId, abs);
+    checkedFileCount += res.checkedFileCount;
+    checkedLinkCount += res.checkedLinkCount;
+    issues.push(...res.issues);
+  }
+
+  const errorCount = issues.filter(i => i.level === 'error').length;
+  const warningCount = issues.filter(i => i.level === 'warning').length;
+
+  return {
+    ok: errorCount === 0,
+    skillsDir: toPosixPath(path.relative(process.cwd(), skillsDir) || '.'),
+    checkedSkillCount: skillDirs.length,
+    checkedFileCount,
+    checkedLinkCount,
+    issueCount: issues.length,
+    errorCount,
+    warningCount,
+    issues,
+  };
 }
 
 function main(): void {
@@ -499,33 +637,7 @@ function main(): void {
     process.exit(1);
   }
 
-  const skillDirs = listSkillDirs(skillsDir);
-  const issues: Issue[] = [];
-  let checkedFileCount = 0;
-  let checkedLinkCount = 0;
-
-  for (const skillId of skillDirs) {
-    const abs = path.join(skillsDir, skillId);
-    const res = validateSkillDir(skillId, abs);
-    checkedFileCount += res.checkedFileCount;
-    checkedLinkCount += res.checkedLinkCount;
-    issues.push(...res.issues);
-  }
-
-  const errorCount = issues.filter(i => i.level === 'error').length;
-  const warningCount = issues.filter(i => i.level === 'warning').length;
-
-  const payload = {
-    ok: errorCount === 0,
-    skillsDir: toPosixPath(path.relative(process.cwd(), skillsDir) || '.'),
-    checkedSkillCount: skillDirs.length,
-    checkedFileCount,
-    checkedLinkCount,
-    issueCount: issues.length,
-    errorCount,
-    warningCount,
-    issues,
-  };
+  const payload = validateSkillsDir(skillsDir);
 
   if (json) {
     console.log(JSON.stringify(payload, null, 2));
@@ -534,15 +646,17 @@ function main(): void {
     console.log(
       `[skill-validator] checked skills: ${payload.checkedSkillCount}, files: ${payload.checkedFileCount}, links: ${payload.checkedLinkCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`
     );
-    for (const it of issues) {
+    for (const it of payload.issues) {
       const prefix = it.level === 'error' ? 'ERROR' : 'WARN';
       const s = it.skillId ? `(${it.skillId}) ` : '';
       console.log(`- ${prefix} ${s}${it.file}: ${it.message}`);
     }
   }
 
-  if (strict && errorCount > 0) process.exit(1);
-  if (!strict && errorCount > 0) process.exit(1);
+  if (strict && payload.errorCount > 0) process.exit(1);
+  if (!strict && payload.errorCount > 0) process.exit(1);
 }
 
-main();
+if (require.main === module) {
+  main();
+}

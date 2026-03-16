@@ -5,6 +5,10 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -21,8 +25,14 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // scripts/src/skill-validator.ts
+var skill_validator_exports = {};
+__export(skill_validator_exports, {
+  validateSkillsDir: () => validateSkillsDir
+});
+module.exports = __toCommonJS(skill_validator_exports);
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
 
@@ -259,6 +269,39 @@ function listMarkdownFiles(rootDir) {
   }
   return files.sort((a, b) => a.localeCompare(b));
 }
+function listBundledFiles(skillDir) {
+  const files = [];
+  const ignoredDirNames = /* @__PURE__ */ new Set([".git", "node_modules", "__pycache__"]);
+  const bundledDirNames = ["references", "scripts", "assets"];
+  for (const bundledDirName of bundledDirNames) {
+    const bundledDir = path.join(skillDir, bundledDirName);
+    if (!fs.existsSync(bundledDir)) continue;
+    const queue = [bundledDir];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) continue;
+      let entries = [];
+      try {
+        entries = fs.readdirSync(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue;
+        const fullPath = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          if (ignoredDirNames.has(entry.name)) continue;
+          queue.push(fullPath);
+          continue;
+        }
+        if (entry.isFile()) {
+          files.push(fullPath);
+        }
+      }
+    }
+  }
+  return files.sort((a, b) => a.localeCompare(b));
+}
 function stripMarkdownCode(markdown) {
   return markdown.replace(/```[\s\S]*?```/g, (block) => block.replace(/[^\n]/g, " ")).replace(/~~~[\s\S]*?~~~/g, (block) => block.replace(/[^\n]/g, " ")).replace(/`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
 }
@@ -387,6 +430,50 @@ function validateMarkdownFile(skillId, skillDir, filePath, whitelist) {
   }
   return { issues, checkedLinkCount: links.length };
 }
+function collectReferencedSkillFiles(skillDir, markdownFiles) {
+  const referenced = /* @__PURE__ */ new Set();
+  for (const markdownFile of markdownFiles) {
+    const read = readText(markdownFile);
+    if (!read.ok) continue;
+    const links = parseMarkdownLinks(read.data);
+    for (const link of links) {
+      const localTarget = normalizeLocalMarkdownTarget(link.target);
+      if (!localTarget || isSkippableLink(localTarget)) continue;
+      if (localTarget.startsWith("/")) continue;
+      if (path.isAbsolute(localTarget)) continue;
+      const resolved = path.resolve(path.dirname(markdownFile), localTarget);
+      if (!fs.existsSync(resolved)) continue;
+      if (!isSubPath(skillDir, resolved)) continue;
+      let stats;
+      try {
+        stats = fs.statSync(resolved);
+      } catch {
+        continue;
+      }
+      if (stats.isFile()) {
+        referenced.add(path.resolve(resolved));
+      }
+    }
+  }
+  return referenced;
+}
+function validateBundledFileReferences(skillId, skillDir, markdownFiles) {
+  const issues = [];
+  const bundledFiles = listBundledFiles(skillDir);
+  if (bundledFiles.length === 0) return issues;
+  const referencedFiles = collectReferencedSkillFiles(skillDir, markdownFiles);
+  for (const bundledFile of bundledFiles) {
+    const resolvedBundledFile = path.resolve(bundledFile);
+    if (referencedFiles.has(resolvedBundledFile)) continue;
+    issues.push({
+      level: "warning",
+      skillId,
+      file: toPosixPath(path.relative(process.cwd(), bundledFile)),
+      message: `bundled file \u672A\u88AB\u4EFB\u4F55 Markdown \u94FE\u63A5\u5F15\u7528: ${toPosixPath(path.relative(skillDir, bundledFile))}`
+    });
+  }
+  return issues;
+}
 function isSkippableLink(url) {
   if (url.startsWith("#")) return true;
   if (url.startsWith("http://") || url.startsWith("https://")) return true;
@@ -481,7 +568,34 @@ function validateSkillDir(skillId, skillDir) {
     checkedLinkCount += result.checkedLinkCount;
     issues.push(...result.issues);
   }
+  issues.push(...validateBundledFileReferences(skillId, skillDir, markdownFiles));
   return { issues, checkedFileCount: markdownFiles.length, checkedLinkCount };
+}
+function validateSkillsDir(skillsDir) {
+  const skillDirs = listSkillDirs(skillsDir);
+  const issues = [];
+  let checkedFileCount = 0;
+  let checkedLinkCount = 0;
+  for (const skillId of skillDirs) {
+    const abs = path.join(skillsDir, skillId);
+    const res = validateSkillDir(skillId, abs);
+    checkedFileCount += res.checkedFileCount;
+    checkedLinkCount += res.checkedLinkCount;
+    issues.push(...res.issues);
+  }
+  const errorCount = issues.filter((i) => i.level === "error").length;
+  const warningCount = issues.filter((i) => i.level === "warning").length;
+  return {
+    ok: errorCount === 0,
+    skillsDir: toPosixPath(path.relative(process.cwd(), skillsDir) || "."),
+    checkedSkillCount: skillDirs.length,
+    checkedFileCount,
+    checkedLinkCount,
+    issueCount: issues.length,
+    errorCount,
+    warningCount,
+    issues
+  };
 }
 function main() {
   const parsed = parseCli(process.argv.slice(2));
@@ -507,30 +621,7 @@ function main() {
     }
     process.exit(1);
   }
-  const skillDirs = listSkillDirs(skillsDir);
-  const issues = [];
-  let checkedFileCount = 0;
-  let checkedLinkCount = 0;
-  for (const skillId of skillDirs) {
-    const abs = path.join(skillsDir, skillId);
-    const res = validateSkillDir(skillId, abs);
-    checkedFileCount += res.checkedFileCount;
-    checkedLinkCount += res.checkedLinkCount;
-    issues.push(...res.issues);
-  }
-  const errorCount = issues.filter((i) => i.level === "error").length;
-  const warningCount = issues.filter((i) => i.level === "warning").length;
-  const payload = {
-    ok: errorCount === 0,
-    skillsDir: toPosixPath(path.relative(process.cwd(), skillsDir) || "."),
-    checkedSkillCount: skillDirs.length,
-    checkedFileCount,
-    checkedLinkCount,
-    issueCount: issues.length,
-    errorCount,
-    warningCount,
-    issues
-  };
+  const payload = validateSkillsDir(skillsDir);
   if (json) {
     console.log(JSON.stringify(payload, null, 2));
   } else {
@@ -538,13 +629,19 @@ function main() {
     console.log(
       `[skill-validator] checked skills: ${payload.checkedSkillCount}, files: ${payload.checkedFileCount}, links: ${payload.checkedLinkCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`
     );
-    for (const it of issues) {
+    for (const it of payload.issues) {
       const prefix = it.level === "error" ? "ERROR" : "WARN";
       const s = it.skillId ? `(${it.skillId}) ` : "";
       console.log(`- ${prefix} ${s}${it.file}: ${it.message}`);
     }
   }
-  if (strict && errorCount > 0) process.exit(1);
-  if (!strict && errorCount > 0) process.exit(1);
+  if (strict && payload.errorCount > 0) process.exit(1);
+  if (!strict && payload.errorCount > 0) process.exit(1);
 }
-main();
+if (require.main === module) {
+  main();
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  validateSkillsDir
+});

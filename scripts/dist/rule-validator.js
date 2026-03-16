@@ -5,6 +5,10 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -21,8 +25,14 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // scripts/src/rule-validator.ts
+var rule_validator_exports = {};
+__export(rule_validator_exports, {
+  validateRulesDir: () => validateRulesDir
+});
+module.exports = __toCommonJS(rule_validator_exports);
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
 function toPosixPath(p) {
@@ -133,6 +143,24 @@ function parseSimpleYamlObject(yaml) {
   }
   return obj;
 }
+function hasYamlKey(yaml, key) {
+  const pattern = new RegExp(`^${key}\\s*:`, "m");
+  return pattern.test(yaml);
+}
+function extractBlockquoteMetadata(raw, key) {
+  const pattern = new RegExp(`^>\\s*${key}:\\s*(.+)$`, "im");
+  const match = raw.match(pattern);
+  return match?.[1]?.trim() ?? "";
+}
+function validatePriorityValue(value, file) {
+  if (!value) return null;
+  if (/\b(critical|high|medium|low)\b/i.test(value)) return null;
+  return {
+    level: "warning",
+    file,
+    message: `priority \u5EFA\u8BAE\u4F7F\u7528 Critical/High/Medium/Low \u4E4B\u4E00\uFF0C\u5F53\u524D\u4E3A: ${value}`
+  };
+}
 function detectDefaultRulesDir(cwd) {
   const candidates = [
     path.join(cwd, "rules"),
@@ -167,6 +195,32 @@ function validateRuleFile(filePath, rootDir) {
     const description = (meta.description ?? "").trim();
     if (!name) issues.push({ level: "error", file: rel, message: "frontmatter \u7F3A\u5C11 name" });
     if (!description) issues.push({ level: "error", file: rel, message: "frontmatter \u7F3A\u5C11 description" });
+    const hasTags = hasYamlKey(fm.frontmatter, "tags");
+    const hasPriority = hasYamlKey(fm.frontmatter, "priority");
+    const hasAlwaysApply = hasYamlKey(fm.frontmatter, "alwaysApply");
+    if (!hasTags) {
+      issues.push({ level: "warning", file: rel, message: "frontmatter \u5EFA\u8BAE\u8865\u5145 tags\uFF0C\u4FBF\u4E8E\u7EDF\u4E00\u89C4\u5219\u7D22\u5F15\u4E0E\u8DEF\u7531" });
+    }
+    if (!hasPriority) {
+      issues.push({ level: "warning", file: rel, message: "frontmatter \u5EFA\u8BAE\u8865\u5145 priority\uFF0C\u4FBF\u4E8E\u7EDF\u4E00\u89C4\u5219\u6392\u5E8F\u4E0E\u6CBB\u7406" });
+    }
+    if (!hasAlwaysApply) {
+      issues.push({ level: "warning", file: rel, message: "frontmatter \u5EFA\u8BAE\u663E\u5F0F\u58F0\u660E alwaysApply\uFF0C\u4FBF\u4E8E\u540E\u7EED\u7EDF\u4E00\u89C4\u5219\u89C4\u8303" });
+    }
+    const priorityIssue = validatePriorityValue((meta.priority ?? "").trim(), rel);
+    if (priorityIssue) issues.push(priorityIssue);
+  } else {
+    const tags = extractBlockquoteMetadata(raw, "Tags");
+    const priority = extractBlockquoteMetadata(raw, "Priority");
+    if (!tags) {
+      issues.push({ level: "warning", file: rel, message: "\u5EFA\u8BAE\u8865\u5145 > Tags: \u5143\u6570\u636E\uFF0C\u4FBF\u4E8E\u89C4\u5219\u68C0\u7D22\u4E0E\u5206\u5C42\u6CBB\u7406" });
+    }
+    if (!priority) {
+      issues.push({ level: "warning", file: rel, message: "\u5EFA\u8BAE\u8865\u5145 > Priority: \u5143\u6570\u636E\uFF0C\u4FBF\u4E8E\u89C4\u5219\u6392\u5E8F\u4E0E\u88C1\u526A" });
+    } else {
+      const priorityIssue = validatePriorityValue(priority, rel);
+      if (priorityIssue) issues.push(priorityIssue);
+    }
   }
   const fenceMatches = raw.match(/^```/gm) ?? [];
   if (fenceMatches.length % 2 !== 0) {
@@ -197,6 +251,24 @@ function validateRuleFile(filePath, rootDir) {
   }
   return issues;
 }
+function validateRulesDir(rootDir) {
+  const files = listMarkdownFiles(rootDir);
+  const issues = [];
+  for (const f of files) {
+    issues.push(...validateRuleFile(f, rootDir));
+  }
+  const errorCount = issues.filter((i) => i.level === "error").length;
+  const warningCount = issues.filter((i) => i.level === "warning").length;
+  return {
+    ok: errorCount === 0,
+    rootDir: toPosixPath(path.relative(process.cwd(), rootDir) || "."),
+    checkedFileCount: files.length,
+    issueCount: issues.length,
+    errorCount,
+    warningCount,
+    issues
+  };
+}
 function main() {
   const parsed = parseCli(process.argv.slice(2));
   if (parsed.flags.help || parsed.command === "help") {
@@ -221,33 +293,24 @@ function main() {
     }
     process.exit(1);
   }
-  const files = listMarkdownFiles(rootDir);
-  const issues = [];
-  for (const f of files) {
-    issues.push(...validateRuleFile(f, rootDir));
-  }
-  const errorCount = issues.filter((i) => i.level === "error").length;
-  const warningCount = issues.filter((i) => i.level === "warning").length;
-  const payload = {
-    ok: errorCount === 0,
-    rootDir: toPosixPath(path.relative(process.cwd(), rootDir) || "."),
-    checkedFileCount: files.length,
-    issueCount: issues.length,
-    errorCount,
-    warningCount,
-    issues
-  };
+  const payload = validateRulesDir(rootDir);
   if (json) {
     console.log(JSON.stringify(payload, null, 2));
   } else {
     console.log(`[rule-validator] root: ${payload.rootDir}`);
     console.log(`[rule-validator] checked: ${payload.checkedFileCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`);
-    for (const it of issues) {
+    for (const it of payload.issues) {
       const prefix = it.level === "error" ? "ERROR" : "WARN";
       console.log(`- ${prefix} ${it.file}: ${it.message}`);
     }
   }
-  if (strict && errorCount > 0) process.exit(1);
-  if (!strict && errorCount > 0) process.exit(1);
+  if (strict && payload.errorCount > 0) process.exit(1);
+  if (!strict && payload.errorCount > 0) process.exit(1);
 }
-main();
+if (require.main === module) {
+  main();
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  validateRulesDir
+});
