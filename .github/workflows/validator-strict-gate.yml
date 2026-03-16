@@ -1,0 +1,49 @@
+name: Validator Strict Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Validator scope to run in strict mode
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - rules
+          - skills
+
+jobs:
+  validator-strict:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build validator entrypoints
+        run: npm run build:scripts
+
+      - name: Run strict validator gate
+        shell: bash
+        run: |
+          case "${{ inputs.scope }}" in
+            rules)
+              npm run validate:rules:strict
+              ;;
+            skills)
+              npm run validate:skills:strict
+              ;;
+            *)
+              npm run validate:all:strict
+              ;;
+          esac

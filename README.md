@@ -135,6 +135,8 @@ npm run validate:rules:strict
 npm run validate:skills:strict
 ```
 
+> 仓库已提供手动触发的 GitHub Actions workflow `Validator Strict Gate`，适合在正常 CI 环境下显式执行 strict validator，而不改变默认 push/PR 的 correctness gate。
+
 `--strict` 语义：
 
 - `warning` 和 `error` 都会导致非零退出

@@ -134,6 +134,8 @@ Expected interpretation:
 - `ok` may still stay `true` for backward compatibility
 - `effectiveOk` must be `true` before treating the release check as passed
 
+If you want CI-backed proof without changing the default repository gate, use the manually triggered GitHub Actions workflow `Validator Strict Gate`.
+
 ## Release Checklist
 
 Before considering a skill change complete:
@@ -173,6 +175,7 @@ Interpretation:
 
 - warning-only skills are not considered release-ready in strict mode
 - packaging is the final portability check
+- if you need a CI-side confirmation, manually trigger `Validator Strict Gate`
 
 ## Useful References
 

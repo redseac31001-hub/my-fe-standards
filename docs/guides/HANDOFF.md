@@ -168,7 +168,7 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-03-17）已把 `rule-validator` 扩展到推荐元数据提示（`tags/priority/alwaysApply`），并把当前仓库 rules warning 清到 0
 - ⬜（可选）若后续需要把规则元数据真正升级为强约束，再单独评估 CI 中启用 `rule-validator --strict`
 - ✅（2026-03-17）已把 `skill-validator` 扩展到更强的引用完整性检查（含 bundled file discoverability），并补充简洁的 Skill 发布流程文档 `docs/guides/skill-release-guide.md`
-- ⬜（进行中规划）`rule-validator` / `skill-validator` 的 strict 模式产品化与审查清单，见 `docs/plans/validator-strict-productization-plan.md`
+- ✅（2026-03-17）`rule-validator` / `skill-validator` 的 strict 模式产品化已落地：补齐 README / 发布文档 / `package.json` 脚本入口 / 审查清单；并新增手动触发的 GitHub Actions workflow `Validator Strict Gate` 作为可选 CI gate（默认 `npm test` 与 push/PR correctness gate 不变）
 
 ### 2026-03-17 Validator 审查顺序
 
@@ -187,6 +187,7 @@ P5（规则/技能/调度：可控性与工程化）
 当前约束：
 
 - 默认 `npm test` 仍不自动包含 strict validator gate
+- 默认 push/PR 的 `Correctness Gate` 仍不自动包含 strict validator gate
 - strict validator 目前是显式 opt-in，用于 release/review，而不是每次本地改动都强制执行
 
 P6（开发闭环流程优化：11 步→7 步）
