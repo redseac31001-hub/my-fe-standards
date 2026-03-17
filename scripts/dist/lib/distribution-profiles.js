@@ -27,6 +27,7 @@ const TASK_EXECUTOR_DEPENDENCIES = [
 exports.CORE_SCRIPTS = [
     { file: 'rule-validator.js' },
     { file: 'skill-validator.js', dependencies: FRONTMATTER_DEPENDENCIES },
+    { file: 'validator-gate.js' },
 ];
 exports.ANALYSIS_SCRIPTS = [
     { file: 'structure-analyzer.js', dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },

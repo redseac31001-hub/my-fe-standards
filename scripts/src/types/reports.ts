@@ -15,6 +15,34 @@ export type ReportType =
   | 'health-timeline'
   | 'task-context';
 
+export type ValidatorGateScope = 'all' | 'rules' | 'skills';
+
+export interface ValidatorGateEmbeddedReport {
+  ok: boolean;
+  strictMode: boolean;
+  effectiveOk: boolean;
+  errorCount: number;
+  warningCount: number;
+  issueCount: number;
+}
+
+export interface ValidatorGateSummary {
+  ok: boolean;
+  effectiveOk: boolean;
+  strictMode: boolean;
+  scope: ValidatorGateScope;
+  generatedAt: string;
+  errorCount: number;
+  warningCount: number;
+  issueCount: number;
+  outputDir: string | null;
+  reportFiles: string[];
+  reports: {
+    rules?: ValidatorGateEmbeddedReport;
+    skills?: ValidatorGateEmbeddedReport;
+  };
+}
+
 /**
  * 报告元数据
  */

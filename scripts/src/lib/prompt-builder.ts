@@ -314,7 +314,7 @@ function buildScriptPromptGroups(scripts: string[]): ScriptPromptGroup[] {
     '规则与契约校验',
     '规则、技能、TaskBook/Workflow 变更前先校验',
     'node .codebuddy/scripts/contract-validator.js --workflows --taskbooks',
-    ['rule-validator.js', 'skill-validator.js', 'contract-validator.js', 'agent-registry.js'],
+    ['rule-validator.js', 'skill-validator.js', 'validator-gate.js', 'contract-validator.js', 'agent-registry.js'],
   );
   addGroup(
     '编排执行',

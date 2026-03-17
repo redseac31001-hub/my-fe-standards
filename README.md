@@ -167,6 +167,14 @@ npm run validate:gate:strict -- --scope all --json --out-dir artifacts/validator
 - `rule-validator-report.json`
 - `skill-validator-report.json`
 
+如果要把结果写入标准报告目录，供 `report-manager status/export` 读取：
+
+```bash
+npm run validate:gate:strict:report
+```
+
+默认会写到 `.codebuddy/reports/validators/latest/`。
+
 ## 仓库结构
 
 ```text

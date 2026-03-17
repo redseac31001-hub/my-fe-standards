@@ -2,8 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { finalizeRuleValidation, validateRulesDir } from './rule-validator';
 import { finalizeSkillValidation, validateSkillsDir } from './skill-validator';
-
-type GateScope = 'all' | 'rules' | 'skills';
+import type { ValidatorGateScope, ValidatorGateSummary } from './types/reports';
 
 type ParsedCli = {
   command: string | null;
@@ -12,7 +11,7 @@ type ParsedCli = {
 };
 
 type ValidatorGateOptions = {
-  scope: GateScope;
+  scope: ValidatorGateScope;
   strict: boolean;
   json: boolean;
   outDir: string | null;
@@ -23,17 +22,7 @@ type ValidatorGateOptions = {
 type RuleValidationReport = ReturnType<typeof finalizeRuleValidation>;
 type SkillValidationReport = ReturnType<typeof finalizeSkillValidation>;
 
-type ValidatorGateReport = {
-  ok: boolean;
-  effectiveOk: boolean;
-  strictMode: boolean;
-  scope: GateScope;
-  generatedAt: string;
-  errorCount: number;
-  warningCount: number;
-  issueCount: number;
-  outputDir: string | null;
-  reportFiles: string[];
+type ValidatorGateReport = ValidatorGateSummary & {
   reports: {
     rules?: RuleValidationReport;
     skills?: SkillValidationReport;
@@ -183,7 +172,7 @@ function writeJson(filePath: string, payload: unknown): string {
   return toPosixPath(path.relative(process.cwd(), filePath) || path.basename(filePath));
 }
 
-function parseScope(value: string | boolean | undefined): GateScope {
+function parseScope(value: string | boolean | undefined): ValidatorGateScope {
   if (value === 'rules' || value === 'skills' || value === 'all') return value;
   return 'all';
 }

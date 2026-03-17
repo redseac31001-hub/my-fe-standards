@@ -530,7 +530,8 @@ var TASK_EXECUTOR_DEPENDENCIES = [
 ];
 var CORE_SCRIPTS = [
   { file: "rule-validator.js" },
-  { file: "skill-validator.js", dependencies: FRONTMATTER_DEPENDENCIES }
+  { file: "skill-validator.js", dependencies: FRONTMATTER_DEPENDENCIES },
+  { file: "validator-gate.js" }
 ];
 var ANALYSIS_SCRIPTS = [
   { file: "structure-analyzer.js", dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },
@@ -2496,7 +2497,7 @@ function buildScriptPromptGroups(scripts) {
     "\u89C4\u5219\u4E0E\u5951\u7EA6\u6821\u9A8C",
     "\u89C4\u5219\u3001\u6280\u80FD\u3001TaskBook/Workflow \u53D8\u66F4\u524D\u5148\u6821\u9A8C",
     "node .codebuddy/scripts/contract-validator.js --workflows --taskbooks",
-    ["rule-validator.js", "skill-validator.js", "contract-validator.js", "agent-registry.js"]
+    ["rule-validator.js", "skill-validator.js", "validator-gate.js", "contract-validator.js", "agent-registry.js"]
   );
   addGroup(
     "\u7F16\u6392\u6267\u884C",

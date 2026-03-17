@@ -27,6 +27,8 @@
     "tool:convert": "node scripts/dist/tool-converter.js",
     "validate:gate": "node scripts/dist/validator-gate.js run",
     "validate:gate:strict": "node scripts/dist/validator-gate.js run --strict",
+    "validate:gate:report": "node scripts/dist/validator-gate.js run --json --out-dir .codebuddy/reports/validators/latest",
+    "validate:gate:strict:report": "node scripts/dist/validator-gate.js run --strict --json --out-dir .codebuddy/reports/validators/latest",
     "validate:rules": "node scripts/dist/rule-validator.js check",
     "validate:rules:strict": "node scripts/dist/rule-validator.js check --strict",
     "validate:skills": "node scripts/dist/skill-validator.js check",

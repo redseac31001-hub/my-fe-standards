@@ -170,6 +170,7 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-03-17）已把 `skill-validator` 扩展到更强的引用完整性检查（含 bundled file discoverability），并补充简洁的 Skill 发布流程文档 `docs/guides/skill-release-guide.md`
 - ✅（2026-03-17）`rule-validator` / `skill-validator` 的 strict 模式产品化已落地：补齐 README / 发布文档 / `package.json` 脚本入口 / 审查清单；并新增手动触发的 GitHub Actions workflow `Validator Strict Gate` 作为可选 CI gate（默认 `npm test` 与 push/PR correctness gate 不变）
 - ✅（2026-03-17）strict validator 已补齐聚合 gate：`validate:gate[:strict]` 可同时输出 `validator-gate-summary.json`、`rule-validator-report.json`、`skill-validator-report.json`；手动 workflow `Validator Strict Gate` 会上传这些 JSON artifact
+- ✅（2026-03-17）strict validator 已标准化报告落点：`validate:gate:strict:report` 默认写入 `.codebuddy/reports/validators/latest/`，`report-manager status/export` 可直接读取最近一次 validator gate 摘要
 
 ### 2026-03-17 Validator 审查顺序
 
@@ -183,7 +184,9 @@ P5（规则/技能/调度：可控性与工程化）
    - 目标：把 warning 和 error 一起提升为 gate
 3. 需要聚合 gate + 机器可读证明时：
    - `npm run validate:gate:strict -- --scope all --json --out-dir artifacts/validator-strict-gate`
-4. 只需要单个 validator 的机器可读证明时，再补 JSON 版：
+4. 需要把结果写入标准报告目录并供 `report-manager` 查看时：
+   - `npm run validate:gate:strict:report`
+5. 只需要单个 validator 的机器可读证明时，再补 JSON 版：
    - `node scripts/dist/rule-validator.js check --strict --json`
    - `node scripts/dist/skill-validator.js check --strict --json`
 

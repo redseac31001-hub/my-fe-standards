@@ -24,6 +24,7 @@ const workflowRoutingDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'w
 const ruleValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'rule-validator.js');
 const skillValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'skill-validator.js');
 const validatorGateDistPath = path.join(repoRoot, 'scripts', 'dist', 'validator-gate.js');
+const reportManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'report-manager.js');
 
 function assertBuiltArtifactExists(filePath, hintCommand) {
   if (!fs.existsSync(filePath)) {
@@ -280,7 +281,7 @@ async function testDistributionProfiles() {
   } = require(distributionProfilesDistPath);
 
   const coreScripts = getScriptsForProfile('core').map(item => item.file);
-  assert.deepEqual(coreScripts, ['rule-validator.js', 'skill-validator.js']);
+  assert.deepEqual(coreScripts, ['rule-validator.js', 'skill-validator.js', 'validator-gate.js']);
 
   const analysisScripts = getScriptsForProfile('analysis').map(item => item.file);
   assert.equal(analysisScripts.includes('task-orchestrator.js'), false);
@@ -1365,6 +1366,44 @@ async function testValidatorGateWritesStrictReports() {
   }
 }
 
+async function testReportManagerReadsLatestValidatorGateSummary() {
+  assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
+  const { readLatestValidatorGateReport } = require(reportManagerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-manager-'));
+  try {
+    const reportsDir = path.join(tempDir, '.codebuddy', 'reports', 'validators', 'latest');
+    await fsp.mkdir(reportsDir, { recursive: true });
+    await fsp.writeFile(
+      path.join(reportsDir, 'validator-gate-summary.json'),
+      JSON.stringify({
+        ok: true,
+        effectiveOk: false,
+        strictMode: true,
+        scope: 'all',
+        generatedAt: '2026-03-17T10:00:00.000Z',
+        errorCount: 0,
+        warningCount: 2,
+        issueCount: 2,
+        outputDir: '.codebuddy/reports/validators/latest',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {
+          rules: { ok: true, effectiveOk: false, strictMode: true, errorCount: 0, warningCount: 1, issueCount: 1 },
+        },
+      }, null, 2),
+      'utf-8',
+    );
+
+    const summary = readLatestValidatorGateReport(tempDir);
+    assert.equal(summary?.strictMode, true);
+    assert.equal(summary?.scope, 'all');
+    assert.equal(summary?.effectiveOk, false);
+    assert.equal(summary?.warningCount, 2);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const tests = [
     ['frontmatter utils parse and extract structured YAML content', testFrontmatterUtils],
@@ -1376,6 +1415,7 @@ async function main() {
     ['rule validator warns when recommended metadata is missing', testRuleValidatorMetadataWarnings],
     ['skill validator warns on bundled files that are never linked from markdown', testSkillValidatorBundledReferenceWarnings],
     ['validator gate writes strict summary and per-validator reports', testValidatorGateWritesStrictReports],
+    ['report manager reads the latest validator gate summary from reports', testReportManagerReadsLatestValidatorGateSummary],
     ['context targeting keeps skill and business-rule matching stable', testContextTargeting],
     ['project detection recognizes workspace structure and target selection', testProjectDetection],
     ['install state helpers keep snapshot retention and hashing stable', testInstallStateHelpers],

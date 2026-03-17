@@ -34,6 +34,7 @@ const TASK_EXECUTOR_DEPENDENCIES = [
 export const CORE_SCRIPTS: ScriptDistributionFile[] = [
   { file: 'rule-validator.js' },
   { file: 'skill-validator.js', dependencies: FRONTMATTER_DEPENDENCIES },
+  { file: 'validator-gate.js' },
 ];
 
 export const ANALYSIS_SCRIPTS: ScriptDistributionFile[] = [

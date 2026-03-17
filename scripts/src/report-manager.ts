@@ -23,6 +23,7 @@ import {
   ModuleMapSnapshot,
   HealthTimeline,
   HealthDataPoint,
+  ValidatorGateSummary,
   DEFAULT_MANIFEST,
   DEFAULT_RETENTION_POLICY,
 } from './types/reports';
@@ -31,6 +32,10 @@ import {
 
 const REPORTS_DIR = '.codebuddy/reports';
 const MANIFEST_FILE = 'manifest.json';
+const VALIDATOR_GATE_CANDIDATE_PATHS = [
+  'validators/latest/validator-gate-summary.json',
+  'validators/validator-gate-summary.json',
+];
 
 // ============ 工具函数 ============
 
@@ -85,6 +90,16 @@ function formatAge(isoString: string): string {
 function getReportAgeHours(isoString: string): number {
   const diff = Date.now() - new Date(isoString).getTime();
   return Math.floor(diff / (1000 * 60 * 60));
+}
+
+function readLatestValidatorGateReport(targetDir: string): ValidatorGateSummary | null {
+  for (const reportPath of VALIDATOR_GATE_CANDIDATE_PATHS) {
+    const report = readReport<ValidatorGateSummary>(targetDir, reportPath);
+    if (report && typeof report.generatedAt === 'string') {
+      return report;
+    }
+  }
+  return null;
 }
 
 // ============ Manifest 管理 ============
@@ -396,6 +411,7 @@ function calculateTrends(dataPoints: HealthDataPoint[]): HealthTimeline['trends'
 function showStatus(targetDir: string): void {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
+  const validatorGate = readLatestValidatorGateReport(targetDir);
 
   console.log('');
   console.log('┌─────────────────────────────────────────────────────┐');
@@ -446,6 +462,16 @@ function showStatus(targetDir: string): void {
     console.log('│ Route:         No workflow routing report           │');
   }
 
+  if (validatorGate) {
+    const validatorAge = formatAge(validatorGate.generatedAt);
+    const scope = validatorGate.scope.padEnd(6);
+    const status = validatorGate.effectiveOk ? 'pass' : 'fail';
+    const validatorText = `Validators: ${status} (${scope.trim()}, ${validatorAge})`;
+    console.log(`│ ${validatorText}`.padEnd(52) + '│');
+  } else {
+    console.log('│ Validators:    No validator gate summary            │');
+  }
+
   console.log('└─────────────────────────────────────────────────────┘');
   console.log('');
 }
@@ -494,6 +520,7 @@ function cleanup(targetDir: string, cacheOnly: boolean = false): void {
 function exportMarkdown(targetDir: string): void {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
+  const validatorGate = readLatestValidatorGateReport(targetDir);
   const lines: string[] = [];
 
   lines.push('# CodeBuddy 项目报告');
@@ -561,6 +588,19 @@ function exportMarkdown(targetDir: string): void {
       for (const reason of workflowRouting.decision.reasons.slice(0, 6)) {
         lines.push(`  - ${reason}`);
       }
+    }
+    lines.push('');
+  }
+
+  if (validatorGate) {
+    lines.push('## 最近一次 Validator Gate');
+    lines.push('');
+    lines.push(`- **Scope**: ${validatorGate.scope}`);
+    lines.push(`- **Strict Mode**: ${validatorGate.strictMode ? 'on' : 'off'}`);
+    lines.push(`- **Effective Result**: ${validatorGate.effectiveOk ? 'pass' : 'fail'}`);
+    lines.push(`- **Errors / Warnings**: ${validatorGate.errorCount} / ${validatorGate.warningCount}`);
+    if (validatorGate.reportFiles.length > 0) {
+      lines.push(`- **Artifacts**: ${validatorGate.reportFiles.join(', ')}`);
     }
     lines.push('');
   }
@@ -1584,6 +1624,7 @@ export {
   writeManifest,
   getReportsPath,
   getReportAgeHours,
+  readLatestValidatorGateReport,
 };
 
 // CLI 入口 - 仅当作为主模块运行时才执行

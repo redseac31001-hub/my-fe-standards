@@ -34,6 +34,7 @@ __export(report_manager_exports, {
   appendHealthDataPoint: () => appendHealthDataPoint,
   getReportAgeHours: () => getReportAgeHours,
   getReportsPath: () => getReportsPath,
+  readLatestValidatorGateReport: () => readLatestValidatorGateReport,
   readManifest: () => readManifest,
   readReport: () => readReport,
   reportExists: () => reportExists,
@@ -127,6 +128,10 @@ var DEFAULT_MANIFEST = {
 // scripts/src/report-manager.ts
 var REPORTS_DIR = ".codebuddy/reports";
 var MANIFEST_FILE = "manifest.json";
+var VALIDATOR_GATE_CANDIDATE_PATHS = [
+  "validators/latest/validator-gate-summary.json",
+  "validators/validator-gate-summary.json"
+];
 function getReportsPath(targetDir) {
   return path3.join(targetDir, REPORTS_DIR);
 }
@@ -149,6 +154,15 @@ function formatAge(isoString) {
 function getReportAgeHours(isoString) {
   const diff = Date.now() - new Date(isoString).getTime();
   return Math.floor(diff / (1e3 * 60 * 60));
+}
+function readLatestValidatorGateReport(targetDir) {
+  for (const reportPath of VALIDATOR_GATE_CANDIDATE_PATHS) {
+    const report = readReport(targetDir, reportPath);
+    if (report && typeof report.generatedAt === "string") {
+      return report;
+    }
+  }
+  return null;
 }
 function readManifest(targetDir) {
   const manifestPath = path3.join(getReportsPath(targetDir), MANIFEST_FILE);
@@ -340,6 +354,7 @@ function calculateTrends(dataPoints) {
 function showStatus(targetDir) {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
+  const validatorGate = readLatestValidatorGateReport(targetDir);
   console.log("");
   console.log("\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510");
   console.log("\u2502           CodeBuddy Reports Status                  \u2502");
@@ -378,6 +393,15 @@ function showStatus(targetDir) {
   } else {
     console.log("\u2502 Route:         No workflow routing report           \u2502");
   }
+  if (validatorGate) {
+    const validatorAge = formatAge(validatorGate.generatedAt);
+    const scope = validatorGate.scope.padEnd(6);
+    const status = validatorGate.effectiveOk ? "pass" : "fail";
+    const validatorText = `Validators: ${status} (${scope.trim()}, ${validatorAge})`;
+    console.log(`\u2502 ${validatorText}`.padEnd(52) + "\u2502");
+  } else {
+    console.log("\u2502 Validators:    No validator gate summary            \u2502");
+  }
   console.log("\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518");
   console.log("");
 }
@@ -406,6 +430,7 @@ function cleanup(targetDir, cacheOnly = false) {
 function exportMarkdown(targetDir) {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
+  const validatorGate = readLatestValidatorGateReport(targetDir);
   const lines = [];
   lines.push("# CodeBuddy \u9879\u76EE\u62A5\u544A");
   lines.push("");
@@ -463,6 +488,18 @@ function exportMarkdown(targetDir) {
       for (const reason of workflowRouting.decision.reasons.slice(0, 6)) {
         lines.push(`  - ${reason}`);
       }
+    }
+    lines.push("");
+  }
+  if (validatorGate) {
+    lines.push("## \u6700\u8FD1\u4E00\u6B21 Validator Gate");
+    lines.push("");
+    lines.push(`- **Scope**: ${validatorGate.scope}`);
+    lines.push(`- **Strict Mode**: ${validatorGate.strictMode ? "on" : "off"}`);
+    lines.push(`- **Effective Result**: ${validatorGate.effectiveOk ? "pass" : "fail"}`);
+    lines.push(`- **Errors / Warnings**: ${validatorGate.errorCount} / ${validatorGate.warningCount}`);
+    if (validatorGate.reportFiles.length > 0) {
+      lines.push(`- **Artifacts**: ${validatorGate.reportFiles.join(", ")}`);
     }
     lines.push("");
   }
@@ -1202,6 +1239,7 @@ if (isDirectCliEntry("report-manager.js")) {
   appendHealthDataPoint,
   getReportAgeHours,
   getReportsPath,
+  readLatestValidatorGateReport,
   readManifest,
   readReport,
   reportExists,

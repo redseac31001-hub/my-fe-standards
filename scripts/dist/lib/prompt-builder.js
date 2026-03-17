@@ -259,7 +259,7 @@ function buildScriptPromptGroups(scripts) {
     };
     addGroup('结构分析', '先生成结构和模块边界，再决定是否继续深挖', 'node .codebuddy/scripts/structure-analyzer.js .', ['structure-analyzer.js', 'module-mapper.js']);
     addGroup('报告查询', '优先复用已有报告，避免重复扫描', 'node .codebuddy/scripts/report-manager.js status', ['report-manager.js']);
-    addGroup('规则与契约校验', '规则、技能、TaskBook/Workflow 变更前先校验', 'node .codebuddy/scripts/contract-validator.js --workflows --taskbooks', ['rule-validator.js', 'skill-validator.js', 'contract-validator.js', 'agent-registry.js']);
+    addGroup('规则与契约校验', '规则、技能、TaskBook/Workflow 变更前先校验', 'node .codebuddy/scripts/contract-validator.js --workflows --taskbooks', ['rule-validator.js', 'skill-validator.js', 'validator-gate.js', 'contract-validator.js', 'agent-registry.js']);
     addGroup('编排执行', '需要完整任务闭环时走编排入口', 'node .codebuddy/scripts/task-orchestrator.js "实现用户登录" --type new-feature', ['task-orchestrator.js', 'taskbook-manager.js', 'task-executor.js']);
     addGroup('Agent Call 与上下文', '处理外部执行、上下文采集和结果写回', 'node .codebuddy/scripts/agent-call-manager.js list', ['agent-call-manager.js', 'reference-finder.js', 'context-collector.js']);
     const remaining = [...scripts]
