@@ -32,6 +32,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var report_manager_exports = {};
 __export(report_manager_exports, {
   appendHealthDataPoint: () => appendHealthDataPoint,
+  buildStatusSnapshot: () => buildStatusSnapshot,
   getReportAgeHours: () => getReportAgeHours,
   getReportsPath: () => getReportsPath,
   readLatestValidatorGateReport: () => readLatestValidatorGateReport,
@@ -163,6 +164,25 @@ function readLatestValidatorGateReport(targetDir) {
     }
   }
   return null;
+}
+function buildReportStatusSection(meta) {
+  if (!meta) {
+    return {
+      present: false,
+      generatedAt: null,
+      ageHours: null,
+      ageLabel: null,
+      freshness: "missing"
+    };
+  }
+  const ageHours = getReportAgeHours(meta.generatedAt);
+  return {
+    present: true,
+    generatedAt: meta.generatedAt,
+    ageHours,
+    ageLabel: formatAge(meta.generatedAt),
+    freshness: ageHours < 24 ? "fresh" : "stale"
+  };
 }
 function readManifest(targetDir) {
   const manifestPath = path3.join(getReportsPath(targetDir), MANIFEST_FILE);
@@ -351,53 +371,101 @@ function calculateTrends(dataPoints) {
     prediction: Math.round(prediction)
   };
 }
-function showStatus(targetDir) {
+function buildStatusSnapshot(targetDir) {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
   const validatorGate = readLatestValidatorGateReport(targetDir);
+  const healthTimeline = readReport(targetDir, "health/timeline.json");
+  const { architecture, modules, health, tasks } = manifest.reports;
+  const workflowRoutingAgeHours = workflowRouting ? getReportAgeHours(workflowRouting.generatedAt) : null;
+  const validatorGateAgeHours = validatorGate ? getReportAgeHours(validatorGate.generatedAt) : null;
+  return {
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    manifest: {
+      projectName: manifest.projectName,
+      lastUpdated: manifest.lastUpdated
+    },
+    sections: {
+      architecture: buildReportStatusSection(architecture),
+      modules: buildReportStatusSection(modules),
+      health: {
+        ...buildReportStatusSection(health),
+        trackedDays: healthTimeline?.dataPoints.length || 0
+      },
+      tasks: {
+        present: Boolean(tasks)
+      },
+      workflowRouting: {
+        present: Boolean(workflowRouting),
+        generatedAt: workflowRouting?.generatedAt ?? null,
+        ageHours: workflowRoutingAgeHours,
+        ageLabel: workflowRouting ? formatAge(workflowRouting.generatedAt) : null,
+        workflowId: workflowRouting?.decision.selectedWorkflowId ?? null,
+        mode: workflowRouting?.decision.mode ?? null,
+        confidence: workflowRouting?.decision.confidence ?? null,
+        taskBookId: workflowRouting?.taskBookId ?? null
+      },
+      validatorGate: {
+        present: Boolean(validatorGate),
+        generatedAt: validatorGate?.generatedAt ?? null,
+        ageHours: validatorGateAgeHours,
+        ageLabel: validatorGate ? formatAge(validatorGate.generatedAt) : null,
+        scope: validatorGate?.scope ?? null,
+        strictMode: typeof validatorGate?.strictMode === "boolean" ? validatorGate.strictMode : null,
+        effectiveOk: typeof validatorGate?.effectiveOk === "boolean" ? validatorGate.effectiveOk : null,
+        errorCount: validatorGate?.errorCount ?? null,
+        warningCount: validatorGate?.warningCount ?? null,
+        issueCount: validatorGate?.issueCount ?? null,
+        outputDir: validatorGate?.outputDir ?? null,
+        reportFiles: validatorGate?.reportFiles ?? []
+      }
+    }
+  };
+}
+function showStatus(targetDir, json = false) {
+  const snapshot = buildStatusSnapshot(targetDir);
+  if (json) {
+    console.log(JSON.stringify(snapshot, null, 2));
+    return;
+  }
   console.log("");
   console.log("\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510");
   console.log("\u2502           CodeBuddy Reports Status                  \u2502");
   console.log("\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524");
-  const { architecture, modules, health, tasks } = manifest.reports;
-  if (architecture) {
-    const age = formatAge(architecture.generatedAt);
-    const fresh = getReportAgeHours(architecture.generatedAt) < 24 ? "\u2713 Fresh" : "\u25CB Stale";
-    console.log(`\u2502 Architecture:  ${architecture.generatedAt.slice(0, 16)}  (${age})  ${fresh.padEnd(8)} \u2502`);
+  if (snapshot.sections.architecture.present && snapshot.sections.architecture.generatedAt) {
+    const fresh = snapshot.sections.architecture.freshness === "fresh" ? "\u2713 Fresh" : "\u25CB Stale";
+    console.log(`\u2502 Architecture:  ${snapshot.sections.architecture.generatedAt.slice(0, 16)}  (${snapshot.sections.architecture.ageLabel})  ${fresh.padEnd(8)} \u2502`);
   } else {
     console.log("\u2502 Architecture:  Not generated                        \u2502");
   }
-  if (modules) {
-    const age = formatAge(modules.generatedAt);
-    const fresh = getReportAgeHours(modules.generatedAt) < 24 ? "\u2713 Fresh" : "\u25CB Stale";
-    console.log(`\u2502 Modules:       ${modules.generatedAt.slice(0, 16)}  (${age})  ${fresh.padEnd(8)} \u2502`);
+  if (snapshot.sections.modules.present && snapshot.sections.modules.generatedAt) {
+    const fresh = snapshot.sections.modules.freshness === "fresh" ? "\u2713 Fresh" : "\u25CB Stale";
+    console.log(`\u2502 Modules:       ${snapshot.sections.modules.generatedAt.slice(0, 16)}  (${snapshot.sections.modules.ageLabel})  ${fresh.padEnd(8)} \u2502`);
   } else {
     console.log("\u2502 Modules:       Not generated                        \u2502");
   }
-  if (health) {
-    const timeline = readReport(targetDir, "health/timeline.json");
-    const points = timeline?.dataPoints.length || 0;
-    console.log(`\u2502 Health Points: ${points} days tracked`.padEnd(52) + "\u2502");
+  if (snapshot.sections.health.present) {
+    console.log(`\u2502 Health Points: ${snapshot.sections.health.trackedDays} days tracked`.padEnd(52) + "\u2502");
   } else {
     console.log("\u2502 Health Points: Not tracked                          \u2502");
   }
-  if (tasks) {
+  if (snapshot.sections.tasks.present) {
     console.log("\u2502 Active Task:   Yes                                  \u2502");
   } else {
     console.log("\u2502 Active Task:   None                                 \u2502");
   }
-  if (workflowRouting) {
-    const routeAge = formatAge(workflowRouting.generatedAt);
-    const routeText = `Route: ${workflowRouting.decision.selectedWorkflowId} (${workflowRouting.decision.mode}, ${routeAge})`;
+  if (snapshot.sections.workflowRouting.present) {
+    const routeText = `Route: ${snapshot.sections.workflowRouting.workflowId} (${snapshot.sections.workflowRouting.mode}, ${snapshot.sections.workflowRouting.ageLabel})`;
     console.log(`\u2502 ${routeText}`.padEnd(52) + "\u2502");
   } else {
     console.log("\u2502 Route:         No workflow routing report           \u2502");
   }
-  if (validatorGate) {
-    const validatorAge = formatAge(validatorGate.generatedAt);
-    const scope = validatorGate.scope.padEnd(6);
-    const status = validatorGate.effectiveOk ? "pass" : "fail";
-    const validatorText = `Validators: ${status} (${scope.trim()}, ${validatorAge})`;
+  if (snapshot.sections.validatorGate.present && snapshot.sections.validatorGate.scope) {
+    const scope = snapshot.sections.validatorGate.scope.padEnd(6);
+    const status = snapshot.sections.validatorGate.effectiveOk ? "pass" : "fail";
+    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel})`;
     console.log(`\u2502 ${validatorText}`.padEnd(52) + "\u2502");
   } else {
     console.log("\u2502 Validators:    No validator gate summary            \u2502");
@@ -1126,6 +1194,7 @@ Report Manager - \u62A5\u544A\u7BA1\u7406\u5668
 
 \u547D\u4EE4:
   status              \u67E5\u770B\u62A5\u544A\u72B6\u6001
+    --json            \u8F93\u51FA\u673A\u5668\u53EF\u8BFB\u7684\u5F53\u524D\u62A5\u544A\u6458\u8981
   cleanup             \u6E05\u7406\u8FC7\u671F\u62A5\u544A
     --cache-only      \u4EC5\u6E05\u7406\u7F13\u5B58
   export              \u5BFC\u51FA\u62A5\u544A\u4E3A Markdown
@@ -1146,6 +1215,7 @@ Report Manager - \u62A5\u544A\u7BA1\u7406\u5668
 
 \u793A\u4F8B:
   node report-manager.js status
+  node report-manager.js status --json
   node report-manager.js cleanup
   node report-manager.js export
   node report-manager.js diff
@@ -1175,7 +1245,7 @@ function main() {
   }
   switch (command) {
     case "status":
-      showStatus(targetDir);
+      showStatus(targetDir, args.includes("--json"));
       break;
     case "cleanup":
       const cacheOnly = args.includes("--cache-only");
@@ -1237,6 +1307,7 @@ if (isDirectCliEntry("report-manager.js")) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   appendHealthDataPoint,
+  buildStatusSnapshot,
   getReportAgeHours,
   getReportsPath,
   readLatestValidatorGateReport,

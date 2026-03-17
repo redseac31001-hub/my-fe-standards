@@ -24,6 +24,7 @@ import {
   HealthTimeline,
   HealthDataPoint,
   ValidatorGateSummary,
+  ReportManagerStatusSnapshot,
   DEFAULT_MANIFEST,
   DEFAULT_RETENTION_POLICY,
 } from './types/reports';
@@ -100,6 +101,27 @@ function readLatestValidatorGateReport(targetDir: string): ValidatorGateSummary 
     }
   }
   return null;
+}
+
+function buildReportStatusSection(meta: ReportMeta | null): ReportManagerStatusSnapshot['sections']['architecture'] {
+  if (!meta) {
+    return {
+      present: false,
+      generatedAt: null,
+      ageHours: null,
+      ageLabel: null,
+      freshness: 'missing',
+    };
+  }
+
+  const ageHours = getReportAgeHours(meta.generatedAt);
+  return {
+    present: true,
+    generatedAt: meta.generatedAt,
+    ageHours,
+    ageLabel: formatAge(meta.generatedAt),
+    freshness: ageHours < 24 ? 'fresh' : 'stale',
+  };
 }
 
 // ============ Manifest 管理 ============
@@ -408,65 +430,116 @@ function calculateTrends(dataPoints: HealthDataPoint[]): HealthTimeline['trends'
 /**
  * 显示报告状态
  */
-function showStatus(targetDir: string): void {
+export function buildStatusSnapshot(targetDir: string): ReportManagerStatusSnapshot {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
   const validatorGate = readLatestValidatorGateReport(targetDir);
+  const healthTimeline = readReport<HealthTimeline>(targetDir, 'health/timeline.json');
+  const { architecture, modules, health, tasks } = manifest.reports;
+
+  const workflowRoutingAgeHours = workflowRouting ? getReportAgeHours(workflowRouting.generatedAt) : null;
+  const validatorGateAgeHours = validatorGate ? getReportAgeHours(validatorGate.generatedAt) : null;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    manifest: {
+      projectName: manifest.projectName,
+      lastUpdated: manifest.lastUpdated,
+    },
+    sections: {
+      architecture: buildReportStatusSection(architecture),
+      modules: buildReportStatusSection(modules),
+      health: {
+        ...buildReportStatusSection(health),
+        trackedDays: healthTimeline?.dataPoints.length || 0,
+      },
+      tasks: {
+        present: Boolean(tasks),
+      },
+      workflowRouting: {
+        present: Boolean(workflowRouting),
+        generatedAt: workflowRouting?.generatedAt ?? null,
+        ageHours: workflowRoutingAgeHours,
+        ageLabel: workflowRouting ? formatAge(workflowRouting.generatedAt) : null,
+        workflowId: workflowRouting?.decision.selectedWorkflowId ?? null,
+        mode: workflowRouting?.decision.mode ?? null,
+        confidence: workflowRouting?.decision.confidence ?? null,
+        taskBookId: workflowRouting?.taskBookId ?? null,
+      },
+      validatorGate: {
+        present: Boolean(validatorGate),
+        generatedAt: validatorGate?.generatedAt ?? null,
+        ageHours: validatorGateAgeHours,
+        ageLabel: validatorGate ? formatAge(validatorGate.generatedAt) : null,
+        scope: validatorGate?.scope ?? null,
+        strictMode: typeof validatorGate?.strictMode === 'boolean' ? validatorGate.strictMode : null,
+        effectiveOk: typeof validatorGate?.effectiveOk === 'boolean' ? validatorGate.effectiveOk : null,
+        errorCount: validatorGate?.errorCount ?? null,
+        warningCount: validatorGate?.warningCount ?? null,
+        issueCount: validatorGate?.issueCount ?? null,
+        outputDir: validatorGate?.outputDir ?? null,
+        reportFiles: validatorGate?.reportFiles ?? [],
+      },
+    },
+  };
+}
+
+function showStatus(targetDir: string, json: boolean = false): void {
+  const snapshot = buildStatusSnapshot(targetDir);
+
+  if (json) {
+    console.log(JSON.stringify(snapshot, null, 2));
+    return;
+  }
 
   console.log('');
   console.log('┌─────────────────────────────────────────────────────┐');
   console.log('│           CodeBuddy Reports Status                  │');
   console.log('├─────────────────────────────────────────────────────┤');
 
-  const { architecture, modules, health, tasks } = manifest.reports;
-
   // Architecture
-  if (architecture) {
-    const age = formatAge(architecture.generatedAt);
-    const fresh = getReportAgeHours(architecture.generatedAt) < 24 ? '✓ Fresh' : '○ Stale';
-    console.log(`│ Architecture:  ${architecture.generatedAt.slice(0, 16)}  (${age})  ${fresh.padEnd(8)} │`);
+  if (snapshot.sections.architecture.present && snapshot.sections.architecture.generatedAt) {
+    const fresh = snapshot.sections.architecture.freshness === 'fresh' ? '✓ Fresh' : '○ Stale';
+    console.log(`│ Architecture:  ${snapshot.sections.architecture.generatedAt.slice(0, 16)}  (${snapshot.sections.architecture.ageLabel})  ${fresh.padEnd(8)} │`);
   } else {
     console.log('│ Architecture:  Not generated                        │');
   }
 
   // Modules
-  if (modules) {
-    const age = formatAge(modules.generatedAt);
-    const fresh = getReportAgeHours(modules.generatedAt) < 24 ? '✓ Fresh' : '○ Stale';
-    console.log(`│ Modules:       ${modules.generatedAt.slice(0, 16)}  (${age})  ${fresh.padEnd(8)} │`);
+  if (snapshot.sections.modules.present && snapshot.sections.modules.generatedAt) {
+    const fresh = snapshot.sections.modules.freshness === 'fresh' ? '✓ Fresh' : '○ Stale';
+    console.log(`│ Modules:       ${snapshot.sections.modules.generatedAt.slice(0, 16)}  (${snapshot.sections.modules.ageLabel})  ${fresh.padEnd(8)} │`);
   } else {
     console.log('│ Modules:       Not generated                        │');
   }
 
   // Health
-  if (health) {
-    const timeline = readReport<HealthTimeline>(targetDir, 'health/timeline.json');
-    const points = timeline?.dataPoints.length || 0;
-    console.log(`│ Health Points: ${points} days tracked`.padEnd(52) + '│');
+  if (snapshot.sections.health.present) {
+    console.log(`│ Health Points: ${snapshot.sections.health.trackedDays} days tracked`.padEnd(52) + '│');
   } else {
     console.log('│ Health Points: Not tracked                          │');
   }
 
   // Tasks
-  if (tasks) {
+  if (snapshot.sections.tasks.present) {
     console.log('│ Active Task:   Yes                                  │');
   } else {
     console.log('│ Active Task:   None                                 │');
   }
 
-  if (workflowRouting) {
-    const routeAge = formatAge(workflowRouting.generatedAt);
-    const routeText = `Route: ${workflowRouting.decision.selectedWorkflowId} (${workflowRouting.decision.mode}, ${routeAge})`;
+  if (snapshot.sections.workflowRouting.present) {
+    const routeText = `Route: ${snapshot.sections.workflowRouting.workflowId} (${snapshot.sections.workflowRouting.mode}, ${snapshot.sections.workflowRouting.ageLabel})`;
     console.log(`│ ${routeText}`.padEnd(52) + '│');
   } else {
     console.log('│ Route:         No workflow routing report           │');
   }
 
-  if (validatorGate) {
-    const validatorAge = formatAge(validatorGate.generatedAt);
-    const scope = validatorGate.scope.padEnd(6);
-    const status = validatorGate.effectiveOk ? 'pass' : 'fail';
-    const validatorText = `Validators: ${status} (${scope.trim()}, ${validatorAge})`;
+  if (snapshot.sections.validatorGate.present && snapshot.sections.validatorGate.scope) {
+    const scope = snapshot.sections.validatorGate.scope.padEnd(6);
+    const status = snapshot.sections.validatorGate.effectiveOk ? 'pass' : 'fail';
+    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel})`;
     console.log(`│ ${validatorText}`.padEnd(52) + '│');
   } else {
     console.log('│ Validators:    No validator gate summary            │');
@@ -1496,6 +1569,7 @@ Report Manager - 报告管理器
 
 命令:
   status              查看报告状态
+    --json            输出机器可读的当前报告摘要
   cleanup             清理过期报告
     --cache-only      仅清理缓存
   export              导出报告为 Markdown
@@ -1516,6 +1590,7 @@ Report Manager - 报告管理器
 
 示例:
   node report-manager.js status
+  node report-manager.js status --json
   node report-manager.js cleanup
   node report-manager.js export
   node report-manager.js diff
@@ -1551,7 +1626,7 @@ function main(): void {
 
   switch (command) {
     case 'status':
-      showStatus(targetDir);
+      showStatus(targetDir, args.includes('--json'));
       break;
 
     case 'cleanup':

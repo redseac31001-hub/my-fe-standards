@@ -43,6 +43,58 @@ export interface ValidatorGateSummary {
   };
 }
 
+export interface ReportStatusSection {
+  present: boolean;
+  generatedAt: string | null;
+  ageHours: number | null;
+  ageLabel: string | null;
+  freshness: 'fresh' | 'stale' | 'missing';
+}
+
+export interface ReportManagerStatusSnapshot {
+  generatedAt: string;
+  targetDir: string;
+  reportsPath: string;
+  manifest: {
+    projectName: string;
+    lastUpdated: string;
+  };
+  sections: {
+    architecture: ReportStatusSection;
+    modules: ReportStatusSection;
+    health: ReportStatusSection & {
+      trackedDays: number;
+    };
+    tasks: {
+      present: boolean;
+    };
+    workflowRouting: {
+      present: boolean;
+      generatedAt: string | null;
+      ageHours: number | null;
+      ageLabel: string | null;
+      workflowId: string | null;
+      mode: string | null;
+      confidence: 'high' | 'medium' | 'low' | null;
+      taskBookId: string | null;
+    };
+    validatorGate: {
+      present: boolean;
+      generatedAt: string | null;
+      ageHours: number | null;
+      ageLabel: string | null;
+      scope: ValidatorGateScope | null;
+      strictMode: boolean | null;
+      effectiveOk: boolean | null;
+      errorCount: number | null;
+      warningCount: number | null;
+      issueCount: number | null;
+      outputDir: string | null;
+      reportFiles: string[];
+    };
+  };
+}
+
 /**
  * 报告元数据
  */

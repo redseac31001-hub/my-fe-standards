@@ -1368,7 +1368,7 @@ async function testValidatorGateWritesStrictReports() {
 
 async function testReportManagerReadsLatestValidatorGateSummary() {
   assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
-  const { readLatestValidatorGateReport } = require(reportManagerDistPath);
+  const { readLatestValidatorGateReport, buildStatusSnapshot } = require(reportManagerDistPath);
 
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-manager-'));
   try {
@@ -1399,6 +1399,13 @@ async function testReportManagerReadsLatestValidatorGateSummary() {
     assert.equal(summary?.scope, 'all');
     assert.equal(summary?.effectiveOk, false);
     assert.equal(summary?.warningCount, 2);
+
+    const snapshot = buildStatusSnapshot(tempDir);
+    assert.equal(snapshot.sections.validatorGate.present, true);
+    assert.equal(snapshot.sections.validatorGate.scope, 'all');
+    assert.equal(snapshot.sections.validatorGate.effectiveOk, false);
+    assert.equal(snapshot.sections.validatorGate.warningCount, 2);
+    assert.equal(snapshot.sections.workflowRouting.present, false);
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
   }

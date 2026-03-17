@@ -2596,6 +2596,19 @@ description: Validate that strict mode fails on warning-only skill issues.
           throw new Error('report-manager status missing workflow route line');
         }
 
+        const reportStatusJson = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'status', '--json'], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+        if (reportStatusJson.status !== 0) {
+          throw new Error(`report-manager status --json exit=${reportStatusJson.status}, stderr=${reportStatusJson.stderr}`);
+        }
+        const reportStatusPayload = JSON.parse(String(reportStatusJson.stdout || '{}'));
+        if (!reportStatusPayload?.sections?.workflowRouting?.present || !reportStatusPayload?.sections?.workflowRouting?.workflowId) {
+          throw new Error('report-manager status --json missing workflow routing summary');
+        }
+
         const reportExport = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'export'], {
           cwd: projectDir,
           encoding: 'utf-8',

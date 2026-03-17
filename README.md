@@ -175,6 +175,12 @@ npm run validate:gate:strict:report
 
 默认会写到 `.codebuddy/reports/validators/latest/`。
 
+如果需要机器可读的当前报告摘要：
+
+```bash
+node .codebuddy/scripts/report-manager.js status --json
+```
+
 ## 仓库结构
 
 ```text
