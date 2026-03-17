@@ -192,6 +192,12 @@ node .codebuddy/scripts/report-manager.js status --json
 node .codebuddy/scripts/report-manager.js history --json
 ```
 
+如果需要机器可读的趋势视图（含 health + validator trend）：
+
+```bash
+node .codebuddy/scripts/report-manager.js trend --json
+```
+
 ## 仓库结构
 
 ```text

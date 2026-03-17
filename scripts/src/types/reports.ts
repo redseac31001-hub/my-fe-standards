@@ -142,6 +142,31 @@ export interface ReportManagerHistorySnapshot {
   };
 }
 
+export interface ReportManagerTrendSnapshot {
+  generatedAt: string;
+  targetDir: string;
+  reportsPath: string;
+  sections: {
+    health: {
+      present: boolean;
+      days: number;
+      direction: HealthTimeline['trends']['direction'] | null;
+      changeRate: number | null;
+      prediction: number | null;
+      recentPoints: HealthDataPoint[];
+    };
+    validatorGate: {
+      present: boolean;
+      latest: Omit<ValidatorGateHistoryEntry, 'relativePath'> | null;
+      previousRun: Omit<ValidatorGateHistoryEntry, 'relativePath'> | null;
+      delta: ValidatorGateDelta | null;
+      recentRuns: ValidatorGateHistoryEntry[];
+      passCount: number;
+      failCount: number;
+    };
+  };
+}
+
 /**
  * 报告元数据
  */

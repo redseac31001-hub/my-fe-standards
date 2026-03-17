@@ -34,6 +34,7 @@ __export(report_manager_exports, {
   appendHealthDataPoint: () => appendHealthDataPoint,
   buildHistorySnapshot: () => buildHistorySnapshot,
   buildStatusSnapshot: () => buildStatusSnapshot,
+  buildTrendSnapshot: () => buildTrendSnapshot,
   cleanupReports: () => cleanup,
   getReportAgeHours: () => getReportAgeHours,
   getReportsPath: () => getReportsPath,
@@ -866,23 +867,97 @@ function showDiff(targetDir, fromDate, toDate) {
   console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
   console.log("");
 }
-function showTrend(targetDir, days = 30) {
+function buildTrendSnapshot(targetDir, days = 30) {
   const timeline = readReport(targetDir, "health/timeline.json");
-  if (!timeline || timeline.dataPoints.length === 0) {
-    console.log("No health data found. Run analysis to start tracking.");
+  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30;
+  const recentPoints = timeline?.dataPoints.slice(-normalizedDays) || [];
+  const validatorGateHistory = readValidatorGateHistory(targetDir, 5);
+  const latestValidatorGate = validatorGateHistory[0] || null;
+  const previousValidatorGate = validatorGateHistory[1] || null;
+  const validatorGateDelta = latestValidatorGate ? buildValidatorGateDelta(
+    {
+      ok: latestValidatorGate.effectiveOk,
+      effectiveOk: latestValidatorGate.effectiveOk,
+      strictMode: latestValidatorGate.strictMode,
+      scope: latestValidatorGate.scope,
+      generatedAt: latestValidatorGate.generatedAt,
+      errorCount: latestValidatorGate.errorCount,
+      warningCount: latestValidatorGate.warningCount,
+      issueCount: latestValidatorGate.issueCount,
+      outputDir: null,
+      historyDir: null,
+      reportFiles: [],
+      reports: {}
+    },
+    previousValidatorGate
+  ) : null;
+  return {
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    sections: {
+      health: {
+        present: Boolean(timeline && timeline.dataPoints.length > 0),
+        days: normalizedDays,
+        direction: timeline?.trends.direction ?? null,
+        changeRate: typeof timeline?.trends.changeRate === "number" ? timeline.trends.changeRate : null,
+        prediction: typeof timeline?.trends.prediction === "number" ? timeline.trends.prediction : null,
+        recentPoints
+      },
+      validatorGate: {
+        present: validatorGateHistory.length > 0,
+        latest: latestValidatorGate ? {
+          generatedAt: latestValidatorGate.generatedAt,
+          scope: latestValidatorGate.scope,
+          strictMode: latestValidatorGate.strictMode,
+          effectiveOk: latestValidatorGate.effectiveOk,
+          errorCount: latestValidatorGate.errorCount,
+          warningCount: latestValidatorGate.warningCount,
+          issueCount: latestValidatorGate.issueCount
+        } : null,
+        previousRun: previousValidatorGate ? {
+          generatedAt: previousValidatorGate.generatedAt,
+          scope: previousValidatorGate.scope,
+          strictMode: previousValidatorGate.strictMode,
+          effectiveOk: previousValidatorGate.effectiveOk,
+          errorCount: previousValidatorGate.errorCount,
+          warningCount: previousValidatorGate.warningCount,
+          issueCount: previousValidatorGate.issueCount
+        } : null,
+        delta: validatorGateDelta,
+        recentRuns: validatorGateHistory,
+        passCount: validatorGateHistory.filter((entry) => entry.effectiveOk).length,
+        failCount: validatorGateHistory.filter((entry) => !entry.effectiveOk).length
+      }
+    }
+  };
+}
+function showTrend(targetDir, days = 30, json = false) {
+  const snapshot = buildTrendSnapshot(targetDir, days);
+  const recentPoints = snapshot.sections.health.recentPoints;
+  if (json) {
+    console.log(JSON.stringify(snapshot, null, 2));
     return;
   }
-  const recentPoints = timeline.dataPoints.slice(-days);
+  if (!snapshot.sections.health.present && !snapshot.sections.validatorGate.present) {
+    console.log("No health or validator trend data found. Run analysis or validator gate first.");
+    return;
+  }
   console.log("");
   console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
   console.log("\u2551                    Health Trend Analysis                          \u2551");
   console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  const trendIcon = timeline.trends.direction === "improving" ? "\u{1F4C8}" : timeline.trends.direction === "declining" ? "\u{1F4C9}" : "\u27A1\uFE0F";
-  const trendText = timeline.trends.direction === "improving" ? "Improving" : timeline.trends.direction === "declining" ? "Declining" : "Stable";
-  console.log(`\u2551 Trend: ${trendIcon} ${trendText}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Change Rate: ${timeline.trends.changeRate > 0 ? "+" : ""}${timeline.trends.changeRate}% per week`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Predicted Next: ${timeline.trends.prediction}/100`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Data Points: ${recentPoints.length} days`.padEnd(67) + "\u2551");
+  if (snapshot.sections.health.present) {
+    const trendDirection = snapshot.sections.health.direction || "stable";
+    const trendIcon = trendDirection === "improving" ? "\u{1F4C8}" : trendDirection === "declining" ? "\u{1F4C9}" : "\u27A1\uFE0F";
+    const trendText = trendDirection === "improving" ? "Improving" : trendDirection === "declining" ? "Declining" : "Stable";
+    console.log(`\u2551 Trend: ${trendIcon} ${trendText}`.padEnd(67) + "\u2551");
+    console.log(`\u2551 Change Rate: ${(snapshot.sections.health.changeRate || 0) > 0 ? "+" : ""}${snapshot.sections.health.changeRate}% per week`.padEnd(67) + "\u2551");
+    console.log(`\u2551 Predicted Next: ${snapshot.sections.health.prediction}/100`.padEnd(67) + "\u2551");
+    console.log(`\u2551 Data Points: ${recentPoints.length} days`.padEnd(67) + "\u2551");
+  } else {
+    console.log("\u2551 Health: no timeline data available".padEnd(67) + "\u2551");
+  }
   if (recentPoints.length >= 2) {
     console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
     console.log("\u2551 Health Score Chart (last " + days + " days):".padEnd(67) + "\u2551");
@@ -915,13 +990,30 @@ function showTrend(targetDir, days = 30) {
     const lastDate = recentPoints[recentPoints.length - 1].date.slice(5, 10);
     console.log(`\u2551      ${firstDate}${"".padEnd(chartWidth - 10)}${lastDate}`.padEnd(67) + "\u2551");
   }
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  console.log("\u2551 Recent Data Points:".padEnd(67) + "\u2551");
-  const lastFive = recentPoints.slice(-5).reverse();
-  for (const point of lastFive) {
-    const bar = "\u2588".repeat(Math.round(point.healthScore / 5));
-    const icon = point.healthScore >= 80 ? "\u{1F7E2}" : point.healthScore >= 60 ? "\u{1F7E1}" : "\u{1F534}";
-    console.log(`\u2551   ${point.date} \u2502 ${icon} ${point.healthScore.toString().padStart(3)}/100 ${bar}`.padEnd(67) + "\u2551");
+  if (recentPoints.length > 0) {
+    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
+    console.log("\u2551 Recent Data Points:".padEnd(67) + "\u2551");
+    const lastFive = recentPoints.slice(-5).reverse();
+    for (const point of lastFive) {
+      const bar = "\u2588".repeat(Math.round(point.healthScore / 5));
+      const icon = point.healthScore >= 80 ? "\u{1F7E2}" : point.healthScore >= 60 ? "\u{1F7E1}" : "\u{1F534}";
+      console.log(`\u2551   ${point.date} \u2502 ${icon} ${point.healthScore.toString().padStart(3)}/100 ${bar}`.padEnd(67) + "\u2551");
+    }
+  }
+  if (snapshot.sections.validatorGate.present) {
+    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
+    console.log("\u2551 Validator Gate Trend:".padEnd(67) + "\u2551");
+    const latest = snapshot.sections.validatorGate.latest;
+    const delta = snapshot.sections.validatorGate.delta;
+    if (latest) {
+      const trendText = delta ? delta.direction : "unknown";
+      console.log(`\u2551 Latest: ${latest.generatedAt.slice(0, 16)}  ${latest.scope}  ${latest.strictMode ? "strict" : "default"}  ${latest.effectiveOk ? "pass" : "fail"}`.padEnd(67) + "\u2551");
+      console.log(`\u2551 Recent Runs: pass=${snapshot.sections.validatorGate.passCount} fail=${snapshot.sections.validatorGate.failCount}  trend=${trendText}`.padEnd(67) + "\u2551");
+      if (delta) {
+        const deltaLine = `\u0394 errors=${delta.errorDelta >= 0 ? "+" : ""}${delta.errorDelta} warnings=${delta.warningDelta >= 0 ? "+" : ""}${delta.warningDelta} issues=${delta.issueDelta >= 0 ? "+" : ""}${delta.issueDelta}`;
+        console.log(`\u2551 ${deltaLine}`.padEnd(67) + "\u2551");
+      }
+    }
   }
   console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
   console.log("");
@@ -1423,6 +1515,7 @@ Report Manager - \u62A5\u544A\u7BA1\u7406\u5668
     --from <date>     \u8D77\u59CB\u65E5\u671F (YYYY-MM-DD\uFF0C\u53EF\u9009)
   trend               \u663E\u793A\u5065\u5EB7\u5EA6\u8D8B\u52BF
     --days <n>        \u663E\u793A\u5929\u6570 (\u9ED8\u8BA4: 30)
+    --json            \u8F93\u51FA health / validator trend JSON
   history             \u5217\u51FA\u5386\u53F2\u5FEB\u7167
     --json            \u8F93\u51FA architecture / modules / validator gate \u5386\u53F2 JSON
   inspect             \u67E5\u8BE2\u6A21\u5757/\u6587\u4EF6\u7684\u4E0A\u4E0B\u6E38\u3001\u70ED\u70B9\u4E0E\u8D8B\u52BF
@@ -1443,6 +1536,7 @@ Report Manager - \u62A5\u544A\u7BA1\u7406\u5668
   node report-manager.js diff
   node report-manager.js diff --from 2025-01-15
   node report-manager.js trend --days 14
+  node report-manager.js trend --json
   node report-manager.js history
   node report-manager.js history --json
   node report-manager.js inspect --module "src/features/user"
@@ -1486,7 +1580,7 @@ function main() {
     case "trend": {
       const daysIndex = args.indexOf("--days");
       const days = daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
-      showTrend(targetDir, days);
+      showTrend(targetDir, days, args.includes("--json"));
       break;
     }
     case "history":
@@ -1532,6 +1626,7 @@ if (isDirectCliEntry("report-manager.js")) {
   appendHealthDataPoint,
   buildHistorySnapshot,
   buildStatusSnapshot,
+  buildTrendSnapshot,
   cleanupReports,
   getReportAgeHours,
   getReportsPath,

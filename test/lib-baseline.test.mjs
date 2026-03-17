@@ -1807,6 +1807,82 @@ async function testReportManagerHistorySnapshotIncludesValidatorRuns() {
   }
 }
 
+async function testReportManagerTrendSnapshotIncludesValidatorTrend() {
+  assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
+  const { buildTrendSnapshot } = require(reportManagerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-trend-'));
+  try {
+    const reportsRoot = path.join(tempDir, '.codebuddy', 'reports');
+    const historyRoot = path.join(reportsRoot, 'validators', 'history');
+    await fsp.mkdir(path.join(reportsRoot, 'health'), { recursive: true });
+    await fsp.mkdir(path.join(historyRoot, '2026-03-17T10-00-00-000Z'), { recursive: true });
+    await fsp.mkdir(path.join(historyRoot, '2026-03-17T09-00-00-000Z'), { recursive: true });
+
+    await fsp.writeFile(
+      path.join(reportsRoot, 'health', 'timeline.json'),
+      JSON.stringify({
+        meta: { version: '1.0.0', projectName: 'demo', lastUpdated: '2026-03-17T10:00:00.000Z' },
+        dataPoints: [
+          { date: '2026-03-16', healthScore: 70, breakdown: { architecture: 70, modules: 70, codeQuality: 70 }, snapshot: 'a' },
+          { date: '2026-03-17', healthScore: 78, breakdown: { architecture: 78, modules: 78, codeQuality: 78 }, snapshot: 'b' },
+        ],
+        trends: { direction: 'improving', changeRate: 11.4, prediction: 82 },
+      }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(historyRoot, '2026-03-17T10-00-00-000Z', 'validator-gate-summary.json'),
+      JSON.stringify({
+        ok: true,
+        effectiveOk: false,
+        strictMode: true,
+        scope: 'all',
+        generatedAt: '2026-03-17T10:00:00.000Z',
+        errorCount: 0,
+        warningCount: 2,
+        issueCount: 2,
+        outputDir: '.codebuddy/reports/validators/latest',
+        historyDir: '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {},
+      }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(historyRoot, '2026-03-17T09-00-00-000Z', 'validator-gate-summary.json'),
+      JSON.stringify({
+        ok: true,
+        effectiveOk: true,
+        strictMode: true,
+        scope: 'all',
+        generatedAt: '2026-03-17T09:00:00.000Z',
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0,
+        outputDir: '.codebuddy/reports/validators/latest',
+        historyDir: '.codebuddy/reports/validators/history/2026-03-17T09-00-00-000Z',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {},
+      }, null, 2),
+      'utf-8',
+    );
+
+    const snapshot = buildTrendSnapshot(tempDir, 7);
+    assert.equal(snapshot.sections.health.present, true);
+    assert.equal(snapshot.sections.health.direction, 'improving');
+    assert.equal(snapshot.sections.health.recentPoints.length, 2);
+    assert.equal(snapshot.sections.validatorGate.present, true);
+    assert.equal(snapshot.sections.validatorGate.latest?.strictMode, true);
+    assert.equal(snapshot.sections.validatorGate.delta?.direction, 'regressed');
+    assert.equal(snapshot.sections.validatorGate.delta?.warningDelta, 2);
+    assert.equal(snapshot.sections.validatorGate.failCount, 1);
+    assert.equal(snapshot.sections.validatorGate.passCount, 1);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const tests = [
     ['frontmatter utils parse and extract structured YAML content', testFrontmatterUtils],
@@ -1824,6 +1900,7 @@ async function main() {
     ['report manager reads the latest validator gate summary from reports', testReportManagerReadsLatestValidatorGateSummary],
     ['report manager cleanup prunes old validator gate history', testReportManagerCleanupPrunesOldValidatorGateHistory],
     ['report manager history snapshot includes validator gate runs', testReportManagerHistorySnapshotIncludesValidatorRuns],
+    ['report manager trend snapshot includes validator trend data', testReportManagerTrendSnapshotIncludesValidatorTrend],
     ['context targeting keeps skill and business-rule matching stable', testContextTargeting],
     ['project detection recognizes workspace structure and target selection', testProjectDetection],
     ['install state helpers keep snapshot retention and hashing stable', testInstallStateHelpers],

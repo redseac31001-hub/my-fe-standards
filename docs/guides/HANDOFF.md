@@ -176,6 +176,7 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-03-17）validator gate 历史已补齐趋势判断：`report-manager status --json` / `export` 和 `codebuddy-loader doctor` 会给出相对上一轮的回退或改善信号
 - ✅（2026-03-17）`report-manager cleanup` 已纳入 validator gate history 保留策略，会按 `maxCount/maxAgeDays` 清理过旧目录
 - ✅（2026-03-17）`report-manager history --json` 已纳入 validator gate runs，可一次性导出 architecture/modules/validators 三类历史视图
+- ✅（2026-03-17）`report-manager trend --json` 已纳入 validator trend，可一次性导出 health + validator 两类趋势视图
 
 ### 2026-03-17 Validator 审查顺序
 

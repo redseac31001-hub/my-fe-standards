@@ -31,6 +31,7 @@ import {
   HealthTimeline,
   HealthDataPoint,
   ReportManagerHistorySnapshot,
+  ReportManagerTrendSnapshot,
   ValidatorGateSummary,
   ReportManagerStatusSnapshot,
   DEFAULT_MANIFEST,
@@ -968,31 +969,108 @@ function showDiff(targetDir: string, fromDate?: string, toDate?: string): void {
 /**
  * 显示健康度趋势
  */
-function showTrend(targetDir: string, days: number = 30): void {
+export function buildTrendSnapshot(targetDir: string, days: number = 30): ReportManagerTrendSnapshot {
   const timeline = readReport<HealthTimeline>(targetDir, 'health/timeline.json');
+  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30;
+  const recentPoints = timeline?.dataPoints.slice(-normalizedDays) || [];
+  const validatorGateHistory = readValidatorGateHistory(targetDir, 5);
+  const latestValidatorGate = validatorGateHistory[0] || null;
+  const previousValidatorGate = validatorGateHistory[1] || null;
+  const validatorGateDelta = latestValidatorGate
+    ? buildValidatorGateDelta(
+        {
+          ok: latestValidatorGate.effectiveOk,
+          effectiveOk: latestValidatorGate.effectiveOk,
+          strictMode: latestValidatorGate.strictMode,
+          scope: latestValidatorGate.scope,
+          generatedAt: latestValidatorGate.generatedAt,
+          errorCount: latestValidatorGate.errorCount,
+          warningCount: latestValidatorGate.warningCount,
+          issueCount: latestValidatorGate.issueCount,
+          outputDir: null,
+          historyDir: null,
+          reportFiles: [],
+          reports: {},
+        },
+        previousValidatorGate,
+      )
+    : null;
 
-  if (!timeline || timeline.dataPoints.length === 0) {
-    console.log('No health data found. Run analysis to start tracking.');
+  return {
+    generatedAt: new Date().toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    sections: {
+      health: {
+        present: Boolean(timeline && timeline.dataPoints.length > 0),
+        days: normalizedDays,
+        direction: timeline?.trends.direction ?? null,
+        changeRate: typeof timeline?.trends.changeRate === 'number' ? timeline.trends.changeRate : null,
+        prediction: typeof timeline?.trends.prediction === 'number' ? timeline.trends.prediction : null,
+        recentPoints,
+      },
+      validatorGate: {
+        present: validatorGateHistory.length > 0,
+        latest: latestValidatorGate ? {
+          generatedAt: latestValidatorGate.generatedAt,
+          scope: latestValidatorGate.scope,
+          strictMode: latestValidatorGate.strictMode,
+          effectiveOk: latestValidatorGate.effectiveOk,
+          errorCount: latestValidatorGate.errorCount,
+          warningCount: latestValidatorGate.warningCount,
+          issueCount: latestValidatorGate.issueCount,
+        } : null,
+        previousRun: previousValidatorGate ? {
+          generatedAt: previousValidatorGate.generatedAt,
+          scope: previousValidatorGate.scope,
+          strictMode: previousValidatorGate.strictMode,
+          effectiveOk: previousValidatorGate.effectiveOk,
+          errorCount: previousValidatorGate.errorCount,
+          warningCount: previousValidatorGate.warningCount,
+          issueCount: previousValidatorGate.issueCount,
+        } : null,
+        delta: validatorGateDelta,
+        recentRuns: validatorGateHistory,
+        passCount: validatorGateHistory.filter((entry) => entry.effectiveOk).length,
+        failCount: validatorGateHistory.filter((entry) => !entry.effectiveOk).length,
+      },
+    },
+  };
+}
+
+function showTrend(targetDir: string, days: number = 30, json: boolean = false): void {
+  const snapshot = buildTrendSnapshot(targetDir, days);
+  const recentPoints = snapshot.sections.health.recentPoints;
+
+  if (json) {
+    console.log(JSON.stringify(snapshot, null, 2));
     return;
   }
 
-  const recentPoints = timeline.dataPoints.slice(-days);
+  if (!snapshot.sections.health.present && !snapshot.sections.validatorGate.present) {
+    console.log('No health or validator trend data found. Run analysis or validator gate first.');
+    return;
+  }
 
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════════════╗');
   console.log('║                    Health Trend Analysis                          ║');
   console.log('╠══════════════════════════════════════════════════════════════════╣');
 
-  // 趋势摘要
-  const trendIcon = timeline.trends.direction === 'improving' ? '📈' :
-                    timeline.trends.direction === 'declining' ? '📉' : '➡️';
-  const trendText = timeline.trends.direction === 'improving' ? 'Improving' :
-                    timeline.trends.direction === 'declining' ? 'Declining' : 'Stable';
+  if (snapshot.sections.health.present) {
+    const trendDirection = snapshot.sections.health.direction || 'stable';
+    const trendIcon = trendDirection === 'improving' ? '📈' :
+                      trendDirection === 'declining' ? '📉' : '➡️';
+    const trendText = trendDirection === 'improving' ? 'Improving' :
+                      trendDirection === 'declining' ? 'Declining' : 'Stable';
 
-  console.log(`║ Trend: ${trendIcon} ${trendText}`.padEnd(67) + '║');
-  console.log(`║ Change Rate: ${timeline.trends.changeRate > 0 ? '+' : ''}${timeline.trends.changeRate}% per week`.padEnd(67) + '║');
-  console.log(`║ Predicted Next: ${timeline.trends.prediction}/100`.padEnd(67) + '║');
-  console.log(`║ Data Points: ${recentPoints.length} days`.padEnd(67) + '║');
+    console.log(`║ Trend: ${trendIcon} ${trendText}`.padEnd(67) + '║');
+    console.log(`║ Change Rate: ${(snapshot.sections.health.changeRate || 0) > 0 ? '+' : ''}${snapshot.sections.health.changeRate}% per week`.padEnd(67) + '║');
+    console.log(`║ Predicted Next: ${snapshot.sections.health.prediction}/100`.padEnd(67) + '║');
+    console.log(`║ Data Points: ${recentPoints.length} days`.padEnd(67) + '║');
+  } else {
+    console.log('║ Health: no timeline data available'.padEnd(67) + '║');
+  }
 
   // ASCII 图表
   if (recentPoints.length >= 2) {
@@ -1040,14 +1118,32 @@ function showTrend(targetDir: string, days: number = 30): void {
   }
 
   // 最近数据点
-  console.log('╠══════════════════════════════════════════════════════════════════╣');
-  console.log('║ Recent Data Points:'.padEnd(67) + '║');
+  if (recentPoints.length > 0) {
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log('║ Recent Data Points:'.padEnd(67) + '║');
 
-  const lastFive = recentPoints.slice(-5).reverse();
-  for (const point of lastFive) {
-    const bar = '█'.repeat(Math.round(point.healthScore / 5));
-    const icon = point.healthScore >= 80 ? '🟢' : point.healthScore >= 60 ? '🟡' : '🔴';
-    console.log(`║   ${point.date} │ ${icon} ${point.healthScore.toString().padStart(3)}/100 ${bar}`.padEnd(67) + '║');
+    const lastFive = recentPoints.slice(-5).reverse();
+    for (const point of lastFive) {
+      const bar = '█'.repeat(Math.round(point.healthScore / 5));
+      const icon = point.healthScore >= 80 ? '🟢' : point.healthScore >= 60 ? '🟡' : '🔴';
+      console.log(`║   ${point.date} │ ${icon} ${point.healthScore.toString().padStart(3)}/100 ${bar}`.padEnd(67) + '║');
+    }
+  }
+
+  if (snapshot.sections.validatorGate.present) {
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log('║ Validator Gate Trend:'.padEnd(67) + '║');
+    const latest = snapshot.sections.validatorGate.latest;
+    const delta = snapshot.sections.validatorGate.delta;
+    if (latest) {
+      const trendText = delta ? delta.direction : 'unknown';
+      console.log(`║ Latest: ${latest.generatedAt.slice(0, 16)}  ${latest.scope}  ${latest.strictMode ? 'strict' : 'default'}  ${latest.effectiveOk ? 'pass' : 'fail'}`.padEnd(67) + '║');
+      console.log(`║ Recent Runs: pass=${snapshot.sections.validatorGate.passCount} fail=${snapshot.sections.validatorGate.failCount}  trend=${trendText}`.padEnd(67) + '║');
+      if (delta) {
+        const deltaLine = `Δ errors=${delta.errorDelta >= 0 ? '+' : ''}${delta.errorDelta} warnings=${delta.warningDelta >= 0 ? '+' : ''}${delta.warningDelta} issues=${delta.issueDelta >= 0 ? '+' : ''}${delta.issueDelta}`;
+        console.log(`║ ${deltaLine}`.padEnd(67) + '║');
+      }
+    }
   }
 
   console.log('╚══════════════════════════════════════════════════════════════════╝');
@@ -1670,6 +1766,7 @@ Report Manager - 报告管理器
     --from <date>     起始日期 (YYYY-MM-DD，可选)
   trend               显示健康度趋势
     --days <n>        显示天数 (默认: 30)
+    --json            输出 health / validator trend JSON
   history             列出历史快照
     --json            输出 architecture / modules / validator gate 历史 JSON
   inspect             查询模块/文件的上下游、热点与趋势
@@ -1690,6 +1787,7 @@ Report Manager - 报告管理器
   node report-manager.js diff
   node report-manager.js diff --from 2025-01-15
   node report-manager.js trend --days 14
+  node report-manager.js trend --json
   node report-manager.js history
   node report-manager.js history --json
   node report-manager.js inspect --module "src/features/user"
@@ -1743,7 +1841,7 @@ function main(): void {
     case 'trend': {
       const daysIndex = args.indexOf('--days');
       const days = daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
-      showTrend(targetDir, days);
+      showTrend(targetDir, days, args.includes('--json'));
       break;
     }
 
