@@ -238,6 +238,7 @@ my-fe-standards/
 ## 文档索引
 
 - [文档总索引](./docs/README.md)
+- [团队协作协议](./docs/guides/team-collaboration-protocol.md)
 - [产品入口指南](./docs/guides/product-surface-guide.md)
 - [业务项目 Quickstart](./docs/guides/business-project-quickstart.md)
 - [业务项目使用指南](./docs/guides/business-project-guide.md)

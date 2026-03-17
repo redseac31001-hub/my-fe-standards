@@ -15,6 +15,7 @@
 
 - Want the shortest product entry path: [Product Surface Guide](./guides/product-surface-guide.md)
 - Want the shortest business-project path: [Business Project Quickstart](./guides/business-project-quickstart.md)
+- Want the team progress/handoff protocol: [Team Collaboration Protocol](./guides/team-collaboration-protocol.md)
 - Want to install into a business project: [Business Project Guide](./guides/business-project-guide.md)
 - Want to run workflow/task execution: [Workflows Guide](./guides/workflows-guide.md)
 - Want deployment or remote distribution: [Private Deployment Guide](./guides/private-deployment-guide.md), [Remote Usage Guide](./guides/remote-usage-guide.md)
@@ -29,6 +30,7 @@
 - [Business Project Guide](./guides/business-project-guide.md)
 - [Business Pilot Plan](./guides/business-pilot-plan.md)
 - [Handoff](./guides/HANDOFF.md)
+- [Team Collaboration Protocol](./guides/team-collaboration-protocol.md)
 - [Private Deployment Guide](./guides/private-deployment-guide.md)
 - [Remote Usage Guide](./guides/remote-usage-guide.md)
 - [Local Business Fixture Smoke](./guides/local-business-fixture-smoke.md)

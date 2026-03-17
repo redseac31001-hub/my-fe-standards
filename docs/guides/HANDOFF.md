@@ -23,6 +23,7 @@ date: 2026-02-07
 - 接手前先看：
   - `PROJECT.md`：能力清单/架构图谱（权威概览）
   - `README.md`：快速入口与命令
+  - `docs/guides/team-collaboration-protocol.md`：团队读取进度、更新事实源、交接与验证约定
   - `docs/guides/workflows-guide.md`：Workflow Spec 与闭环执行方式
   - `docs/guides/e2e-validation-playbook.md`：业务项目端到端验收脚本（remote 加载 → 闭环）
 
