@@ -55,6 +55,17 @@ export interface ValidatorGateHistoryEntry {
   issueCount: number;
 }
 
+export type ValidatorGateTrendDirection = 'regressed' | 'improved' | 'stable' | 'unknown';
+
+export interface ValidatorGateDelta {
+  previousGeneratedAt: string | null;
+  errorDelta: number;
+  warningDelta: number;
+  issueDelta: number;
+  effectiveOkChanged: boolean;
+  direction: ValidatorGateTrendDirection;
+}
+
 export interface ReportStatusSection {
   present: boolean;
   generatedAt: string | null;
@@ -106,6 +117,8 @@ export interface ReportManagerStatusSnapshot {
       historyDir: string | null;
       historyCount: number;
       reportFiles: string[];
+      previousRun: Omit<ValidatorGateHistoryEntry, 'relativePath'> | null;
+      delta: ValidatorGateDelta | null;
       recentHistory: ValidatorGateHistoryEntry[];
     };
   };
@@ -454,6 +467,11 @@ export interface RetentionPolicy {
     maxCount: number;
     maxAgeDays: number;
   };
+  /** Validator gate 历史 */
+  validators: {
+    maxCount: number;
+    maxAgeDays: number;
+  };
   /** 健康度 */
   health: {
     dailyRetentionDays: number;
@@ -476,6 +494,10 @@ export interface RetentionPolicy {
 export const DEFAULT_RETENTION_POLICY: RetentionPolicy = {
   snapshots: {
     maxCount: 10,
+    maxAgeDays: 30,
+  },
+  validators: {
+    maxCount: 20,
     maxAgeDays: 30,
   },
   health: {

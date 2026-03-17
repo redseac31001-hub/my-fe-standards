@@ -624,6 +624,7 @@ var VALIDATOR_GATE_CANDIDATE_PATHS = [
   "validators/latest/validator-gate-summary.json",
   "validators/validator-gate-summary.json"
 ];
+var VALIDATOR_GATE_HISTORY_ROOT = ".codebuddy/reports/validators/history";
 function readValidatorGateSummaryFile(filePath) {
   try {
     const parsed = JSON.parse(fs4.readFileSync(filePath, "utf-8"));
@@ -646,6 +647,81 @@ function readLatestValidatorGateReport(targetDir) {
     }
   }
   return null;
+}
+function readValidatorGateHistory(targetDir, limit = 10) {
+  const historyRoot = path4.join(targetDir, VALIDATOR_GATE_HISTORY_ROOT);
+  if (!fs4.existsSync(historyRoot)) {
+    return [];
+  }
+  const entries = [];
+  for (const dirent of fs4.readdirSync(historyRoot, { withFileTypes: true })) {
+    if (!dirent.isDirectory()) {
+      continue;
+    }
+    const summaryPath = path4.join(historyRoot, dirent.name, "validator-gate-summary.json");
+    if (!fs4.existsSync(summaryPath)) {
+      continue;
+    }
+    const summary = readValidatorGateSummaryFile(summaryPath);
+    if (!summary) {
+      continue;
+    }
+    entries.push({
+      relativePath: path4.posix.join("validators/history", dirent.name, "validator-gate-summary.json"),
+      generatedAt: summary.generatedAt,
+      scope: summary.scope,
+      strictMode: summary.strictMode,
+      effectiveOk: summary.effectiveOk,
+      errorCount: summary.errorCount,
+      warningCount: summary.warningCount,
+      issueCount: summary.issueCount
+    });
+  }
+  entries.sort((left, right) => {
+    const leftTime = new Date(left.generatedAt).getTime();
+    const rightTime = new Date(right.generatedAt).getTime();
+    if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0;
+    if (Number.isNaN(leftTime)) return 1;
+    if (Number.isNaN(rightTime)) return -1;
+    return rightTime - leftTime;
+  });
+  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : entries.length;
+  return entries.slice(0, normalizedLimit);
+}
+function getPreviousValidatorGateEntry(latest, history) {
+  if (!latest || history.length === 0) {
+    return null;
+  }
+  return history.find((entry) => entry.generatedAt !== latest.generatedAt) || null;
+}
+function computeValidatorGateSeverityScore(entry) {
+  const failPenalty = entry.effectiveOk ? 0 : 1e6;
+  return failPenalty + entry.errorCount * 1e4 + entry.warningCount * 100 + entry.issueCount;
+}
+function buildValidatorGateDelta(latest, previous) {
+  if (!latest || !previous) {
+    return null;
+  }
+  const errorDelta = latest.errorCount - previous.errorCount;
+  const warningDelta = latest.warningCount - previous.warningCount;
+  const issueDelta = latest.issueCount - previous.issueCount;
+  const effectiveOkChanged = latest.effectiveOk !== previous.effectiveOk;
+  const latestScore = computeValidatorGateSeverityScore(latest);
+  const previousScore = computeValidatorGateSeverityScore(previous);
+  let direction = "stable";
+  if (latestScore > previousScore) {
+    direction = "regressed";
+  } else if (latestScore < previousScore) {
+    direction = "improved";
+  }
+  return {
+    previousGeneratedAt: previous.generatedAt,
+    errorDelta,
+    warningDelta,
+    issueDelta,
+    effectiveOkChanged,
+    direction
+  };
 }
 
 // scripts/src/lib/workflow-routing-selection.ts
@@ -1442,8 +1518,11 @@ function collectValidatorGateReportDetails(inspection) {
   const report = readLatestValidatorGateReport(inspection.targetDir);
   const details = [];
   if (!report) {
-    return { report, details };
+    return { report, details, trend: null };
   }
+  const history = readValidatorGateHistory(inspection.targetDir, Number.POSITIVE_INFINITY);
+  const previous = getPreviousValidatorGateEntry(report, history);
+  const delta = buildValidatorGateDelta(report, previous);
   if (!report.effectiveOk) {
     details.push(`latest validator gate reported fail: scope=${report.scope}, strict=${report.strictMode ? "on" : "off"}`);
   }
@@ -1456,7 +1535,12 @@ function collectValidatorGateReportDetails(inspection) {
   if (report.historyDir) {
     details.push(`report history dir: ${report.historyDir}`);
   }
-  return { report, details: Array.from(new Set(details)) };
+  if (previous && delta) {
+    details.push(`previous validator gate: ${previous.generatedAt} (${previous.scope}, ${previous.strictMode ? "strict" : "default"})`);
+    details.push(`validator gate trend: ${delta.direction}`);
+    details.push(`validator gate delta: errors=${delta.errorDelta >= 0 ? "+" : ""}${delta.errorDelta}, warnings=${delta.warningDelta >= 0 ? "+" : ""}${delta.warningDelta}, issues=${delta.issueDelta >= 0 ? "+" : ""}${delta.issueDelta}`);
+  }
+  return { report, details: Array.from(new Set(details)), trend: delta?.direction ?? null };
 }
 function detectPythonRuntime() {
   let fallback = null;
@@ -1685,10 +1769,11 @@ function buildDoctorChecks(inspection) {
   }
   const validatorGateReport = collectValidatorGateReportDetails(inspection);
   if (validatorGateReport.report) {
+    const validatorGateStatus = !validatorGateReport.report.effectiveOk || validatorGateReport.trend === "regressed" ? "warn" : "pass";
     checks.push({
       id: "validator-gate-report",
-      status: validatorGateReport.report.effectiveOk ? "pass" : "warn",
-      message: validatorGateReport.report.effectiveOk ? `\u6700\u8FD1\u4E00\u6B21 validator gate \u6B63\u5E38: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? "strict" : "default"})` : `\u6700\u8FD1\u4E00\u6B21 validator gate \u9700\u5173\u6CE8: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? "strict" : "default"})`,
+      status: validatorGateStatus,
+      message: validatorGateStatus === "pass" ? `\u6700\u8FD1\u4E00\u6B21 validator gate \u6B63\u5E38: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? "strict" : "default"})` : `\u6700\u8FD1\u4E00\u6B21 validator gate \u9700\u5173\u6CE8: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? "strict" : "default"})${validatorGateReport.trend === "regressed" ? "\uFF0C\u4E14\u76F8\u5BF9\u4E0A\u4E00\u8F6E\u6709\u56DE\u9000" : ""}`,
       details: validatorGateReport.details.length > 0 ? validatorGateReport.details.slice(0, 10) : [
         `scope=${validatorGateReport.report.scope}`,
         `strict=${validatorGateReport.report.strictMode ? "on" : "off"}`,

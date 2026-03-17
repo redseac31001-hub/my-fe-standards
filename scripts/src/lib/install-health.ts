@@ -9,7 +9,12 @@ import {
   resolveInstalledSkillsSnapshotRetention,
 } from './install-roots';
 import { listFilesRecursive, toProjectRelativePath } from './install-sync';
-import { readLatestValidatorGateReport } from './validator-gate-report';
+import {
+  buildValidatorGateDelta,
+  getPreviousValidatorGateEntry,
+  readLatestValidatorGateReport,
+  readValidatorGateHistory,
+} from './validator-gate-report';
 import { readLatestWorkflowRoutingReport } from './workflow-routing-selection';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
@@ -287,13 +292,18 @@ function collectWorkflowRoutingReportDetails(inspection: InstallInspection): {
 function collectValidatorGateReportDetails(inspection: InstallInspection): {
   report: ReturnType<typeof readLatestValidatorGateReport>;
   details: string[];
+  trend: 'regressed' | 'improved' | 'stable' | 'unknown' | null;
 } {
   const report = readLatestValidatorGateReport(inspection.targetDir);
   const details: string[] = [];
 
   if (!report) {
-    return { report, details };
+    return { report, details, trend: null };
   }
+
+  const history = readValidatorGateHistory(inspection.targetDir, Number.POSITIVE_INFINITY);
+  const previous = getPreviousValidatorGateEntry(report, history);
+  const delta = buildValidatorGateDelta(report, previous);
 
   if (!report.effectiveOk) {
     details.push(`latest validator gate reported fail: scope=${report.scope}, strict=${report.strictMode ? 'on' : 'off'}`);
@@ -309,8 +319,13 @@ function collectValidatorGateReportDetails(inspection: InstallInspection): {
   if (report.historyDir) {
     details.push(`report history dir: ${report.historyDir}`);
   }
+  if (previous && delta) {
+    details.push(`previous validator gate: ${previous.generatedAt} (${previous.scope}, ${previous.strictMode ? 'strict' : 'default'})`);
+    details.push(`validator gate trend: ${delta.direction}`);
+    details.push(`validator gate delta: errors=${delta.errorDelta >= 0 ? '+' : ''}${delta.errorDelta}, warnings=${delta.warningDelta >= 0 ? '+' : ''}${delta.warningDelta}, issues=${delta.issueDelta >= 0 ? '+' : ''}${delta.issueDelta}`);
+  }
 
-  return { report, details: Array.from(new Set(details)) };
+  return { report, details: Array.from(new Set(details)), trend: delta?.direction ?? null };
 }
 
 function detectPythonRuntime(): PythonRuntimeStatus {
@@ -622,12 +637,15 @@ export function buildDoctorChecks(inspection: InstallInspection): DoctorCheck[] 
 
   const validatorGateReport = collectValidatorGateReportDetails(inspection);
   if (validatorGateReport.report) {
+    const validatorGateStatus: DoctorCheckStatus = !validatorGateReport.report.effectiveOk || validatorGateReport.trend === 'regressed'
+      ? 'warn'
+      : 'pass';
     checks.push({
       id: 'validator-gate-report',
-      status: validatorGateReport.report.effectiveOk ? 'pass' : 'warn',
-      message: validatorGateReport.report.effectiveOk
+      status: validatorGateStatus,
+      message: validatorGateStatus === 'pass'
         ? `最近一次 validator gate 正常: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})`
-        : `最近一次 validator gate 需关注: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})`,
+        : `最近一次 validator gate 需关注: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})${validatorGateReport.trend === 'regressed' ? '，且相对上一轮有回退' : ''}`,
       details: validatorGateReport.details.length > 0
         ? validatorGateReport.details.slice(0, 10)
         : [

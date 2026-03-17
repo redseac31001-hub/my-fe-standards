@@ -258,11 +258,15 @@ function collectWorkflowRoutingReportDetails(inspection) {
     return { report, details: Array.from(new Set(details)) };
 }
 function collectValidatorGateReportDetails(inspection) {
+    var _a;
     const report = (0, validator_gate_report_1.readLatestValidatorGateReport)(inspection.targetDir);
     const details = [];
     if (!report) {
-        return { report, details };
+        return { report, details, trend: null };
     }
+    const history = (0, validator_gate_report_1.readValidatorGateHistory)(inspection.targetDir, Number.POSITIVE_INFINITY);
+    const previous = (0, validator_gate_report_1.getPreviousValidatorGateEntry)(report, history);
+    const delta = (0, validator_gate_report_1.buildValidatorGateDelta)(report, previous);
     if (!report.effectiveOk) {
         details.push(`latest validator gate reported fail: scope=${report.scope}, strict=${report.strictMode ? 'on' : 'off'}`);
     }
@@ -275,7 +279,12 @@ function collectValidatorGateReportDetails(inspection) {
     if (report.historyDir) {
         details.push(`report history dir: ${report.historyDir}`);
     }
-    return { report, details: Array.from(new Set(details)) };
+    if (previous && delta) {
+        details.push(`previous validator gate: ${previous.generatedAt} (${previous.scope}, ${previous.strictMode ? 'strict' : 'default'})`);
+        details.push(`validator gate trend: ${delta.direction}`);
+        details.push(`validator gate delta: errors=${delta.errorDelta >= 0 ? '+' : ''}${delta.errorDelta}, warnings=${delta.warningDelta >= 0 ? '+' : ''}${delta.warningDelta}, issues=${delta.issueDelta >= 0 ? '+' : ''}${delta.issueDelta}`);
+    }
+    return { report, details: Array.from(new Set(details)), trend: (_a = delta === null || delta === void 0 ? void 0 : delta.direction) !== null && _a !== void 0 ? _a : null };
 }
 function detectPythonRuntime() {
     let fallback = null;
@@ -552,12 +561,15 @@ function buildDoctorChecks(inspection) {
     }
     const validatorGateReport = collectValidatorGateReportDetails(inspection);
     if (validatorGateReport.report) {
+        const validatorGateStatus = !validatorGateReport.report.effectiveOk || validatorGateReport.trend === 'regressed'
+            ? 'warn'
+            : 'pass';
         checks.push({
             id: 'validator-gate-report',
-            status: validatorGateReport.report.effectiveOk ? 'pass' : 'warn',
-            message: validatorGateReport.report.effectiveOk
+            status: validatorGateStatus,
+            message: validatorGateStatus === 'pass'
                 ? `最近一次 validator gate 正常: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})`
-                : `最近一次 validator gate 需关注: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})`,
+                : `最近一次 validator gate 需关注: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})${validatorGateReport.trend === 'regressed' ? '，且相对上一轮有回退' : ''}`,
             details: validatorGateReport.details.length > 0
                 ? validatorGateReport.details.slice(0, 10)
                 : [

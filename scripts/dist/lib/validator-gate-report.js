@@ -36,8 +36,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.VALIDATOR_GATE_HISTORY_ROOT = exports.VALIDATOR_GATE_STANDARD_LATEST_DIR = exports.VALIDATOR_GATE_CANDIDATE_PATHS = void 0;
 exports.readLatestValidatorGateReport = readLatestValidatorGateReport;
 exports.readValidatorGateHistory = readValidatorGateHistory;
+exports.getPreviousValidatorGateEntry = getPreviousValidatorGateEntry;
+exports.buildValidatorGateDelta = buildValidatorGateDelta;
+exports.cleanupValidatorGateHistory = cleanupValidatorGateHistory;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const reports_1 = require("../types/reports");
 exports.VALIDATOR_GATE_CANDIDATE_PATHS = [
     'validators/latest/validator-gate-summary.json',
     'validators/validator-gate-summary.json',
@@ -111,4 +115,75 @@ function readValidatorGateHistory(targetDir, limit = 10) {
     });
     const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : entries.length;
     return entries.slice(0, normalizedLimit);
+}
+function getPreviousValidatorGateEntry(latest, history) {
+    if (!latest || history.length === 0) {
+        return null;
+    }
+    return history.find((entry) => entry.generatedAt !== latest.generatedAt) || null;
+}
+function computeValidatorGateSeverityScore(entry) {
+    const failPenalty = entry.effectiveOk ? 0 : 1000000;
+    return failPenalty + (entry.errorCount * 10000) + (entry.warningCount * 100) + entry.issueCount;
+}
+function buildValidatorGateDelta(latest, previous) {
+    if (!latest || !previous) {
+        return null;
+    }
+    const errorDelta = latest.errorCount - previous.errorCount;
+    const warningDelta = latest.warningCount - previous.warningCount;
+    const issueDelta = latest.issueCount - previous.issueCount;
+    const effectiveOkChanged = latest.effectiveOk !== previous.effectiveOk;
+    const latestScore = computeValidatorGateSeverityScore(latest);
+    const previousScore = computeValidatorGateSeverityScore(previous);
+    let direction = 'stable';
+    if (latestScore > previousScore) {
+        direction = 'regressed';
+    }
+    else if (latestScore < previousScore) {
+        direction = 'improved';
+    }
+    return {
+        previousGeneratedAt: previous.generatedAt,
+        errorDelta,
+        warningDelta,
+        issueDelta,
+        effectiveOkChanged,
+        direction,
+    };
+}
+function cleanupValidatorGateHistory(targetDir, retention = reports_1.DEFAULT_RETENTION_POLICY.validators) {
+    const historyRoot = path.join(targetDir, exports.VALIDATOR_GATE_HISTORY_ROOT);
+    if (!fs.existsSync(historyRoot)) {
+        return 0;
+    }
+    const entries = fs.readdirSync(historyRoot, { withFileTypes: true })
+        .filter((dirent) => dirent.isDirectory())
+        .map((dirent) => {
+        var _a;
+        const directoryPath = path.join(historyRoot, dirent.name);
+        const summaryPath = path.join(directoryPath, 'validator-gate-summary.json');
+        const summary = fs.existsSync(summaryPath) ? readValidatorGateSummaryFile(summaryPath) : null;
+        const generatedAt = (_a = summary === null || summary === void 0 ? void 0 : summary.generatedAt) !== null && _a !== void 0 ? _a : null;
+        const time = generatedAt ? new Date(generatedAt).getTime() : fs.statSync(directoryPath).mtime.getTime();
+        return {
+            directoryPath,
+            time,
+        };
+    })
+        .sort((left, right) => right.time - left.time);
+    const maxAgeMs = retention.maxAgeDays * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    let removed = 0;
+    for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index];
+        const tooMany = index >= retention.maxCount;
+        const tooOld = Number.isFinite(entry.time) ? (now - entry.time > maxAgeMs) : false;
+        if (!tooMany && !tooOld) {
+            continue;
+        }
+        fs.rmSync(entry.directoryPath, { recursive: true, force: true });
+        removed += 1;
+    }
+    return removed;
 }

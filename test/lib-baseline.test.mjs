@@ -1155,6 +1155,106 @@ async function testDoctorValidatorGateWarnings() {
   }
 }
 
+async function testDoctorWarnsOnValidatorGateRegressionEvenWhenLatestPasses() {
+  assertBuiltArtifactExists(installHealthDistPath, 'npm run build:scripts');
+  const { inspectInstallState, buildDoctorChecks } = require(installHealthDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-install-health-validator-regression-'));
+  try {
+    const latestDir = path.join(tempDir, '.codebuddy', 'reports', 'validators', 'latest');
+    const historyRoot = path.join(tempDir, '.codebuddy', 'reports', 'validators', 'history');
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'rules'), { recursive: true });
+    await fsp.mkdir(latestDir, { recursive: true });
+    await fsp.mkdir(path.join(historyRoot, '2026-03-17T12-00-00-000Z'), { recursive: true });
+    await fsp.mkdir(path.join(historyRoot, '2026-03-17T11-00-00-000Z'), { recursive: true });
+    await fsp.writeFile(path.join(tempDir, '.codebuddy', 'rules', 'project-rules.md'), '# rules\n', 'utf-8');
+
+    const latestGeneratedAt = '2026-03-17T12:00:00.000Z';
+    const latestSummary = {
+      ok: true,
+      effectiveOk: true,
+      strictMode: false,
+      scope: 'all',
+      generatedAt: latestGeneratedAt,
+      errorCount: 0,
+      warningCount: 2,
+      issueCount: 2,
+      outputDir: '.codebuddy/reports/validators/latest',
+      historyDir: '.codebuddy/reports/validators/history/2026-03-17T12-00-00-000Z',
+      reportFiles: ['validator-gate-summary.json'],
+      reports: {},
+    };
+
+    await fsp.writeFile(
+      path.join(latestDir, 'validator-gate-summary.json'),
+      `${JSON.stringify(latestSummary, null, 2)}\n`,
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(historyRoot, '2026-03-17T12-00-00-000Z', 'validator-gate-summary.json'),
+      `${JSON.stringify(latestSummary, null, 2)}\n`,
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(historyRoot, '2026-03-17T11-00-00-000Z', 'validator-gate-summary.json'),
+      `${JSON.stringify({
+        ok: true,
+        effectiveOk: true,
+        strictMode: false,
+        scope: 'all',
+        generatedAt: '2026-03-17T11:00:00.000Z',
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0,
+        outputDir: '.codebuddy/reports/validators/latest',
+        historyDir: '.codebuddy/reports/validators/history/2026-03-17T11-00-00-000Z',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {},
+      }, null, 2)}\n`,
+      'utf-8',
+    );
+
+    const installState = createInstallState({
+      profile: 'core',
+      enableOrchestrator: false,
+      outputs: {
+        rulesFile: '.codebuddy/rules/project-rules.md',
+        workspaceIndexFile: null,
+        skillsRootDir: null,
+        skillsSnapshotRetention: null,
+        agentsRootDir: null,
+        agentsSnapshotRetention: null,
+      },
+      managedFiles: [
+        { path: '.codebuddy/rules/project-rules.md', sha256: 'rules', size: 8 },
+      ],
+      stats: {
+        layer1Rules: 1,
+        layer2Indexes: 0,
+        layer3Indexes: 0,
+        skills: 0,
+        agents: 0,
+        scripts: 0,
+        workflows: 0,
+        taskbooks: 0,
+        agentCalls: 0,
+        commands: 0,
+        workspaceProjects: 1,
+      },
+    });
+
+    const inspection = inspectInstallState(tempDir, installState, true);
+    const checks = buildDoctorChecks(inspection);
+    const validatorCheck = checks.find(check => check.id === 'validator-gate-report');
+    assert.equal(validatorCheck?.status, 'warn');
+    assert.equal(validatorCheck?.message.includes('相对上一轮有回退'), true);
+    assert.equal(validatorCheck?.details?.some(detail => detail.includes('validator gate trend: regressed')), true);
+    assert.equal(validatorCheck?.details?.some(detail => detail.includes('warnings=+2')), true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function testContractValidatorArchitectureWarnings() {
   assertBuiltArtifactExists(contractValidatorDistPath, 'npm run build:scripts');
   const { runContractValidation } = require(contractValidatorDistPath);
@@ -1586,8 +1686,71 @@ async function testReportManagerReadsLatestValidatorGateSummary() {
     assert.equal(snapshot.sections.validatorGate.warningCount, 2);
     assert.equal(snapshot.sections.validatorGate.historyDir, '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z');
     assert.equal(snapshot.sections.validatorGate.historyCount, 2);
+    assert.equal(snapshot.sections.validatorGate.previousRun?.scope, 'rules');
+    assert.equal(snapshot.sections.validatorGate.previousRun?.strictMode, false);
+    assert.equal(snapshot.sections.validatorGate.delta?.direction, 'regressed');
+    assert.equal(snapshot.sections.validatorGate.delta?.warningDelta, 2);
+    assert.equal(snapshot.sections.validatorGate.delta?.issueDelta, 2);
     assert.equal(snapshot.sections.validatorGate.recentHistory.length, 2);
     assert.equal(snapshot.sections.workflowRouting.present, false);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testReportManagerCleanupPrunesOldValidatorGateHistory() {
+  assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
+  const { cleanupReports } = require(reportManagerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-cleanup-'));
+  try {
+    const historyRoot = path.join(tempDir, '.codebuddy', 'reports', 'validators', 'history');
+    const oldDir = path.join(historyRoot, '2026-01-01T00-00-00-000Z');
+    const recentDir = path.join(historyRoot, '2026-03-17T10-00-00-000Z');
+    await fsp.mkdir(oldDir, { recursive: true });
+    await fsp.mkdir(recentDir, { recursive: true });
+
+    await fsp.writeFile(
+      path.join(oldDir, 'validator-gate-summary.json'),
+      JSON.stringify({
+        ok: true,
+        effectiveOk: true,
+        strictMode: false,
+        scope: 'rules',
+        generatedAt: new Date(Date.now() - (60 * 24 * 60 * 60 * 1000)).toISOString(),
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0,
+        outputDir: '.codebuddy/reports/validators/latest',
+        historyDir: '.codebuddy/reports/validators/history/2026-01-01T00-00-00-000Z',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {},
+      }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(recentDir, 'validator-gate-summary.json'),
+      JSON.stringify({
+        ok: true,
+        effectiveOk: true,
+        strictMode: false,
+        scope: 'rules',
+        generatedAt: new Date(Date.now() - (2 * 24 * 60 * 60 * 1000)).toISOString(),
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0,
+        outputDir: '.codebuddy/reports/validators/latest',
+        historyDir: '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {},
+      }, null, 2),
+      'utf-8',
+    );
+
+    cleanupReports(tempDir, false);
+
+    assert.equal(fs.existsSync(oldDir), false);
+    assert.equal(fs.existsSync(recentDir), true);
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
@@ -1601,12 +1764,14 @@ async function main() {
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],
     ['doctor surfaces latest validator gate summary when present', testDoctorValidatorGateWarnings],
+    ['doctor warns when validator gate regresses relative to previous run', testDoctorWarnsOnValidatorGateRegressionEvenWhenLatestPasses],
     ['contract validator architecture drift checks stay opt-in and additive', testContractValidatorArchitectureWarnings],
     ['rule validator warns when recommended metadata is missing', testRuleValidatorMetadataWarnings],
     ['skill validator warns on bundled files that are never linked from markdown', testSkillValidatorBundledReferenceWarnings],
     ['validator gate writes strict summary and per-validator reports', testValidatorGateWritesStrictReports],
     ['validator gate writes history when using the standard report directory', testValidatorGateWritesHistoryForStandardReportDir],
     ['report manager reads the latest validator gate summary from reports', testReportManagerReadsLatestValidatorGateSummary],
+    ['report manager cleanup prunes old validator gate history', testReportManagerCleanupPrunesOldValidatorGateHistory],
     ['context targeting keeps skill and business-rule matching stable', testContextTargeting],
     ['project detection recognizes workspace structure and target selection', testProjectDetection],
     ['install state helpers keep snapshot retention and hashing stable', testInstallStateHelpers],

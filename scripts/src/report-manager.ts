@@ -15,7 +15,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { isDirectCliEntry } from './lib/cli-entry';
-import { readLatestValidatorGateReport, readValidatorGateHistory } from './lib/validator-gate-report';
+import {
+  buildValidatorGateDelta,
+  cleanupValidatorGateHistory,
+  getPreviousValidatorGateEntry,
+  readLatestValidatorGateReport,
+  readValidatorGateHistory,
+} from './lib/validator-gate-report';
 import { readLatestWorkflowRoutingReport } from './lib/workflow-routing-selection';
 import {
   ReportsManifest,
@@ -423,6 +429,8 @@ export function buildStatusSnapshot(targetDir: string): ReportManagerStatusSnaps
   const validatorGate = readLatestValidatorGateReport(targetDir);
   const validatorGateHistory = readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY);
   const recentValidatorGateHistory = validatorGateHistory.slice(0, 5);
+  const previousValidatorGate = getPreviousValidatorGateEntry(validatorGate, validatorGateHistory);
+  const validatorGateDelta = buildValidatorGateDelta(validatorGate, previousValidatorGate);
   const healthTimeline = readReport<HealthTimeline>(targetDir, 'health/timeline.json');
   const { architecture, modules, health, tasks } = manifest.reports;
 
@@ -475,6 +483,16 @@ export function buildStatusSnapshot(targetDir: string): ReportManagerStatusSnaps
         historyDir: validatorGate?.historyDir ?? null,
         historyCount: validatorGateHistory.length,
         reportFiles: validatorGate?.reportFiles ?? [],
+        previousRun: previousValidatorGate ? {
+          generatedAt: previousValidatorGate.generatedAt,
+          scope: previousValidatorGate.scope,
+          strictMode: previousValidatorGate.strictMode,
+          effectiveOk: previousValidatorGate.effectiveOk,
+          errorCount: previousValidatorGate.errorCount,
+          warningCount: previousValidatorGate.warningCount,
+          issueCount: previousValidatorGate.issueCount,
+        } : null,
+        delta: validatorGateDelta,
         recentHistory: recentValidatorGateHistory,
       },
     },
@@ -537,7 +555,10 @@ function showStatus(targetDir: string, json: boolean = false): void {
     const historySuffix = snapshot.sections.validatorGate.historyCount > 0
       ? `, runs=${snapshot.sections.validatorGate.historyCount}`
       : '';
-    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel}${historySuffix})`;
+    const trendSuffix = snapshot.sections.validatorGate.delta
+      ? `, trend=${snapshot.sections.validatorGate.delta.direction}`
+      : '';
+    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel}${historySuffix}${trendSuffix})`;
     console.log(`│ ${validatorText}`.padEnd(52) + '│');
   } else {
     console.log('│ Validators:    No validator gate summary            │');
@@ -578,6 +599,10 @@ function cleanup(targetDir: string, cacheOnly: boolean = false): void {
   // 清理旧快照
   cleanupOldSnapshots(targetDir, 'architecture');
   console.log('Cleaned: old architecture snapshots');
+  cleanedCount++;
+
+  const cleanedValidatorHistory = cleanupValidatorGateHistory(targetDir);
+  console.log(`Cleaned: validator gate history (${cleanedValidatorHistory} removed)`);
   cleanedCount++;
 
   console.log(`Cleanup complete. Removed ${cleanedCount} items.`);
@@ -673,6 +698,13 @@ function exportMarkdown(targetDir: string): void {
     lines.push(`- **Errors / Warnings**: ${validatorGate.errorCount} / ${validatorGate.warningCount}`);
     if (validatorGate.historyDir) {
       lines.push(`- **History Dir**: ${validatorGate.historyDir}`);
+    }
+    const previousValidatorGate = getPreviousValidatorGateEntry(validatorGate, validatorGateHistory);
+    const validatorGateDelta = buildValidatorGateDelta(validatorGate, previousValidatorGate);
+    if (previousValidatorGate && validatorGateDelta) {
+      lines.push(`- **Compared To**: ${previousValidatorGate.generatedAt}`);
+      lines.push(`- **Trend**: ${validatorGateDelta.direction}`);
+      lines.push(`- **Delta**: errors ${validatorGateDelta.errorDelta >= 0 ? '+' : ''}${validatorGateDelta.errorDelta}, warnings ${validatorGateDelta.warningDelta >= 0 ? '+' : ''}${validatorGateDelta.warningDelta}, issues ${validatorGateDelta.issueDelta >= 0 ? '+' : ''}${validatorGateDelta.issueDelta}`);
     }
     if (validatorGate.reportFiles.length > 0) {
       lines.push(`- **Artifacts**: ${validatorGate.reportFiles.join(', ')}`);
@@ -1714,6 +1746,7 @@ export {
   writeManifest,
   getReportsPath,
   getReportAgeHours,
+  cleanup as cleanupReports,
   readLatestValidatorGateReport,
   readValidatorGateHistory,
 };

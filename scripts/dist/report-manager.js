@@ -33,6 +33,7 @@ var report_manager_exports = {};
 __export(report_manager_exports, {
   appendHealthDataPoint: () => appendHealthDataPoint,
   buildStatusSnapshot: () => buildStatusSnapshot,
+  cleanupReports: () => cleanup,
   getReportAgeHours: () => getReportAgeHours,
   getReportsPath: () => getReportsPath,
   readLatestValidatorGateReport: () => readLatestValidatorGateReport,
@@ -63,6 +64,47 @@ function isDirectCliEntry(expectedFileNames) {
 // scripts/src/lib/validator-gate-report.ts
 var fs = __toESM(require("fs"));
 var path2 = __toESM(require("path"));
+
+// scripts/src/types/reports.ts
+var DEFAULT_RETENTION_POLICY = {
+  snapshots: {
+    maxCount: 10,
+    maxAgeDays: 30
+  },
+  validators: {
+    maxCount: 20,
+    maxAgeDays: 30
+  },
+  health: {
+    dailyRetentionDays: 90,
+    weeklyRetentionDays: 365
+  },
+  tasks: {
+    maxCount: 50,
+    maxAgeDays: 180
+  },
+  cache: {
+    maxAgeDays: 7
+  }
+};
+var DEFAULT_MANIFEST = {
+  version: "1.0.0",
+  projectName: "",
+  lastUpdated: "",
+  reports: {
+    architecture: null,
+    modules: null,
+    health: null,
+    tasks: null
+  },
+  settings: {
+    retentionDays: 30,
+    maxSnapshots: 10,
+    autoCleanup: true
+  }
+};
+
+// scripts/src/lib/validator-gate-report.ts
 var VALIDATOR_GATE_CANDIDATE_PATHS = [
   "validators/latest/validator-gate-summary.json",
   "validators/validator-gate-summary.json"
@@ -131,6 +173,72 @@ function readValidatorGateHistory(targetDir, limit = 10) {
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : entries.length;
   return entries.slice(0, normalizedLimit);
 }
+function getPreviousValidatorGateEntry(latest, history) {
+  if (!latest || history.length === 0) {
+    return null;
+  }
+  return history.find((entry) => entry.generatedAt !== latest.generatedAt) || null;
+}
+function computeValidatorGateSeverityScore(entry) {
+  const failPenalty = entry.effectiveOk ? 0 : 1e6;
+  return failPenalty + entry.errorCount * 1e4 + entry.warningCount * 100 + entry.issueCount;
+}
+function buildValidatorGateDelta(latest, previous) {
+  if (!latest || !previous) {
+    return null;
+  }
+  const errorDelta = latest.errorCount - previous.errorCount;
+  const warningDelta = latest.warningCount - previous.warningCount;
+  const issueDelta = latest.issueCount - previous.issueCount;
+  const effectiveOkChanged = latest.effectiveOk !== previous.effectiveOk;
+  const latestScore = computeValidatorGateSeverityScore(latest);
+  const previousScore = computeValidatorGateSeverityScore(previous);
+  let direction = "stable";
+  if (latestScore > previousScore) {
+    direction = "regressed";
+  } else if (latestScore < previousScore) {
+    direction = "improved";
+  }
+  return {
+    previousGeneratedAt: previous.generatedAt,
+    errorDelta,
+    warningDelta,
+    issueDelta,
+    effectiveOkChanged,
+    direction
+  };
+}
+function cleanupValidatorGateHistory(targetDir, retention = DEFAULT_RETENTION_POLICY.validators) {
+  const historyRoot = path2.join(targetDir, VALIDATOR_GATE_HISTORY_ROOT);
+  if (!fs.existsSync(historyRoot)) {
+    return 0;
+  }
+  const entries = fs.readdirSync(historyRoot, { withFileTypes: true }).filter((dirent) => dirent.isDirectory()).map((dirent) => {
+    const directoryPath = path2.join(historyRoot, dirent.name);
+    const summaryPath = path2.join(directoryPath, "validator-gate-summary.json");
+    const summary = fs.existsSync(summaryPath) ? readValidatorGateSummaryFile(summaryPath) : null;
+    const generatedAt = summary?.generatedAt ?? null;
+    const time = generatedAt ? new Date(generatedAt).getTime() : fs.statSync(directoryPath).mtime.getTime();
+    return {
+      directoryPath,
+      time
+    };
+  }).sort((left, right) => right.time - left.time);
+  const maxAgeMs = retention.maxAgeDays * 24 * 60 * 60 * 1e3;
+  const now = Date.now();
+  let removed = 0;
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index];
+    const tooMany = index >= retention.maxCount;
+    const tooOld = Number.isFinite(entry.time) ? now - entry.time > maxAgeMs : false;
+    if (!tooMany && !tooOld) {
+      continue;
+    }
+    fs.rmSync(entry.directoryPath, { recursive: true, force: true });
+    removed += 1;
+  }
+  return removed;
+}
 
 // scripts/src/lib/workflow-routing-selection.ts
 var fs2 = __toESM(require("fs"));
@@ -163,41 +271,6 @@ function readLatestWorkflowRoutingReport(projectRoot) {
   }
   return null;
 }
-
-// scripts/src/types/reports.ts
-var DEFAULT_RETENTION_POLICY = {
-  snapshots: {
-    maxCount: 10,
-    maxAgeDays: 30
-  },
-  health: {
-    dailyRetentionDays: 90,
-    weeklyRetentionDays: 365
-  },
-  tasks: {
-    maxCount: 50,
-    maxAgeDays: 180
-  },
-  cache: {
-    maxAgeDays: 7
-  }
-};
-var DEFAULT_MANIFEST = {
-  version: "1.0.0",
-  projectName: "",
-  lastUpdated: "",
-  reports: {
-    architecture: null,
-    modules: null,
-    health: null,
-    tasks: null
-  },
-  settings: {
-    retentionDays: 30,
-    maxSnapshots: 10,
-    autoCleanup: true
-  }
-};
 
 // scripts/src/report-manager.ts
 var REPORTS_DIR = ".codebuddy/reports";
@@ -437,6 +510,8 @@ function buildStatusSnapshot(targetDir) {
   const validatorGate = readLatestValidatorGateReport(targetDir);
   const validatorGateHistory = readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY);
   const recentValidatorGateHistory = validatorGateHistory.slice(0, 5);
+  const previousValidatorGate = getPreviousValidatorGateEntry(validatorGate, validatorGateHistory);
+  const validatorGateDelta = buildValidatorGateDelta(validatorGate, previousValidatorGate);
   const healthTimeline = readReport(targetDir, "health/timeline.json");
   const { architecture, modules, health, tasks } = manifest.reports;
   const workflowRoutingAgeHours = workflowRouting ? getReportAgeHours(workflowRouting.generatedAt) : null;
@@ -485,6 +560,16 @@ function buildStatusSnapshot(targetDir) {
         historyDir: validatorGate?.historyDir ?? null,
         historyCount: validatorGateHistory.length,
         reportFiles: validatorGate?.reportFiles ?? [],
+        previousRun: previousValidatorGate ? {
+          generatedAt: previousValidatorGate.generatedAt,
+          scope: previousValidatorGate.scope,
+          strictMode: previousValidatorGate.strictMode,
+          effectiveOk: previousValidatorGate.effectiveOk,
+          errorCount: previousValidatorGate.errorCount,
+          warningCount: previousValidatorGate.warningCount,
+          issueCount: previousValidatorGate.issueCount
+        } : null,
+        delta: validatorGateDelta,
         recentHistory: recentValidatorGateHistory
       }
     }
@@ -532,7 +617,8 @@ function showStatus(targetDir, json = false) {
     const scope = snapshot.sections.validatorGate.scope.padEnd(6);
     const status = snapshot.sections.validatorGate.effectiveOk ? "pass" : "fail";
     const historySuffix = snapshot.sections.validatorGate.historyCount > 0 ? `, runs=${snapshot.sections.validatorGate.historyCount}` : "";
-    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel}${historySuffix})`;
+    const trendSuffix = snapshot.sections.validatorGate.delta ? `, trend=${snapshot.sections.validatorGate.delta.direction}` : "";
+    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel}${historySuffix}${trendSuffix})`;
     console.log(`\u2502 ${validatorText}`.padEnd(52) + "\u2502");
   } else {
     console.log("\u2502 Validators:    No validator gate summary            \u2502");
@@ -559,6 +645,9 @@ function cleanup(targetDir, cacheOnly = false) {
   }
   cleanupOldSnapshots(targetDir, "architecture");
   console.log("Cleaned: old architecture snapshots");
+  cleanedCount++;
+  const cleanedValidatorHistory = cleanupValidatorGateHistory(targetDir);
+  console.log(`Cleaned: validator gate history (${cleanedValidatorHistory} removed)`);
   cleanedCount++;
   console.log(`Cleanup complete. Removed ${cleanedCount} items.`);
 }
@@ -636,6 +725,13 @@ function exportMarkdown(targetDir) {
     lines.push(`- **Errors / Warnings**: ${validatorGate.errorCount} / ${validatorGate.warningCount}`);
     if (validatorGate.historyDir) {
       lines.push(`- **History Dir**: ${validatorGate.historyDir}`);
+    }
+    const previousValidatorGate = getPreviousValidatorGateEntry(validatorGate, validatorGateHistory);
+    const validatorGateDelta = buildValidatorGateDelta(validatorGate, previousValidatorGate);
+    if (previousValidatorGate && validatorGateDelta) {
+      lines.push(`- **Compared To**: ${previousValidatorGate.generatedAt}`);
+      lines.push(`- **Trend**: ${validatorGateDelta.direction}`);
+      lines.push(`- **Delta**: errors ${validatorGateDelta.errorDelta >= 0 ? "+" : ""}${validatorGateDelta.errorDelta}, warnings ${validatorGateDelta.warningDelta >= 0 ? "+" : ""}${validatorGateDelta.warningDelta}, issues ${validatorGateDelta.issueDelta >= 0 ? "+" : ""}${validatorGateDelta.issueDelta}`);
     }
     if (validatorGate.reportFiles.length > 0) {
       lines.push(`- **Artifacts**: ${validatorGate.reportFiles.join(", ")}`);
@@ -1391,6 +1487,7 @@ if (isDirectCliEntry("report-manager.js")) {
 0 && (module.exports = {
   appendHealthDataPoint,
   buildStatusSnapshot,
+  cleanupReports,
   getReportAgeHours,
   getReportsPath,
   readLatestValidatorGateReport,

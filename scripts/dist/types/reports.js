@@ -14,6 +14,10 @@ exports.DEFAULT_RETENTION_POLICY = {
         maxCount: 10,
         maxAgeDays: 30,
     },
+    validators: {
+        maxCount: 20,
+        maxAgeDays: 30,
+    },
     health: {
         dailyRetentionDays: 90,
         weeklyRetentionDays: 365,

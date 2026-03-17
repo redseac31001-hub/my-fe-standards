@@ -177,7 +177,8 @@ npm run validate:gate:strict:report
 同时会在 `.codebuddy/reports/validators/history/<timestamp>/` 留下同批次快照，供后续审计和趋势回看。
 
 写入标准报告目录后，`node .codebuddy/scripts/codebuddy-loader.js doctor --json` 也会带上最近一次 validator gate 的诊断结果。
-`node .codebuddy/scripts/report-manager.js status --json` 和 `export` 则会带出最近几次 validator gate 历史摘要。
+`node .codebuddy/scripts/report-manager.js status --json` 和 `export` 则会带出最近几次 validator gate 历史摘要，并给出相对上一轮的 trend/delta。
+`node .codebuddy/scripts/report-manager.js cleanup` 现在也会按保留策略清理过旧的 validator gate history 目录。
 
 如果需要机器可读的当前报告摘要：
 
