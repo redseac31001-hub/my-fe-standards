@@ -7587,6 +7587,12 @@ async function runWorkflow(taskBookId, options) {
         console.log("[Workflow] \u4ECD\u6709\u672A\u5B8C\u6210\u4EFB\u52A1\uFF0C\u65E0\u6CD5\u9A8C\u6536\u5F52\u6863\u3002");
         return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
+      const acceptanceGateRun = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
+        eventContext: "acceptance_gate"
+      });
+      if (!acceptanceGateRun.ok) {
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
+      }
       const requiredGates = (spec.gates ?? []).filter((g) => g.required !== false);
       const failedRequired = requiredGates.filter((g) => !gateResults.get(g.id)?.passed && !approved.has(g.id));
       if (failedRequired.length > 0) {

@@ -25,6 +25,7 @@ const ruleValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'rule-valid
 const skillValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'skill-validator.js');
 const validatorGateDistPath = path.join(repoRoot, 'scripts', 'dist', 'validator-gate.js');
 const reportManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'report-manager.js');
+const runTestsPath = path.join(repoRoot, 'test', 'run-tests.js');
 
 function assertBuiltArtifactExists(filePath, hintCommand) {
   if (!fs.existsSync(filePath)) {
@@ -282,6 +283,9 @@ async function testDistributionProfiles() {
 
   const coreScripts = getScriptsForProfile('core').map(item => item.file);
   assert.deepEqual(coreScripts, ['rule-validator.js', 'skill-validator.js', 'validator-gate.js']);
+  const coreArtifacts = getScriptArtifactsForProfile('core');
+  assert.equal(coreArtifacts.includes('lib/validator-gate-report.js'), true);
+  assert.equal(coreArtifacts.includes('types/reports.js'), true);
 
   const analysisScripts = getScriptsForProfile('analysis').map(item => item.file);
   assert.equal(analysisScripts.includes('task-orchestrator.js'), false);
@@ -1883,6 +1887,335 @@ async function testReportManagerTrendSnapshotIncludesValidatorTrend() {
   }
 }
 
+async function testReportManagerDiffSnapshotIncludesModuleDiff() {
+  assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
+  const { buildDiffSnapshot } = require(reportManagerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-diff-'));
+  try {
+    const reportsRoot = path.join(tempDir, '.codebuddy', 'reports');
+    await fsp.mkdir(path.join(reportsRoot, 'architecture'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'modules'), { recursive: true });
+
+    const olderArchitecture = {
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-16T09:00:00.000Z', analyzedBy: 'structure-analyzer' },
+      summary: { healthScore: 70, totalFiles: 10, totalLines: 1000, issueCount: { error: 0, warning: 1, info: 0 } },
+      structure: { type: 'feature-based', depth: 3, directories: 5 },
+      violations: [{ rule: 'demo-rule', severity: 'warning', path: 'src/a.ts', message: 'older issue' }],
+      scores: { featureStructure: 20, directoryDepth: 18, fileSize: 16, namingConvention: 16 },
+    };
+    const latestArchitecture = {
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-17T09:00:00.000Z', analyzedBy: 'structure-analyzer' },
+      summary: { healthScore: 75, totalFiles: 12, totalLines: 1200, issueCount: { error: 0, warning: 1, info: 0 } },
+      structure: { type: 'feature-based', depth: 3, directories: 6 },
+      violations: [{ rule: 'demo-rule', severity: 'warning', path: 'src/b.ts', message: 'new issue' }],
+      scores: { featureStructure: 22, directoryDepth: 18, fileSize: 17, namingConvention: 18 },
+    };
+
+    const olderModules = {
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-16T09:00:00.000Z', analyzedBy: 'module-mapper' },
+      summary: { totalModules: 1, avgHealthScore: 70, circularDeps: 0, isolatedModules: 0 },
+      categories: { feature: { modules: ['user'], totalFiles: 2, totalLines: 120 } },
+      modules: [
+        {
+          name: 'user',
+          chineseName: '用户',
+          category: 'feature',
+          type: 'feature',
+          path: 'src/user',
+          stats: { files: 2, lines: 120, components: 1 },
+          healthScore: 70,
+          subModules: [],
+          dependencies: [],
+          dependents: [],
+        },
+      ],
+      graph: { nodes: ['user'], edges: [] },
+    };
+    const latestModules = {
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-17T09:00:00.000Z', analyzedBy: 'module-mapper' },
+      summary: { totalModules: 2, avgHealthScore: 78, circularDeps: 0, isolatedModules: 0 },
+      categories: { feature: { modules: ['user', 'admin'], totalFiles: 4, totalLines: 260 } },
+      modules: [
+        {
+          name: 'user',
+          chineseName: '用户',
+          category: 'feature',
+          type: 'feature',
+          path: 'src/user',
+          stats: { files: 3, lines: 220, components: 2 },
+          healthScore: 82,
+          subModules: [],
+          dependencies: [],
+          dependents: [],
+        },
+        {
+          name: 'admin',
+          chineseName: '管理',
+          category: 'feature',
+          type: 'feature',
+          path: 'src/admin',
+          stats: { files: 1, lines: 40, components: 1 },
+          healthScore: 74,
+          subModules: [],
+          dependencies: [],
+          dependents: [],
+        },
+      ],
+      graph: { nodes: ['user', 'admin'], edges: [] },
+    };
+
+    await fsp.writeFile(path.join(reportsRoot, 'architecture', 'latest.json'), JSON.stringify(latestArchitecture, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(reportsRoot, 'architecture', '2026-03-16T09-00-00.json'), JSON.stringify(olderArchitecture, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(reportsRoot, 'modules', 'latest.json'), JSON.stringify(latestModules, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(reportsRoot, 'modules', '2026-03-16T09-00-00.json'), JSON.stringify(olderModules, null, 2), 'utf-8');
+
+    const snapshot = buildDiffSnapshot(tempDir);
+    assert.equal(snapshot.sections.architecture.present, true);
+    assert.equal(snapshot.sections.architecture.diff?.healthChange, 5);
+    assert.equal(snapshot.sections.architecture.diff?.newViolations.length, 1);
+    assert.equal(snapshot.sections.modules.present, true);
+    assert.equal(snapshot.sections.modules.diff?.added.includes('admin'), true);
+    assert.equal(snapshot.sections.modules.diff?.changed.some((entry) => entry.name === 'user'), true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testReportManagerExportSnapshotBundlesMachineReadableSections() {
+  assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
+  const { buildExportSnapshot } = require(reportManagerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-export-'));
+  try {
+    const reportsRoot = path.join(tempDir, '.codebuddy', 'reports');
+    await fsp.mkdir(path.join(reportsRoot, 'architecture'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'modules'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'validators', 'latest'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'validators', 'history', '2026-03-17T10-00-00-000Z'), { recursive: true });
+
+    await fsp.writeFile(path.join(reportsRoot, 'manifest.json'), JSON.stringify({
+      version: '1.0.0',
+      projectName: 'demo-project',
+      lastUpdated: '2026-03-17T09:00:00.000Z',
+      reports: { architecture: null, modules: null, health: null, tasks: null },
+      settings: { retentionDays: 30, maxSnapshots: 10, autoCleanup: true },
+    }, null, 2), 'utf-8');
+
+    await fsp.writeFile(path.join(reportsRoot, 'architecture', 'latest.json'), JSON.stringify({
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-17T09:00:00.000Z', analyzedBy: 'structure-analyzer' },
+      summary: { healthScore: 80, totalFiles: 12, totalLines: 1200, issueCount: { error: 0, warning: 1, info: 0 } },
+      structure: { type: 'feature-based', depth: 3, directories: 6 },
+      violations: [],
+      scores: { featureStructure: 22, directoryDepth: 18, fileSize: 20, namingConvention: 20 },
+    }, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(reportsRoot, 'architecture', '2026-03-16T09-00-00.json'), JSON.stringify({
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-16T09:00:00.000Z', analyzedBy: 'structure-analyzer' },
+      summary: { healthScore: 75, totalFiles: 11, totalLines: 1100, issueCount: { error: 0, warning: 1, info: 0 } },
+      structure: { type: 'feature-based', depth: 3, directories: 5 },
+      violations: [],
+      scores: { featureStructure: 20, directoryDepth: 18, fileSize: 18, namingConvention: 19 },
+    }, null, 2), 'utf-8');
+
+    await fsp.writeFile(path.join(reportsRoot, 'modules', 'latest.json'), JSON.stringify({
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-17T09:00:00.000Z', analyzedBy: 'module-mapper' },
+      summary: { totalModules: 1, avgHealthScore: 80, circularDeps: 0, isolatedModules: 0 },
+      categories: { feature: { modules: ['user'], totalFiles: 3, totalLines: 220 } },
+      modules: [{ name: 'user', chineseName: '用户', category: 'feature', type: 'feature', path: 'src/user', stats: { files: 3, lines: 220, components: 2 }, healthScore: 80, subModules: [], dependencies: [], dependents: [] }],
+      graph: { nodes: ['user'], edges: [] },
+    }, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(reportsRoot, 'modules', '2026-03-16T09-00-00.json'), JSON.stringify({
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-16T09:00:00.000Z', analyzedBy: 'module-mapper' },
+      summary: { totalModules: 1, avgHealthScore: 75, circularDeps: 0, isolatedModules: 0 },
+      categories: { feature: { modules: ['user'], totalFiles: 2, totalLines: 120 } },
+      modules: [{ name: 'user', chineseName: '用户', category: 'feature', type: 'feature', path: 'src/user', stats: { files: 2, lines: 120, components: 1 }, healthScore: 75, subModules: [], dependencies: [], dependents: [] }],
+      graph: { nodes: ['user'], edges: [] },
+    }, null, 2), 'utf-8');
+
+    await fsp.writeFile(path.join(reportsRoot, 'validators', 'latest', 'validator-gate-summary.json'), JSON.stringify({
+      ok: true,
+      effectiveOk: true,
+      strictMode: false,
+      scope: 'all',
+      generatedAt: '2026-03-17T10:00:00.000Z',
+      errorCount: 0,
+      warningCount: 1,
+      issueCount: 1,
+      outputDir: '.codebuddy/reports/validators/latest',
+      reportFiles: ['validator-gate-summary.json'],
+      reports: {},
+    }, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(reportsRoot, 'validators', 'history', '2026-03-17T10-00-00-000Z', 'validator-gate-summary.json'), JSON.stringify({
+      ok: true,
+      effectiveOk: true,
+      strictMode: false,
+      scope: 'all',
+      generatedAt: '2026-03-17T10:00:00.000Z',
+      errorCount: 0,
+      warningCount: 1,
+      issueCount: 1,
+      outputDir: '.codebuddy/reports/validators/latest',
+      historyDir: '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z',
+      reportFiles: ['validator-gate-summary.json'],
+      reports: {},
+    }, null, 2), 'utf-8');
+
+    const snapshot = buildExportSnapshot(tempDir, { days: 14, fromDate: '2026-03-16' });
+    assert.equal(snapshot.input.days, 14);
+    assert.equal(snapshot.input.fromDate, '2026-03-16');
+    assert.equal(snapshot.sections.status.sections.validatorGate.present, true);
+    assert.equal(snapshot.sections.history.sections.validatorGate.length, 1);
+    assert.equal(snapshot.sections.trend.sections.validatorGate.present, true);
+    assert.equal(snapshot.sections.diff.sections.architecture.present, true);
+    assert.equal(fs.existsSync(snapshot.markdown.path), true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testReportManagerAuditSnapshotProvidesTopLevelVerdict() {
+  assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
+  const { buildAuditSnapshot } = require(reportManagerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-audit-'));
+  try {
+    const reportsRoot = path.join(tempDir, '.codebuddy', 'reports');
+    await fsp.mkdir(path.join(reportsRoot, 'architecture'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'modules'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'validators', 'latest'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'validators', 'history', '2026-03-17T10-00-00-000Z'), { recursive: true });
+
+    await fsp.writeFile(path.join(reportsRoot, 'manifest.json'), JSON.stringify({
+      version: '1.0.0',
+      projectName: 'demo-project',
+      lastUpdated: '2026-03-17T09:00:00.000Z',
+      reports: {
+        architecture: {
+          type: 'architecture-snapshot',
+          path: 'architecture/latest.json',
+          generatedAt: new Date().toISOString(),
+          generatedBy: 'structure-analyzer',
+          hash: 'arch0001',
+          size: 123,
+        },
+        modules: {
+          type: 'module-map',
+          path: 'modules/latest.json',
+          generatedAt: new Date().toISOString(),
+          generatedBy: 'module-mapper',
+          hash: 'mods0001',
+          size: 123,
+        },
+        health: null,
+        tasks: null,
+      },
+      settings: { retentionDays: 30, maxSnapshots: 10, autoCleanup: true },
+    }, null, 2), 'utf-8');
+
+    await fsp.writeFile(path.join(reportsRoot, 'architecture', 'latest.json'), JSON.stringify({
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-17T09:00:00.000Z', analyzedBy: 'structure-analyzer' },
+      summary: { healthScore: 80, totalFiles: 12, totalLines: 1200, issueCount: { error: 0, warning: 0, info: 0 } },
+      structure: { type: 'feature-based', depth: 3, directories: 6 },
+      violations: [],
+      scores: { featureStructure: 22, directoryDepth: 18, fileSize: 20, namingConvention: 20 },
+    }, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(reportsRoot, 'architecture', '2026-03-16T09-00-00.json'), JSON.stringify({
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-16T09:00:00.000Z', analyzedBy: 'structure-analyzer' },
+      summary: { healthScore: 75, totalFiles: 11, totalLines: 1100, issueCount: { error: 0, warning: 0, info: 0 } },
+      structure: { type: 'feature-based', depth: 3, directories: 5 },
+      violations: [],
+      scores: { featureStructure: 20, directoryDepth: 18, fileSize: 18, namingConvention: 19 },
+    }, null, 2), 'utf-8');
+
+    await fsp.writeFile(path.join(reportsRoot, 'modules', 'latest.json'), JSON.stringify({
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-17T09:00:00.000Z', analyzedBy: 'module-mapper' },
+      summary: { totalModules: 1, avgHealthScore: 80, circularDeps: 0, isolatedModules: 0 },
+      categories: { feature: { modules: ['user'], totalFiles: 3, totalLines: 220 } },
+      modules: [{ name: 'user', chineseName: '用户', category: 'feature', type: 'feature', path: 'src/user', stats: { files: 3, lines: 220, components: 2 }, healthScore: 80, subModules: [], dependencies: [], dependents: [] }],
+      graph: { nodes: ['user'], edges: [] },
+    }, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(reportsRoot, 'modules', '2026-03-16T09-00-00.json'), JSON.stringify({
+      meta: { version: '1.0.0', projectName: 'demo', analyzedAt: '2026-03-16T09:00:00.000Z', analyzedBy: 'module-mapper' },
+      summary: { totalModules: 1, avgHealthScore: 75, circularDeps: 0, isolatedModules: 0 },
+      categories: { feature: { modules: ['user'], totalFiles: 2, totalLines: 120 } },
+      modules: [{ name: 'user', chineseName: '用户', category: 'feature', type: 'feature', path: 'src/user', stats: { files: 2, lines: 120, components: 1 }, healthScore: 75, subModules: [], dependencies: [], dependents: [] }],
+      graph: { nodes: ['user'], edges: [] },
+    }, null, 2), 'utf-8');
+
+    await fsp.writeFile(path.join(reportsRoot, 'validators', 'latest', 'validator-gate-summary.json'), JSON.stringify({
+      ok: true,
+      effectiveOk: true,
+      strictMode: false,
+      scope: 'all',
+      generatedAt: new Date().toISOString(),
+      errorCount: 0,
+      warningCount: 2,
+      issueCount: 2,
+      outputDir: '.codebuddy/reports/validators/latest',
+      historyDir: '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z',
+      reportFiles: ['validator-gate-summary.json'],
+      reports: {},
+    }, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(reportsRoot, 'validators', 'history', '2026-03-17T10-00-00-000Z', 'validator-gate-summary.json'), JSON.stringify({
+      ok: true,
+      effectiveOk: true,
+      strictMode: false,
+      scope: 'all',
+      generatedAt: '2026-03-17T10:00:00.000Z',
+      errorCount: 0,
+      warningCount: 2,
+      issueCount: 2,
+      outputDir: '.codebuddy/reports/validators/latest',
+      historyDir: '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z',
+      reportFiles: ['validator-gate-summary.json'],
+      reports: {},
+    }, null, 2), 'utf-8');
+
+    const snapshot = buildAuditSnapshot(tempDir, { days: 14, fromDate: '2026-03-16' });
+    assert.equal(snapshot.input.days, 14);
+    assert.equal(snapshot.input.fromDate, '2026-03-16');
+    assert.equal(snapshot.overview.overallStatus, 'warn');
+    assert.equal(snapshot.overview.validatorStatus, 'warn');
+    assert.equal(snapshot.overview.diffAvailable, true);
+    assert.ok(snapshot.findings.some(finding => finding.id === 'validator-gate' && finding.status === 'warn'));
+    assert.ok(snapshot.findings.some(finding => finding.id === 'workflow-routing' && finding.status === 'warn'));
+    assert.equal(fs.existsSync(snapshot.markdown.path), true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testRunTestsCaseFiltering() {
+  delete require.cache[require.resolve(runTestsPath)];
+  const { TEST_CASES, parseCliOptions, selectLocalTestCases } = require(runTestsPath);
+
+  const caseOnlyOptions = parseCliOptions(['--case', 'antdv']);
+  assert.equal(caseOnlyOptions.listCases, false);
+  assert.equal(caseOnlyOptions.suites.has('local'), true);
+  assert.equal(caseOnlyOptions.suites.has('remote'), false);
+  assert.deepEqual(caseOnlyOptions.caseFilters, ['antdv']);
+
+  const singleMatch = selectLocalTestCases(['antdv']);
+  assert.equal(singleMatch.length, 1);
+  assert.equal(singleMatch[0].dir, 'antdv-project');
+
+  const multiMatch = selectLocalTestCases(['vue2']);
+  assert.deepEqual(
+    multiMatch.map(testCase => testCase.dir).sort(),
+    ['vue2-composition-project', 'vue2-project']
+  );
+
+  const listCasesOptions = parseCliOptions(['--list-cases']);
+  assert.equal(listCasesOptions.listCases, true);
+  assert.equal(Array.isArray(TEST_CASES), true);
+  assert.ok(TEST_CASES.some(testCase => testCase.dir === 'antdv-project'));
+
+  assert.throws(
+    () => parseCliOptions(['--suite', 'remote', '--case', 'vue3']),
+    /--case can only be used with the local suite/
+  );
+}
+
 async function main() {
   const tests = [
     ['frontmatter utils parse and extract structured YAML content', testFrontmatterUtils],
@@ -1901,6 +2234,10 @@ async function main() {
     ['report manager cleanup prunes old validator gate history', testReportManagerCleanupPrunesOldValidatorGateHistory],
     ['report manager history snapshot includes validator gate runs', testReportManagerHistorySnapshotIncludesValidatorRuns],
     ['report manager trend snapshot includes validator trend data', testReportManagerTrendSnapshotIncludesValidatorTrend],
+    ['report manager diff snapshot includes architecture and module diffs', testReportManagerDiffSnapshotIncludesModuleDiff],
+    ['report manager export snapshot bundles machine-readable sections', testReportManagerExportSnapshotBundlesMachineReadableSections],
+    ['report manager audit snapshot provides a top-level verdict', testReportManagerAuditSnapshotProvidesTopLevelVerdict],
+    ['run-tests CLI supports focused local case selection', testRunTestsCaseFiltering],
     ['context targeting keeps skill and business-rule matching stable', testContextTargeting],
     ['project detection recognizes workspace structure and target selection', testProjectDetection],
     ['install state helpers keep snapshot retention and hashing stable', testInstallStateHelpers],

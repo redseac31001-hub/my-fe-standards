@@ -177,6 +177,11 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-03-17）`report-manager cleanup` 已纳入 validator gate history 保留策略，会按 `maxCount/maxAgeDays` 清理过旧目录
 - ✅（2026-03-17）`report-manager history --json` 已纳入 validator gate runs，可一次性导出 architecture/modules/validators 三类历史视图
 - ✅（2026-03-17）`report-manager trend --json` 已纳入 validator trend，可一次性导出 health + validator 两类趋势视图
+- ✅（2026-03-17）`report-manager diff --json` 已纳入 module diff，可一次性导出 architecture + modules 两类差异视图
+- ✅（2026-03-17）`report-manager export --json` 已补齐统一导出包，可一次性导出 status/history/trend/diff，并同步写出 `export.md`
+- ✅（2026-03-17）`test/run-tests.js` 的业务项目 observability E2E 已覆盖 `validator-gate -> doctor/status/history/trend/diff/export` 整条链路
+- ✅（2026-03-17）`test/run-tests.js` 已支持 `--list-cases` 与 `--case <name-or-dir>`，后续复现单个业务项目场景时不必再跑整套 `local`
+- ✅（2026-03-17）`report-manager audit --json` 已成为单命令审计入口，业务项目 E2E 现已覆盖 `validator-gate -> doctor/status/history/trend/diff/export/audit`
 
 ### 2026-03-17 Validator 审查顺序
 

@@ -513,6 +513,7 @@ var FRONTMATTER_DEPENDENCIES = ["lib/frontmatter-utils.js"];
 var INSTALL_ROOTS_DEPENDENCIES = ["lib/install-roots.js", "lib/install-sync.js"];
 var MODULE_MAPPER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, "types/module-mapper.js"];
 var STRUCTURE_ANALYZER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, "types/structure-analyzer.js"];
+var VALIDATOR_GATE_DEPENDENCIES = ["lib/validator-gate-report.js", "types/reports.js"];
 var WORKFLOW_ROUTING_DEPENDENCIES = [
   "lib/project-detection.js",
   "lib/workflow-routing.js",
@@ -531,7 +532,7 @@ var TASK_EXECUTOR_DEPENDENCIES = [
 var CORE_SCRIPTS = [
   { file: "rule-validator.js" },
   { file: "skill-validator.js", dependencies: FRONTMATTER_DEPENDENCIES },
-  { file: "validator-gate.js" }
+  { file: "validator-gate.js", dependencies: VALIDATOR_GATE_DEPENDENCIES }
 ];
 var ANALYSIS_SCRIPTS = [
   { file: "structure-analyzer.js", dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },

@@ -70,12 +70,32 @@ function canSpawnChildNodeProcess() {
 function parseCliOptions(argv) {
   const allowedSuites = new Set(['all', 'local', 'remote']);
   const suites = new Set();
+  const caseFilters = [];
   let showHelp = false;
+  let listCases = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') {
       showHelp = true;
+      continue;
+    }
+    if (arg === '--list-cases') {
+      listCases = true;
+      continue;
+    }
+
+    let caseValue = null;
+    if (arg === '--case' && argv[i + 1]) {
+      caseValue = argv[++i];
+    } else if (arg.startsWith('--case=')) {
+      caseValue = arg.slice('--case='.length);
+    }
+
+    if (caseValue !== null) {
+      for (const item of caseValue.split(',').map(s => s.trim()).filter(Boolean)) {
+        caseFilters.push(item);
+      }
       continue;
     }
 
@@ -98,18 +118,30 @@ function parseCliOptions(argv) {
     }
   }
 
+  if (caseFilters.length > 0 && suites.size > 0 && !suites.has('local')) {
+    throw new Error('--case can only be used with the local suite');
+  }
+
+  const defaultSuites = caseFilters.length > 0
+    ? new Set(['local'])
+    : new Set(['local', 'remote']);
+
   if (suites.size === 0 || suites.has('all')) {
     return {
       showHelp,
-      suites: new Set(['local', 'remote']),
-      label: 'all',
+      listCases,
+      suites: defaultSuites,
+      label: caseFilters.length > 0 ? 'local' : 'all',
+      caseFilters,
     };
   }
 
   return {
     showHelp,
+    listCases,
     suites,
     label: Array.from(suites).join(','),
+    caseFilters,
   };
 }
 
@@ -118,12 +150,21 @@ function showHelp() {
 CodeBuddy Loader Test Suite
 
 Usage:
-  node test/run-tests.js [--suite all|local|remote]
+  node test/run-tests.js [--suite all|local|remote] [--case <name-or-dir>] [--list-cases]
 
 Suites:
   all      run all local and remote E2E tests (default)
   local    run mock-project/workspace/profile tests only
   remote   run remote content-pack / installer wrapper tests only
+
+Options:
+  --case         run only matching local case(s) by name or dir; supports comma-separated values
+  --list-cases   print available local case identifiers and exit
+
+Examples:
+  node test/run-tests.js --suite local --case antdv-project
+  node test/run-tests.js --case "Vue 2"
+  node test/run-tests.js --list-cases
 `.trim());
 }
 
@@ -565,6 +606,35 @@ const TEST_CASES = [
     notExpectedRules: ['vue2'],
   },
 ];
+
+function normalizeCaseToken(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function selectLocalTestCases(caseFilters = []) {
+  const normalizedFilters = Array.from(new Set(caseFilters.map(normalizeCaseToken).filter(Boolean)));
+  if (normalizedFilters.length === 0) {
+    return TEST_CASES.slice();
+  }
+
+  return TEST_CASES.filter(testCase => {
+    const dir = normalizeCaseToken(testCase.dir);
+    const name = normalizeCaseToken(testCase.name);
+    return normalizedFilters.some(filter => (
+      dir === filter
+      || name === filter
+      || dir.includes(filter)
+      || name.includes(filter)
+    ));
+  });
+}
+
+function showLocalCases() {
+  console.log('Local E2E cases:');
+  for (const testCase of TEST_CASES) {
+    console.log(`- ${testCase.dir}: ${testCase.name}`);
+  }
+}
 
 const colors = {
   reset: '\x1b[0m',
@@ -2525,7 +2595,6 @@ description: Validate that strict mode fails on warning-only skill issues.
         const run = spawnSync(process.execPath, [
           '.codebuddy/scripts/task-orchestrator.js',
           '--taskbook', taskBookId,
-          '--approve', 'review_passed',
           '--show-workflow-route',
           '--json',
         ], {
@@ -2547,8 +2616,8 @@ description: Validate that strict mode fails on warning-only skill issues.
         if (!workflowRoute || !workflowRoute.workflowId) {
           throw new Error('orchestrator auto route details missing workflowRoute');
         }
-        if (workflowRoute.workflowId !== 'default') {
-          throw new Error(`orchestrator auto route expected default workflow in installed fixture, got ${workflowRoute.workflowId}`);
+        if (workflowRoute.workflowId !== 'micro') {
+          throw new Error(`orchestrator auto route expected micro workflow in installed fixture, got ${workflowRoute.workflowId}`);
         }
 
         const routeReportPath = path.join(projectDir, '.codebuddy', 'reports', 'workflow-routing', `${taskBookId}.routing.json`);
@@ -2609,6 +2678,162 @@ description: Validate that strict mode fails on warning-only skill issues.
           throw new Error('report-manager status --json missing workflow routing summary');
         }
 
+        const validatorGateRun = spawnSync(
+          process.execPath,
+          ['.codebuddy/scripts/validator-gate.js', 'run', '--scope', 'rules', '--json', '--out-dir', '.codebuddy/reports/validators/latest'],
+          {
+            cwd: projectDir,
+            encoding: 'utf-8',
+            stdio: 'pipe',
+          }
+        );
+        if (validatorGateRun.status !== 0) {
+          throw new Error(`validator-gate run exit=${validatorGateRun.status}, stderr=${validatorGateRun.stderr}`);
+        }
+        const validatorGatePayload = JSON.parse(String(validatorGateRun.stdout || '{}'));
+        if (!validatorGatePayload?.outputDir || !Array.isArray(validatorGatePayload?.reportFiles)) {
+          throw new Error('validator-gate run missing outputDir/reportFiles');
+        }
+
+        const validatorDoctorRaw = execSync(
+          `node "${RULE_LOADER_PATH}" doctor --json`,
+          { cwd: projectDir, stdio: 'pipe', encoding: 'utf-8' }
+        );
+        const validatorDoctor = JSON.parse(validatorDoctorRaw);
+        const validatorCheck = Array.isArray(validatorDoctor?.checks)
+          ? validatorDoctor.checks.find(check => check && check.id === 'validator-gate-report')
+          : null;
+        if (!validatorCheck || !['pass', 'warn'].includes(validatorCheck.status)) {
+          throw new Error(`doctor validator-gate-report check missing: ${validatorDoctorRaw.slice(0, 1200)}`);
+        }
+
+        const reportStatusJsonAfterValidator = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'status', '--json'], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+        if (reportStatusJsonAfterValidator.status !== 0) {
+          throw new Error(`report-manager status --json after validator exit=${reportStatusJsonAfterValidator.status}, stderr=${reportStatusJsonAfterValidator.stderr}`);
+        }
+        const reportStatusPayloadAfterValidator = JSON.parse(String(reportStatusJsonAfterValidator.stdout || '{}'));
+        if (!reportStatusPayloadAfterValidator?.sections?.validatorGate?.present) {
+          throw new Error('report-manager status --json missing validator gate summary');
+        }
+
+        const reportHistoryJson = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'history', '--json'], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+        if (reportHistoryJson.status !== 0) {
+          throw new Error(`report-manager history --json exit=${reportHistoryJson.status}, stderr=${reportHistoryJson.stderr}`);
+        }
+        const reportHistoryPayload = JSON.parse(String(reportHistoryJson.stdout || '{}'));
+        if (!Array.isArray(reportHistoryPayload?.sections?.validatorGate) || reportHistoryPayload.sections.validatorGate.length < 1) {
+          throw new Error('report-manager history --json missing validator gate runs');
+        }
+
+        const reportTrendJson = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'trend', '--json'], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+        if (reportTrendJson.status !== 0) {
+          throw new Error(`report-manager trend --json exit=${reportTrendJson.status}, stderr=${reportTrendJson.stderr}`);
+        }
+        const reportTrendPayload = JSON.parse(String(reportTrendJson.stdout || '{}'));
+        if (!reportTrendPayload?.sections?.validatorGate?.present) {
+          throw new Error('report-manager trend --json missing validator trend section');
+        }
+
+        const reportsRoot = path.join(projectDir, '.codebuddy', 'reports');
+        fs.mkdirSync(path.join(reportsRoot, 'architecture'), { recursive: true });
+        fs.mkdirSync(path.join(reportsRoot, 'modules'), { recursive: true });
+
+        const olderArchitecture = {
+          meta: { version: '1.0.0', projectName: 'fixture', analyzedAt: '2026-03-16T09:00:00.000Z', analyzedBy: 'structure-analyzer' },
+          summary: { healthScore: 70, totalFiles: 10, totalLines: 1000, issueCount: { error: 0, warning: 1, info: 0 } },
+          structure: { type: 'feature-based', depth: 3, directories: 5 },
+          violations: [{ rule: 'demo-rule', severity: 'warning', path: 'src/a.ts', message: 'older issue' }],
+          scores: { featureStructure: 20, directoryDepth: 18, fileSize: 16, namingConvention: 16 },
+        };
+        const latestArchitecture = {
+          meta: { version: '1.0.0', projectName: 'fixture', analyzedAt: '2026-03-17T09:00:00.000Z', analyzedBy: 'structure-analyzer' },
+          summary: { healthScore: 75, totalFiles: 12, totalLines: 1200, issueCount: { error: 0, warning: 1, info: 0 } },
+          structure: { type: 'feature-based', depth: 3, directories: 6 },
+          violations: [{ rule: 'demo-rule', severity: 'warning', path: 'src/b.ts', message: 'new issue' }],
+          scores: { featureStructure: 22, directoryDepth: 18, fileSize: 17, namingConvention: 18 },
+        };
+        const olderModules = {
+          meta: { version: '1.0.0', projectName: 'fixture', analyzedAt: '2026-03-16T09:00:00.000Z', analyzedBy: 'module-mapper' },
+          summary: { totalModules: 1, avgHealthScore: 70, circularDeps: 0, isolatedModules: 0 },
+          categories: { feature: { modules: ['user'], totalFiles: 2, totalLines: 120 } },
+          modules: [
+            {
+              name: 'user',
+              chineseName: '用户',
+              category: 'feature',
+              type: 'feature',
+              path: 'src/user',
+              stats: { files: 2, lines: 120, components: 1 },
+              healthScore: 70,
+              subModules: [],
+              dependencies: [],
+              dependents: [],
+            },
+          ],
+          graph: { nodes: ['user'], edges: [] },
+        };
+        const latestModules = {
+          meta: { version: '1.0.0', projectName: 'fixture', analyzedAt: '2026-03-17T09:00:00.000Z', analyzedBy: 'module-mapper' },
+          summary: { totalModules: 2, avgHealthScore: 78, circularDeps: 0, isolatedModules: 0 },
+          categories: { feature: { modules: ['user', 'admin'], totalFiles: 4, totalLines: 260 } },
+          modules: [
+            {
+              name: 'user',
+              chineseName: '用户',
+              category: 'feature',
+              type: 'feature',
+              path: 'src/user',
+              stats: { files: 3, lines: 220, components: 2 },
+              healthScore: 82,
+              subModules: [],
+              dependencies: [],
+              dependents: [],
+            },
+            {
+              name: 'admin',
+              chineseName: '管理',
+              category: 'feature',
+              type: 'feature',
+              path: 'src/admin',
+              stats: { files: 1, lines: 40, components: 1 },
+              healthScore: 74,
+              subModules: [],
+              dependencies: [],
+              dependents: [],
+            },
+          ],
+          graph: { nodes: ['user', 'admin'], edges: [] },
+        };
+        fs.writeFileSync(path.join(reportsRoot, 'architecture', 'latest.json'), JSON.stringify(latestArchitecture, null, 2), 'utf-8');
+        fs.writeFileSync(path.join(reportsRoot, 'architecture', '2026-03-16T09-00-00.json'), JSON.stringify(olderArchitecture, null, 2), 'utf-8');
+        fs.writeFileSync(path.join(reportsRoot, 'modules', 'latest.json'), JSON.stringify(latestModules, null, 2), 'utf-8');
+        fs.writeFileSync(path.join(reportsRoot, 'modules', '2026-03-16T09-00-00.json'), JSON.stringify(olderModules, null, 2), 'utf-8');
+
+        const reportDiffJson = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'diff', '--json'], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+        if (reportDiffJson.status !== 0) {
+          throw new Error(`report-manager diff --json exit=${reportDiffJson.status}, stderr=${reportDiffJson.stderr}`);
+        }
+        const reportDiffPayload = JSON.parse(String(reportDiffJson.stdout || '{}'));
+        if (!reportDiffPayload?.sections?.architecture?.present || !reportDiffPayload?.sections?.modules?.present) {
+          throw new Error('report-manager diff --json missing architecture/modules diff sections');
+        }
+
         const reportExport = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'export'], {
           cwd: projectDir,
           encoding: 'utf-8',
@@ -2623,8 +2848,46 @@ description: Validate that strict mode fails on warning-only skill issues.
           throw new Error(`report-manager export missing: ${exportPath}`);
         }
         const exportMarkdown = fs.readFileSync(exportPath, 'utf-8');
-        if (!/Workflow/.test(exportMarkdown) || !/TaskBook/.test(exportMarkdown)) {
-          throw new Error('report-manager export missing workflow routing section');
+        if (!/Workflow/.test(exportMarkdown) || !/TaskBook/.test(exportMarkdown) || !/Validator Gate/.test(exportMarkdown)) {
+          throw new Error('report-manager export missing workflow or validator section');
+        }
+
+        const reportExportJson = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'export', '--json'], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+        if (reportExportJson.status !== 0) {
+          throw new Error(`report-manager export --json exit=${reportExportJson.status}, stderr=${reportExportJson.stderr}`);
+        }
+        const reportExportPayload = JSON.parse(String(reportExportJson.stdout || '{}'));
+        if (!reportExportPayload?.sections?.status?.sections?.validatorGate?.present) {
+          throw new Error('report-manager export --json missing status.validatorGate section');
+        }
+        if (!reportExportPayload?.sections?.diff?.sections?.modules?.present) {
+          throw new Error('report-manager export --json missing diff.modules section');
+        }
+        if (!reportExportPayload?.markdown?.path) {
+          throw new Error('report-manager export --json missing markdown path');
+        }
+
+        const reportAuditJson = spawnSync(process.execPath, ['.codebuddy/scripts/report-manager.js', 'audit', '--json'], {
+          cwd: projectDir,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        });
+        if (reportAuditJson.status !== 0) {
+          throw new Error(`report-manager audit --json exit=${reportAuditJson.status}, stderr=${reportAuditJson.stderr}`);
+        }
+        const reportAuditPayload = JSON.parse(String(reportAuditJson.stdout || '{}'));
+        if (!reportAuditPayload?.overview?.overallStatus) {
+          throw new Error('report-manager audit --json missing overallStatus');
+        }
+        if (!Array.isArray(reportAuditPayload?.findings) || reportAuditPayload.findings.length < 1) {
+          throw new Error('report-manager audit --json missing findings');
+        }
+        if (!reportAuditPayload?.sections?.status?.sections?.validatorGate?.present) {
+          throw new Error('report-manager audit --json missing validator gate status section');
         }
 
         logSuccess('task-orchestrator auto route observability passed');
@@ -2774,9 +3037,24 @@ function main() {
     process.exit(0);
   }
 
+  if (options.listCases) {
+    showLocalCases();
+    process.exit(0);
+  }
+
   log(`
 ${colors.bold}CodeBuddy Loader Test Suite${colors.reset}`);
   logInfo(`selected suite: ${options.label}`);
+
+  const selectedLocalCases = selectLocalTestCases(options.caseFilters);
+  if (options.caseFilters.length > 0) {
+    if (selectedLocalCases.length === 0) {
+      logError(`no local test cases matched --case ${options.caseFilters.join(', ')}`);
+      showLocalCases();
+      process.exit(2);
+    }
+    logInfo(`selected local cases: ${selectedLocalCases.map(testCase => testCase.dir).join(', ')}`);
+  }
 
   if (!fs.existsSync(RULE_LOADER_PATH)) {
     logError(`rule loader not found: ${RULE_LOADER_PATH}`);
@@ -2795,7 +3073,7 @@ ${colors.bold}CodeBuddy Loader Test Suite${colors.reset}`);
   let failed = 0;
 
   if (options.suites.has('local')) {
-    for (const testCase of TEST_CASES) {
+    for (const testCase of selectedLocalCases) {
       const result = runTestCase(testCase);
       if (result) passed++;
       else failed++;
@@ -2830,4 +3108,12 @@ ${colors.bold}Summary${colors.reset}`);
   process.exit(failed > 0 ? 1 : 0);
 }
 
-main();
+if (require.main === module) {
+  main();
+} else {
+  module.exports = {
+    TEST_CASES,
+    parseCliOptions,
+    selectLocalTestCases,
+  };
+}

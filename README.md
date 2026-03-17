@@ -107,6 +107,8 @@ npm run smoke:business-remote
 node scripts/dist/codebuddy-loader.js --workspace-scope project-targeted --project mcp-server --role backend
 node scripts/dist/skill-validator.js check
 npm run test:full
+node test/run-tests.js --list-cases
+node test/run-tests.js --suite local --case antdv-project
 ```
 
 ## Validator 模式
@@ -196,6 +198,22 @@ node .codebuddy/scripts/report-manager.js history --json
 
 ```bash
 node .codebuddy/scripts/report-manager.js trend --json
+```
+
+如果需要机器可读的差异视图（含 architecture + module diff）：
+
+```bash
+node .codebuddy/scripts/report-manager.js diff --json
+```
+
+如果需要一次性导出统一的机器可读报告包（含 status/history/trend/diff，并同步写出 `export.md`）：
+
+```bash
+node .codebuddy/scripts/report-manager.js export --json
+```
+
+```bash
+node .codebuddy/scripts/report-manager.js audit --json
 ```
 
 ## 仓库结构

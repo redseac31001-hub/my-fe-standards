@@ -3225,6 +3225,13 @@ export async function runWorkflow(taskBookId: string, options: WorkflowRunnerOpt
         return { taskBook: current, gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
       }
 
+      const acceptanceGateRun = await runCheckGatesForStep(spec, step, taskBookId, manager, approved, gateResults, {
+        eventContext: 'acceptance_gate',
+      });
+      if (!acceptanceGateRun.ok) {
+        return { taskBook: manager.load(taskBookId), gateResults: Array.from(gateResults.values()), workflowRoute: workflowRouteDetails };
+      }
+
       // required gates must be passed
       const requiredGates = (spec.gates ?? []).filter(g => g.required !== false);
       const failedRequired = requiredGates.filter(g => !gateResults.get(g.id)?.passed && !approved.has(g.id));

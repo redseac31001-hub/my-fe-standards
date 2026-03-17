@@ -746,6 +746,161 @@ function exportMarkdown(targetDir) {
   const output = lines.join("\n");
   const outputPath = path4.join(getReportsPath(targetDir), "export.md");
   fs3.writeFileSync(outputPath, output, "utf-8");
+  return outputPath;
+}
+function buildExportSnapshot(targetDir, options = {}) {
+  const days = Number.isFinite(options.days) && options.days > 0 ? Math.floor(options.days) : 30;
+  const fromDate = options.fromDate?.trim() || null;
+  const markdownPath = exportMarkdown(targetDir);
+  return {
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    input: {
+      days,
+      fromDate
+    },
+    markdown: {
+      path: markdownPath,
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    },
+    sections: {
+      status: buildStatusSnapshot(targetDir),
+      history: buildHistorySnapshot(targetDir),
+      trend: buildTrendSnapshot(targetDir, days),
+      diff: buildDiffSnapshot(targetDir, fromDate ?? void 0)
+    }
+  };
+}
+function buildAuditFinding(id, status, message) {
+  return { id, status, message };
+}
+function summarizeAuditStatus(findings) {
+  if (findings.some((finding) => finding.status === "missing")) {
+    return "attention";
+  }
+  if (findings.some((finding) => finding.status === "warn")) {
+    return "warn";
+  }
+  return "pass";
+}
+function buildAuditSnapshot(targetDir, options = {}) {
+  const bundle = buildExportSnapshot(targetDir, options);
+  const statusSections = bundle.sections.status.sections;
+  const trendSections = bundle.sections.trend.sections;
+  const diffSections = bundle.sections.diff.sections;
+  const findings = [];
+  findings.push(
+    buildAuditFinding(
+      "architecture-report",
+      !statusSections.architecture.present ? "missing" : statusSections.architecture.freshness === "stale" ? "warn" : "pass",
+      !statusSections.architecture.present ? "Architecture report is missing." : statusSections.architecture.freshness === "stale" ? `Architecture report is stale (${statusSections.architecture.ageLabel}).` : `Architecture report is fresh (${statusSections.architecture.ageLabel}).`
+    )
+  );
+  findings.push(
+    buildAuditFinding(
+      "module-report",
+      !statusSections.modules.present ? "missing" : statusSections.modules.freshness === "stale" ? "warn" : "pass",
+      !statusSections.modules.present ? "Module report is missing." : statusSections.modules.freshness === "stale" ? `Module report is stale (${statusSections.modules.ageLabel}).` : `Module report is fresh (${statusSections.modules.ageLabel}).`
+    )
+  );
+  findings.push(
+    buildAuditFinding(
+      "workflow-routing",
+      statusSections.workflowRouting.present ? "pass" : "warn",
+      statusSections.workflowRouting.present ? `Workflow route is ${statusSections.workflowRouting.workflowId || "unknown"} (${statusSections.workflowRouting.mode || "n/a"}).` : "Workflow routing report is missing."
+    )
+  );
+  const validatorStatus = !statusSections.validatorGate.present ? "warn" : statusSections.validatorGate.effectiveOk !== true ? "warn" : statusSections.validatorGate.freshness === "stale" ? "warn" : statusSections.validatorGate.delta?.direction === "regressed" || (statusSections.validatorGate.warningCount || 0) > 0 ? "warn" : "pass";
+  findings.push(
+    buildAuditFinding(
+      "validator-gate",
+      validatorStatus,
+      !statusSections.validatorGate.present ? "Validator gate summary is missing." : validatorStatus === "pass" ? `Validator gate passed with no active warnings (${statusSections.validatorGate.scope}, ${statusSections.validatorGate.strictMode ? "strict" : "default"}).` : `Validator gate needs attention: ok=${statusSections.validatorGate.effectiveOk}, warnings=${statusSections.validatorGate.warningCount ?? 0}, errors=${statusSections.validatorGate.errorCount ?? 0}, trend=${statusSections.validatorGate.delta?.direction ?? "unknown"}.`
+    )
+  );
+  findings.push(
+    buildAuditFinding(
+      "health-trend",
+      trendSections.health.present ? "pass" : "warn",
+      trendSections.health.present ? `Health trend is ${trendSections.health.direction || "unknown"} across ${trendSections.health.recentPoints.length} points.` : "Health trend data is missing."
+    )
+  );
+  const diffAvailable = diffSections.architecture.present || diffSections.modules.present;
+  findings.push(
+    buildAuditFinding(
+      "diff-coverage",
+      diffAvailable ? "pass" : "warn",
+      diffAvailable ? "Historical diff data is available for review." : "Historical diff data is not available yet."
+    )
+  );
+  return {
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    input: {
+      days: bundle.input.days,
+      fromDate: bundle.input.fromDate
+    },
+    overview: {
+      overallStatus: summarizeAuditStatus(findings),
+      architectureFreshness: statusSections.architecture.freshness,
+      modulesFreshness: statusSections.modules.freshness,
+      workflowId: statusSections.workflowRouting.workflowId,
+      workflowMode: statusSections.workflowRouting.mode,
+      validatorStatus,
+      validatorDirection: trendSections.validatorGate.delta?.direction ?? null,
+      healthDirection: trendSections.health.direction ?? null,
+      diffAvailable,
+      findingsCount: findings.filter((finding) => finding.status !== "pass").length
+    },
+    findings,
+    markdown: bundle.markdown,
+    sections: bundle.sections
+  };
+}
+function showAudit(targetDir, options) {
+  const snapshot = buildAuditSnapshot(targetDir, {
+    days: options.days,
+    fromDate: options.fromDate
+  });
+  if (options.json) {
+    console.log(JSON.stringify(snapshot, null, 2));
+    return;
+  }
+  const overallText = snapshot.overview.overallStatus.toUpperCase();
+  const routeText = snapshot.overview.workflowId ? `${snapshot.overview.workflowId} (${snapshot.overview.workflowMode || "n/a"})` : "missing";
+  const validatorText = snapshot.sections.status.sections.validatorGate.present ? `warnings=${snapshot.sections.status.sections.validatorGate.warningCount ?? 0}, errors=${snapshot.sections.status.sections.validatorGate.errorCount ?? 0}` : "missing";
+  console.log("");
+  console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
+  console.log("\u2551                      CodeBuddy Audit Summary                     \u2551");
+  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
+  console.log(`\u2551 Overall: ${overallText}`.padEnd(67) + "\u2551");
+  console.log(`\u2551 Architecture: ${snapshot.overview.architectureFreshness}`.padEnd(67) + "\u2551");
+  console.log(`\u2551 Modules: ${snapshot.overview.modulesFreshness}`.padEnd(67) + "\u2551");
+  console.log(`\u2551 Workflow: ${routeText}`.padEnd(67) + "\u2551");
+  console.log(`\u2551 Validators: ${validatorText}`.padEnd(67) + "\u2551");
+  console.log(`\u2551 Trends: health=${snapshot.overview.healthDirection || "unknown"} validator=${snapshot.overview.validatorDirection || "unknown"}`.padEnd(67) + "\u2551");
+  console.log(`\u2551 Diff: ${snapshot.overview.diffAvailable ? "available" : "missing"}`.padEnd(67) + "\u2551");
+  console.log(`\u2551 Export: ${snapshot.markdown.path}`.slice(0, 67).padEnd(67) + "\u2551");
+  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
+  for (const finding of snapshot.findings) {
+    const line = `\u2551 [${finding.status.toUpperCase()}] ${finding.message}`.slice(0, 67);
+    console.log(line.padEnd(67) + "\u2551");
+  }
+  console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
+  console.log("");
+}
+function exportReportBundle(targetDir, options) {
+  if (options.json) {
+    const snapshot = buildExportSnapshot(targetDir, {
+      days: options.days,
+      fromDate: options.fromDate
+    });
+    console.log(JSON.stringify(snapshot, null, 2));
+    return;
+  }
+  const outputPath = exportMarkdown(targetDir);
   console.log(`Exported to: ${outputPath}`);
 }
 function getHistorySnapshots(targetDir, subDir) {
@@ -759,6 +914,24 @@ function getHistorySnapshots(targetDir, subDir) {
       path: path4.join(dirPath, f)
     };
   }).sort((a, b) => b.date.localeCompare(a.date));
+}
+function readHistoricalSnapshot(targetDir, subDir, fromDate) {
+  const historySnapshots = getHistorySnapshots(targetDir, subDir);
+  if (historySnapshots.length === 0) {
+    return { snapshot: null, path: null };
+  }
+  const matchingSnapshot = fromDate ? historySnapshots.find((snapshot) => snapshot.date.startsWith(fromDate)) : historySnapshots[0];
+  if (!matchingSnapshot) {
+    return { snapshot: null, path: null };
+  }
+  try {
+    return {
+      snapshot: JSON.parse(fs3.readFileSync(matchingSnapshot.path, "utf-8")),
+      path: matchingSnapshot.path
+    };
+  } catch {
+    return { snapshot: null, path: matchingSnapshot.path };
+  }
 }
 function diffArchitectureSnapshots(older, newer) {
   const olderViolations = new Set(older.violations.map((v) => `${v.rule}:${v.path}`));
@@ -790,44 +963,85 @@ function diffArchitectureSnapshots(older, newer) {
     }
   };
 }
-function showDiff(targetDir, fromDate, toDate) {
-  const archLatest = readReport(targetDir, "architecture/latest.json");
-  const modulesLatest = readReport(targetDir, "modules/latest.json");
-  if (!archLatest && !modulesLatest) {
-    console.log("No reports found. Run analysis first.");
-    return;
+function diffModuleSnapshots(older, newer) {
+  const olderModules = new Map(older.modules.map((m) => [m.name, m]));
+  const newerModules = new Map(newer.modules.map((m) => [m.name, m]));
+  const added = [];
+  const removed = [];
+  const changed = [];
+  for (const [name] of newerModules) {
+    if (!olderModules.has(name)) {
+      added.push(name);
+    }
   }
-  const historySnapshots = getHistorySnapshots(targetDir, "architecture");
-  if (historySnapshots.length === 0) {
-    console.log("No historical snapshots found. Need at least 2 analyses to compare.");
-    return;
+  for (const [name] of olderModules) {
+    if (!newerModules.has(name)) {
+      removed.push(name);
+    }
   }
-  let olderArch = null;
-  if (fromDate) {
-    const matchingSnapshot = historySnapshots.find((s) => s.date.startsWith(fromDate));
-    if (matchingSnapshot) {
-      try {
-        olderArch = JSON.parse(fs3.readFileSync(matchingSnapshot.path, "utf-8"));
-      } catch {
-        console.log(`Failed to load snapshot: ${matchingSnapshot.path}`);
+  for (const [name, newMod] of newerModules) {
+    const oldMod = olderModules.get(name);
+    if (oldMod) {
+      const healthChange = newMod.healthScore - oldMod.healthScore;
+      const filesChange = newMod.stats.files - oldMod.stats.files;
+      const linesChange = newMod.stats.lines - oldMod.stats.lines;
+      if (healthChange !== 0 || filesChange !== 0 || Math.abs(linesChange) > 50) {
+        changed.push({ name, healthChange, filesChange, linesChange });
       }
     }
-  } else {
-    try {
-      olderArch = JSON.parse(fs3.readFileSync(historySnapshots[0].path, "utf-8"));
-    } catch {
-      console.log("Failed to load historical snapshot.");
-    }
   }
-  if (!olderArch || !archLatest) {
-    console.log("Cannot compare: missing snapshots.");
+  return { added, removed, changed };
+}
+function buildDiffSnapshot(targetDir, fromDate) {
+  const archLatest = readReport(targetDir, "architecture/latest.json");
+  const modulesLatest = readReport(targetDir, "modules/latest.json");
+  const olderArch = readHistoricalSnapshot(targetDir, "architecture", fromDate);
+  const olderModules = readHistoricalSnapshot(targetDir, "modules", fromDate);
+  return {
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    input: {
+      fromDate: fromDate || null
+    },
+    sections: {
+      architecture: {
+        present: Boolean(archLatest && olderArch.snapshot),
+        olderPath: olderArch.path,
+        latestPath: archLatest ? path4.join(getReportsPath(targetDir), "architecture", "latest.json") : null,
+        diff: archLatest && olderArch.snapshot ? diffArchitectureSnapshots(olderArch.snapshot, archLatest) : null
+      },
+      modules: {
+        present: Boolean(modulesLatest && olderModules.snapshot),
+        olderPath: olderModules.path,
+        latestPath: modulesLatest ? path4.join(getReportsPath(targetDir), "modules", "latest.json") : null,
+        diff: modulesLatest && olderModules.snapshot ? diffModuleSnapshots(olderModules.snapshot, modulesLatest) : null
+      }
+    }
+  };
+}
+function showDiff(targetDir, fromDate, json = false) {
+  const snapshot = buildDiffSnapshot(targetDir, fromDate);
+  if (json) {
+    console.log(JSON.stringify(snapshot, null, 2));
     return;
   }
-  const diff = diffArchitectureSnapshots(olderArch, archLatest);
+  if (!snapshot.sections.architecture.present && !snapshot.sections.modules.present) {
+    console.log("Cannot compare: missing reports or historical snapshots.");
+    return;
+  }
+  const diff = snapshot.sections.architecture.diff;
+  const moduleDiff = snapshot.sections.modules.diff;
   console.log("");
   console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
   console.log("\u2551                    Architecture Diff Report                       \u2551");
   console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
+  if (!diff) {
+    console.log("\u2551 No architecture diff available.".padEnd(67) + "\u2551");
+    console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
+    console.log("");
+    return;
+  }
   console.log(`\u2551 From: ${diff.from.date.slice(0, 16).padEnd(20)} Health: ${diff.from.healthScore.toString().padStart(3)}/100     \u2551`);
   console.log(`\u2551 To:   ${diff.to.date.slice(0, 16).padEnd(20)} Health: ${diff.to.healthScore.toString().padStart(3)}/100     \u2551`);
   console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
@@ -853,6 +1067,18 @@ function showDiff(targetDir, fromDate, toDate) {
     }
     if (diff.resolvedViolations.length > 5) {
       console.log(`\u2551   ... and ${diff.resolvedViolations.length - 5} more`.padEnd(67) + "\u2551");
+    }
+  }
+  if (moduleDiff) {
+    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
+    console.log("\u2551 Module Diff:".padEnd(67) + "\u2551");
+    console.log(`\u2551 Added: ${moduleDiff.added.length}  Removed: ${moduleDiff.removed.length}  Changed: ${moduleDiff.changed.length}`.padEnd(67) + "\u2551");
+    for (const entry of moduleDiff.changed.slice(0, 5)) {
+      const line = `${entry.name}  health=${entry.healthChange >= 0 ? "+" : ""}${entry.healthChange}  files=${entry.filesChange >= 0 ? "+" : ""}${entry.filesChange}  lines=${entry.linesChange >= 0 ? "+" : ""}${entry.linesChange}`;
+      console.log(`\u2551   ${line.slice(0, 62).padEnd(62)}   \u2551`);
+    }
+    if (moduleDiff.changed.length > 5) {
+      console.log(`\u2551   ... and ${moduleDiff.changed.length - 5} more`.padEnd(67) + "\u2551");
     }
   }
   console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
@@ -1502,8 +1728,12 @@ Report Manager - \u62A5\u544A\u7BA1\u7406\u5668
   cleanup             \u6E05\u7406\u8FC7\u671F\u62A5\u544A
     --cache-only      \u4EC5\u6E05\u7406\u7F13\u5B58
   export              \u5BFC\u51FA\u62A5\u544A\u4E3A Markdown
+    --json            \u8F93\u51FA\u7EDF\u4E00\u7684 status/history/trend/diff/export JSON
+    --days <n>        trend/export \u4E2D\u5305\u542B\u7684\u8D8B\u52BF\u5929\u6570 (\u9ED8\u8BA4: 30)
+    --from <date>     diff/export \u7684\u8D77\u59CB\u65E5\u671F (YYYY-MM-DD\uFF0C\u53EF\u9009)
   diff                \u5BF9\u6BD4\u67B6\u6784\u5FEB\u7167
     --from <date>     \u8D77\u59CB\u65E5\u671F (YYYY-MM-DD\uFF0C\u53EF\u9009)
+    --json            \u8F93\u51FA architecture / modules diff JSON
   trend               \u663E\u793A\u5065\u5EB7\u5EA6\u8D8B\u52BF
     --days <n>        \u663E\u793A\u5929\u6570 (\u9ED8\u8BA4: 30)
     --json            \u8F93\u51FA health / validator trend JSON
@@ -1523,9 +1753,13 @@ Report Manager - \u62A5\u544A\u7BA1\u7406\u5668
   node report-manager.js status
   node report-manager.js status --json
   node report-manager.js cleanup
+  node report-manager.js audit
+  node report-manager.js audit --json
   node report-manager.js export
+  node report-manager.js export --json
   node report-manager.js diff
   node report-manager.js diff --from 2025-01-15
+  node report-manager.js diff --json
   node report-manager.js trend --days 14
   node report-manager.js trend --json
   node report-manager.js history
@@ -1560,12 +1794,35 @@ function main() {
       cleanup(targetDir, cacheOnly);
       break;
     case "export":
-      exportMarkdown(targetDir);
+      exportReportBundle(targetDir, {
+        json: args.includes("--json"),
+        days: (() => {
+          const daysIndex = args.indexOf("--days");
+          return daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
+        })(),
+        fromDate: (() => {
+          const fromIndex = args.indexOf("--from");
+          return fromIndex !== -1 ? args[fromIndex + 1] : void 0;
+        })()
+      });
+      break;
+    case "audit":
+      showAudit(targetDir, {
+        json: args.includes("--json"),
+        days: (() => {
+          const daysIndex = args.indexOf("--days");
+          return daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
+        })(),
+        fromDate: (() => {
+          const fromIndex = args.indexOf("--from");
+          return fromIndex !== -1 ? args[fromIndex + 1] : void 0;
+        })()
+      });
       break;
     case "diff": {
       const fromIndex = args.indexOf("--from");
       const fromDate = fromIndex !== -1 ? args[fromIndex + 1] : void 0;
-      showDiff(targetDir, fromDate);
+      showDiff(targetDir, fromDate, args.includes("--json"));
       break;
     }
     case "trend": {

@@ -167,6 +167,106 @@ export interface ReportManagerTrendSnapshot {
   };
 }
 
+export interface ArchitectureDiffSnapshot {
+  from: { date: string; healthScore: number };
+  to: { date: string; healthScore: number };
+  healthChange: number;
+  newViolations: string[];
+  resolvedViolations: string[];
+  fileChanges: {
+    added: number;
+    removed: number;
+    linesChanged: number;
+  };
+}
+
+export interface ModuleDiffSnapshot {
+  added: string[];
+  removed: string[];
+  changed: Array<{
+    name: string;
+    healthChange: number;
+    filesChange: number;
+    linesChange: number;
+  }>;
+}
+
+export interface ReportManagerDiffSnapshot {
+  generatedAt: string;
+  targetDir: string;
+  reportsPath: string;
+  input: {
+    fromDate: string | null;
+  };
+  sections: {
+    architecture: {
+      present: boolean;
+      olderPath: string | null;
+      latestPath: string | null;
+      diff: ArchitectureDiffSnapshot | null;
+    };
+    modules: {
+      present: boolean;
+      olderPath: string | null;
+      latestPath: string | null;
+      diff: ModuleDiffSnapshot | null;
+    };
+  };
+}
+
+export interface ReportManagerExportSnapshot {
+  generatedAt: string;
+  targetDir: string;
+  reportsPath: string;
+  input: {
+    days: number;
+    fromDate: string | null;
+  };
+  markdown: {
+    path: string;
+    generatedAt: string;
+  };
+  sections: {
+    status: ReportManagerStatusSnapshot;
+    history: ReportManagerHistorySnapshot;
+    trend: ReportManagerTrendSnapshot;
+    diff: ReportManagerDiffSnapshot;
+  };
+}
+
+export type ReportManagerAuditFindingStatus = 'pass' | 'warn' | 'missing';
+
+export interface ReportManagerAuditFinding {
+  id: string;
+  status: ReportManagerAuditFindingStatus;
+  message: string;
+}
+
+export interface ReportManagerAuditSnapshot {
+  generatedAt: string;
+  targetDir: string;
+  reportsPath: string;
+  input: {
+    days: number;
+    fromDate: string | null;
+  };
+  overview: {
+    overallStatus: 'pass' | 'warn' | 'attention';
+    architectureFreshness: ReportStatusSection['freshness'];
+    modulesFreshness: ReportStatusSection['freshness'];
+    workflowId: string | null;
+    workflowMode: string | null;
+    validatorStatus: ReportManagerAuditFindingStatus;
+    validatorDirection: ValidatorGateTrendDirection | null;
+    healthDirection: HealthTimeline['trends']['direction'] | null;
+    diffAvailable: boolean;
+    findingsCount: number;
+  };
+  findings: ReportManagerAuditFinding[];
+  markdown: ReportManagerExportSnapshot['markdown'];
+  sections: ReportManagerExportSnapshot['sections'];
+}
+
 /**
  * 报告元数据
  */

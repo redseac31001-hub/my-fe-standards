@@ -24,12 +24,19 @@ import {
 } from './lib/validator-gate-report';
 import { readLatestWorkflowRoutingReport } from './lib/workflow-routing-selection';
 import {
+  ArchitectureDiffSnapshot,
   ReportsManifest,
   ReportMeta,
   ArchitectureSnapshot,
+  ModuleDiffSnapshot,
   ModuleMapSnapshot,
   HealthTimeline,
   HealthDataPoint,
+  ReportManagerDiffSnapshot,
+  ReportManagerAuditSnapshot,
+  ReportManagerAuditFinding,
+  ReportManagerAuditFindingStatus,
+  ReportManagerExportSnapshot,
   ReportManagerHistorySnapshot,
   ReportManagerTrendSnapshot,
   ValidatorGateSummary,
@@ -615,7 +622,7 @@ function cleanup(targetDir: string, cacheOnly: boolean = false): void {
 /**
  * 导出报告为 Markdown
  */
-function exportMarkdown(targetDir: string): void {
+function exportMarkdown(targetDir: string): string {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
   const validatorGate = readLatestValidatorGateReport(targetDir);
@@ -730,40 +737,236 @@ function exportMarkdown(targetDir: string): void {
   const output = lines.join('\n');
   const outputPath = path.join(getReportsPath(targetDir), 'export.md');
   fs.writeFileSync(outputPath, output, 'utf-8');
+  return outputPath;
+}
+
+export function buildExportSnapshot(
+  targetDir: string,
+  options: { days?: number; fromDate?: string } = {},
+): ReportManagerExportSnapshot {
+  const days = Number.isFinite(options.days) && (options.days as number) > 0
+    ? Math.floor(options.days as number)
+    : 30;
+  const fromDate = options.fromDate?.trim() || null;
+  const markdownPath = exportMarkdown(targetDir);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    input: {
+      days,
+      fromDate,
+    },
+    markdown: {
+      path: markdownPath,
+      generatedAt: new Date().toISOString(),
+    },
+    sections: {
+      status: buildStatusSnapshot(targetDir),
+      history: buildHistorySnapshot(targetDir),
+      trend: buildTrendSnapshot(targetDir, days),
+      diff: buildDiffSnapshot(targetDir, fromDate ?? undefined),
+    },
+  };
+}
+
+function buildAuditFinding(
+  id: string,
+  status: ReportManagerAuditFindingStatus,
+  message: string,
+): ReportManagerAuditFinding {
+  return { id, status, message };
+}
+
+function summarizeAuditStatus(findings: ReportManagerAuditFinding[]): ReportManagerAuditSnapshot['overview']['overallStatus'] {
+  if (findings.some((finding) => finding.status === 'missing')) {
+    return 'attention';
+  }
+  if (findings.some((finding) => finding.status === 'warn')) {
+    return 'warn';
+  }
+  return 'pass';
+}
+
+export function buildAuditSnapshot(
+  targetDir: string,
+  options: { days?: number; fromDate?: string } = {},
+): ReportManagerAuditSnapshot {
+  const bundle = buildExportSnapshot(targetDir, options);
+  const statusSections = bundle.sections.status.sections;
+  const trendSections = bundle.sections.trend.sections;
+  const diffSections = bundle.sections.diff.sections;
+
+  const findings: ReportManagerAuditFinding[] = [];
+
+  findings.push(
+    buildAuditFinding(
+      'architecture-report',
+      !statusSections.architecture.present
+        ? 'missing'
+        : statusSections.architecture.freshness === 'stale'
+          ? 'warn'
+          : 'pass',
+      !statusSections.architecture.present
+        ? 'Architecture report is missing.'
+        : statusSections.architecture.freshness === 'stale'
+          ? `Architecture report is stale (${statusSections.architecture.ageLabel}).`
+          : `Architecture report is fresh (${statusSections.architecture.ageLabel}).`,
+    ),
+  );
+
+  findings.push(
+    buildAuditFinding(
+      'module-report',
+      !statusSections.modules.present
+        ? 'missing'
+        : statusSections.modules.freshness === 'stale'
+          ? 'warn'
+          : 'pass',
+      !statusSections.modules.present
+        ? 'Module report is missing.'
+        : statusSections.modules.freshness === 'stale'
+          ? `Module report is stale (${statusSections.modules.ageLabel}).`
+          : `Module report is fresh (${statusSections.modules.ageLabel}).`,
+    ),
+  );
+
+  findings.push(
+    buildAuditFinding(
+      'workflow-routing',
+      statusSections.workflowRouting.present ? 'pass' : 'warn',
+      statusSections.workflowRouting.present
+        ? `Workflow route is ${statusSections.workflowRouting.workflowId || 'unknown'} (${statusSections.workflowRouting.mode || 'n/a'}).`
+        : 'Workflow routing report is missing.',
+    ),
+  );
+
+  const validatorStatus: ReportManagerAuditFindingStatus = !statusSections.validatorGate.present
+    ? 'warn'
+    : statusSections.validatorGate.effectiveOk !== true
+      ? 'warn'
+      : statusSections.validatorGate.freshness === 'stale'
+        ? 'warn'
+        : (statusSections.validatorGate.delta?.direction === 'regressed')
+            || ((statusSections.validatorGate.warningCount || 0) > 0)
+          ? 'warn'
+          : 'pass';
+
+  findings.push(
+    buildAuditFinding(
+      'validator-gate',
+      validatorStatus,
+      !statusSections.validatorGate.present
+        ? 'Validator gate summary is missing.'
+        : validatorStatus === 'pass'
+          ? `Validator gate passed with no active warnings (${statusSections.validatorGate.scope}, ${statusSections.validatorGate.strictMode ? 'strict' : 'default'}).`
+          : `Validator gate needs attention: ok=${statusSections.validatorGate.effectiveOk}, warnings=${statusSections.validatorGate.warningCount ?? 0}, errors=${statusSections.validatorGate.errorCount ?? 0}, trend=${statusSections.validatorGate.delta?.direction ?? 'unknown'}.`,
+    ),
+  );
+
+  findings.push(
+    buildAuditFinding(
+      'health-trend',
+      trendSections.health.present ? 'pass' : 'warn',
+      trendSections.health.present
+        ? `Health trend is ${trendSections.health.direction || 'unknown'} across ${trendSections.health.recentPoints.length} points.`
+        : 'Health trend data is missing.',
+    ),
+  );
+
+  const diffAvailable = diffSections.architecture.present || diffSections.modules.present;
+  findings.push(
+    buildAuditFinding(
+      'diff-coverage',
+      diffAvailable ? 'pass' : 'warn',
+      diffAvailable
+        ? 'Historical diff data is available for review.'
+        : 'Historical diff data is not available yet.',
+    ),
+  );
+
+  return {
+    generatedAt: new Date().toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    input: {
+      days: bundle.input.days,
+      fromDate: bundle.input.fromDate,
+    },
+    overview: {
+      overallStatus: summarizeAuditStatus(findings),
+      architectureFreshness: statusSections.architecture.freshness,
+      modulesFreshness: statusSections.modules.freshness,
+      workflowId: statusSections.workflowRouting.workflowId,
+      workflowMode: statusSections.workflowRouting.mode,
+      validatorStatus,
+      validatorDirection: trendSections.validatorGate.delta?.direction ?? null,
+      healthDirection: trendSections.health.direction ?? null,
+      diffAvailable,
+      findingsCount: findings.filter((finding) => finding.status !== 'pass').length,
+    },
+    findings,
+    markdown: bundle.markdown,
+    sections: bundle.sections,
+  };
+}
+
+function showAudit(targetDir: string, options: { json: boolean; days?: number; fromDate?: string }): void {
+  const snapshot = buildAuditSnapshot(targetDir, {
+    days: options.days,
+    fromDate: options.fromDate,
+  });
+
+  if (options.json) {
+    console.log(JSON.stringify(snapshot, null, 2));
+    return;
+  }
+
+  const overallText = snapshot.overview.overallStatus.toUpperCase();
+  const routeText = snapshot.overview.workflowId
+    ? `${snapshot.overview.workflowId} (${snapshot.overview.workflowMode || 'n/a'})`
+    : 'missing';
+  const validatorText = snapshot.sections.status.sections.validatorGate.present
+    ? `warnings=${snapshot.sections.status.sections.validatorGate.warningCount ?? 0}, errors=${snapshot.sections.status.sections.validatorGate.errorCount ?? 0}`
+    : 'missing';
+
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║                      CodeBuddy Audit Summary                     ║');
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+  console.log(`║ Overall: ${overallText}`.padEnd(67) + '║');
+  console.log(`║ Architecture: ${snapshot.overview.architectureFreshness}`.padEnd(67) + '║');
+  console.log(`║ Modules: ${snapshot.overview.modulesFreshness}`.padEnd(67) + '║');
+  console.log(`║ Workflow: ${routeText}`.padEnd(67) + '║');
+  console.log(`║ Validators: ${validatorText}`.padEnd(67) + '║');
+  console.log(`║ Trends: health=${snapshot.overview.healthDirection || 'unknown'} validator=${snapshot.overview.validatorDirection || 'unknown'}`.padEnd(67) + '║');
+  console.log(`║ Diff: ${snapshot.overview.diffAvailable ? 'available' : 'missing'}`.padEnd(67) + '║');
+  console.log(`║ Export: ${snapshot.markdown.path}`.slice(0, 67).padEnd(67) + '║');
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+  for (const finding of snapshot.findings) {
+    const line = `║ [${finding.status.toUpperCase()}] ${finding.message}`.slice(0, 67);
+    console.log(line.padEnd(67) + '║');
+  }
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
+  console.log('');
+}
+
+function exportReportBundle(targetDir: string, options: { json: boolean; days?: number; fromDate?: string }): void {
+  if (options.json) {
+    const snapshot = buildExportSnapshot(targetDir, {
+      days: options.days,
+      fromDate: options.fromDate,
+    });
+    console.log(JSON.stringify(snapshot, null, 2));
+    return;
+  }
+
+  const outputPath = exportMarkdown(targetDir);
   console.log(`Exported to: ${outputPath}`);
 }
 
 // ============ Phase 3: 差异对比 ============
-
-/**
- * 架构差异
- */
-interface ArchitectureDiff {
-  from: { date: string; healthScore: number };
-  to: { date: string; healthScore: number };
-  healthChange: number;
-  newViolations: string[];
-  resolvedViolations: string[];
-  fileChanges: {
-    added: number;
-    removed: number;
-    linesChanged: number;
-  };
-}
-
-/**
- * 模块差异
- */
-interface ModuleDiff {
-  added: string[];
-  removed: string[];
-  changed: Array<{
-    name: string;
-    healthChange: number;
-    filesChange: number;
-    linesChange: number;
-  }>;
-}
 
 /**
  * 获取历史快照列表
@@ -785,13 +988,41 @@ function getHistorySnapshots(targetDir: string, subDir: string): Array<{ name: s
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 
+function readHistoricalSnapshot<T>(
+  targetDir: string,
+  subDir: string,
+  fromDate?: string,
+): { snapshot: T | null; path: string | null } {
+  const historySnapshots = getHistorySnapshots(targetDir, subDir);
+  if (historySnapshots.length === 0) {
+    return { snapshot: null, path: null };
+  }
+
+  const matchingSnapshot = fromDate
+    ? historySnapshots.find((snapshot) => snapshot.date.startsWith(fromDate))
+    : historySnapshots[0];
+
+  if (!matchingSnapshot) {
+    return { snapshot: null, path: null };
+  }
+
+  try {
+    return {
+      snapshot: JSON.parse(fs.readFileSync(matchingSnapshot.path, 'utf-8')) as T,
+      path: matchingSnapshot.path,
+    };
+  } catch {
+    return { snapshot: null, path: matchingSnapshot.path };
+  }
+}
+
 /**
  * 对比两个架构快照
  */
 function diffArchitectureSnapshots(
   older: ArchitectureSnapshot,
   newer: ArchitectureSnapshot
-): ArchitectureDiff {
+): ArchitectureDiffSnapshot {
   const olderViolations = new Set(older.violations.map(v => `${v.rule}:${v.path}`));
   const newerViolations = new Set(newer.violations.map(v => `${v.rule}:${v.path}`));
 
@@ -832,13 +1063,13 @@ function diffArchitectureSnapshots(
 function diffModuleSnapshots(
   older: ModuleMapSnapshot,
   newer: ModuleMapSnapshot
-): ModuleDiff {
+): ModuleDiffSnapshot {
   const olderModules = new Map(older.modules.map(m => [m.name, m]));
   const newerModules = new Map(newer.modules.map(m => [m.name, m]));
 
   const added: string[] = [];
   const removed: string[] = [];
-  const changed: ModuleDiff['changed'] = [];
+  const changed: ModuleDiffSnapshot['changed'] = [];
 
   // 查找新增模块
   for (const [name] of newerModules) {
@@ -874,56 +1105,64 @@ function diffModuleSnapshots(
 /**
  * 显示差异报告
  */
-function showDiff(targetDir: string, fromDate?: string, toDate?: string): void {
+export function buildDiffSnapshot(targetDir: string, fromDate?: string): ReportManagerDiffSnapshot {
   const archLatest = readReport<ArchitectureSnapshot>(targetDir, 'architecture/latest.json');
   const modulesLatest = readReport<ModuleMapSnapshot>(targetDir, 'modules/latest.json');
+  const olderArch = readHistoricalSnapshot<ArchitectureSnapshot>(targetDir, 'architecture', fromDate);
+  const olderModules = readHistoricalSnapshot<ModuleMapSnapshot>(targetDir, 'modules', fromDate);
 
-  if (!archLatest && !modulesLatest) {
-    console.log('No reports found. Run analysis first.');
+  return {
+    generatedAt: new Date().toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    input: {
+      fromDate: fromDate || null,
+    },
+    sections: {
+      architecture: {
+        present: Boolean(archLatest && olderArch.snapshot),
+        olderPath: olderArch.path,
+        latestPath: archLatest ? path.join(getReportsPath(targetDir), 'architecture', 'latest.json') : null,
+        diff: archLatest && olderArch.snapshot ? diffArchitectureSnapshots(olderArch.snapshot, archLatest) : null,
+      },
+      modules: {
+        present: Boolean(modulesLatest && olderModules.snapshot),
+        olderPath: olderModules.path,
+        latestPath: modulesLatest ? path.join(getReportsPath(targetDir), 'modules', 'latest.json') : null,
+        diff: modulesLatest && olderModules.snapshot ? diffModuleSnapshots(olderModules.snapshot, modulesLatest) : null,
+      },
+    },
+  };
+}
+
+function showDiff(targetDir: string, fromDate?: string, json: boolean = false): void {
+  const snapshot = buildDiffSnapshot(targetDir, fromDate);
+
+  if (json) {
+    console.log(JSON.stringify(snapshot, null, 2));
     return;
   }
 
-  // 获取历史快照
-  const historySnapshots = getHistorySnapshots(targetDir, 'architecture');
-
-  if (historySnapshots.length === 0) {
-    console.log('No historical snapshots found. Need at least 2 analyses to compare.');
+  if (!snapshot.sections.architecture.present && !snapshot.sections.modules.present) {
+    console.log('Cannot compare: missing reports or historical snapshots.');
     return;
   }
 
-  // 加载对比快照
-  let olderArch: ArchitectureSnapshot | null = null;
-
-  if (fromDate) {
-    const matchingSnapshot = historySnapshots.find(s => s.date.startsWith(fromDate));
-    if (matchingSnapshot) {
-      try {
-        olderArch = JSON.parse(fs.readFileSync(matchingSnapshot.path, 'utf-8'));
-      } catch {
-        console.log(`Failed to load snapshot: ${matchingSnapshot.path}`);
-      }
-    }
-  } else {
-    // 使用最近的历史快照
-    try {
-      olderArch = JSON.parse(fs.readFileSync(historySnapshots[0].path, 'utf-8'));
-    } catch {
-      console.log('Failed to load historical snapshot.');
-    }
-  }
-
-  if (!olderArch || !archLatest) {
-    console.log('Cannot compare: missing snapshots.');
-    return;
-  }
-
-  const diff = diffArchitectureSnapshots(olderArch, archLatest);
+  const diff = snapshot.sections.architecture.diff;
+  const moduleDiff = snapshot.sections.modules.diff;
 
   // 输出差异报告
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════════════╗');
   console.log('║                    Architecture Diff Report                       ║');
   console.log('╠══════════════════════════════════════════════════════════════════╣');
+  if (!diff) {
+    console.log('║ No architecture diff available.'.padEnd(67) + '║');
+    console.log('╚══════════════════════════════════════════════════════════════════╝');
+    console.log('');
+    return;
+  }
+
   console.log(`║ From: ${diff.from.date.slice(0, 16).padEnd(20)} Health: ${diff.from.healthScore.toString().padStart(3)}/100     ║`);
   console.log(`║ To:   ${diff.to.date.slice(0, 16).padEnd(20)} Health: ${diff.to.healthScore.toString().padStart(3)}/100     ║`);
   console.log('╠══════════════════════════════════════════════════════════════════╣');
@@ -957,6 +1196,19 @@ function showDiff(targetDir: string, fromDate?: string, toDate?: string): void {
     }
     if (diff.resolvedViolations.length > 5) {
       console.log(`║   ... and ${diff.resolvedViolations.length - 5} more`.padEnd(67) + '║');
+    }
+  }
+
+  if (moduleDiff) {
+    console.log('╠══════════════════════════════════════════════════════════════════╣');
+    console.log('║ Module Diff:'.padEnd(67) + '║');
+    console.log(`║ Added: ${moduleDiff.added.length}  Removed: ${moduleDiff.removed.length}  Changed: ${moduleDiff.changed.length}`.padEnd(67) + '║');
+    for (const entry of moduleDiff.changed.slice(0, 5)) {
+      const line = `${entry.name}  health=${entry.healthChange >= 0 ? '+' : ''}${entry.healthChange}  files=${entry.filesChange >= 0 ? '+' : ''}${entry.filesChange}  lines=${entry.linesChange >= 0 ? '+' : ''}${entry.linesChange}`;
+      console.log(`║   ${line.slice(0, 62).padEnd(62)}   ║`);
+    }
+    if (moduleDiff.changed.length > 5) {
+      console.log(`║   ... and ${moduleDiff.changed.length - 5} more`.padEnd(67) + '║');
     }
   }
 
@@ -1762,8 +2014,12 @@ Report Manager - 报告管理器
   cleanup             清理过期报告
     --cache-only      仅清理缓存
   export              导出报告为 Markdown
+    --json            输出统一的 status/history/trend/diff/export JSON
+    --days <n>        trend/export 中包含的趋势天数 (默认: 30)
+    --from <date>     diff/export 的起始日期 (YYYY-MM-DD，可选)
   diff                对比架构快照
     --from <date>     起始日期 (YYYY-MM-DD，可选)
+    --json            输出 architecture / modules diff JSON
   trend               显示健康度趋势
     --days <n>        显示天数 (默认: 30)
     --json            输出 health / validator trend JSON
@@ -1783,9 +2039,13 @@ Report Manager - 报告管理器
   node report-manager.js status
   node report-manager.js status --json
   node report-manager.js cleanup
+  node report-manager.js audit
+  node report-manager.js audit --json
   node report-manager.js export
+  node report-manager.js export --json
   node report-manager.js diff
   node report-manager.js diff --from 2025-01-15
+  node report-manager.js diff --json
   node report-manager.js trend --days 14
   node report-manager.js trend --json
   node report-manager.js history
@@ -1828,13 +2088,37 @@ function main(): void {
       break;
 
     case 'export':
-      exportMarkdown(targetDir);
+      exportReportBundle(targetDir, {
+        json: args.includes('--json'),
+        days: (() => {
+          const daysIndex = args.indexOf('--days');
+          return daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
+        })(),
+        fromDate: (() => {
+          const fromIndex = args.indexOf('--from');
+          return fromIndex !== -1 ? args[fromIndex + 1] : undefined;
+        })(),
+      });
+      break;
+
+    case 'audit':
+      showAudit(targetDir, {
+        json: args.includes('--json'),
+        days: (() => {
+          const daysIndex = args.indexOf('--days');
+          return daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
+        })(),
+        fromDate: (() => {
+          const fromIndex = args.indexOf('--from');
+          return fromIndex !== -1 ? args[fromIndex + 1] : undefined;
+        })(),
+      });
       break;
 
     case 'diff': {
       const fromIndex = args.indexOf('--from');
       const fromDate = fromIndex !== -1 ? args[fromIndex + 1] : undefined;
-      showDiff(targetDir, fromDate);
+      showDiff(targetDir, fromDate, args.includes('--json'));
       break;
     }
 

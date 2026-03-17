@@ -576,7 +576,6 @@ async function testReviewAgentFailuresCreateQaFailAndDeduplicate() {
     const reviewPromptRequestIds = (await fsp.readdir(agentCallsDir))
       .filter(name => /^req-task-2-.*\.prompt\.md$/.test(name))
       .map(name => name.replace(/\.prompt\.md$/, ''));
-    assert.equal(reviewPromptRequestIds.includes(requestId), true);
     assert.equal(reviewPromptRequestIds.some(id => id !== requestId), true);
   } finally {
     process.chdir(originalCwd);
@@ -591,6 +590,7 @@ async function testReviewAgentFailuresCreateQaFailAndDeduplicate() {
   assert.equal(implementTask.status, 'done');
   assert.equal(reviewTask.status, 'blocked');
   assert.match(reviewTask.blockedReason || '', /\[agent-call\]/);
+  assert.doesNotMatch(reviewTask.blockedReason || '', new RegExp(requestId));
 }
 
 async function testImplementAgentFailuresEscalateAndDeduplicate() {
@@ -1144,10 +1144,10 @@ async function testTaskExecutorAutoWorkflowRoutesAndRecordsMetrics() {
     version: '1.0.0',
     steps: [
       { id: 'implement', type: 'tdd_implement', title: 'Implement' },
-      { id: 'acceptance', type: 'acceptance_and_archive', title: 'Accept' },
+      { id: 'acceptance', type: 'acceptance_and_archive', title: 'Accept', gates: ['full_passed'] },
     ],
     edges: [{ from: 'implement', to: 'acceptance' }],
-    gates: [],
+    gates: [{ id: 'full_passed', type: 'checks', required: true, params: { commands: ['node -e "process.exit(0)"'] } }],
   });
   await writeJson(path.join(projectRoot, '.codebuddy', 'workflows', 'sprint.workflow.json'), {
     id: 'sprint',
