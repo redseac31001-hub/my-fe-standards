@@ -30,6 +30,7 @@ import {
   ModuleMapSnapshot,
   HealthTimeline,
   HealthDataPoint,
+  ReportManagerHistorySnapshot,
   ValidatorGateSummary,
   ReportManagerStatusSnapshot,
   DEFAULT_MANIFEST,
@@ -1056,9 +1057,39 @@ function showTrend(targetDir: string, days: number = 30): void {
 /**
  * 显示历史快照列表
  */
-function showHistory(targetDir: string): void {
-  const archSnapshots = getHistorySnapshots(targetDir, 'architecture');
-  const moduleSnapshots = getHistorySnapshots(targetDir, 'modules');
+export function buildHistorySnapshot(targetDir: string): ReportManagerHistorySnapshot {
+  return {
+    generatedAt: new Date().toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    sections: {
+      architecture: getHistorySnapshots(targetDir, 'architecture').map((item) => ({
+        kind: 'architecture',
+        name: item.name,
+        date: item.date,
+        path: item.path,
+      })),
+      modules: getHistorySnapshots(targetDir, 'modules').map((item) => ({
+        kind: 'modules',
+        name: item.name,
+        date: item.date,
+        path: item.path,
+      })),
+      validatorGate: readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY),
+    },
+  };
+}
+
+function showHistory(targetDir: string, json: boolean = false): void {
+  const snapshot = buildHistorySnapshot(targetDir);
+  const archSnapshots = snapshot.sections.architecture;
+  const moduleSnapshots = snapshot.sections.modules;
+  const validatorGateHistory = snapshot.sections.validatorGate;
+
+  if (json) {
+    console.log(JSON.stringify(snapshot, null, 2));
+    return;
+  }
 
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════════════╗');
@@ -1088,6 +1119,21 @@ function showHistory(targetDir: string): void {
     }
     if (moduleSnapshots.length > 10) {
       console.log(`║   ... and ${moduleSnapshots.length - 10} more`.padEnd(67) + '║');
+    }
+  }
+
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+
+  if (validatorGateHistory.length === 0) {
+    console.log('║ No validator gate history found.'.padEnd(67) + '║');
+  } else {
+    console.log('║ Validator Gate Runs:'.padEnd(67) + '║');
+    for (const entry of validatorGateHistory.slice(0, 10)) {
+      const line = `${entry.generatedAt.slice(0, 16)}  ${entry.scope}  ${entry.strictMode ? 'strict' : 'default'}  ${entry.effectiveOk ? 'pass' : 'fail'}  e=${entry.errorCount} w=${entry.warningCount}`;
+      console.log(`║   ${line.slice(0, 62).padEnd(62)}   ║`);
+    }
+    if (validatorGateHistory.length > 10) {
+      console.log(`║   ... and ${validatorGateHistory.length - 10} more`.padEnd(67) + '║');
     }
   }
 
@@ -1625,6 +1671,7 @@ Report Manager - 报告管理器
   trend               显示健康度趋势
     --days <n>        显示天数 (默认: 30)
   history             列出历史快照
+    --json            输出 architecture / modules / validator gate 历史 JSON
   inspect             查询模块/文件的上下游、热点与趋势
     --module <q>      按模块（name/chineseName/routePath/path）查询
     --file <path>     按文件路径查询（会自动定位所属模块）
@@ -1644,6 +1691,7 @@ Report Manager - 报告管理器
   node report-manager.js diff --from 2025-01-15
   node report-manager.js trend --days 14
   node report-manager.js history
+  node report-manager.js history --json
   node report-manager.js inspect --module "src/features/user"
   node report-manager.js inspect --file "src/features/user/index.ts"
   node report-manager.js hotspots --top 15
@@ -1700,7 +1748,7 @@ function main(): void {
     }
 
     case 'history':
-      showHistory(targetDir);
+      showHistory(targetDir, args.includes('--json'));
       break;
 
     case 'inspect': {

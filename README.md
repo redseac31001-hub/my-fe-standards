@@ -186,6 +186,12 @@ npm run validate:gate:strict:report
 node .codebuddy/scripts/report-manager.js status --json
 ```
 
+如果需要机器可读的报告历史视图（含 validator gate runs）：
+
+```bash
+node .codebuddy/scripts/report-manager.js history --json
+```
+
 ## 仓库结构
 
 ```text

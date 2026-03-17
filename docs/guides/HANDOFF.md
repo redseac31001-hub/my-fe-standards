@@ -175,6 +175,7 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-03-17）标准 validator gate 报告目录已补齐历史快照：`validate:gate:strict:report` 会额外写入 `.codebuddy/reports/validators/history/<timestamp>/`，`report-manager status/export` 可读取最近几次 gate 记录
 - ✅（2026-03-17）validator gate 历史已补齐趋势判断：`report-manager status --json` / `export` 和 `codebuddy-loader doctor` 会给出相对上一轮的回退或改善信号
 - ✅（2026-03-17）`report-manager cleanup` 已纳入 validator gate history 保留策略，会按 `maxCount/maxAgeDays` 清理过旧目录
+- ✅（2026-03-17）`report-manager history --json` 已纳入 validator gate runs，可一次性导出 architecture/modules/validators 三类历史视图
 
 ### 2026-03-17 Validator 审查顺序
 

@@ -1756,6 +1756,57 @@ async function testReportManagerCleanupPrunesOldValidatorGateHistory() {
   }
 }
 
+async function testReportManagerHistorySnapshotIncludesValidatorRuns() {
+  assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
+  const { buildHistorySnapshot } = require(reportManagerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-history-'));
+  try {
+    const reportsRoot = path.join(tempDir, '.codebuddy', 'reports');
+    await fsp.mkdir(path.join(reportsRoot, 'architecture'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'modules'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'validators', 'history', '2026-03-17T10-00-00-000Z'), { recursive: true });
+
+    await fsp.writeFile(
+      path.join(reportsRoot, 'architecture', '2026-03-17T10-00-00.json'),
+      JSON.stringify({ meta: { analyzedAt: '2026-03-17T10:00:00.000Z' } }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(reportsRoot, 'modules', '2026-03-17T10-00-00.json'),
+      JSON.stringify({ meta: { analyzedAt: '2026-03-17T10:00:00.000Z' } }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(reportsRoot, 'validators', 'history', '2026-03-17T10-00-00-000Z', 'validator-gate-summary.json'),
+      JSON.stringify({
+        ok: true,
+        effectiveOk: false,
+        strictMode: true,
+        scope: 'all',
+        generatedAt: '2026-03-17T10:00:00.000Z',
+        errorCount: 0,
+        warningCount: 2,
+        issueCount: 2,
+        outputDir: '.codebuddy/reports/validators/latest',
+        historyDir: '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {},
+      }, null, 2),
+      'utf-8',
+    );
+
+    const snapshot = buildHistorySnapshot(tempDir);
+    assert.equal(snapshot.sections.architecture.length, 1);
+    assert.equal(snapshot.sections.modules.length, 1);
+    assert.equal(snapshot.sections.validatorGate.length, 1);
+    assert.equal(snapshot.sections.validatorGate[0].scope, 'all');
+    assert.equal(snapshot.sections.validatorGate[0].strictMode, true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const tests = [
     ['frontmatter utils parse and extract structured YAML content', testFrontmatterUtils],
@@ -1772,6 +1823,7 @@ async function main() {
     ['validator gate writes history when using the standard report directory', testValidatorGateWritesHistoryForStandardReportDir],
     ['report manager reads the latest validator gate summary from reports', testReportManagerReadsLatestValidatorGateSummary],
     ['report manager cleanup prunes old validator gate history', testReportManagerCleanupPrunesOldValidatorGateHistory],
+    ['report manager history snapshot includes validator gate runs', testReportManagerHistorySnapshotIncludesValidatorRuns],
     ['context targeting keeps skill and business-rule matching stable', testContextTargeting],
     ['project detection recognizes workspace structure and target selection', testProjectDetection],
     ['install state helpers keep snapshot retention and hashing stable', testInstallStateHelpers],

@@ -918,9 +918,37 @@ function showTrend(targetDir, days = 30) {
   console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
   console.log("");
 }
-function showHistory(targetDir) {
-  const archSnapshots = getHistorySnapshots(targetDir, "architecture");
-  const moduleSnapshots = getHistorySnapshots(targetDir, "modules");
+function buildHistorySnapshot(targetDir) {
+  return {
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    targetDir,
+    reportsPath: getReportsPath(targetDir),
+    sections: {
+      architecture: getHistorySnapshots(targetDir, "architecture").map((item) => ({
+        kind: "architecture",
+        name: item.name,
+        date: item.date,
+        path: item.path
+      })),
+      modules: getHistorySnapshots(targetDir, "modules").map((item) => ({
+        kind: "modules",
+        name: item.name,
+        date: item.date,
+        path: item.path
+      })),
+      validatorGate: readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY)
+    }
+  };
+}
+function showHistory(targetDir, json = false) {
+  const snapshot = buildHistorySnapshot(targetDir);
+  const archSnapshots = snapshot.sections.architecture;
+  const moduleSnapshots = snapshot.sections.modules;
+  const validatorGateHistory = snapshot.sections.validatorGate;
+  if (json) {
+    console.log(JSON.stringify(snapshot, null, 2));
+    return;
+  }
   console.log("");
   console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
   console.log("\u2551                    Historical Snapshots                           \u2551");
@@ -946,6 +974,19 @@ function showHistory(targetDir) {
     }
     if (moduleSnapshots.length > 10) {
       console.log(`\u2551   ... and ${moduleSnapshots.length - 10} more`.padEnd(67) + "\u2551");
+    }
+  }
+  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
+  if (validatorGateHistory.length === 0) {
+    console.log("\u2551 No validator gate history found.".padEnd(67) + "\u2551");
+  } else {
+    console.log("\u2551 Validator Gate Runs:".padEnd(67) + "\u2551");
+    for (const entry of validatorGateHistory.slice(0, 10)) {
+      const line = `${entry.generatedAt.slice(0, 16)}  ${entry.scope}  ${entry.strictMode ? "strict" : "default"}  ${entry.effectiveOk ? "pass" : "fail"}  e=${entry.errorCount} w=${entry.warningCount}`;
+      console.log(`\u2551   ${line.slice(0, 62).padEnd(62)}   \u2551`);
+    }
+    if (validatorGateHistory.length > 10) {
+      console.log(`\u2551   ... and ${validatorGateHistory.length - 10} more`.padEnd(67) + "\u2551");
     }
   }
   console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
@@ -1375,6 +1416,7 @@ Report Manager - \u62A5\u544A\u7BA1\u7406\u5668
   trend               \u663E\u793A\u5065\u5EB7\u5EA6\u8D8B\u52BF
     --days <n>        \u663E\u793A\u5929\u6570 (\u9ED8\u8BA4: 30)
   history             \u5217\u51FA\u5386\u53F2\u5FEB\u7167
+    --json            \u8F93\u51FA architecture / modules / validator gate \u5386\u53F2 JSON
   inspect             \u67E5\u8BE2\u6A21\u5757/\u6587\u4EF6\u7684\u4E0A\u4E0B\u6E38\u3001\u70ED\u70B9\u4E0E\u8D8B\u52BF
     --module <q>      \u6309\u6A21\u5757\uFF08name/chineseName/routePath/path\uFF09\u67E5\u8BE2
     --file <path>     \u6309\u6587\u4EF6\u8DEF\u5F84\u67E5\u8BE2\uFF08\u4F1A\u81EA\u52A8\u5B9A\u4F4D\u6240\u5C5E\u6A21\u5757\uFF09
@@ -1394,6 +1436,7 @@ Report Manager - \u62A5\u544A\u7BA1\u7406\u5668
   node report-manager.js diff --from 2025-01-15
   node report-manager.js trend --days 14
   node report-manager.js history
+  node report-manager.js history --json
   node report-manager.js inspect --module "src/features/user"
   node report-manager.js inspect --file "src/features/user/index.ts"
   node report-manager.js hotspots --top 15
@@ -1439,7 +1482,7 @@ function main() {
       break;
     }
     case "history":
-      showHistory(targetDir);
+      showHistory(targetDir, args.includes("--json"));
       break;
     case "inspect": {
       const moduleIndex = args.indexOf("--module");

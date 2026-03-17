@@ -124,6 +124,24 @@ export interface ReportManagerStatusSnapshot {
   };
 }
 
+export interface ReportHistoryItem {
+  kind: 'architecture' | 'modules';
+  name: string;
+  date: string;
+  path: string;
+}
+
+export interface ReportManagerHistorySnapshot {
+  generatedAt: string;
+  targetDir: string;
+  reportsPath: string;
+  sections: {
+    architecture: ReportHistoryItem[];
+    modules: ReportHistoryItem[];
+    validatorGate: ValidatorGateHistoryEntry[];
+  };
+}
+
 /**
  * 报告元数据
  */
