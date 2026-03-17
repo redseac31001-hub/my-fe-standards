@@ -1434,14 +1434,83 @@ async function testValidatorGateWritesStrictReports() {
   }
 }
 
+async function testValidatorGateWritesHistoryForStandardReportDir() {
+  assertBuiltArtifactExists(validatorGateDistPath, 'npm run build:scripts');
+  const { runValidatorGate } = require(validatorGateDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-validator-gate-history-'));
+  const previousCwd = process.cwd();
+  try {
+    process.chdir(tempDir);
+    const rulesDir = path.join(tempDir, 'rules');
+    const outDir = path.join(tempDir, '.codebuddy', 'reports', 'validators', 'latest');
+
+    await fsp.mkdir(path.join(rulesDir, 'layer1'), { recursive: true });
+    await fsp.writeFile(
+      path.join(rulesDir, 'layer1', 'missing-tags.md'),
+      [
+        '# Missing tags',
+        '',
+        '## Context',
+        '',
+        'Rule fixture.',
+        '',
+        '## The Rule',
+        '',
+        'Do the thing.',
+        '',
+        '## Reasoning',
+        '',
+        'Consistency matters.',
+        '',
+        '## Examples',
+        '',
+        '```ts',
+        'export const demo = true;',
+        '```',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const report = runValidatorGate({
+      scope: 'rules',
+      strict: true,
+      json: false,
+      outDir,
+      rulesDir,
+      skillsDir: null,
+    });
+
+    assert.equal(typeof report.historyDir, 'string');
+    assert.equal(report.historyDir.startsWith('.codebuddy/reports/validators/history/'), true);
+
+    const latestSummary = JSON.parse(
+      await fsp.readFile(path.join(outDir, 'validator-gate-summary.json'), 'utf-8'),
+    );
+    assert.equal(latestSummary.historyDir, report.historyDir);
+
+    const historySummaryPath = path.join(tempDir, report.historyDir, 'validator-gate-summary.json');
+    const historyRuleReportPath = path.join(tempDir, report.historyDir, 'rule-validator-report.json');
+    assert.equal(fs.existsSync(historySummaryPath), true);
+    assert.equal(fs.existsSync(historyRuleReportPath), true);
+  } finally {
+    process.chdir(previousCwd);
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function testReportManagerReadsLatestValidatorGateSummary() {
   assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
-  const { readLatestValidatorGateReport, buildStatusSnapshot } = require(reportManagerDistPath);
+  const { readLatestValidatorGateReport, readValidatorGateHistory, buildStatusSnapshot } = require(reportManagerDistPath);
 
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-manager-'));
   try {
+    const generatedAt = new Date().toISOString();
     const reportsDir = path.join(tempDir, '.codebuddy', 'reports', 'validators', 'latest');
+    const historyRoot = path.join(tempDir, '.codebuddy', 'reports', 'validators', 'history');
     await fsp.mkdir(reportsDir, { recursive: true });
+    await fsp.mkdir(path.join(historyRoot, '2026-03-17T10-00-00-000Z'), { recursive: true });
+    await fsp.mkdir(path.join(historyRoot, '2026-03-17T09-00-00-000Z'), { recursive: true });
     await fsp.writeFile(
       path.join(reportsDir, 'validator-gate-summary.json'),
       JSON.stringify({
@@ -1449,15 +1518,52 @@ async function testReportManagerReadsLatestValidatorGateSummary() {
         effectiveOk: false,
         strictMode: true,
         scope: 'all',
-        generatedAt: '2026-03-17T10:00:00.000Z',
+        generatedAt,
         errorCount: 0,
         warningCount: 2,
         issueCount: 2,
         outputDir: '.codebuddy/reports/validators/latest',
+        historyDir: '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z',
         reportFiles: ['validator-gate-summary.json'],
         reports: {
           rules: { ok: true, effectiveOk: false, strictMode: true, errorCount: 0, warningCount: 1, issueCount: 1 },
         },
+      }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(historyRoot, '2026-03-17T10-00-00-000Z', 'validator-gate-summary.json'),
+      JSON.stringify({
+        ok: true,
+        effectiveOk: false,
+        strictMode: true,
+        scope: 'all',
+        generatedAt,
+        errorCount: 0,
+        warningCount: 2,
+        issueCount: 2,
+        outputDir: '.codebuddy/reports/validators/latest',
+        historyDir: '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {},
+      }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(historyRoot, '2026-03-17T09-00-00-000Z', 'validator-gate-summary.json'),
+      JSON.stringify({
+        ok: true,
+        effectiveOk: true,
+        strictMode: false,
+        scope: 'rules',
+        generatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0,
+        outputDir: '.codebuddy/reports/validators/latest',
+        historyDir: '.codebuddy/reports/validators/history/2026-03-17T09-00-00-000Z',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {},
       }, null, 2),
       'utf-8',
     );
@@ -1467,12 +1573,20 @@ async function testReportManagerReadsLatestValidatorGateSummary() {
     assert.equal(summary?.scope, 'all');
     assert.equal(summary?.effectiveOk, false);
     assert.equal(summary?.warningCount, 2);
+    assert.equal(summary?.historyDir, '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z');
+
+    const history = readValidatorGateHistory(tempDir);
+    assert.equal(history.length, 2);
+    assert.equal(history[0].relativePath, 'validators/history/2026-03-17T10-00-00-000Z/validator-gate-summary.json');
 
     const snapshot = buildStatusSnapshot(tempDir);
     assert.equal(snapshot.sections.validatorGate.present, true);
     assert.equal(snapshot.sections.validatorGate.scope, 'all');
     assert.equal(snapshot.sections.validatorGate.effectiveOk, false);
     assert.equal(snapshot.sections.validatorGate.warningCount, 2);
+    assert.equal(snapshot.sections.validatorGate.historyDir, '.codebuddy/reports/validators/history/2026-03-17T10-00-00-000Z');
+    assert.equal(snapshot.sections.validatorGate.historyCount, 2);
+    assert.equal(snapshot.sections.validatorGate.recentHistory.length, 2);
     assert.equal(snapshot.sections.workflowRouting.present, false);
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
@@ -1491,6 +1605,7 @@ async function main() {
     ['rule validator warns when recommended metadata is missing', testRuleValidatorMetadataWarnings],
     ['skill validator warns on bundled files that are never linked from markdown', testSkillValidatorBundledReferenceWarnings],
     ['validator gate writes strict summary and per-validator reports', testValidatorGateWritesStrictReports],
+    ['validator gate writes history when using the standard report directory', testValidatorGateWritesHistoryForStandardReportDir],
     ['report manager reads the latest validator gate summary from reports', testReportManagerReadsLatestValidatorGateSummary],
     ['context targeting keeps skill and business-rule matching stable', testContextTargeting],
     ['project detection recognizes workspace structure and target selection', testProjectDetection],

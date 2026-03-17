@@ -37,6 +37,7 @@ exports.buildValidatorGateReport = buildValidatorGateReport;
 exports.runValidatorGate = runValidatorGate;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const validator_gate_report_1 = require("./lib/validator-gate-report");
 const rule_validator_1 = require("./rule-validator");
 const skill_validator_1 = require("./skill-validator");
 function toPosixPath(p) {
@@ -171,6 +172,15 @@ function writeJson(filePath, payload) {
     fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
     return toPosixPath(path.relative(process.cwd(), filePath) || path.basename(filePath));
 }
+function resolveStandardValidatorHistoryDir(outDir, generatedAt) {
+    const normalizedOutDir = toPosixPath(path.resolve(outDir));
+    const standardSuffix = `/${validator_gate_report_1.VALIDATOR_GATE_STANDARD_LATEST_DIR.replace(/\\/g, '/')}`;
+    if (!normalizedOutDir.endsWith(standardSuffix)) {
+        return null;
+    }
+    const stamp = generatedAt.replace(/[:.]/g, '-');
+    return path.join(path.dirname(outDir), 'history', stamp);
+}
 function parseScope(value) {
     if (value === 'rules' || value === 'skills' || value === 'all')
         return value;
@@ -204,6 +214,7 @@ function buildValidatorGateReport(options) {
         warningCount: includedReports.reduce((sum, report) => sum + report.warningCount, 0),
         issueCount: includedReports.reduce((sum, report) => sum + report.issueCount, 0),
         outputDir: null,
+        historyDir: null,
         reportFiles: [],
         reports,
     };
@@ -213,6 +224,10 @@ function runValidatorGate(options) {
     if (options.outDir) {
         const outDir = path.resolve(process.cwd(), options.outDir);
         report.outputDir = toPosixPath(path.relative(process.cwd(), outDir) || '.');
+        const historyDir = resolveStandardValidatorHistoryDir(outDir, report.generatedAt);
+        if (historyDir) {
+            report.historyDir = toPosixPath(path.relative(process.cwd(), historyDir) || '.');
+        }
         if (report.reports.rules) {
             writeJson(path.join(outDir, 'rule-validator-report.json'), report.reports.rules);
             report.reportFiles.push('rule-validator-report.json');
@@ -223,6 +238,15 @@ function runValidatorGate(options) {
         }
         writeJson(path.join(outDir, 'validator-gate-summary.json'), report);
         report.reportFiles.push('validator-gate-summary.json');
+        if (historyDir) {
+            if (report.reports.rules) {
+                writeJson(path.join(historyDir, 'rule-validator-report.json'), report.reports.rules);
+            }
+            if (report.reports.skills) {
+                writeJson(path.join(historyDir, 'skill-validator-report.json'), report.reports.skills);
+            }
+            writeJson(path.join(historyDir, 'validator-gate-summary.json'), report);
+        }
     }
     return report;
 }

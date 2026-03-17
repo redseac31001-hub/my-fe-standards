@@ -172,6 +172,7 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-03-17）strict validator 已补齐聚合 gate：`validate:gate[:strict]` 可同时输出 `validator-gate-summary.json`、`rule-validator-report.json`、`skill-validator-report.json`；手动 workflow `Validator Strict Gate` 会上传这些 JSON artifact
 - ✅（2026-03-17）strict validator 已标准化报告落点：`validate:gate:strict:report` 默认写入 `.codebuddy/reports/validators/latest/`，`report-manager status/export` 可直接读取最近一次 validator gate 摘要
 - ✅（2026-03-17）`codebuddy-loader doctor` 已接入最近一次 validator gate 摘要；若标准报告目录下存在 `validator-gate-summary.json`，诊断结果会额外输出 `validator-gate-report` 检查
+- ✅（2026-03-17）标准 validator gate 报告目录已补齐历史快照：`validate:gate:strict:report` 会额外写入 `.codebuddy/reports/validators/history/<timestamp>/`，`report-manager status/export` 可读取最近几次 gate 记录
 
 ### 2026-03-17 Validator 审查顺序
 

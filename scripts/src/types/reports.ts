@@ -36,11 +36,23 @@ export interface ValidatorGateSummary {
   warningCount: number;
   issueCount: number;
   outputDir: string | null;
+  historyDir?: string | null;
   reportFiles: string[];
   reports: {
     rules?: ValidatorGateEmbeddedReport;
     skills?: ValidatorGateEmbeddedReport;
   };
+}
+
+export interface ValidatorGateHistoryEntry {
+  relativePath: string;
+  generatedAt: string;
+  scope: ValidatorGateScope;
+  strictMode: boolean;
+  effectiveOk: boolean;
+  errorCount: number;
+  warningCount: number;
+  issueCount: number;
 }
 
 export interface ReportStatusSection {
@@ -83,6 +95,7 @@ export interface ReportManagerStatusSnapshot {
       generatedAt: string | null;
       ageHours: number | null;
       ageLabel: string | null;
+      freshness: 'fresh' | 'stale' | 'missing';
       scope: ValidatorGateScope | null;
       strictMode: boolean | null;
       effectiveOk: boolean | null;
@@ -90,7 +103,10 @@ export interface ReportManagerStatusSnapshot {
       warningCount: number | null;
       issueCount: number | null;
       outputDir: string | null;
+      historyDir: string | null;
+      historyCount: number;
       reportFiles: string[];
+      recentHistory: ValidatorGateHistoryEntry[];
     };
   };
 }

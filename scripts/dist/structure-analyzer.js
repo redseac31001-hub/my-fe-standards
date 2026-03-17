@@ -81,21 +81,69 @@ var VALIDATOR_GATE_CANDIDATE_PATHS = [
   "validators/latest/validator-gate-summary.json",
   "validators/validator-gate-summary.json"
 ];
+var VALIDATOR_GATE_HISTORY_ROOT = ".codebuddy/reports/validators/history";
+function readValidatorGateSummaryFile(filePath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    if (parsed && typeof parsed.generatedAt === "string") {
+      return parsed;
+    }
+  } catch {
+  }
+  return null;
+}
 function readLatestValidatorGateReport(targetDir) {
   for (const relativePath of VALIDATOR_GATE_CANDIDATE_PATHS) {
     const absolutePath = path2.join(targetDir, ".codebuddy", "reports", relativePath);
     if (!fs.existsSync(absolutePath)) {
       continue;
     }
-    try {
-      const parsed = JSON.parse(fs.readFileSync(absolutePath, "utf-8"));
-      if (parsed && typeof parsed.generatedAt === "string") {
-        return parsed;
-      }
-    } catch {
+    const parsed = readValidatorGateSummaryFile(absolutePath);
+    if (parsed) {
+      return parsed;
     }
   }
   return null;
+}
+function readValidatorGateHistory(targetDir, limit = 10) {
+  const historyRoot = path2.join(targetDir, VALIDATOR_GATE_HISTORY_ROOT);
+  if (!fs.existsSync(historyRoot)) {
+    return [];
+  }
+  const entries = [];
+  for (const dirent of fs.readdirSync(historyRoot, { withFileTypes: true })) {
+    if (!dirent.isDirectory()) {
+      continue;
+    }
+    const summaryPath = path2.join(historyRoot, dirent.name, "validator-gate-summary.json");
+    if (!fs.existsSync(summaryPath)) {
+      continue;
+    }
+    const summary = readValidatorGateSummaryFile(summaryPath);
+    if (!summary) {
+      continue;
+    }
+    entries.push({
+      relativePath: path2.posix.join("validators/history", dirent.name, "validator-gate-summary.json"),
+      generatedAt: summary.generatedAt,
+      scope: summary.scope,
+      strictMode: summary.strictMode,
+      effectiveOk: summary.effectiveOk,
+      errorCount: summary.errorCount,
+      warningCount: summary.warningCount,
+      issueCount: summary.issueCount
+    });
+  }
+  entries.sort((left, right) => {
+    const leftTime = new Date(left.generatedAt).getTime();
+    const rightTime = new Date(right.generatedAt).getTime();
+    if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0;
+    if (Number.isNaN(leftTime)) return 1;
+    if (Number.isNaN(rightTime)) return -1;
+    return rightTime - leftTime;
+  });
+  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : entries.length;
+  return entries.slice(0, normalizedLimit);
 }
 
 // scripts/src/lib/workflow-routing-selection.ts
@@ -381,6 +429,8 @@ function buildStatusSnapshot(targetDir) {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
   const validatorGate = readLatestValidatorGateReport(targetDir);
+  const validatorGateHistory = readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY);
+  const recentValidatorGateHistory = validatorGateHistory.slice(0, 5);
   const healthTimeline = readReport(targetDir, "health/timeline.json");
   const { architecture, modules, health, tasks } = manifest.reports;
   const workflowRoutingAgeHours = workflowRouting ? getReportAgeHours(workflowRouting.generatedAt) : null;
@@ -418,6 +468,7 @@ function buildStatusSnapshot(targetDir) {
         generatedAt: validatorGate?.generatedAt ?? null,
         ageHours: validatorGateAgeHours,
         ageLabel: validatorGate ? formatAge(validatorGate.generatedAt) : null,
+        freshness: validatorGate ? validatorGateAgeHours !== null && validatorGateAgeHours < 24 ? "fresh" : "stale" : "missing",
         scope: validatorGate?.scope ?? null,
         strictMode: typeof validatorGate?.strictMode === "boolean" ? validatorGate.strictMode : null,
         effectiveOk: typeof validatorGate?.effectiveOk === "boolean" ? validatorGate.effectiveOk : null,
@@ -425,7 +476,10 @@ function buildStatusSnapshot(targetDir) {
         warningCount: validatorGate?.warningCount ?? null,
         issueCount: validatorGate?.issueCount ?? null,
         outputDir: validatorGate?.outputDir ?? null,
-        reportFiles: validatorGate?.reportFiles ?? []
+        historyDir: validatorGate?.historyDir ?? null,
+        historyCount: validatorGateHistory.length,
+        reportFiles: validatorGate?.reportFiles ?? [],
+        recentHistory: recentValidatorGateHistory
       }
     }
   };
@@ -471,7 +525,8 @@ function showStatus(targetDir, json = false) {
   if (snapshot.sections.validatorGate.present && snapshot.sections.validatorGate.scope) {
     const scope = snapshot.sections.validatorGate.scope.padEnd(6);
     const status = snapshot.sections.validatorGate.effectiveOk ? "pass" : "fail";
-    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel})`;
+    const historySuffix = snapshot.sections.validatorGate.historyCount > 0 ? `, runs=${snapshot.sections.validatorGate.historyCount}` : "";
+    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel}${historySuffix})`;
     console.log(`\u2502 ${validatorText}`.padEnd(52) + "\u2502");
   } else {
     console.log("\u2502 Validators:    No validator gate summary            \u2502");
@@ -505,6 +560,7 @@ function exportMarkdown(targetDir) {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
   const validatorGate = readLatestValidatorGateReport(targetDir);
+  const validatorGateHistory = readValidatorGateHistory(targetDir, 5);
   const lines = [];
   lines.push("# CodeBuddy \u9879\u76EE\u62A5\u544A");
   lines.push("");
@@ -572,8 +628,23 @@ function exportMarkdown(targetDir) {
     lines.push(`- **Strict Mode**: ${validatorGate.strictMode ? "on" : "off"}`);
     lines.push(`- **Effective Result**: ${validatorGate.effectiveOk ? "pass" : "fail"}`);
     lines.push(`- **Errors / Warnings**: ${validatorGate.errorCount} / ${validatorGate.warningCount}`);
+    if (validatorGate.historyDir) {
+      lines.push(`- **History Dir**: ${validatorGate.historyDir}`);
+    }
     if (validatorGate.reportFiles.length > 0) {
       lines.push(`- **Artifacts**: ${validatorGate.reportFiles.join(", ")}`);
+    }
+    lines.push("");
+  }
+  if (validatorGateHistory.length > 0) {
+    lines.push("## Validator Gate \u6700\u8FD1\u8BB0\u5F55");
+    lines.push("");
+    lines.push("| \u65F6\u95F4 | Scope | Strict | Result | Errors | Warnings |");
+    lines.push("|------|-------|--------|--------|--------|----------|");
+    for (const entry of validatorGateHistory) {
+      lines.push(
+        `| ${entry.generatedAt} | ${entry.scope} | ${entry.strictMode ? "on" : "off"} | ${entry.effectiveOk ? "pass" : "fail"} | ${entry.errorCount} | ${entry.warningCount} |`
+      );
     }
     lines.push("");
   }

@@ -306,6 +306,9 @@ function collectValidatorGateReportDetails(inspection: InstallInspection): {
   if (report.outputDir) {
     details.push(`report output dir: ${report.outputDir}`);
   }
+  if (report.historyDir) {
+    details.push(`report history dir: ${report.historyDir}`);
+  }
 
   return { report, details: Array.from(new Set(details)) };
 }

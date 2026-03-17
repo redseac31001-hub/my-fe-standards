@@ -624,18 +624,25 @@ var VALIDATOR_GATE_CANDIDATE_PATHS = [
   "validators/latest/validator-gate-summary.json",
   "validators/validator-gate-summary.json"
 ];
+function readValidatorGateSummaryFile(filePath) {
+  try {
+    const parsed = JSON.parse(fs4.readFileSync(filePath, "utf-8"));
+    if (parsed && typeof parsed.generatedAt === "string") {
+      return parsed;
+    }
+  } catch {
+  }
+  return null;
+}
 function readLatestValidatorGateReport(targetDir) {
   for (const relativePath of VALIDATOR_GATE_CANDIDATE_PATHS) {
     const absolutePath = path4.join(targetDir, ".codebuddy", "reports", relativePath);
     if (!fs4.existsSync(absolutePath)) {
       continue;
     }
-    try {
-      const parsed = JSON.parse(fs4.readFileSync(absolutePath, "utf-8"));
-      if (parsed && typeof parsed.generatedAt === "string") {
-        return parsed;
-      }
-    } catch {
+    const parsed = readValidatorGateSummaryFile(absolutePath);
+    if (parsed) {
+      return parsed;
     }
   }
   return null;
@@ -1445,6 +1452,9 @@ function collectValidatorGateReportDetails(inspection) {
   }
   if (report.outputDir) {
     details.push(`report output dir: ${report.outputDir}`);
+  }
+  if (report.historyDir) {
+    details.push(`report history dir: ${report.historyDir}`);
   }
   return { report, details: Array.from(new Set(details)) };
 }

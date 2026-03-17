@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { isDirectCliEntry } from './lib/cli-entry';
-import { readLatestValidatorGateReport } from './lib/validator-gate-report';
+import { readLatestValidatorGateReport, readValidatorGateHistory } from './lib/validator-gate-report';
 import { readLatestWorkflowRoutingReport } from './lib/workflow-routing-selection';
 import {
   ReportsManifest,
@@ -421,6 +421,8 @@ export function buildStatusSnapshot(targetDir: string): ReportManagerStatusSnaps
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
   const validatorGate = readLatestValidatorGateReport(targetDir);
+  const validatorGateHistory = readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY);
+  const recentValidatorGateHistory = validatorGateHistory.slice(0, 5);
   const healthTimeline = readReport<HealthTimeline>(targetDir, 'health/timeline.json');
   const { architecture, modules, health, tasks } = manifest.reports;
 
@@ -460,6 +462,9 @@ export function buildStatusSnapshot(targetDir: string): ReportManagerStatusSnaps
         generatedAt: validatorGate?.generatedAt ?? null,
         ageHours: validatorGateAgeHours,
         ageLabel: validatorGate ? formatAge(validatorGate.generatedAt) : null,
+        freshness: validatorGate
+          ? (validatorGateAgeHours !== null && validatorGateAgeHours < 24 ? 'fresh' : 'stale')
+          : 'missing',
         scope: validatorGate?.scope ?? null,
         strictMode: typeof validatorGate?.strictMode === 'boolean' ? validatorGate.strictMode : null,
         effectiveOk: typeof validatorGate?.effectiveOk === 'boolean' ? validatorGate.effectiveOk : null,
@@ -467,7 +472,10 @@ export function buildStatusSnapshot(targetDir: string): ReportManagerStatusSnaps
         warningCount: validatorGate?.warningCount ?? null,
         issueCount: validatorGate?.issueCount ?? null,
         outputDir: validatorGate?.outputDir ?? null,
+        historyDir: validatorGate?.historyDir ?? null,
+        historyCount: validatorGateHistory.length,
         reportFiles: validatorGate?.reportFiles ?? [],
+        recentHistory: recentValidatorGateHistory,
       },
     },
   };
@@ -526,7 +534,10 @@ function showStatus(targetDir: string, json: boolean = false): void {
   if (snapshot.sections.validatorGate.present && snapshot.sections.validatorGate.scope) {
     const scope = snapshot.sections.validatorGate.scope.padEnd(6);
     const status = snapshot.sections.validatorGate.effectiveOk ? 'pass' : 'fail';
-    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel})`;
+    const historySuffix = snapshot.sections.validatorGate.historyCount > 0
+      ? `, runs=${snapshot.sections.validatorGate.historyCount}`
+      : '';
+    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel}${historySuffix})`;
     console.log(`│ ${validatorText}`.padEnd(52) + '│');
   } else {
     console.log('│ Validators:    No validator gate summary            │');
@@ -581,6 +592,7 @@ function exportMarkdown(targetDir: string): void {
   const manifest = readManifest(targetDir);
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
   const validatorGate = readLatestValidatorGateReport(targetDir);
+  const validatorGateHistory = readValidatorGateHistory(targetDir, 5);
   const lines: string[] = [];
 
   lines.push('# CodeBuddy 项目报告');
@@ -659,8 +671,24 @@ function exportMarkdown(targetDir: string): void {
     lines.push(`- **Strict Mode**: ${validatorGate.strictMode ? 'on' : 'off'}`);
     lines.push(`- **Effective Result**: ${validatorGate.effectiveOk ? 'pass' : 'fail'}`);
     lines.push(`- **Errors / Warnings**: ${validatorGate.errorCount} / ${validatorGate.warningCount}`);
+    if (validatorGate.historyDir) {
+      lines.push(`- **History Dir**: ${validatorGate.historyDir}`);
+    }
     if (validatorGate.reportFiles.length > 0) {
       lines.push(`- **Artifacts**: ${validatorGate.reportFiles.join(', ')}`);
+    }
+    lines.push('');
+  }
+
+  if (validatorGateHistory.length > 0) {
+    lines.push('## Validator Gate 最近记录');
+    lines.push('');
+    lines.push('| 时间 | Scope | Strict | Result | Errors | Warnings |');
+    lines.push('|------|-------|--------|--------|--------|----------|');
+    for (const entry of validatorGateHistory) {
+      lines.push(
+        `| ${entry.generatedAt} | ${entry.scope} | ${entry.strictMode ? 'on' : 'off'} | ${entry.effectiveOk ? 'pass' : 'fail'} | ${entry.errorCount} | ${entry.warningCount} |`,
+      );
     }
     lines.push('');
   }
@@ -1687,6 +1715,7 @@ export {
   getReportsPath,
   getReportAgeHours,
   readLatestValidatorGateReport,
+  readValidatorGateHistory,
 };
 
 // CLI 入口 - 仅当作为主模块运行时才执行
