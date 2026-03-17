@@ -1087,6 +1087,74 @@ async function testDoctorArchitectureWarnings() {
   }
 }
 
+async function testDoctorValidatorGateWarnings() {
+  assertBuiltArtifactExists(installHealthDistPath, 'npm run build:scripts');
+  const { inspectInstallState, buildDoctorChecks } = require(installHealthDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-install-health-validator-'));
+  try {
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'rules'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'reports', 'validators', 'latest'), { recursive: true });
+    await fsp.writeFile(path.join(tempDir, '.codebuddy', 'rules', 'project-rules.md'), '# rules\n', 'utf-8');
+    await fsp.writeFile(
+      path.join(tempDir, '.codebuddy', 'reports', 'validators', 'latest', 'validator-gate-summary.json'),
+      `${JSON.stringify({
+        ok: true,
+        effectiveOk: false,
+        strictMode: true,
+        scope: 'all',
+        generatedAt: '2026-03-17T12:00:00.000Z',
+        errorCount: 0,
+        warningCount: 3,
+        issueCount: 3,
+        outputDir: '.codebuddy/reports/validators/latest',
+        reportFiles: ['validator-gate-summary.json'],
+        reports: {},
+      }, null, 2)}\n`,
+      'utf-8',
+    );
+
+    const installState = createInstallState({
+      profile: 'core',
+      enableOrchestrator: false,
+      outputs: {
+        rulesFile: '.codebuddy/rules/project-rules.md',
+        workspaceIndexFile: null,
+        skillsRootDir: null,
+        skillsSnapshotRetention: null,
+        agentsRootDir: null,
+        agentsSnapshotRetention: null,
+      },
+      managedFiles: [
+        { path: '.codebuddy/rules/project-rules.md', sha256: 'rules', size: 8 },
+      ],
+      stats: {
+        layer1Rules: 1,
+        layer2Indexes: 0,
+        layer3Indexes: 0,
+        skills: 0,
+        agents: 0,
+        scripts: 0,
+        workflows: 0,
+        taskbooks: 0,
+        agentCalls: 0,
+        commands: 0,
+        workspaceProjects: 1,
+      },
+    });
+
+    const inspection = inspectInstallState(tempDir, installState, true);
+    const checks = buildDoctorChecks(inspection);
+    const validatorCheck = checks.find(check => check.id === 'validator-gate-report');
+    assert.equal(validatorCheck?.status, 'warn');
+    assert.equal(validatorCheck?.message.includes('最近一次 validator gate 需关注'), true);
+    assert.equal(validatorCheck?.details?.some(detail => detail.includes('scope=all')), true);
+    assert.equal(validatorCheck?.details?.some(detail => detail.includes('warnings=3')), true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function testContractValidatorArchitectureWarnings() {
   assertBuiltArtifactExists(contractValidatorDistPath, 'npm run build:scripts');
   const { runContractValidation } = require(contractValidatorDistPath);
@@ -1418,6 +1486,7 @@ async function main() {
     ['distribution profiles keep profile boundaries and runtime artifacts stable', testDistributionProfiles],
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],
+    ['doctor surfaces latest validator gate summary when present', testDoctorValidatorGateWarnings],
     ['contract validator architecture drift checks stay opt-in and additive', testContractValidatorArchitectureWarnings],
     ['rule validator warns when recommended metadata is missing', testRuleValidatorMetadataWarnings],
     ['skill validator warns on bundled files that are never linked from markdown', testSkillValidatorBundledReferenceWarnings],

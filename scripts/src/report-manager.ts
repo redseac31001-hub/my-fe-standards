@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { isDirectCliEntry } from './lib/cli-entry';
+import { readLatestValidatorGateReport } from './lib/validator-gate-report';
 import { readLatestWorkflowRoutingReport } from './lib/workflow-routing-selection';
 import {
   ReportsManifest,
@@ -33,10 +34,6 @@ import {
 
 const REPORTS_DIR = '.codebuddy/reports';
 const MANIFEST_FILE = 'manifest.json';
-const VALIDATOR_GATE_CANDIDATE_PATHS = [
-  'validators/latest/validator-gate-summary.json',
-  'validators/validator-gate-summary.json',
-];
 
 // ============ 工具函数 ============
 
@@ -91,16 +88,6 @@ function formatAge(isoString: string): string {
 function getReportAgeHours(isoString: string): number {
   const diff = Date.now() - new Date(isoString).getTime();
   return Math.floor(diff / (1000 * 60 * 60));
-}
-
-function readLatestValidatorGateReport(targetDir: string): ValidatorGateSummary | null {
-  for (const reportPath of VALIDATOR_GATE_CANDIDATE_PATHS) {
-    const report = readReport<ValidatorGateSummary>(targetDir, reportPath);
-    if (report && typeof report.generatedAt === 'string') {
-      return report;
-    }
-  }
-  return null;
 }
 
 function buildReportStatusSection(meta: ReportMeta | null): ReportManagerStatusSnapshot['sections']['architecture'] {

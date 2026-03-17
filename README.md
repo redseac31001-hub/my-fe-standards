@@ -175,6 +175,8 @@ npm run validate:gate:strict:report
 
 默认会写到 `.codebuddy/reports/validators/latest/`。
 
+写入标准报告目录后，`node .codebuddy/scripts/codebuddy-loader.js doctor --json` 也会带上最近一次 validator gate 的诊断结果。
+
 如果需要机器可读的当前报告摘要：
 
 ```bash

@@ -24,8 +24,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // scripts/src/codebuddy-loader.ts
-var fs8 = __toESM(require("fs"));
-var path8 = __toESM(require("path"));
+var fs9 = __toESM(require("fs"));
+var path9 = __toESM(require("path"));
 
 // scripts/src/lib/logger.ts
 function createLogger(ctx) {
@@ -584,8 +584,8 @@ function getScriptsForProfile(profile) {
 }
 
 // scripts/src/lib/install-health.ts
-var fs6 = __toESM(require("fs"));
-var path6 = __toESM(require("path"));
+var fs7 = __toESM(require("fs"));
+var path7 = __toESM(require("path"));
 var import_child_process = require("child_process");
 
 // scripts/src/lib/install-roots.ts
@@ -617,13 +617,37 @@ function resolveInstalledAgentsSnapshotRetention(installState) {
   return resolveInstalledAgentsRootDir(installState) ? 3 : null;
 }
 
-// scripts/src/lib/workflow-routing-selection.ts
-var fs5 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
-
-// scripts/src/lib/project-detection.ts
+// scripts/src/lib/validator-gate-report.ts
 var fs4 = __toESM(require("fs"));
 var path4 = __toESM(require("path"));
+var VALIDATOR_GATE_CANDIDATE_PATHS = [
+  "validators/latest/validator-gate-summary.json",
+  "validators/validator-gate-summary.json"
+];
+function readLatestValidatorGateReport(targetDir) {
+  for (const relativePath of VALIDATOR_GATE_CANDIDATE_PATHS) {
+    const absolutePath = path4.join(targetDir, ".codebuddy", "reports", relativePath);
+    if (!fs4.existsSync(absolutePath)) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(fs4.readFileSync(absolutePath, "utf-8"));
+      if (parsed && typeof parsed.generatedAt === "string") {
+        return parsed;
+      }
+    } catch {
+    }
+  }
+  return null;
+}
+
+// scripts/src/lib/workflow-routing-selection.ts
+var fs6 = __toESM(require("fs"));
+var path6 = __toESM(require("path"));
+
+// scripts/src/lib/project-detection.ts
+var fs5 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
 var WORKSPACE_EXCLUDE_DIRS = /* @__PURE__ */ new Set([
   "node_modules",
   "dist",
@@ -724,7 +748,7 @@ function finalizeStackTags(values) {
 }
 function readProjectFileIfExists(filePath) {
   try {
-    return fs4.existsSync(filePath) ? fs4.readFileSync(filePath, "utf-8") : "";
+    return fs5.existsSync(filePath) ? fs5.readFileSync(filePath, "utf-8") : "";
   } catch {
     return "";
   }
@@ -746,7 +770,7 @@ function detectNodePackageManagers(projectDir) {
     { file: "bun.lockb", tag: "bun" },
     { file: "bun.lock", tag: "bun" }
   ];
-  return markers.filter((marker) => fs4.existsSync(path4.join(projectDir, marker.file))).map((marker) => marker.tag);
+  return markers.filter((marker) => fs5.existsSync(path5.join(projectDir, marker.file))).map((marker) => marker.tag);
 }
 function detectGenericNodeBackendProject(projectDir, packageJson) {
   const scripts = packageJson.scripts || {};
@@ -755,13 +779,13 @@ function detectGenericNodeBackendProject(projectDir, packageJson) {
     (command) => /(node|nodemon|tsx|ts-node|ts-node-dev|bun|pm2)/i.test(command) && /(server|api|listen|http)/i.test(command)
   );
   for (const relativePath of NODE_BACKEND_STRONG_ENTRY_FILES) {
-    if (fs4.existsSync(path4.join(projectDir, relativePath))) {
+    if (fs5.existsSync(path5.join(projectDir, relativePath))) {
       return true;
     }
   }
   for (const relativePath of NODE_BACKEND_WEAK_ENTRY_FILES) {
-    const absolutePath = path4.join(projectDir, relativePath);
-    if (!fs4.existsSync(absolutePath)) {
+    const absolutePath = path5.join(projectDir, relativePath);
+    if (!fs5.existsSync(absolutePath)) {
       continue;
     }
     const content = readProjectFileIfExists(absolutePath);
@@ -770,7 +794,7 @@ function detectGenericNodeBackendProject(projectDir, packageJson) {
     }
   }
   const layoutClues = NODE_BACKEND_LAYOUT_DIRS.filter(
-    (relativePath) => fs4.existsSync(path4.join(projectDir, relativePath))
+    (relativePath) => fs5.existsSync(path5.join(projectDir, relativePath))
   ).length;
   if (layoutClues >= 2) {
     return true;
@@ -778,8 +802,8 @@ function detectGenericNodeBackendProject(projectDir, packageJson) {
   return hasBackendScript && layoutClues >= 1;
 }
 function detectJavaProjectMetadata(projectDir) {
-  const pomContent = readProjectFileIfExists(path4.join(projectDir, "pom.xml"));
-  const gradleContent = readProjectFileIfExists(path4.join(projectDir, "build.gradle")) || readProjectFileIfExists(path4.join(projectDir, "build.gradle.kts"));
+  const pomContent = readProjectFileIfExists(path5.join(projectDir, "pom.xml"));
+  const gradleContent = readProjectFileIfExists(path5.join(projectDir, "build.gradle")) || readProjectFileIfExists(path5.join(projectDir, "build.gradle.kts"));
   const combinedContent = `${pomContent}
 ${gradleContent}`.toLowerCase();
   const stackTags = /* @__PURE__ */ new Set(["java"]);
@@ -819,7 +843,7 @@ ${gradleContent}`.toLowerCase();
   };
 }
 function detectRustProjectMetadata(projectDir) {
-  const cargoContent = readProjectFileIfExists(path4.join(projectDir, "Cargo.toml"));
+  const cargoContent = readProjectFileIfExists(path5.join(projectDir, "Cargo.toml"));
   const normalizedContent = cargoContent.toLowerCase();
   const stackTags = /* @__PURE__ */ new Set(["rust", "cargo"]);
   let frameworkLabel = "";
@@ -852,8 +876,8 @@ function detectRustProjectMetadata(projectDir) {
   };
 }
 function detectDotnetProjectMetadata(projectDir) {
-  const projectFiles = fs4.readdirSync(projectDir).filter((entry) => entry.endsWith(".csproj") || entry.endsWith(".fsproj"));
-  const combinedContent = projectFiles.map((file) => readProjectFileIfExists(path4.join(projectDir, file))).join("\n").toLowerCase();
+  const projectFiles = fs5.readdirSync(projectDir).filter((entry) => entry.endsWith(".csproj") || entry.endsWith(".fsproj"));
+  const combinedContent = projectFiles.map((file) => readProjectFileIfExists(path5.join(projectDir, file))).join("\n").toLowerCase();
   const stackTags = /* @__PURE__ */ new Set(["dotnet"]);
   let frameworkLabel = "";
   let projectKind = "library";
@@ -970,21 +994,21 @@ function discoverWorkspace(logger, targetDir) {
     if (projects.length >= MAX_SUB_PROJECTS) return;
     let realDir;
     try {
-      realDir = fs4.realpathSync(dir);
+      realDir = fs5.realpathSync(dir);
     } catch {
       return;
     }
     if (visited.has(realDir)) return;
     visited.add(realDir);
-    const relativePath = path4.relative(targetDir, dir).replace(/\\/g, "/") || ".";
+    const relativePath = path5.relative(targetDir, dir).replace(/\\/g, "/") || ".";
     let detected = false;
     for (const marker of PROJECT_MARKERS) {
-      const markerFile = marker.files.find((file) => fs4.existsSync(path4.join(dir, file)));
+      const markerFile = marker.files.find((file) => fs5.existsSync(path5.join(dir, file)));
       if (!markerFile) continue;
       let lang = marker.lang;
       if (marker.refinements) {
         for (const refinement of marker.refinements) {
-          if (refinement.files.some((file) => fs4.existsSync(path4.join(dir, file)))) {
+          if (refinement.files.some((file) => fs5.existsSync(path5.join(dir, file)))) {
             lang = refinement.lang;
             break;
           }
@@ -992,10 +1016,10 @@ function discoverWorkspace(logger, targetDir) {
       }
       if (markerFile === "package.json") {
         try {
-          const pkgContent = JSON.parse(fs4.readFileSync(path4.join(dir, "package.json"), "utf-8"));
+          const pkgContent = JSON.parse(fs5.readFileSync(path5.join(dir, "package.json"), "utf-8"));
           const metadata = detectProjectMetadata(dir, lang, pkgContent);
           projects.push({
-            name: pkgContent.name || path4.basename(dir),
+            name: pkgContent.name || path5.basename(dir),
             relativePath,
             absolutePath: dir,
             lang,
@@ -1009,12 +1033,12 @@ function discoverWorkspace(logger, targetDir) {
             stackTags: metadata.stackTags
           });
         } catch {
-          logger.warn(`\u89E3\u6790 package.json \u5931\u8D25: ${path4.join(dir, "package.json")}`);
+          logger.warn(`\u89E3\u6790 package.json \u5931\u8D25: ${path5.join(dir, "package.json")}`);
         }
       } else {
         const metadata = detectProjectMetadata(dir, lang);
         projects.push({
-          name: path4.basename(dir),
+          name: path5.basename(dir),
           relativePath,
           absolutePath: dir,
           lang,
@@ -1032,12 +1056,12 @@ function discoverWorkspace(logger, targetDir) {
     }
     if (!detected) {
       try {
-        const entries = fs4.readdirSync(dir);
+        const entries = fs5.readdirSync(dir);
         const hasCsproj = entries.some((entry) => entry.endsWith(".csproj") || entry.endsWith(".sln"));
         if (hasCsproj) {
           const metadata = detectProjectMetadata(dir, "dotnet");
           projects.push({
-            name: path4.basename(dir),
+            name: path5.basename(dir),
             relativePath,
             absolutePath: dir,
             lang: "dotnet",
@@ -1058,15 +1082,15 @@ function discoverWorkspace(logger, targetDir) {
     if (depth < 2) {
       let entries;
       try {
-        entries = fs4.readdirSync(dir);
+        entries = fs5.readdirSync(dir);
       } catch {
         return;
       }
       for (const entry of entries) {
         if (entry.startsWith(".") || WORKSPACE_EXCLUDE_DIRS.has(entry)) continue;
-        const childPath = path4.join(dir, entry);
+        const childPath = path5.join(dir, entry);
         try {
-          if (fs4.statSync(childPath).isDirectory()) {
+          if (fs5.statSync(childPath).isDirectory()) {
             scan(childPath, depth + 1);
           }
         } catch {
@@ -1098,12 +1122,12 @@ function discoverWorkspace(logger, targetDir) {
 }
 function detectProjectLangFromDir(projectDir) {
   for (const marker of PROJECT_MARKERS) {
-    const markerFile = marker.files.find((file) => fs4.existsSync(path4.join(projectDir, file)));
+    const markerFile = marker.files.find((file) => fs5.existsSync(path5.join(projectDir, file)));
     if (!markerFile) continue;
     let lang = marker.lang;
     if (marker.refinements) {
       for (const refinement of marker.refinements) {
-        if (refinement.files.some((file) => fs4.existsSync(path4.join(projectDir, file)))) {
+        if (refinement.files.some((file) => fs5.existsSync(path5.join(projectDir, file)))) {
           lang = refinement.lang;
           break;
         }
@@ -1112,7 +1136,7 @@ function detectProjectLangFromDir(projectDir) {
     return lang;
   }
   try {
-    const entries = fs4.readdirSync(projectDir);
+    const entries = fs5.readdirSync(projectDir);
     if (entries.some((entry) => entry.endsWith(".csproj") || entry.endsWith(".fsproj"))) {
       return "dotnet";
     }
@@ -1183,19 +1207,19 @@ function createScopedWorkspaceInfo(workspaceInfo, workspaceScope, targetProjectS
 
 // scripts/src/lib/workflow-routing-selection.ts
 function readJsonFile(filePath) {
-  if (!fs5.existsSync(filePath)) return null;
+  if (!fs6.existsSync(filePath)) return null;
   try {
-    return JSON.parse(fs5.readFileSync(filePath, "utf-8"));
+    return JSON.parse(fs6.readFileSync(filePath, "utf-8"));
   } catch {
     return null;
   }
 }
 function listWorkflowRoutingReportPaths(projectRoot) {
-  const reportsDir = path5.join(projectRoot, ".codebuddy", "reports", "workflow-routing");
-  if (!fs5.existsSync(reportsDir)) return [];
-  return fs5.readdirSync(reportsDir).filter((fileName) => fileName.endsWith(".routing.json")).map((fileName) => path5.join(reportsDir, fileName)).sort((left, right) => {
+  const reportsDir = path6.join(projectRoot, ".codebuddy", "reports", "workflow-routing");
+  if (!fs6.existsSync(reportsDir)) return [];
+  return fs6.readdirSync(reportsDir).filter((fileName) => fileName.endsWith(".routing.json")).map((fileName) => path6.join(reportsDir, fileName)).sort((left, right) => {
     try {
-      return fs5.statSync(right).mtimeMs - fs5.statSync(left).mtimeMs;
+      return fs6.statSync(right).mtimeMs - fs6.statSync(left).mtimeMs;
     } catch {
       return 0;
     }
@@ -1296,14 +1320,14 @@ function isNonEmptyString(value) {
 }
 function readJsonFile2(filePath) {
   try {
-    return JSON.parse(fs6.readFileSync(filePath, "utf-8"));
+    return JSON.parse(fs7.readFileSync(filePath, "utf-8"));
   } catch {
     return null;
   }
 }
 function readTextFile(filePath) {
   try {
-    return fs6.readFileSync(filePath, "utf-8");
+    return fs7.readFileSync(filePath, "utf-8");
   } catch {
     return null;
   }
@@ -1325,8 +1349,8 @@ function parseAgentCallPromptHeaderPaths(markdown) {
 }
 function collectArchitectureConstraintDetails(inspection) {
   const details = [];
-  const defaultWorkflowPath = path6.join(inspection.targetDir, ".codebuddy", "workflows", "default.workflow.json");
-  if (fs6.existsSync(defaultWorkflowPath)) {
+  const defaultWorkflowPath = path7.join(inspection.targetDir, ".codebuddy", "workflows", "default.workflow.json");
+  if (fs7.existsSync(defaultWorkflowPath)) {
     const workflow = readJsonFile2(defaultWorkflowPath);
     if (isPlainObject(workflow)) {
       const steps = Array.isArray(workflow.steps) ? workflow.steps : [];
@@ -1342,17 +1366,17 @@ function collectArchitectureConstraintDetails(inspection) {
       }
     }
   }
-  const agentCallsDir = path6.join(inspection.targetDir, ".codebuddy", "agent-calls");
-  if (fs6.existsSync(agentCallsDir)) {
+  const agentCallsDir = path7.join(inspection.targetDir, ".codebuddy", "agent-calls");
+  if (fs7.existsSync(agentCallsDir)) {
     const requestIds = /* @__PURE__ */ new Map();
-    for (const entry of fs6.readdirSync(agentCallsDir, { withFileTypes: true })) {
+    for (const entry of fs7.readdirSync(agentCallsDir, { withFileTypes: true })) {
       if (!entry.isFile()) continue;
       const match = entry.name.match(/^(.*)\.(prompt\.md|result\.json)$/);
       if (!match) continue;
       const requestId = match[1];
       const suffix = match[2];
       const fileState = requestIds.get(requestId) ?? { promptFile: null, resultFile: null };
-      const filePath = path6.join(agentCallsDir, entry.name);
+      const filePath = path7.join(agentCallsDir, entry.name);
       if (suffix === "prompt.md") fileState.promptFile = filePath;
       if (suffix === "result.json") fileState.resultFile = filePath;
       requestIds.set(requestId, fileState);
@@ -1394,8 +1418,8 @@ function collectWorkflowRoutingReportDetails(inspection) {
   }
   const selectedWorkflowPath = report.decision?.selectedWorkflowPath || "";
   if (selectedWorkflowPath) {
-    const absoluteWorkflowPath = path6.isAbsolute(selectedWorkflowPath) ? selectedWorkflowPath : path6.join(inspection.targetDir, selectedWorkflowPath);
-    if (!fs6.existsSync(absoluteWorkflowPath)) {
+    const absoluteWorkflowPath = path7.isAbsolute(selectedWorkflowPath) ? selectedWorkflowPath : path7.join(inspection.targetDir, selectedWorkflowPath);
+    if (!fs7.existsSync(absoluteWorkflowPath)) {
       details.push(`latest route points to a missing workflow file: ${selectedWorkflowPath}`);
     }
   }
@@ -1404,6 +1428,23 @@ function collectWorkflowRoutingReportDetails(inspection) {
   }
   if (report.decision?.confidence === "low") {
     details.push(`latest route confidence is low (${report.decision.selectedWorkflowId})`);
+  }
+  return { report, details: Array.from(new Set(details)) };
+}
+function collectValidatorGateReportDetails(inspection) {
+  const report = readLatestValidatorGateReport(inspection.targetDir);
+  const details = [];
+  if (!report) {
+    return { report, details };
+  }
+  if (!report.effectiveOk) {
+    details.push(`latest validator gate reported fail: scope=${report.scope}, strict=${report.strictMode ? "on" : "off"}`);
+  }
+  if ((report.errorCount || 0) > 0 || (report.warningCount || 0) > 0) {
+    details.push(`latest validator gate counts: errors=${report.errorCount || 0}, warnings=${report.warningCount || 0}`);
+  }
+  if (report.outputDir) {
+    details.push(`report output dir: ${report.outputDir}`);
   }
   return { report, details: Array.from(new Set(details)) };
 }
@@ -1464,24 +1505,24 @@ function resolveManagedRoots(installState) {
   return roots;
 }
 function inspectInstallState(targetDir, installState, installStateExists) {
-  const installStatePath = path6.join(targetDir, ".codebuddy", "install.json");
-  const rulesFilePath = installState?.outputs.rulesFile ? path6.join(targetDir, installState.outputs.rulesFile) : null;
-  const workspaceIndexPath = installState?.outputs.workspaceIndexFile ? path6.join(targetDir, installState.outputs.workspaceIndexFile) : null;
+  const installStatePath = path7.join(targetDir, ".codebuddy", "install.json");
+  const rulesFilePath = installState?.outputs.rulesFile ? path7.join(targetDir, installState.outputs.rulesFile) : null;
+  const workspaceIndexPath = installState?.outputs.workspaceIndexFile ? path7.join(targetDir, installState.outputs.workspaceIndexFile) : null;
   const agentsRootDir = resolveInstalledAgentsRootDir(installState);
-  const agentsRootPath = agentsRootDir ? path6.join(targetDir, agentsRootDir) : null;
+  const agentsRootPath = agentsRootDir ? path7.join(targetDir, agentsRootDir) : null;
   const skillsRootDir = resolveInstalledSkillsRootDir(installState);
-  const skillsRootPath = skillsRootDir ? path6.join(targetDir, skillsRootDir) : null;
+  const skillsRootPath = skillsRootDir ? path7.join(targetDir, skillsRootDir) : null;
   const managedFiles = installState?.managedFiles || [];
   const managedFileSet = new Set(managedFiles.map((file) => file.path));
-  const missingManagedFiles = managedFiles.filter((file) => !fs6.existsSync(path6.join(targetDir, file.path))).map((file) => file.path).sort();
+  const missingManagedFiles = managedFiles.filter((file) => !fs7.existsSync(path7.join(targetDir, file.path))).map((file) => file.path).sort();
   const unexpectedStaticFiles = managedFileSet.size > 0 ? resolveManagedRoots(installState).flatMap((relativeRoot) => {
-    const absoluteRoot = path6.join(targetDir, relativeRoot);
+    const absoluteRoot = path7.join(targetDir, relativeRoot);
     return listFilesRecursive(absoluteRoot).map((filePath) => toProjectRelativePath(targetDir, filePath)).filter((filePath) => !managedFileSet.has(filePath));
   }).sort() : [];
   const expectedResiduals = installState ? PROFILE_RESIDUAL_ARTIFACTS[installState.profile] : [];
   const unexpectedProfileFiles = expectedResiduals.filter((relativePath) => {
     if (managedFileSet.has(relativePath)) return false;
-    return fs6.existsSync(path6.join(targetDir, relativePath));
+    return fs7.existsSync(path7.join(targetDir, relativePath));
   });
   return {
     targetDir,
@@ -1489,13 +1530,13 @@ function inspectInstallState(targetDir, installState, installStateExists) {
     installStateExists,
     installState,
     rulesFilePath,
-    rulesFileExists: rulesFilePath ? fs6.existsSync(rulesFilePath) : false,
+    rulesFileExists: rulesFilePath ? fs7.existsSync(rulesFilePath) : false,
     workspaceIndexPath,
-    workspaceIndexExists: workspaceIndexPath ? fs6.existsSync(workspaceIndexPath) : false,
+    workspaceIndexExists: workspaceIndexPath ? fs7.existsSync(workspaceIndexPath) : false,
     agentsRootPath,
-    agentsRootExists: agentsRootPath ? fs6.existsSync(agentsRootPath) : false,
+    agentsRootExists: agentsRootPath ? fs7.existsSync(agentsRootPath) : false,
     skillsRootPath,
-    skillsRootExists: skillsRootPath ? fs6.existsSync(skillsRootPath) : false,
+    skillsRootExists: skillsRootPath ? fs7.existsSync(skillsRootPath) : false,
     trackedManagedFileCount: managedFiles.length,
     presentManagedFileCount: managedFiles.length - missingManagedFiles.length,
     missingManagedFiles,
@@ -1632,6 +1673,20 @@ function buildDoctorChecks(inspection) {
       ]
     });
   }
+  const validatorGateReport = collectValidatorGateReportDetails(inspection);
+  if (validatorGateReport.report) {
+    checks.push({
+      id: "validator-gate-report",
+      status: validatorGateReport.report.effectiveOk ? "pass" : "warn",
+      message: validatorGateReport.report.effectiveOk ? `\u6700\u8FD1\u4E00\u6B21 validator gate \u6B63\u5E38: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? "strict" : "default"})` : `\u6700\u8FD1\u4E00\u6B21 validator gate \u9700\u5173\u6CE8: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? "strict" : "default"})`,
+      details: validatorGateReport.details.length > 0 ? validatorGateReport.details.slice(0, 10) : [
+        `scope=${validatorGateReport.report.scope}`,
+        `strict=${validatorGateReport.report.strictMode ? "on" : "off"}`,
+        `errors=${validatorGateReport.report.errorCount}`,
+        `warnings=${validatorGateReport.report.warningCount}`
+      ]
+    });
+  }
   return checks;
 }
 function summarizeDoctorChecks(checks) {
@@ -1704,8 +1759,8 @@ function formatDoctorReport(inspection, checks, summary) {
 }
 
 // scripts/src/lib/install-state.ts
-var fs7 = __toESM(require("fs"));
-var path7 = __toESM(require("path"));
+var fs8 = __toESM(require("fs"));
+var path8 = __toESM(require("path"));
 var import_crypto3 = require("crypto");
 var INSTALL_STATE_SCHEMA_VERSION = "1.2.0";
 function createInstallSnapshotId(options = {}) {
@@ -1719,19 +1774,19 @@ function buildSnapshotSortKey(name, absolutePath) {
     return `0-${name}`;
   }
   try {
-    const stat = fs7.statSync(absolutePath);
+    const stat = fs8.statSync(absolutePath);
     return `1-${String(Math.trunc(stat.mtimeMs)).padStart(16, "0")}-${name}`;
   } catch {
     return `2-${name}`;
   }
 }
 function listSnapshotEntries(targetDir, snapshotRootDir) {
-  const snapshotsRoot = path7.join(targetDir, snapshotRootDir);
-  if (!fs7.existsSync(snapshotsRoot)) {
+  const snapshotsRoot = path8.join(targetDir, snapshotRootDir);
+  if (!fs8.existsSync(snapshotsRoot)) {
     return [];
   }
-  return fs7.readdirSync(snapshotsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
-    const absolutePath = path7.join(snapshotsRoot, entry.name);
+  return fs8.readdirSync(snapshotsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
+    const absolutePath = path8.join(snapshotsRoot, entry.name);
     return {
       name: entry.name,
       absolutePath,
@@ -1907,12 +1962,12 @@ function buildInstallState(params) {
   };
 }
 function writeInstallState(targetDir, installState) {
-  const installStatePath = path7.join(targetDir, ".codebuddy", "install.json");
-  const installStateDir = path7.dirname(installStatePath);
-  if (!fs7.existsSync(installStateDir)) {
-    fs7.mkdirSync(installStateDir, { recursive: true });
+  const installStatePath = path8.join(targetDir, ".codebuddy", "install.json");
+  const installStateDir = path8.dirname(installStatePath);
+  if (!fs8.existsSync(installStateDir)) {
+    fs8.mkdirSync(installStateDir, { recursive: true });
   }
-  fs7.writeFileSync(installStatePath, JSON.stringify(installState, null, 2), "utf-8");
+  fs8.writeFileSync(installStatePath, JSON.stringify(installState, null, 2), "utf-8");
   return installStatePath;
 }
 
@@ -2353,11 +2408,11 @@ ${table}
 }
 function getCommandPromptEntry(cmd) {
   const commandName = cmd.replace(/\.md$/, "");
-  const path9 = `.codebuddy/commands/${cmd}`;
+  const path10 = `.codebuddy/commands/${cmd}`;
   if (cmd === "task.md") {
     return {
       command: "/task",
-      path: path9,
+      path: path10,
       description: "\u7AEF\u5230\u7AEF\u8BA1\u5212\u4EFB\u52A1\u7F16\u6392",
       example: "/task \u5B9E\u73B0\u7528\u6237\u767B\u5F55\u529F\u80FD"
     };
@@ -2365,73 +2420,73 @@ function getCommandPromptEntry(cmd) {
   if (cmd === "agent-call.md") {
     return {
       command: "/agent-call",
-      path: path9,
+      path: path10,
       description: "\u6267\u884C Agent Call \u5E76\u5199\u56DE result.json",
       example: "/agent-call req-20260204-xxxxxx"
     };
   }
   return {
     command: `/${commandName}`,
-    path: path9,
+    path: path10,
     description: "-",
     example: `/${commandName}`
   };
 }
 function getScriptPromptEntry(script) {
-  const path9 = `.codebuddy/scripts/${script}`;
+  const path10 = `.codebuddy/scripts/${script}`;
   if (script === "structure-analyzer.js") {
     return {
       file: script,
-      path: path9,
+      path: path10,
       description: "\u9879\u76EE\u7ED3\u6784\u5206\u6790\u5668",
-      usage: `node ${path9} .`
+      usage: `node ${path10} .`
     };
   }
   if (script === "module-mapper.js") {
     return {
       file: script,
-      path: path9,
+      path: path10,
       description: "\u6A21\u5757\u56FE\u8C31\u5206\u6790\u5668",
-      usage: `node ${path9} .`
+      usage: `node ${path10} .`
     };
   }
   if (script === "report-manager.js") {
     return {
       file: script,
-      path: path9,
+      path: path10,
       description: "\u62A5\u544A\u7BA1\u7406\u5668",
-      usage: `node ${path9} status`
+      usage: `node ${path10} status`
     };
   }
   if (script === "agent-call-manager.js") {
     return {
       file: script,
-      path: path9,
+      path: path10,
       description: "Agent Call \u7BA1\u7406\u5668\uFF08list/show/validate\uFF09",
-      usage: `node ${path9} list`
+      usage: `node ${path10} list`
     };
   }
   if (script === "task-orchestrator.js") {
     return {
       file: script,
-      path: path9,
+      path: path10,
       description: "\u4E00\u952E\u95ED\u73AF\u6267\u884C\u5668\uFF08\u521B\u5EFA/\u89C4\u5212/\u6267\u884C/\u9A8C\u6536\uFF09",
-      usage: `node ${path9} "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature`
+      usage: `node ${path10} "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature`
     };
   }
   if (script === "contract-validator.js") {
     return {
       file: script,
-      path: path9,
+      path: path10,
       description: "\u5951\u7EA6\u6821\u9A8C\u5668\uFF08TaskBook/Workflow\uFF09",
-      usage: `node ${path9} --workflows --taskbooks`
+      usage: `node ${path10} --workflows --taskbooks`
     };
   }
   return {
     file: script,
-    path: path9,
+    path: path10,
     description: "-",
-    usage: `node ${path9}`
+    usage: `node ${path10}`
   };
 }
 function buildCommandsTable(commands) {
@@ -3101,12 +3156,12 @@ ${routingExample}${mixWarning}
 
 // scripts/src/codebuddy-loader.ts
 var SCRIPT_DIR = __dirname;
-var PROJECT_ROOT = path8.resolve(SCRIPT_DIR, "../..");
-var PACKAGE_JSON_PATH = path8.join(PROJECT_ROOT, "package.json");
-var RULES_ROOT = path8.join(PROJECT_ROOT, "rules");
-var CONFIG_PATH = path8.join(PROJECT_ROOT, "config", "loader-config.json");
-var SKILLS_ROOT = path8.join(PROJECT_ROOT, "custom-skills");
-var AGENTS_ROOT = path8.join(PROJECT_ROOT, "agents");
+var PROJECT_ROOT = path9.resolve(SCRIPT_DIR, "../..");
+var PACKAGE_JSON_PATH = path9.join(PROJECT_ROOT, "package.json");
+var RULES_ROOT = path9.join(PROJECT_ROOT, "rules");
+var CONFIG_PATH = path9.join(PROJECT_ROOT, "config", "loader-config.json");
+var SKILLS_ROOT = path9.join(PROJECT_ROOT, "custom-skills");
+var AGENTS_ROOT = path9.join(PROJECT_ROOT, "agents");
 var DEFAULT_TIMEOUT = 1e4;
 var DEFAULT_THRESHOLD = 0.5;
 var DEFAULT_RULE_LEVEL = "full";
@@ -3219,22 +3274,22 @@ async function loadConfig(ctx, logger) {
       process.exit(1);
     }
   } else {
-    if (!fs8.existsSync(CONFIG_PATH)) {
+    if (!fs9.existsSync(CONFIG_PATH)) {
       logger.error(`\u914D\u7F6E\u6587\u4EF6\u4E0D\u5B58\u5728: ${CONFIG_PATH}`);
       process.exit(1);
     }
     logger.verbose(`\u52A0\u8F7D\u672C\u5730\u914D\u7F6E: ${CONFIG_PATH}`);
-    return { config: JSON.parse(fs8.readFileSync(CONFIG_PATH, "utf-8")), manifest: null };
+    return { config: JSON.parse(fs9.readFileSync(CONFIG_PATH, "utf-8")), manifest: null };
   }
 }
 function getPackageJson(logger, targetDir) {
-  const pkgPath = path8.join(targetDir, "package.json");
-  if (!fs8.existsSync(pkgPath)) {
+  const pkgPath = path9.join(targetDir, "package.json");
+  if (!fs9.existsSync(pkgPath)) {
     logger.warn(`\u672A\u627E\u5230 package.json: ${pkgPath}`);
     return {};
   }
   try {
-    return JSON.parse(fs8.readFileSync(pkgPath, "utf-8"));
+    return JSON.parse(fs9.readFileSync(pkgPath, "utf-8"));
   } catch (e) {
     logger.error(`\u89E3\u6790 package.json \u5931\u8D25: ${e.message}`);
     return {};
@@ -3244,12 +3299,12 @@ function getLoaderVersion(ctx, logger) {
   if (ctx.remoteManifest?.version) {
     return ctx.remoteManifest.version;
   }
-  if (!fs8.existsSync(PACKAGE_JSON_PATH)) {
+  if (!fs9.existsSync(PACKAGE_JSON_PATH)) {
     logger.warn(`\u672A\u627E\u5230 loader package.json: ${PACKAGE_JSON_PATH}`);
     return "0.0.0";
   }
   try {
-    const pkg = JSON.parse(fs8.readFileSync(PACKAGE_JSON_PATH, "utf-8"));
+    const pkg = JSON.parse(fs9.readFileSync(PACKAGE_JSON_PATH, "utf-8"));
     return pkg.version || "0.0.0";
   } catch (error) {
     logger.warn(`\u8BFB\u53D6 loader package.json \u5931\u8D25: ${error.message}`);
@@ -3265,9 +3320,9 @@ async function loadRuleFile(ctx, logger, layerId, filePath) {
       return "";
     }
   } else {
-    const fullPath = path8.join(RULES_ROOT, layerId, filePath);
-    if (fs8.existsSync(fullPath)) {
-      return fs8.readFileSync(fullPath, "utf-8");
+    const fullPath = path9.join(RULES_ROOT, layerId, filePath);
+    if (fs9.existsSync(fullPath)) {
+      return fs9.readFileSync(fullPath, "utf-8");
     }
     return "";
   }
@@ -3287,23 +3342,23 @@ async function loadLayerRules(ctx, logger, layerId, folders) {
         }
       }
     } else {
-      const folderPath = path8.join(RULES_ROOT, layerId, folder);
-      if (fs8.existsSync(folderPath)) {
-        const stat = fs8.statSync(folderPath);
+      const folderPath = path9.join(RULES_ROOT, layerId, folder);
+      if (fs9.existsSync(folderPath)) {
+        const stat = fs9.statSync(folderPath);
         if (stat.isDirectory()) {
-          const files = fs8.readdirSync(folderPath).filter((f) => f.endsWith(".md"));
+          const files = fs9.readdirSync(folderPath).filter((f) => f.endsWith(".md"));
           for (const file of files) {
-            const content = fs8.readFileSync(path8.join(folderPath, file), "utf-8");
+            const content = fs9.readFileSync(path9.join(folderPath, file), "utf-8");
             contents.push({ path: `${folder}/${file}`, content: filterRuleByLevel(content, ctx.ruleLevel) });
           }
         } else if (folderPath.endsWith(".md")) {
-          const content = fs8.readFileSync(folderPath, "utf-8");
+          const content = fs9.readFileSync(folderPath, "utf-8");
           contents.push({ path: folder, content: filterRuleByLevel(content, ctx.ruleLevel) });
         }
       }
-      const mdPath = path8.join(RULES_ROOT, layerId, folder + ".md");
-      if (fs8.existsSync(mdPath)) {
-        const content = fs8.readFileSync(mdPath, "utf-8");
+      const mdPath = path9.join(RULES_ROOT, layerId, folder + ".md");
+      if (fs9.existsSync(mdPath)) {
+        const content = fs9.readFileSync(mdPath, "utf-8");
         contents.push({ path: folder + ".md", content: filterRuleByLevel(content, ctx.ruleLevel) });
       }
     }
@@ -3338,9 +3393,9 @@ function filterRuleByLevel(content, level) {
 }
 async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir) {
   const entities = [];
-  const localDir = path8.join(targetDir, options.targetSubDir);
-  if (!fs8.existsSync(localDir)) {
-    fs8.mkdirSync(localDir, { recursive: true });
+  const localDir = path9.join(targetDir, options.targetSubDir);
+  if (!fs9.existsSync(localDir)) {
+    fs9.mkdirSync(localDir, { recursive: true });
   }
   if (ctx.isRemote) {
     const files = ctx.remoteManifest.files.filter(
@@ -3361,7 +3416,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
       try {
         const content = await readRemoteAsset(ctx, logger, file.path);
         const relativePath = file.path.replace(options.manifestPrefix, "");
-        writeManagedFile(tracker, path8.join(localDir, relativePath), content);
+        writeManagedFile(tracker, path9.join(localDir, relativePath), content);
         logger.verbose(`\u5DF2\u4E0B\u8F7D${options.label}\u6839\u6587\u4EF6: ${relativePath}`);
       } catch (e) {
         logger.warn(`${options.label}\u6839\u6587\u4EF6\u4E0B\u8F7D\u5931\u8D25: ${file.path} - ${e.message}`);
@@ -3383,7 +3438,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
           try {
             const content = file.path === metadataFile.path ? metadataContent : await readRemoteAsset(ctx, logger, file.path);
             const relativePath = file.path.replace(options.manifestPrefix, "");
-            const localPath = path8.join(localDir, relativePath);
+            const localPath = path9.join(localDir, relativePath);
             writeManagedFile(tracker, localPath, content);
             logger.verbose(`\u5DF2\u4E0B\u8F7D${options.label}\u6587\u4EF6: ${relativePath}`);
           } catch (e) {
@@ -3395,21 +3450,21 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
       }
     }
   } else {
-    const sourceDir = path8.join(PROJECT_ROOT, sourcePath);
-    if (fs8.existsSync(sourceDir)) {
-      const entries = fs8.readdirSync(sourceDir, { withFileTypes: true });
+    const sourceDir = path9.join(PROJECT_ROOT, sourcePath);
+    if (fs9.existsSync(sourceDir)) {
+      const entries = fs9.readdirSync(sourceDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isFile()) continue;
-        const sourceFile = path8.join(sourceDir, entry.name);
-        const destinationPath = path8.join(localDir, entry.name);
+        const sourceFile = path9.join(sourceDir, entry.name);
+        const destinationPath = path9.join(localDir, entry.name);
         copyManagedFile(tracker, sourceFile, destinationPath);
       }
       const entityDirs = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".")).map((entry) => entry.name);
       for (const entityId of entityDirs) {
-        const entitySourceDir = path8.join(sourceDir, entityId);
-        const metadataFile = path8.join(entitySourceDir, options.metadataFileName);
-        if (!fs8.existsSync(metadataFile)) continue;
-        const content = fs8.readFileSync(metadataFile, "utf-8");
+        const entitySourceDir = path9.join(sourceDir, entityId);
+        const metadataFile = path9.join(entitySourceDir, options.metadataFileName);
+        if (!fs9.existsSync(metadataFile)) continue;
+        const content = fs9.readFileSync(metadataFile, "utf-8");
         const metadata = options.parseMetadata(entityId, content);
         if (!metadata) continue;
         if (options.includeEntity && !options.includeEntity(metadata, entityId)) {
@@ -3419,8 +3474,8 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
         entities.push(metadata);
         const sourceFiles = listFilesRecursive(entitySourceDir);
         for (const sourceFile of sourceFiles) {
-          const relativePath = path8.relative(sourceDir, sourceFile);
-          const destinationPath = path8.join(localDir, relativePath);
+          const relativePath = path9.relative(sourceDir, sourceFile);
+          const destinationPath = path9.join(localDir, relativePath);
           copyManagedFile(tracker, sourceFile, destinationPath);
         }
       }
@@ -3449,16 +3504,16 @@ async function loadAgents(ctx, logger, agentsPath, tracker, targetDir, targetSub
 }
 async function distributeScripts(ctx, logger, targetDir, tracker) {
   const distributed = [];
-  const localScriptsDir = path8.join(targetDir, ".codebuddy/scripts");
+  const localScriptsDir = path9.join(targetDir, ".codebuddy/scripts");
   const scriptsToDistribute = getScriptsForProfile(ctx.profile);
-  if (!fs8.existsSync(localScriptsDir)) {
-    fs8.mkdirSync(localScriptsDir, { recursive: true });
+  if (!fs9.existsSync(localScriptsDir)) {
+    fs9.mkdirSync(localScriptsDir, { recursive: true });
   }
   if (ctx.isRemote) {
     for (const scriptInfo of scriptsToDistribute) {
       try {
         const content = await readRemoteTextAsset(ctx, logger, `scripts/dist/${scriptInfo.file}`);
-        const destPath = path8.join(localScriptsDir, scriptInfo.file);
+        const destPath = path9.join(localScriptsDir, scriptInfo.file);
         writeManagedFile(tracker, destPath, content);
         distributed.push(scriptInfo.file);
         logger.verbose(`\u5DF2\u4E0B\u8F7D\u811A\u672C: ${scriptInfo.file}`);
@@ -3466,7 +3521,7 @@ async function distributeScripts(ctx, logger, targetDir, tracker) {
           for (const dep of scriptInfo.dependencies) {
             try {
               const depContent = await readRemoteTextAsset(ctx, logger, `scripts/dist/${dep}`);
-              writeManagedFile(tracker, path8.join(localScriptsDir, dep), depContent);
+              writeManagedFile(tracker, path9.join(localScriptsDir, dep), depContent);
               logger.verbose(`\u5DF2\u4E0B\u8F7D\u4F9D\u8D56: ${dep}`);
             } catch (e) {
               logger.warn(`\u4F9D\u8D56\u4E0B\u8F7D\u5931\u8D25: ${dep} - ${e.message}`);
@@ -3478,19 +3533,19 @@ async function distributeScripts(ctx, logger, targetDir, tracker) {
       }
     }
   } else {
-    const sourceDir = path8.join(PROJECT_ROOT, "scripts/dist");
+    const sourceDir = path9.join(PROJECT_ROOT, "scripts/dist");
     for (const scriptInfo of scriptsToDistribute) {
-      const srcPath = path8.join(sourceDir, scriptInfo.file);
-      if (fs8.existsSync(srcPath)) {
-        const destPath = path8.join(localScriptsDir, scriptInfo.file);
+      const srcPath = path9.join(sourceDir, scriptInfo.file);
+      if (fs9.existsSync(srcPath)) {
+        const destPath = path9.join(localScriptsDir, scriptInfo.file);
         copyManagedFile(tracker, srcPath, destPath);
         distributed.push(scriptInfo.file);
         logger.verbose(`\u5DF2\u590D\u5236\u811A\u672C: ${scriptInfo.file}`);
         if (scriptInfo.dependencies) {
           for (const dep of scriptInfo.dependencies) {
-            const depSrc = path8.join(sourceDir, dep);
-            if (fs8.existsSync(depSrc)) {
-              copyManagedFile(tracker, depSrc, path8.join(localScriptsDir, dep));
+            const depSrc = path9.join(sourceDir, dep);
+            if (fs9.existsSync(depSrc)) {
+              copyManagedFile(tracker, depSrc, path9.join(localScriptsDir, dep));
               logger.verbose(`\u5DF2\u590D\u5236\u4F9D\u8D56: ${dep}`);
             }
           }
@@ -3501,14 +3556,14 @@ async function distributeScripts(ctx, logger, targetDir, tracker) {
     }
   }
   if (distributed.length > 0) {
-    const scriptsPackageJsonPath = path8.join(localScriptsDir, "package.json");
+    const scriptsPackageJsonPath = path9.join(localScriptsDir, "package.json");
     writeManagedFile(
       tracker,
       scriptsPackageJsonPath,
       `${JSON.stringify({ type: "commonjs" }, null, 2)}
 `
     );
-    const readmePath = path8.join(localScriptsDir, "README.md");
+    const readmePath = path9.join(localScriptsDir, "README.md");
     writeManagedFile(tracker, readmePath, generateScriptsReadme(distributed));
   }
   return distributed;
@@ -3588,13 +3643,13 @@ async function distributeCommands(ctx, logger, targetDir, tracker) {
   });
 }
 function updateGitignore(logger, projectDir) {
-  const gitignorePath = path8.join(projectDir, ".gitignore");
+  const gitignorePath = path9.join(projectDir, ".gitignore");
   const header = "# CodeBuddy \u751F\u6210\u6587\u4EF6";
   const entries = [".codebuddy/", "codebuddy-loader.bundle.js"];
   try {
     let content = "";
-    if (fs8.existsSync(gitignorePath)) {
-      content = fs8.readFileSync(gitignorePath, "utf-8");
+    if (fs9.existsSync(gitignorePath)) {
+      content = fs9.readFileSync(gitignorePath, "utf-8");
     }
     const existingLines = new Set(
       content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
@@ -3615,7 +3670,7 @@ ${header}
       content += `${entry}
 `;
     }
-    fs8.writeFileSync(gitignorePath, content, "utf-8");
+    fs9.writeFileSync(gitignorePath, content, "utf-8");
     logger.verbose("\u5DF2\u66F4\u65B0 .gitignore");
   } catch (error) {
     logger.warn(`\u66F4\u65B0 .gitignore \u5931\u8D25: ${error.message}`);
@@ -3823,8 +3878,8 @@ function parseCliArgs() {
   };
 }
 function runStatusCommand(targetDir, logger, json) {
-  const installStatePath = path8.join(targetDir, ".codebuddy", "install.json");
-  const installStateExists = fs8.existsSync(installStatePath);
+  const installStatePath = path9.join(targetDir, ".codebuddy", "install.json");
+  const installStateExists = fs9.existsSync(installStatePath);
   const installState = readInstallState(targetDir, logger);
   const inspection = inspectInstallState(targetDir, installState, installStateExists);
   if (json) {
@@ -3838,8 +3893,8 @@ function runStatusCommand(targetDir, logger, json) {
   return inspection.installState !== null ? 0 : 1;
 }
 function runDoctorCommand(targetDir, logger, json) {
-  const installStatePath = path8.join(targetDir, ".codebuddy", "install.json");
-  const installStateExists = fs8.existsSync(installStatePath);
+  const installStatePath = path9.join(targetDir, ".codebuddy", "install.json");
+  const installStateExists = fs9.existsSync(installStatePath);
   const installState = readInstallState(targetDir, logger);
   const inspection = inspectInstallState(targetDir, installState, installStateExists);
   const checks = buildDoctorChecks(inspection);
@@ -3985,7 +4040,7 @@ updatedAt: ${updatedAt}
     );
     for (const rule of layer1FullRules) {
       const referencePath = `.codebuddy/rules_cache/layer1_reference/${rule.path}`.replace(/\\/g, "/");
-      writeManagedFile(managedFileTracker, path8.join(targetDir, referencePath), rule.content);
+      writeManagedFile(managedFileTracker, path9.join(targetDir, referencePath), rule.content);
       layer1ReferenceIndex.push({
         rule: rule.path.replace(/\.md$/, ""),
         path: referencePath
@@ -4013,7 +4068,7 @@ ${rule.content}
   const layer2Index = [];
   const businessDeps = layers.business?.dependencies || {};
   const standaloneLang = primaryProject ? primaryProject.lang : detectProjectLangFromDir(targetDir);
-  const standalonePackageJson = !primaryProject && fs8.existsSync(path8.join(targetDir, "package.json")) ? pkg : void 0;
+  const standalonePackageJson = !primaryProject && fs9.existsSync(path9.join(targetDir, "package.json")) ? pkg : void 0;
   const standaloneMetadata = primaryProject ? null : detectProjectMetadata(targetDir, standaloneLang, standalonePackageJson);
   const layer2TargetProject = primaryProject ?? {
     lang: standaloneLang,
@@ -4028,13 +4083,13 @@ ${rule.content}
       rule: match.rule,
       path: `.codebuddy/rules_cache/layer2_business/${match.rule}.md`
     });
-    const cacheDir = path8.join(targetDir, ".codebuddy/rules_cache/layer2_business");
-    if (!fs8.existsSync(cacheDir)) {
-      fs8.mkdirSync(cacheDir, { recursive: true });
+    const cacheDir = path9.join(targetDir, ".codebuddy/rules_cache/layer2_business");
+    if (!fs9.existsSync(cacheDir)) {
+      fs9.mkdirSync(cacheDir, { recursive: true });
     }
     const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", `${match.rule}.md`);
     if (content) {
-      writeManagedFile(managedFileTracker, path8.join(cacheDir, `${match.rule}.md`), content);
+      writeManagedFile(managedFileTracker, path9.join(cacheDir, `${match.rule}.md`), content);
     }
   }
   if (workspaceInfo.totalProjectCount > 1) {
@@ -4048,16 +4103,16 @@ ${rule.content}
           rule: match.rule,
           path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${match.rule}.md`
         });
-        const projectCacheDir = path8.join(
+        const projectCacheDir = path9.join(
           targetDir,
           `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`
         );
-        if (!fs8.existsSync(projectCacheDir)) {
-          fs8.mkdirSync(projectCacheDir, { recursive: true });
+        if (!fs9.existsSync(projectCacheDir)) {
+          fs9.mkdirSync(projectCacheDir, { recursive: true });
         }
         const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", `${match.rule}.md`);
         if (content) {
-          writeManagedFile(managedFileTracker, path8.join(projectCacheDir, `${match.rule}.md`), content);
+          writeManagedFile(managedFileTracker, path9.join(projectCacheDir, `${match.rule}.md`), content);
         }
       }
     }
@@ -4074,13 +4129,13 @@ ${rule.content}
       rule: item,
       path: `.codebuddy/rules_cache/layer3_action/${item}.md`
     });
-    const cacheDir = path8.join(targetDir, ".codebuddy/rules_cache/layer3_action");
-    if (!fs8.existsSync(cacheDir)) {
-      fs8.mkdirSync(cacheDir, { recursive: true });
+    const cacheDir = path9.join(targetDir, ".codebuddy/rules_cache/layer3_action");
+    if (!fs9.existsSync(cacheDir)) {
+      fs9.mkdirSync(cacheDir, { recursive: true });
     }
     const content = await loadRuleFile(ctx, logger, layers.action?.id || "layer3_action", item + ".md");
     if (content) {
-      writeManagedFile(managedFileTracker, path8.join(cacheDir, item + ".md"), content);
+      writeManagedFile(managedFileTracker, path9.join(cacheDir, item + ".md"), content);
     }
   }
   if (layer1ReferenceIndex.length > 0 || layer2Index.length > 0 || layer3Index.length > 0) {
@@ -4136,10 +4191,10 @@ ${rule.content}
         matchedRules: p.matchedLayer2Rules.map((r) => r.rule)
       }))
     };
-    workspaceIndexPath = path8.join(targetDir, ".codebuddy/workspace-index.json");
-    const workspaceIndexDir = path8.dirname(workspaceIndexPath);
-    if (!fs8.existsSync(workspaceIndexDir)) {
-      fs8.mkdirSync(workspaceIndexDir, { recursive: true });
+    workspaceIndexPath = path9.join(targetDir, ".codebuddy/workspace-index.json");
+    const workspaceIndexDir = path9.dirname(workspaceIndexPath);
+    if (!fs9.existsSync(workspaceIndexDir)) {
+      fs9.mkdirSync(workspaceIndexDir, { recursive: true });
     }
     writeManagedFile(managedFileTracker, workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2));
     logger.log(`\u5DF2\u751F\u6210 workspace-index.json (${workspaceInfo.projects.length} \u4E2A\u9879\u76EE)`);
@@ -4220,11 +4275,11 @@ ${rule.content}
     logger.log(`\u5DF2\u5206\u53D1 ${distributedCommands.length} \u4E2A\u547D\u4EE4`);
     finalContent += generateCommandsPrompt(distributedCommands);
   }
-  const outputDir = path8.join(targetDir, output?.dirName || ".codebuddy/rules");
-  if (!fs8.existsSync(outputDir)) {
-    fs8.mkdirSync(outputDir, { recursive: true });
+  const outputDir = path9.join(targetDir, output?.dirName || ".codebuddy/rules");
+  if (!fs9.existsSync(outputDir)) {
+    fs9.mkdirSync(outputDir, { recursive: true });
   }
-  const outputPath = path8.join(outputDir, output?.fileName || "project-rules.md");
+  const outputPath = path9.join(outputDir, output?.fileName || "project-rules.md");
   writeManagedFile(managedFileTracker, outputPath, finalContent);
   updateGitignore(logger, targetDir);
   const removedManagedFiles = cleanupStaleManagedFiles(

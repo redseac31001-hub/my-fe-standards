@@ -43,6 +43,7 @@ const path = __importStar(require("path"));
 const child_process_1 = require("child_process");
 const install_roots_1 = require("./install-roots");
 const install_sync_1 = require("./install-sync");
+const validator_gate_report_1 = require("./validator-gate-report");
 const workflow_routing_selection_1 = require("./workflow-routing-selection");
 const SUPPORTED_INSTALL_STATE_SCHEMAS = new Set(['1.0.0', '1.1.0', '1.2.0']);
 const DEFAULT_WORKFLOW_STABLE_STEP_TYPES = [
@@ -253,6 +254,23 @@ function collectWorkflowRoutingReportDetails(inspection) {
     }
     if (((_c = report.decision) === null || _c === void 0 ? void 0 : _c.confidence) === 'low') {
         details.push(`latest route confidence is low (${report.decision.selectedWorkflowId})`);
+    }
+    return { report, details: Array.from(new Set(details)) };
+}
+function collectValidatorGateReportDetails(inspection) {
+    const report = (0, validator_gate_report_1.readLatestValidatorGateReport)(inspection.targetDir);
+    const details = [];
+    if (!report) {
+        return { report, details };
+    }
+    if (!report.effectiveOk) {
+        details.push(`latest validator gate reported fail: scope=${report.scope}, strict=${report.strictMode ? 'on' : 'off'}`);
+    }
+    if ((report.errorCount || 0) > 0 || (report.warningCount || 0) > 0) {
+        details.push(`latest validator gate counts: errors=${report.errorCount || 0}, warnings=${report.warningCount || 0}`);
+    }
+    if (report.outputDir) {
+        details.push(`report output dir: ${report.outputDir}`);
     }
     return { report, details: Array.from(new Set(details)) };
 }
@@ -526,6 +544,24 @@ function buildDoctorChecks(inspection) {
                     `workflow=${workflowRoutingReport.report.decision.selectedWorkflowId}`,
                     `mode=${workflowRoutingReport.report.decision.mode}`,
                     `confidence=${workflowRoutingReport.report.decision.confidence}`,
+                ],
+        });
+    }
+    const validatorGateReport = collectValidatorGateReportDetails(inspection);
+    if (validatorGateReport.report) {
+        checks.push({
+            id: 'validator-gate-report',
+            status: validatorGateReport.report.effectiveOk ? 'pass' : 'warn',
+            message: validatorGateReport.report.effectiveOk
+                ? `最近一次 validator gate 正常: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})`
+                : `最近一次 validator gate 需关注: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})`,
+            details: validatorGateReport.details.length > 0
+                ? validatorGateReport.details.slice(0, 10)
+                : [
+                    `scope=${validatorGateReport.report.scope}`,
+                    `strict=${validatorGateReport.report.strictMode ? 'on' : 'off'}`,
+                    `errors=${validatorGateReport.report.errorCount}`,
+                    `warnings=${validatorGateReport.report.warningCount}`,
                 ],
         });
     }

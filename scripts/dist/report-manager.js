@@ -45,8 +45,8 @@ __export(report_manager_exports, {
   writeReport: () => writeReport
 });
 module.exports = __toCommonJS(report_manager_exports);
-var fs2 = __toESM(require("fs"));
-var path3 = __toESM(require("path"));
+var fs3 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
 var crypto = __toESM(require("crypto"));
 
 // scripts/src/lib/cli-entry.ts
@@ -59,23 +59,47 @@ function isDirectCliEntry(expectedFileNames) {
   return expected.some((name) => actual === name.toLowerCase());
 }
 
-// scripts/src/lib/workflow-routing-selection.ts
+// scripts/src/lib/validator-gate-report.ts
 var fs = __toESM(require("fs"));
 var path2 = __toESM(require("path"));
+var VALIDATOR_GATE_CANDIDATE_PATHS = [
+  "validators/latest/validator-gate-summary.json",
+  "validators/validator-gate-summary.json"
+];
+function readLatestValidatorGateReport(targetDir) {
+  for (const relativePath of VALIDATOR_GATE_CANDIDATE_PATHS) {
+    const absolutePath = path2.join(targetDir, ".codebuddy", "reports", relativePath);
+    if (!fs.existsSync(absolutePath)) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(fs.readFileSync(absolutePath, "utf-8"));
+      if (parsed && typeof parsed.generatedAt === "string") {
+        return parsed;
+      }
+    } catch {
+    }
+  }
+  return null;
+}
+
+// scripts/src/lib/workflow-routing-selection.ts
+var fs2 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
 function readJsonFile(filePath) {
-  if (!fs.existsSync(filePath)) return null;
+  if (!fs2.existsSync(filePath)) return null;
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    return JSON.parse(fs2.readFileSync(filePath, "utf-8"));
   } catch {
     return null;
   }
 }
 function listWorkflowRoutingReportPaths(projectRoot) {
-  const reportsDir = path2.join(projectRoot, ".codebuddy", "reports", "workflow-routing");
-  if (!fs.existsSync(reportsDir)) return [];
-  return fs.readdirSync(reportsDir).filter((fileName) => fileName.endsWith(".routing.json")).map((fileName) => path2.join(reportsDir, fileName)).sort((left, right) => {
+  const reportsDir = path3.join(projectRoot, ".codebuddy", "reports", "workflow-routing");
+  if (!fs2.existsSync(reportsDir)) return [];
+  return fs2.readdirSync(reportsDir).filter((fileName) => fileName.endsWith(".routing.json")).map((fileName) => path3.join(reportsDir, fileName)).sort((left, right) => {
     try {
-      return fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs;
+      return fs2.statSync(right).mtimeMs - fs2.statSync(left).mtimeMs;
     } catch {
       return 0;
     }
@@ -129,16 +153,12 @@ var DEFAULT_MANIFEST = {
 // scripts/src/report-manager.ts
 var REPORTS_DIR = ".codebuddy/reports";
 var MANIFEST_FILE = "manifest.json";
-var VALIDATOR_GATE_CANDIDATE_PATHS = [
-  "validators/latest/validator-gate-summary.json",
-  "validators/validator-gate-summary.json"
-];
 function getReportsPath(targetDir) {
-  return path3.join(targetDir, REPORTS_DIR);
+  return path4.join(targetDir, REPORTS_DIR);
 }
 function ensureDir(dirPath) {
-  if (!fs2.existsSync(dirPath)) {
-    fs2.mkdirSync(dirPath, { recursive: true });
+  if (!fs3.existsSync(dirPath)) {
+    fs3.mkdirSync(dirPath, { recursive: true });
   }
 }
 function computeHash(content) {
@@ -155,15 +175,6 @@ function formatAge(isoString) {
 function getReportAgeHours(isoString) {
   const diff = Date.now() - new Date(isoString).getTime();
   return Math.floor(diff / (1e3 * 60 * 60));
-}
-function readLatestValidatorGateReport(targetDir) {
-  for (const reportPath of VALIDATOR_GATE_CANDIDATE_PATHS) {
-    const report = readReport(targetDir, reportPath);
-    if (report && typeof report.generatedAt === "string") {
-      return report;
-    }
-  }
-  return null;
 }
 function buildReportStatusSection(meta) {
   if (!meta) {
@@ -185,21 +196,21 @@ function buildReportStatusSection(meta) {
   };
 }
 function readManifest(targetDir) {
-  const manifestPath = path3.join(getReportsPath(targetDir), MANIFEST_FILE);
-  if (!fs2.existsSync(manifestPath)) {
+  const manifestPath = path4.join(getReportsPath(targetDir), MANIFEST_FILE);
+  if (!fs3.existsSync(manifestPath)) {
     return {
       ...DEFAULT_MANIFEST,
-      projectName: path3.basename(targetDir),
+      projectName: path4.basename(targetDir),
       lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
     };
   }
   try {
-    const content = fs2.readFileSync(manifestPath, "utf-8");
+    const content = fs3.readFileSync(manifestPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return {
       ...DEFAULT_MANIFEST,
-      projectName: path3.basename(targetDir),
+      projectName: path4.basename(targetDir),
       lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
     };
   }
@@ -208,20 +219,20 @@ function writeManifest(targetDir, manifest) {
   const reportsPath = getReportsPath(targetDir);
   ensureDir(reportsPath);
   manifest.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
-  const manifestPath = path3.join(reportsPath, MANIFEST_FILE);
-  fs2.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+  const manifestPath = path4.join(reportsPath, MANIFEST_FILE);
+  fs3.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
 }
 function reportExists(targetDir, reportPath) {
-  const fullPath = path3.join(getReportsPath(targetDir), reportPath);
-  return fs2.existsSync(fullPath);
+  const fullPath = path4.join(getReportsPath(targetDir), reportPath);
+  return fs3.existsSync(fullPath);
 }
 function readReport(targetDir, reportPath) {
-  const fullPath = path3.join(getReportsPath(targetDir), reportPath);
-  if (!fs2.existsSync(fullPath)) {
+  const fullPath = path4.join(getReportsPath(targetDir), reportPath);
+  if (!fs3.existsSync(fullPath)) {
     return null;
   }
   try {
-    const content = fs2.readFileSync(fullPath, "utf-8");
+    const content = fs3.readFileSync(fullPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return null;
@@ -229,11 +240,11 @@ function readReport(targetDir, reportPath) {
 }
 function writeReport(targetDir, reportPath, data, generatedBy) {
   const reportsPath = getReportsPath(targetDir);
-  const fullPath = path3.join(reportsPath, reportPath);
-  const dirPath = path3.dirname(fullPath);
+  const fullPath = path4.join(reportsPath, reportPath);
+  const dirPath = path4.dirname(fullPath);
   ensureDir(dirPath);
   const content = JSON.stringify(data, null, 2);
-  fs2.writeFileSync(fullPath, content, "utf-8");
+  fs3.writeFileSync(fullPath, content, "utf-8");
   const meta = {
     type: getReportType(reportPath),
     path: reportPath,
@@ -279,20 +290,20 @@ function saveArchitectureSnapshot(targetDir, snapshot) {
   );
   const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const historyPath = `architecture/${timestamp}.json`;
-  const historyFullPath = path3.join(getReportsPath(targetDir), historyPath);
-  const historyDir = path3.dirname(historyFullPath);
+  const historyFullPath = path4.join(getReportsPath(targetDir), historyPath);
+  const historyDir = path4.dirname(historyFullPath);
   ensureDir(historyDir);
-  fs2.writeFileSync(historyFullPath, JSON.stringify(snapshot, null, 2), "utf-8");
+  fs3.writeFileSync(historyFullPath, JSON.stringify(snapshot, null, 2), "utf-8");
   cleanupOldSnapshots(targetDir, "architecture");
   return meta;
 }
 function cleanupOldSnapshots(targetDir, subDir) {
-  const dirPath = path3.join(getReportsPath(targetDir), subDir);
-  if (!fs2.existsSync(dirPath)) return;
-  const files = fs2.readdirSync(dirPath).filter((f) => f.endsWith(".json") && f !== "latest.json").map((f) => ({
+  const dirPath = path4.join(getReportsPath(targetDir), subDir);
+  if (!fs3.existsSync(dirPath)) return;
+  const files = fs3.readdirSync(dirPath).filter((f) => f.endsWith(".json") && f !== "latest.json").map((f) => ({
     name: f,
-    path: path3.join(dirPath, f),
-    time: fs2.statSync(path3.join(dirPath, f)).mtime.getTime()
+    path: path4.join(dirPath, f),
+    time: fs3.statSync(path4.join(dirPath, f)).mtime.getTime()
   })).sort((a, b) => b.time - a.time);
   const { maxCount, maxAgeDays } = DEFAULT_RETENTION_POLICY.snapshots;
   const maxAge = maxAgeDays * 24 * 60 * 60 * 1e3;
@@ -300,7 +311,7 @@ function cleanupOldSnapshots(targetDir, subDir) {
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     if (i >= maxCount || now - file.time > maxAge) {
-      fs2.unlinkSync(file.path);
+      fs3.unlinkSync(file.path);
     }
   }
 }
@@ -313,10 +324,10 @@ function saveModuleMapSnapshot(targetDir, snapshot) {
   );
   const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const historyPath = `modules/${timestamp}.json`;
-  const historyFullPath = path3.join(getReportsPath(targetDir), historyPath);
-  const historyDir = path3.dirname(historyFullPath);
+  const historyFullPath = path4.join(getReportsPath(targetDir), historyPath);
+  const historyDir = path4.dirname(historyFullPath);
   ensureDir(historyDir);
-  fs2.writeFileSync(historyFullPath, JSON.stringify(snapshot, null, 2), "utf-8");
+  fs3.writeFileSync(historyFullPath, JSON.stringify(snapshot, null, 2), "utf-8");
   cleanupOldSnapshots(targetDir, "modules");
   return meta;
 }
@@ -326,7 +337,7 @@ function appendHealthDataPoint(targetDir, dataPoint) {
     timeline = {
       meta: {
         version: "1.0.0",
-        projectName: path3.basename(targetDir),
+        projectName: path4.basename(targetDir),
         lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
       },
       dataPoints: [],
@@ -475,14 +486,14 @@ function showStatus(targetDir, json = false) {
 }
 function cleanup(targetDir, cacheOnly = false) {
   const reportsPath = getReportsPath(targetDir);
-  if (!fs2.existsSync(reportsPath)) {
+  if (!fs3.existsSync(reportsPath)) {
     console.log("No reports directory found.");
     return;
   }
   let cleanedCount = 0;
-  const cachePath = path3.join(targetDir, ".codebuddy/cache");
-  if (fs2.existsSync(cachePath)) {
-    fs2.rmSync(cachePath, { recursive: true });
+  const cachePath = path4.join(targetDir, ".codebuddy/cache");
+  if (fs3.existsSync(cachePath)) {
+    fs3.rmSync(cachePath, { recursive: true });
     console.log("Cleaned: cache/");
     cleanedCount++;
   }
@@ -572,19 +583,19 @@ function exportMarkdown(targetDir) {
     lines.push("");
   }
   const output = lines.join("\n");
-  const outputPath = path3.join(getReportsPath(targetDir), "export.md");
-  fs2.writeFileSync(outputPath, output, "utf-8");
+  const outputPath = path4.join(getReportsPath(targetDir), "export.md");
+  fs3.writeFileSync(outputPath, output, "utf-8");
   console.log(`Exported to: ${outputPath}`);
 }
 function getHistorySnapshots(targetDir, subDir) {
-  const dirPath = path3.join(getReportsPath(targetDir), subDir);
-  if (!fs2.existsSync(dirPath)) return [];
-  return fs2.readdirSync(dirPath).filter((f) => f.endsWith(".json") && f !== "latest.json").map((f) => {
+  const dirPath = path4.join(getReportsPath(targetDir), subDir);
+  if (!fs3.existsSync(dirPath)) return [];
+  return fs3.readdirSync(dirPath).filter((f) => f.endsWith(".json") && f !== "latest.json").map((f) => {
     const datePart = f.replace(".json", "").replace(/T/g, " ").slice(0, 16);
     return {
       name: f,
       date: datePart,
-      path: path3.join(dirPath, f)
+      path: path4.join(dirPath, f)
     };
   }).sort((a, b) => b.date.localeCompare(a.date));
 }
@@ -635,14 +646,14 @@ function showDiff(targetDir, fromDate, toDate) {
     const matchingSnapshot = historySnapshots.find((s) => s.date.startsWith(fromDate));
     if (matchingSnapshot) {
       try {
-        olderArch = JSON.parse(fs2.readFileSync(matchingSnapshot.path, "utf-8"));
+        olderArch = JSON.parse(fs3.readFileSync(matchingSnapshot.path, "utf-8"));
       } catch {
         console.log(`Failed to load snapshot: ${matchingSnapshot.path}`);
       }
     }
   } else {
     try {
-      olderArch = JSON.parse(fs2.readFileSync(historySnapshots[0].path, "utf-8"));
+      olderArch = JSON.parse(fs3.readFileSync(historySnapshots[0].path, "utf-8"));
     } catch {
       console.log("Failed to load historical snapshot.");
     }
@@ -780,17 +791,17 @@ function showHistory(targetDir) {
   console.log("");
 }
 function normalizeFsPath(p) {
-  const normalized = path3.normalize(p);
+  const normalized = path4.normalize(p);
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 function toAbsolutePath(targetDir, p) {
-  return path3.isAbsolute(p) ? p : path3.resolve(targetDir, p);
+  return path4.isAbsolute(p) ? p : path4.resolve(targetDir, p);
 }
 function isSameOrSubPath(childPath, parentPath) {
   const child = normalizeFsPath(childPath);
   let parent = normalizeFsPath(parentPath);
   if (child === parent) return true;
-  if (!parent.endsWith(path3.sep)) parent += path3.sep;
+  if (!parent.endsWith(path4.sep)) parent += path4.sep;
   return child.startsWith(parent);
 }
 function buildGraphIndex(snapshot) {
@@ -872,7 +883,7 @@ function buildViolationsTrend(targetDir, pathPrefixAbs, points) {
   const result = [];
   for (const h of history) {
     try {
-      const snap = JSON.parse(fs2.readFileSync(h.path, "utf-8"));
+      const snap = JSON.parse(fs3.readFileSync(h.path, "utf-8"));
       const summary = summarizeViolationsForPath(targetDir, snap, pathPrefixAbs, 0);
       result.push({
         date: snap.meta.analyzedAt,
@@ -891,7 +902,7 @@ function buildModuleHealthTrend(targetDir, moduleName, points) {
   const result = [];
   for (const h of history) {
     try {
-      const snap = JSON.parse(fs2.readFileSync(h.path, "utf-8"));
+      const snap = JSON.parse(fs3.readFileSync(h.path, "utf-8"));
       const mod = snap.modules.find((m) => m.name === moduleName);
       if (!mod) continue;
       result.push({
@@ -1001,7 +1012,7 @@ function inspectReport(targetDir, opts) {
   const violations = summarizeViolationsForPath(targetDir, archLatest, module2.path, 8);
   const violationsTrend = buildViolationsTrend(targetDir, module2.path, opts.trendPoints);
   const moduleHealthTrend = buildModuleHealthTrend(targetDir, module2.name, opts.trendPoints);
-  const moduleRelPath = isSameOrSubPath(module2.path, targetDir) ? path3.relative(targetDir, module2.path) : module2.path;
+  const moduleRelPath = isSameOrSubPath(module2.path, targetDir) ? path4.relative(targetDir, module2.path) : module2.path;
   const payload = {
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     source: {
@@ -1236,7 +1247,7 @@ function main() {
   let command = args[0];
   let targetDir = process.cwd();
   if (command === "." || command === "./" || command && command.startsWith("./") && !command.includes(" ")) {
-    targetDir = path3.resolve(command);
+    targetDir = path4.resolve(command);
     command = args[1];
   }
   if (!command || command === "--help" || command === "-h") {

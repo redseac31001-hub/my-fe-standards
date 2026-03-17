@@ -9,6 +9,7 @@ import {
   resolveInstalledSkillsSnapshotRetention,
 } from './install-roots';
 import { listFilesRecursive, toProjectRelativePath } from './install-sync';
+import { readLatestValidatorGateReport } from './validator-gate-report';
 import { readLatestWorkflowRoutingReport } from './workflow-routing-selection';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
@@ -278,6 +279,32 @@ function collectWorkflowRoutingReportDetails(inspection: InstallInspection): {
 
   if (report.decision?.confidence === 'low') {
     details.push(`latest route confidence is low (${report.decision.selectedWorkflowId})`);
+  }
+
+  return { report, details: Array.from(new Set(details)) };
+}
+
+function collectValidatorGateReportDetails(inspection: InstallInspection): {
+  report: ReturnType<typeof readLatestValidatorGateReport>;
+  details: string[];
+} {
+  const report = readLatestValidatorGateReport(inspection.targetDir);
+  const details: string[] = [];
+
+  if (!report) {
+    return { report, details };
+  }
+
+  if (!report.effectiveOk) {
+    details.push(`latest validator gate reported fail: scope=${report.scope}, strict=${report.strictMode ? 'on' : 'off'}`);
+  }
+
+  if ((report.errorCount || 0) > 0 || (report.warningCount || 0) > 0) {
+    details.push(`latest validator gate counts: errors=${report.errorCount || 0}, warnings=${report.warningCount || 0}`);
+  }
+
+  if (report.outputDir) {
+    details.push(`report output dir: ${report.outputDir}`);
   }
 
   return { report, details: Array.from(new Set(details)) };
@@ -586,6 +613,25 @@ export function buildDoctorChecks(inspection: InstallInspection): DoctorCheck[] 
             `workflow=${workflowRoutingReport.report.decision.selectedWorkflowId}`,
             `mode=${workflowRoutingReport.report.decision.mode}`,
             `confidence=${workflowRoutingReport.report.decision.confidence}`,
+        ],
+    });
+  }
+
+  const validatorGateReport = collectValidatorGateReportDetails(inspection);
+  if (validatorGateReport.report) {
+    checks.push({
+      id: 'validator-gate-report',
+      status: validatorGateReport.report.effectiveOk ? 'pass' : 'warn',
+      message: validatorGateReport.report.effectiveOk
+        ? `最近一次 validator gate 正常: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})`
+        : `最近一次 validator gate 需关注: ${validatorGateReport.report.scope} (${validatorGateReport.report.strictMode ? 'strict' : 'default'})`,
+      details: validatorGateReport.details.length > 0
+        ? validatorGateReport.details.slice(0, 10)
+        : [
+            `scope=${validatorGateReport.report.scope}`,
+            `strict=${validatorGateReport.report.strictMode ? 'on' : 'off'}`,
+            `errors=${validatorGateReport.report.errorCount}`,
+            `warnings=${validatorGateReport.report.warningCount}`,
           ],
     });
   }
