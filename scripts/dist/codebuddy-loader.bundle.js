@@ -513,11 +513,24 @@ var FRONTMATTER_DEPENDENCIES = ["lib/frontmatter-utils.js"];
 var INSTALL_ROOTS_DEPENDENCIES = ["lib/install-roots.js", "lib/install-sync.js"];
 var MODULE_MAPPER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, "types/module-mapper.js"];
 var STRUCTURE_ANALYZER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, "types/structure-analyzer.js"];
-var VALIDATOR_GATE_DEPENDENCIES = ["lib/validator-gate-report.js", "types/reports.js"];
+var VALIDATOR_GATE_DEPENDENCIES = [
+  "rule-validator.js",
+  "skill-validator.js",
+  "repo-state-validator.js",
+  "lib/validator-gate-report.js",
+  "types/reports.js"
+];
 var WORKFLOW_ROUTING_DEPENDENCIES = [
   "lib/project-detection.js",
   "lib/workflow-routing.js",
   "lib/workflow-routing-selection.js"
+];
+var REPORT_MANAGER_DEPENDENCIES = [
+  ...CLI_ENTRY_DEPENDENCIES,
+  ...WORKFLOW_ROUTING_DEPENDENCIES,
+  "lib/validator-gate-report.js",
+  "lib/audit-report.js",
+  "types/reports.js"
 ];
 var TASK_EXECUTOR_DEPENDENCIES = [
   ...CLI_ENTRY_DEPENDENCIES,
@@ -537,7 +550,7 @@ var CORE_SCRIPTS = [
 var ANALYSIS_SCRIPTS = [
   { file: "structure-analyzer.js", dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },
   { file: "module-mapper.js", dependencies: MODULE_MAPPER_DEPENDENCIES },
-  { file: "report-manager.js", dependencies: [...CLI_ENTRY_DEPENDENCIES, ...WORKFLOW_ROUTING_DEPENDENCIES] }
+  { file: "report-manager.js", dependencies: REPORT_MANAGER_DEPENDENCIES }
 ];
 var ORCHESTRATOR_SCRIPTS = [
   { file: "agent-call-manager.js", dependencies: CLI_ENTRY_DEPENDENCIES },
@@ -1371,6 +1384,11 @@ var PROFILE_RESIDUAL_ARTIFACTS = {
   ],
   full: []
 };
+var OPTIONAL_STATIC_SUPPORT_FILES = /* @__PURE__ */ new Set([
+  ".codebuddy/scripts/agent-runtime.js",
+  ".codebuddy/scripts/types/agent-runtime.js",
+  ".codebuddy/scripts/types/index.js"
+]);
 var LEGACY_ORCHESTRATOR_ARTIFACTS = [
   ".codebuddy/agent-calls/agent-call.schema.json",
   ".codebuddy/agent-calls/README.md",
@@ -1612,7 +1630,7 @@ function inspectInstallState(targetDir, installState, installStateExists) {
   const missingManagedFiles = managedFiles.filter((file) => !fs7.existsSync(path7.join(targetDir, file.path))).map((file) => file.path).sort();
   const unexpectedStaticFiles = managedFileSet.size > 0 ? resolveManagedRoots(installState).flatMap((relativeRoot) => {
     const absoluteRoot = path7.join(targetDir, relativeRoot);
-    return listFilesRecursive(absoluteRoot).map((filePath) => toProjectRelativePath(targetDir, filePath)).filter((filePath) => !managedFileSet.has(filePath));
+    return listFilesRecursive(absoluteRoot).map((filePath) => toProjectRelativePath(targetDir, filePath)).filter((filePath) => !managedFileSet.has(filePath)).filter((filePath) => !OPTIONAL_STATIC_SUPPORT_FILES.has(filePath));
   }).sort() : [];
   const expectedResiduals = installState ? PROFILE_RESIDUAL_ARTIFACTS[installState.profile] : [];
   const unexpectedProfileFiles = expectedResiduals.filter((relativePath) => {

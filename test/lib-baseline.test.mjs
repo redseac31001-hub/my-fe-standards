@@ -23,6 +23,7 @@ const projectDetectionDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', '
 const workflowRoutingDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'workflow-routing.js');
 const ruleValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'rule-validator.js');
 const skillValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'skill-validator.js');
+const repoStateValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'repo-state-validator.js');
 const validatorGateDistPath = path.join(repoRoot, 'scripts', 'dist', 'validator-gate.js');
 const reportManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'report-manager.js');
 const runTestsPath = path.join(repoRoot, 'test', 'run-tests.js');
@@ -131,6 +132,114 @@ function createTestLogger() {
       },
     },
   };
+}
+
+async function writeRepositoryFactFixture(rootDir, overrides = {}) {
+  const {
+    roadmapLastUpdated = '2026-03-18',
+    docsIndexLastUpdated = '2026-03-18',
+    protocolLastUpdated = '2026-03-18',
+    handoffLatestDate = '2026-03-18',
+    includeDocsIndexProtocolLink = true,
+  } = overrides;
+
+  await fsp.mkdir(path.join(rootDir, 'docs', 'guides'), { recursive: true });
+  await fsp.mkdir(path.join(rootDir, 'docs', 'reference'), { recursive: true });
+
+  await fsp.writeFile(
+    path.join(rootDir, 'README.md'),
+    [
+      '# Demo Repo',
+      '',
+      '- [Docs](./docs/README.md)',
+      '- [Team Collaboration Protocol](./docs/guides/team-collaboration-protocol.md)',
+      '- [Handoff](./docs/guides/HANDOFF.md)',
+      '- [Roadmap](./ROADMAP.md)',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  await fsp.writeFile(path.join(rootDir, 'PROJECT.md'), '# Project\n', 'utf-8');
+
+  await fsp.writeFile(
+    path.join(rootDir, 'ROADMAP.md'),
+    [
+      '# ROADMAP',
+      '',
+      `> Last updated: ${roadmapLastUpdated}`,
+      '',
+      '## Current Snapshot',
+      '',
+      '| Item | Status | Priority | Estimate | Goal | Next Action |',
+      '|------|--------|----------|----------|------|-------------|',
+      '| P11 | IN_PROGRESS | High | M | Keep repo facts aligned | Finish repo-state validator |',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  await fsp.writeFile(
+    path.join(rootDir, 'docs', 'README.md'),
+    [
+      '# Docs Index',
+      '',
+      `> Last updated: ${docsIndexLastUpdated}`,
+      '',
+      '## Start Here',
+      '',
+      '- [Handoff](./guides/HANDOFF.md)',
+      ...(includeDocsIndexProtocolLink ? ['- [Team Collaboration Protocol](./guides/team-collaboration-protocol.md)'] : []),
+    ].join('\n'),
+    'utf-8',
+  );
+
+  await fsp.writeFile(
+    path.join(rootDir, 'docs', 'guides', 'HANDOFF.md'),
+    [
+      '# Handoff',
+      '',
+      `- Latest verification: ${handoffLatestDate}`,
+      '- Read `README.md`',
+      '- Read `PROJECT.md`',
+      '- Read `docs/guides/team-collaboration-protocol.md`',
+      '',
+      '## 1) 当前状态',
+      '',
+      '- Active work is in progress.',
+      '',
+      '## 5) 下一步建议',
+      '',
+      '- Continue from roadmap.',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  await fsp.writeFile(
+    path.join(rootDir, 'docs', 'guides', 'team-collaboration-protocol.md'),
+    [
+      '# Team Collaboration Protocol',
+      '',
+      `> Last updated: ${protocolLastUpdated}`,
+      '',
+      '## Canonical Sources',
+      '',
+      '- [Handoff](./HANDOFF.md)',
+      '- [Roadmap](../../ROADMAP.md)',
+      '- [README](../../README.md)',
+      '- [PROJECT](../../PROJECT.md)',
+      '- [Architecture Constraints](../reference/architecture-constraints.md)',
+      '',
+      '## Standard AI Session Bootstrap',
+      '',
+      'Please do not change code yet.',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  await fsp.writeFile(
+    path.join(rootDir, 'docs', 'reference', 'architecture-constraints.md'),
+    '# Architecture Constraints\n',
+    'utf-8',
+  );
 }
 
 async function testFrontmatterUtils() {
@@ -284,12 +393,17 @@ async function testDistributionProfiles() {
   const coreScripts = getScriptsForProfile('core').map(item => item.file);
   assert.deepEqual(coreScripts, ['rule-validator.js', 'skill-validator.js', 'validator-gate.js']);
   const coreArtifacts = getScriptArtifactsForProfile('core');
+  assert.equal(coreArtifacts.includes('repo-state-validator.js'), true);
   assert.equal(coreArtifacts.includes('lib/validator-gate-report.js'), true);
   assert.equal(coreArtifacts.includes('types/reports.js'), true);
 
   const analysisScripts = getScriptsForProfile('analysis').map(item => item.file);
   assert.equal(analysisScripts.includes('task-orchestrator.js'), false);
   assert.equal(analysisScripts.includes('report-manager.js'), true);
+  const analysisArtifacts = getScriptArtifactsForProfile('analysis');
+  assert.equal(analysisArtifacts.includes('lib/validator-gate-report.js'), true);
+  assert.equal(analysisArtifacts.includes('lib/audit-report.js'), true);
+  assert.equal(analysisArtifacts.includes('types/reports.js'), true);
 
   const fullArtifacts = getScriptArtifactsForProfile('full');
   assert.equal(fullArtifacts.includes('agent-registry.js'), true);
@@ -1159,6 +1273,58 @@ async function testDoctorValidatorGateWarnings() {
   }
 }
 
+async function testDoctorIgnoresKnownOptionalStaticSupportFiles() {
+  assertBuiltArtifactExists(installHealthDistPath, 'npm run build:scripts');
+  const { inspectInstallState, buildDoctorChecks } = require(installHealthDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-install-health-static-support-'));
+  try {
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'rules'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'scripts', 'types'), { recursive: true });
+    await fsp.writeFile(path.join(tempDir, '.codebuddy', 'rules', 'project-rules.md'), '# rules\n', 'utf-8');
+    await fsp.writeFile(path.join(tempDir, '.codebuddy', 'scripts', 'agent-runtime.js'), '// helper\n', 'utf-8');
+    await fsp.writeFile(path.join(tempDir, '.codebuddy', 'scripts', 'types', 'agent-runtime.js'), '// helper type\n', 'utf-8');
+    await fsp.writeFile(path.join(tempDir, '.codebuddy', 'scripts', 'types', 'index.js'), '// helper type index\n', 'utf-8');
+
+    const installState = createInstallState({
+      profile: 'core',
+      enableOrchestrator: false,
+      outputs: {
+        rulesFile: '.codebuddy/rules/project-rules.md',
+        workspaceIndexFile: null,
+        skillsRootDir: null,
+        skillsSnapshotRetention: null,
+        agentsRootDir: null,
+        agentsSnapshotRetention: null,
+      },
+      managedFiles: [
+        { path: '.codebuddy/rules/project-rules.md', sha256: 'rules', size: 8 },
+      ],
+      stats: {
+        layer1Rules: 1,
+        layer2Indexes: 0,
+        layer3Indexes: 0,
+        skills: 0,
+        agents: 0,
+        scripts: 0,
+        workflows: 0,
+        taskbooks: 0,
+        agentCalls: 0,
+        commands: 0,
+        workspaceProjects: 1,
+      },
+    });
+
+    const inspection = inspectInstallState(tempDir, installState, true);
+    assert.deepEqual(inspection.unexpectedStaticFiles, []);
+    const checks = buildDoctorChecks(inspection);
+    const staticFilesCheck = checks.find(check => check.id === 'unexpected-static-files');
+    assert.equal(staticFilesCheck?.status, 'pass');
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function testDoctorWarnsOnValidatorGateRegressionEvenWhenLatestPasses() {
   assertBuiltArtifactExists(installHealthDistPath, 'npm run build:scripts');
   const { inspectInstallState, buildDoctorChecks } = require(installHealthDistPath);
@@ -1447,12 +1613,48 @@ async function testSkillValidatorBundledReferenceWarnings() {
   }
 }
 
+async function testRepoStateValidatorWarnsOnMissingLinksAndStaleFacts() {
+  assertBuiltArtifactExists(repoStateValidatorDistPath, 'npm run build:scripts');
+  const { validateRepoStateRoot, finalizeRepoStateValidation } = require(repoStateValidatorDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-repo-state-validator-'));
+  try {
+    await writeRepositoryFactFixture(tempDir, {
+      roadmapLastUpdated: '2026-02-20',
+      docsIndexLastUpdated: '2026-03-01',
+      protocolLastUpdated: '2026-03-18',
+      handoffLatestDate: '2026-03-18',
+      includeDocsIndexProtocolLink: false,
+    });
+
+    const report = validateRepoStateRoot(tempDir, { now: new Date('2026-03-19T00:00:00.000Z') });
+    assert.equal(report.ok, true);
+    assert.equal(report.errorCount, 0);
+    assert.equal(report.issues.some(issue => String(issue.message || '').includes('docs/README 应链接 Team Collaboration Protocol')), true);
+    assert.equal(report.issues.some(issue => String(issue.message || '').includes('最近日期 2026-02-20')), true);
+    assert.equal(report.issues.some(issue => String(issue.message || '').includes('最近日期 2026-03-01')), true);
+
+    const nonStrictReport = finalizeRepoStateValidation(report, false);
+    assert.equal(nonStrictReport.strictMode, false);
+    assert.equal(nonStrictReport.effectiveOk, true);
+
+    const strictReport = finalizeRepoStateValidation(report, true);
+    assert.equal(strictReport.strictMode, true);
+    assert.equal(strictReport.ok, true, 'base ok should stay backward-compatible');
+    assert.equal(strictReport.effectiveOk, false, 'strict mode should fail on warnings');
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function testValidatorGateWritesStrictReports() {
   assertBuiltArtifactExists(validatorGateDistPath, 'npm run build:scripts');
   const { runValidatorGate } = require(validatorGateDistPath);
 
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-validator-gate-'));
   try {
+    await writeRepositoryFactFixture(tempDir);
+
     const rulesDir = path.join(tempDir, 'rules');
     const skillsDir = path.join(tempDir, 'custom-skills');
     const skillDir = path.join(skillsDir, 'demo-skill');
@@ -1511,12 +1713,14 @@ async function testValidatorGateWritesStrictReports() {
       outDir,
       rulesDir,
       skillsDir,
+      repoRoot: tempDir,
     });
 
     assert.equal(report.strictMode, true);
     assert.equal(report.ok, true, 'base ok should remain backward-compatible');
     assert.equal(report.effectiveOk, false, 'strict gate should fail when warnings exist');
     assert.equal(typeof report.outputDir, 'string');
+    assert.equal(report.reportFiles.includes('repo-state-validator-report.json'), true);
     assert.equal(report.reportFiles.includes('rule-validator-report.json'), true);
     assert.equal(report.reportFiles.includes('skill-validator-report.json'), true);
     assert.equal(report.reportFiles.includes('validator-gate-summary.json'), true);
@@ -1533,6 +1737,10 @@ async function testValidatorGateWritesStrictReports() {
     const skillReport = JSON.parse(await fsp.readFile(path.join(outDir, 'skill-validator-report.json'), 'utf-8'));
     assert.equal(skillReport.strictMode, true);
     assert.equal(skillReport.effectiveOk, false);
+
+    const repoStateReport = JSON.parse(await fsp.readFile(path.join(outDir, 'repo-state-validator-report.json'), 'utf-8'));
+    assert.equal(repoStateReport.strictMode, true);
+    assert.equal(repoStateReport.effectiveOk, true);
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
@@ -1597,6 +1805,80 @@ async function testValidatorGateWritesHistoryForStandardReportDir() {
     const historyRuleReportPath = path.join(tempDir, report.historyDir, 'rule-validator-report.json');
     assert.equal(fs.existsSync(historySummaryPath), true);
     assert.equal(fs.existsSync(historyRuleReportPath), true);
+  } finally {
+    process.chdir(previousCwd);
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testValidatorGateSkipsRepoStateOutsideRepositoryRoots() {
+  assertBuiltArtifactExists(validatorGateDistPath, 'npm run build:scripts');
+  const { runValidatorGate } = require(validatorGateDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-validator-gate-skip-repo-'));
+  const previousCwd = process.cwd();
+  try {
+    process.chdir(tempDir);
+    const rulesDir = path.join(tempDir, 'rules');
+    const skillsDir = path.join(tempDir, 'custom-skills');
+    const skillDir = path.join(skillsDir, 'demo-skill');
+
+    await fsp.mkdir(path.join(rulesDir, 'layer1'), { recursive: true });
+    await fsp.mkdir(skillDir, { recursive: true });
+    await fsp.writeFile(
+      path.join(rulesDir, 'layer1', 'ok.md'),
+      [
+        '> Tags: quality',
+        '> Priority: Medium',
+        '',
+        '# Demo rule',
+        '',
+        '## Context',
+        '',
+        'Fixture.',
+        '',
+        '## The Rule',
+        '',
+        'Do the thing.',
+        '',
+        '## Reasoning',
+        '',
+        'Because consistency matters.',
+        '',
+        '## Examples',
+        '',
+        '```ts',
+        'export const demo = true;',
+        '```',
+      ].join('\n'),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: demo-skill',
+        'description: fixture skill',
+        '---',
+        '',
+        '# Demo Skill',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const report = runValidatorGate({
+      scope: 'all',
+      strict: false,
+      json: false,
+      outDir: null,
+      rulesDir,
+      skillsDir,
+      repoRoot: null,
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.effectiveOk, true);
+    assert.equal(report.reports.repoState, undefined);
   } finally {
     process.chdir(previousCwd);
     await fsp.rm(tempDir, { recursive: true, force: true });
@@ -1702,6 +1984,90 @@ async function testReportManagerReadsLatestValidatorGateSummary() {
   }
 }
 
+async function testReportManagerReadsLatestAuditSummary() {
+  assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
+  const { readLatestAuditReport, readAuditHistory, buildStatusSnapshot } = require(reportManagerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-manager-audit-'));
+  try {
+    const latestDir = path.join(tempDir, '.codebuddy', 'reports', 'audit', 'latest');
+    const historyRoot = path.join(tempDir, '.codebuddy', 'reports', 'audit', 'history');
+    await fsp.mkdir(latestDir, { recursive: true });
+    await fsp.mkdir(path.join(historyRoot, '2026-03-17T10-00-00-000Z'), { recursive: true });
+    await fsp.mkdir(path.join(historyRoot, '2026-03-17T09-00-00-000Z'), { recursive: true });
+
+    const latestSummary = {
+      generatedAt: '2026-03-17T10:00:00.000Z',
+      targetDir: tempDir,
+      reportsPath: path.join(tempDir, '.codebuddy', 'reports'),
+      input: { days: 30, fromDate: null },
+      overview: {
+        overallStatus: 'warn',
+        architectureFreshness: 'fresh',
+        modulesFreshness: 'fresh',
+        workflowId: 'micro',
+        workflowMode: 'auto',
+        validatorStatus: 'warn',
+        validatorDirection: 'regressed',
+        healthDirection: null,
+        diffAvailable: true,
+        findingsCount: 2,
+      },
+      outputDir: '.codebuddy/reports/audit/latest',
+      historyDir: '.codebuddy/reports/audit/history/2026-03-17T10-00-00-000Z',
+      reportFiles: ['audit-summary.json'],
+      findings: [
+        { id: 'validator-gate', status: 'warn', message: 'Validator gate needs attention.' },
+      ],
+      markdown: {
+        path: path.join(tempDir, '.codebuddy', 'reports', 'export.md'),
+        generatedAt: '2026-03-17T10:00:00.000Z',
+      },
+      sections: {
+        status: { generatedAt: '2026-03-17T10:00:00.000Z', targetDir: tempDir, reportsPath: path.join(tempDir, '.codebuddy', 'reports'), manifest: { projectName: 'demo', lastUpdated: '2026-03-17T09:00:00.000Z' }, sections: { architecture: { present: false, generatedAt: null, ageHours: null, ageLabel: null, freshness: 'missing' }, modules: { present: false, generatedAt: null, ageHours: null, ageLabel: null, freshness: 'missing' }, health: { present: false, generatedAt: null, ageHours: null, ageLabel: null, freshness: 'missing', trackedDays: 0 }, tasks: { present: false }, workflowRouting: { present: false, generatedAt: null, ageHours: null, ageLabel: null, workflowId: null, mode: null, confidence: null, taskBookId: null }, validatorGate: { present: false, generatedAt: null, ageHours: null, ageLabel: null, freshness: 'missing', scope: null, strictMode: null, effectiveOk: null, errorCount: null, warningCount: null, issueCount: null, outputDir: null, historyDir: null, historyCount: 0, reportFiles: [], previousRun: null, delta: null, recentHistory: [] }, audit: { present: false, generatedAt: null, ageHours: null, ageLabel: null, freshness: 'missing', overallStatus: null, findingsCount: 0, outputDir: null, historyDir: null, historyCount: 0, recentHistory: [] } } },
+        history: { generatedAt: '2026-03-17T10:00:00.000Z', targetDir: tempDir, reportsPath: path.join(tempDir, '.codebuddy', 'reports'), sections: { architecture: [], modules: [], validatorGate: [], audit: [] } },
+        trend: { generatedAt: '2026-03-17T10:00:00.000Z', targetDir: tempDir, reportsPath: path.join(tempDir, '.codebuddy', 'reports'), sections: { health: { present: false, days: 30, direction: null, changeRate: null, prediction: null, recentPoints: [] }, validatorGate: { present: false, latest: null, previousRun: null, delta: null, recentRuns: [], passCount: 0, failCount: 0 } } },
+        diff: { generatedAt: '2026-03-17T10:00:00.000Z', targetDir: tempDir, reportsPath: path.join(tempDir, '.codebuddy', 'reports'), input: { fromDate: null }, sections: { architecture: { present: false, olderPath: null, latestPath: null, diff: null }, modules: { present: false, olderPath: null, latestPath: null, diff: null } } },
+      },
+    };
+
+    const previousSummary = {
+      ...latestSummary,
+      generatedAt: '2026-03-17T09:00:00.000Z',
+      overview: {
+        ...latestSummary.overview,
+        overallStatus: 'pass',
+        findingsCount: 0,
+        validatorStatus: 'pass',
+        validatorDirection: 'stable',
+      },
+      historyDir: '.codebuddy/reports/audit/history/2026-03-17T09-00-00-000Z',
+      findings: [],
+    };
+
+    await fsp.writeFile(path.join(latestDir, 'audit-summary.json'), JSON.stringify(latestSummary, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(historyRoot, '2026-03-17T10-00-00-000Z', 'audit-summary.json'), JSON.stringify(latestSummary, null, 2), 'utf-8');
+    await fsp.writeFile(path.join(historyRoot, '2026-03-17T09-00-00-000Z', 'audit-summary.json'), JSON.stringify(previousSummary, null, 2), 'utf-8');
+
+    const summary = readLatestAuditReport(tempDir);
+    assert.equal(summary?.overview?.overallStatus, 'warn');
+    assert.equal(summary?.outputDir, '.codebuddy/reports/audit/latest');
+
+    const history = readAuditHistory(tempDir);
+    assert.equal(history.length, 2);
+    assert.equal(history[0].relativePath, 'audit/history/2026-03-17T10-00-00-000Z/audit-summary.json');
+
+    const snapshot = buildStatusSnapshot(tempDir);
+    assert.equal(snapshot.sections.audit.present, true);
+    assert.equal(snapshot.sections.audit.overallStatus, 'warn');
+    assert.equal(snapshot.sections.audit.outputDir, '.codebuddy/reports/audit/latest');
+    assert.equal(snapshot.sections.audit.historyCount, 2);
+    assert.equal(snapshot.sections.audit.recentHistory.length, 2);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function testReportManagerCleanupPrunesOldValidatorGateHistory() {
   assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
   const { cleanupReports } = require(reportManagerDistPath);
@@ -1711,8 +2077,13 @@ async function testReportManagerCleanupPrunesOldValidatorGateHistory() {
     const historyRoot = path.join(tempDir, '.codebuddy', 'reports', 'validators', 'history');
     const oldDir = path.join(historyRoot, '2026-01-01T00-00-00-000Z');
     const recentDir = path.join(historyRoot, '2026-03-17T10-00-00-000Z');
+    const auditHistoryRoot = path.join(tempDir, '.codebuddy', 'reports', 'audit', 'history');
+    const oldAuditDir = path.join(auditHistoryRoot, '2026-01-01T00-00-00-000Z');
+    const recentAuditDir = path.join(auditHistoryRoot, '2026-03-17T10-00-00-000Z');
     await fsp.mkdir(oldDir, { recursive: true });
     await fsp.mkdir(recentDir, { recursive: true });
+    await fsp.mkdir(oldAuditDir, { recursive: true });
+    await fsp.mkdir(recentAuditDir, { recursive: true });
 
     await fsp.writeFile(
       path.join(oldDir, 'validator-gate-summary.json'),
@@ -1750,11 +2121,69 @@ async function testReportManagerCleanupPrunesOldValidatorGateHistory() {
       }, null, 2),
       'utf-8',
     );
+    await fsp.writeFile(
+      path.join(oldAuditDir, 'audit-summary.json'),
+      JSON.stringify({
+        generatedAt: new Date(Date.now() - (60 * 24 * 60 * 60 * 1000)).toISOString(),
+        targetDir: tempDir,
+        reportsPath: path.join(tempDir, '.codebuddy', 'reports'),
+        input: { days: 30, fromDate: null },
+        overview: {
+          overallStatus: 'warn',
+          architectureFreshness: 'missing',
+          modulesFreshness: 'missing',
+          workflowId: null,
+          workflowMode: null,
+          validatorStatus: 'warn',
+          validatorDirection: null,
+          healthDirection: null,
+          diffAvailable: false,
+          findingsCount: 3,
+        },
+        outputDir: '.codebuddy/reports/audit/latest',
+        historyDir: '.codebuddy/reports/audit/history/2026-01-01T00-00-00-000Z',
+        reportFiles: ['audit-summary.json'],
+        findings: [],
+        markdown: { path: path.join(tempDir, '.codebuddy', 'reports', 'export.md'), generatedAt: new Date().toISOString() },
+        sections: { status: {}, history: {}, trend: {}, diff: {} },
+      }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(recentAuditDir, 'audit-summary.json'),
+      JSON.stringify({
+        generatedAt: new Date(Date.now() - (2 * 24 * 60 * 60 * 1000)).toISOString(),
+        targetDir: tempDir,
+        reportsPath: path.join(tempDir, '.codebuddy', 'reports'),
+        input: { days: 30, fromDate: null },
+        overview: {
+          overallStatus: 'pass',
+          architectureFreshness: 'fresh',
+          modulesFreshness: 'fresh',
+          workflowId: null,
+          workflowMode: null,
+          validatorStatus: 'pass',
+          validatorDirection: 'stable',
+          healthDirection: null,
+          diffAvailable: true,
+          findingsCount: 0,
+        },
+        outputDir: '.codebuddy/reports/audit/latest',
+        historyDir: '.codebuddy/reports/audit/history/2026-03-17T10-00-00-000Z',
+        reportFiles: ['audit-summary.json'],
+        findings: [],
+        markdown: { path: path.join(tempDir, '.codebuddy', 'reports', 'export.md'), generatedAt: new Date().toISOString() },
+        sections: { status: {}, history: {}, trend: {}, diff: {} },
+      }, null, 2),
+      'utf-8',
+    );
 
     cleanupReports(tempDir, false);
 
     assert.equal(fs.existsSync(oldDir), false);
     assert.equal(fs.existsSync(recentDir), true);
+    assert.equal(fs.existsSync(oldAuditDir), false);
+    assert.equal(fs.existsSync(recentAuditDir), true);
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
@@ -1770,6 +2199,7 @@ async function testReportManagerHistorySnapshotIncludesValidatorRuns() {
     await fsp.mkdir(path.join(reportsRoot, 'architecture'), { recursive: true });
     await fsp.mkdir(path.join(reportsRoot, 'modules'), { recursive: true });
     await fsp.mkdir(path.join(reportsRoot, 'validators', 'history', '2026-03-17T10-00-00-000Z'), { recursive: true });
+    await fsp.mkdir(path.join(reportsRoot, 'audit', 'history', '2026-03-17T10-00-00-000Z'), { recursive: true });
 
     await fsp.writeFile(
       path.join(reportsRoot, 'architecture', '2026-03-17T10-00-00.json'),
@@ -1799,13 +2229,43 @@ async function testReportManagerHistorySnapshotIncludesValidatorRuns() {
       }, null, 2),
       'utf-8',
     );
+    await fsp.writeFile(
+      path.join(reportsRoot, 'audit', 'history', '2026-03-17T10-00-00-000Z', 'audit-summary.json'),
+      JSON.stringify({
+        generatedAt: '2026-03-17T10:00:00.000Z',
+        targetDir: tempDir,
+        reportsPath: path.join(tempDir, '.codebuddy', 'reports'),
+        input: { days: 30, fromDate: null },
+        overview: {
+          overallStatus: 'warn',
+          architectureFreshness: 'missing',
+          modulesFreshness: 'missing',
+          workflowId: null,
+          workflowMode: null,
+          validatorStatus: 'warn',
+          validatorDirection: 'regressed',
+          healthDirection: null,
+          diffAvailable: false,
+          findingsCount: 3,
+        },
+        outputDir: '.codebuddy/reports/audit/latest',
+        historyDir: '.codebuddy/reports/audit/history/2026-03-17T10-00-00-000Z',
+        reportFiles: ['audit-summary.json'],
+        findings: [],
+        markdown: { path: path.join(tempDir, '.codebuddy', 'reports', 'export.md'), generatedAt: '2026-03-17T10:00:00.000Z' },
+        sections: { status: {}, history: {}, trend: {}, diff: {} },
+      }, null, 2),
+      'utf-8',
+    );
 
     const snapshot = buildHistorySnapshot(tempDir);
     assert.equal(snapshot.sections.architecture.length, 1);
     assert.equal(snapshot.sections.modules.length, 1);
     assert.equal(snapshot.sections.validatorGate.length, 1);
+    assert.equal(snapshot.sections.audit.length, 1);
     assert.equal(snapshot.sections.validatorGate[0].scope, 'all');
     assert.equal(snapshot.sections.validatorGate[0].strictMode, true);
+    assert.equal(snapshot.sections.audit[0].overallStatus, 'warn');
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
@@ -2075,7 +2535,7 @@ async function testReportManagerExportSnapshotBundlesMachineReadableSections() {
 
 async function testReportManagerAuditSnapshotProvidesTopLevelVerdict() {
   assertBuiltArtifactExists(reportManagerDistPath, 'npm run build:scripts');
-  const { buildAuditSnapshot } = require(reportManagerDistPath);
+  const { buildAndPersistAuditSnapshot } = require(reportManagerDistPath);
 
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-report-audit-'));
   try {
@@ -2171,15 +2631,20 @@ async function testReportManagerAuditSnapshotProvidesTopLevelVerdict() {
       reports: {},
     }, null, 2), 'utf-8');
 
-    const snapshot = buildAuditSnapshot(tempDir, { days: 14, fromDate: '2026-03-16' });
+    const snapshot = buildAndPersistAuditSnapshot(tempDir, { days: 14, fromDate: '2026-03-16' });
     assert.equal(snapshot.input.days, 14);
     assert.equal(snapshot.input.fromDate, '2026-03-16');
     assert.equal(snapshot.overview.overallStatus, 'warn');
     assert.equal(snapshot.overview.validatorStatus, 'warn');
     assert.equal(snapshot.overview.diffAvailable, true);
+    assert.equal(snapshot.outputDir, '.codebuddy/reports/audit/latest');
+    assert.equal(typeof snapshot.historyDir, 'string');
+    assert.equal(snapshot.reportFiles.includes('audit-summary.json'), true);
     assert.ok(snapshot.findings.some(finding => finding.id === 'validator-gate' && finding.status === 'warn'));
     assert.ok(snapshot.findings.some(finding => finding.id === 'workflow-routing' && finding.status === 'warn'));
     assert.equal(fs.existsSync(snapshot.markdown.path), true);
+    assert.equal(fs.existsSync(path.join(tempDir, '.codebuddy', 'reports', 'audit', 'latest', 'audit-summary.json')), true);
+    assert.equal(fs.existsSync(path.join(tempDir, snapshot.historyDir, 'audit-summary.json')), true);
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
@@ -2224,15 +2689,19 @@ async function main() {
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],
     ['doctor surfaces latest validator gate summary when present', testDoctorValidatorGateWarnings],
+    ['doctor ignores known optional static support files', testDoctorIgnoresKnownOptionalStaticSupportFiles],
     ['doctor warns when validator gate regresses relative to previous run', testDoctorWarnsOnValidatorGateRegressionEvenWhenLatestPasses],
     ['contract validator architecture drift checks stay opt-in and additive', testContractValidatorArchitectureWarnings],
     ['rule validator warns when recommended metadata is missing', testRuleValidatorMetadataWarnings],
     ['skill validator warns on bundled files that are never linked from markdown', testSkillValidatorBundledReferenceWarnings],
+    ['repo state validator warns on stale or weak repository fact sources', testRepoStateValidatorWarnsOnMissingLinksAndStaleFacts],
     ['validator gate writes strict summary and per-validator reports', testValidatorGateWritesStrictReports],
     ['validator gate writes history when using the standard report directory', testValidatorGateWritesHistoryForStandardReportDir],
+    ['validator gate skips repo-state checks outside repository roots', testValidatorGateSkipsRepoStateOutsideRepositoryRoots],
     ['report manager reads the latest validator gate summary from reports', testReportManagerReadsLatestValidatorGateSummary],
-    ['report manager cleanup prunes old validator gate history', testReportManagerCleanupPrunesOldValidatorGateHistory],
-    ['report manager history snapshot includes validator gate runs', testReportManagerHistorySnapshotIncludesValidatorRuns],
+    ['report manager reads the latest audit summary from standard reports', testReportManagerReadsLatestAuditSummary],
+    ['report manager cleanup prunes old validator and audit history', testReportManagerCleanupPrunesOldValidatorGateHistory],
+    ['report manager history snapshot includes validator and audit runs', testReportManagerHistorySnapshotIncludesValidatorRuns],
     ['report manager trend snapshot includes validator trend data', testReportManagerTrendSnapshotIncludesValidatorTrend],
     ['report manager diff snapshot includes architecture and module diffs', testReportManagerDiffSnapshotIncludesModuleDiff],
     ['report manager export snapshot bundles machine-readable sections', testReportManagerExportSnapshotBundlesMachineReadableSections],

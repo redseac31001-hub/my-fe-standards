@@ -1,2706 +1,1093 @@
 #!/usr/bin/env node
 "use strict";
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// scripts/src/module-mapper.ts
-var module_mapper_exports = {};
-__export(module_mapper_exports, {
-  analyzeModules: () => analyzeModules
+/**
+ * Module Mapper - 功能模块图谱分析器
+ *
+ * 扫描项目目录结构，识别功能模块划分，分析模块依赖关系，生成模块图谱。
+ *
+ * 用法: node module-mapper.js <path> [options]
+ *   --mode <mode>       输出模式: summary | full | graph (默认: summary)
+ *   --output <format>   输出格式: json | markdown | mermaid (默认: markdown)
+ *   --no-deps           跳过依赖分析（加快速度）
+ *   --max-depth <n>     最大扫描深度 (默认: 5)
+ */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
 });
-module.exports = __toCommonJS(module_mapper_exports);
-var fs4 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
-
-// scripts/src/types/module-mapper.ts
-var BUSINESS_KEYWORDS = [
-  // 用户认证
-  { keyword: "login", name: "\u767B\u5F55", category: "\u7528\u6237\u8BA4\u8BC1", aliases: ["signin", "auth"] },
-  { keyword: "register", name: "\u6CE8\u518C", category: "\u7528\u6237\u8BA4\u8BC1", aliases: ["signup"] },
-  { keyword: "verification", name: "\u8EAB\u4EFD\u9A8C\u8BC1", category: "\u7528\u6237\u8BA4\u8BC1", aliases: ["verify", "validate"] },
-  { keyword: "password", name: "\u5BC6\u7801\u7BA1\u7406", category: "\u7528\u6237\u8BA4\u8BC1", aliases: ["pwd", "forgot"] },
-  { keyword: "captcha", name: "\u9A8C\u8BC1\u7801", category: "\u7528\u6237\u8BA4\u8BC1" },
-  { keyword: "sso", name: "\u5355\u70B9\u767B\u5F55", category: "\u7528\u6237\u8BA4\u8BC1" },
-  // 用户管理
-  { keyword: "account", name: "\u8D26\u6237", category: "\u7528\u6237\u7BA1\u7406", aliases: ["user", "profile"] },
-  { keyword: "personal", name: "\u4E2A\u4EBA\u4E2D\u5FC3", category: "\u7528\u6237\u7BA1\u7406", aliases: ["mine", "my"] },
-  { keyword: "settings", name: "\u8BBE\u7F6E", category: "\u7528\u6237\u7BA1\u7406", aliases: ["setting", "config"] },
-  { keyword: "enterprise", name: "\u4F01\u4E1A\u4FE1\u606F", category: "\u7528\u6237\u7BA1\u7406", aliases: ["company", "corp"] },
-  // 业务办理
-  { keyword: "registry", name: "\u6CE8\u518C\u5F00\u6237", category: "\u4E1A\u52A1\u529E\u7406", aliases: ["reg"] },
-  { keyword: "selfSign", name: "\u81EA\u52A9\u7B7E\u7EA6", category: "\u4E1A\u52A1\u529E\u7406", aliases: ["self-sign", "selfsign"] },
-  { keyword: "fillInfo", name: "\u4FE1\u606F\u586B\u5199", category: "\u4E1A\u52A1\u529E\u7406", aliases: ["fill-info", "fillinfo"] },
-  { keyword: "openAccount", name: "\u5F00\u6237", category: "\u4E1A\u52A1\u529E\u7406", aliases: ["open-account", "openaccount"] },
-  { keyword: "apply", name: "\u7533\u8BF7", category: "\u4E1A\u52A1\u529E\u7406", aliases: ["application"] },
-  { keyword: "order", name: "\u8BA2\u5355", category: "\u4E1A\u52A1\u529E\u7406", aliases: ["orders"] },
-  { keyword: "payment", name: "\u652F\u4ED8", category: "\u4E1A\u52A1\u529E\u7406", aliases: ["pay"] },
-  { keyword: "transaction", name: "\u4EA4\u6613", category: "\u4E1A\u52A1\u529E\u7406", aliases: ["trans"] },
-  // 数据管理
-  { keyword: "dashboard", name: "\u4EEA\u8868\u76D8", category: "\u6570\u636E\u7BA1\u7406", aliases: ["home", "index"] },
-  { keyword: "report", name: "\u62A5\u8868", category: "\u6570\u636E\u7BA1\u7406", aliases: ["reports", "statistics"] },
-  { keyword: "list", name: "\u5217\u8868", category: "\u6570\u636E\u7BA1\u7406", aliases: ["table"] },
-  { keyword: "detail", name: "\u8BE6\u60C5", category: "\u6570\u636E\u7BA1\u7406", aliases: ["details", "info"] },
-  // 系统设置
-  { keyword: "admin", name: "\u7BA1\u7406\u540E\u53F0", category: "\u7CFB\u7EDF\u8BBE\u7F6E", aliases: ["management"] },
-  { keyword: "permission", name: "\u6743\u9650\u7BA1\u7406", category: "\u7CFB\u7EDF\u8BBE\u7F6E", aliases: ["role", "auth"] },
-  { keyword: "system", name: "\u7CFB\u7EDF\u7BA1\u7406", category: "\u7CFB\u7EDF\u8BBE\u7F6E", aliases: ["sys"] },
-  // 通用组件
-  { keyword: "components", name: "\u516C\u5171\u7EC4\u4EF6", category: "\u901A\u7528\u7EC4\u4EF6", aliases: ["component", "common"] },
-  { keyword: "layouts", name: "\u5E03\u5C40\u7EC4\u4EF6", category: "\u901A\u7528\u7EC4\u4EF6", aliases: ["layout"] },
-  // 工具函数
-  { keyword: "utils", name: "\u5DE5\u5177\u51FD\u6570", category: "\u5DE5\u5177\u51FD\u6570", aliases: ["util", "helpers", "helper"] },
-  { keyword: "hooks", name: "Hooks", category: "\u5DE5\u5177\u51FD\u6570", aliases: ["composables", "composable"] },
-  { keyword: "api", name: "API\u63A5\u53E3", category: "\u5DE5\u5177\u51FD\u6570", aliases: ["apis", "services", "service"] },
-  { keyword: "store", name: "\u72B6\u6001\u7BA1\u7406", category: "\u5DE5\u5177\u51FD\u6570", aliases: ["stores", "vuex", "pinia"] }
-];
-var DEFAULT_MAPPER_CONFIG = {
-  modulePatterns: [
-    { pattern: "views", type: "page", recursive: true },
-    { pattern: "pages", type: "page", recursive: true },
-    { pattern: "features", type: "feature", recursive: true },
-    { pattern: "modules", type: "feature", recursive: true },
-    { pattern: "components", type: "shared", recursive: false },
-    { pattern: "composables", type: "util", recursive: false },
-    { pattern: "hooks", type: "util", recursive: false },
-    { pattern: "utils", type: "util", recursive: false },
-    { pattern: "api", type: "api", recursive: true },
-    { pattern: "services", type: "api", recursive: true },
-    { pattern: "store", type: "store", recursive: true },
-    { pattern: "stores", type: "store", recursive: true },
-    { pattern: "layouts", type: "layout", recursive: false }
-  ],
-  entryPatterns: [
-    "index.vue",
-    "index.tsx",
-    "index.ts",
-    "App.vue",
-    "*.page.vue",
-    "*.view.vue"
-  ],
-  ignorePatterns: [
-    "node_modules",
-    "dist",
-    ".git",
-    ".vscode",
-    "__tests__",
-    "*.test.*",
-    "*.spec.*"
-  ],
-  thresholds: {
-    maxFilesPerModule: 50,
-    maxLinesPerModule: 5e3,
-    maxDependencies: 10,
-    maxDependents: 20
-  }
-};
-
-// scripts/src/report-manager.ts
-var fs3 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
-var crypto = __toESM(require("crypto"));
-
-// scripts/src/lib/cli-entry.ts
-var path = __toESM(require("path"));
-function isDirectCliEntry(expectedFileNames) {
-  const argvPath = process.argv[1];
-  if (!argvPath) return false;
-  const actual = path.basename(argvPath).toLowerCase();
-  const expected = Array.isArray(expectedFileNames) ? expectedFileNames : [expectedFileNames];
-  return expected.some((name) => actual === name.toLowerCase());
-}
-
-// scripts/src/lib/validator-gate-report.ts
-var fs = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
-
-// scripts/src/types/reports.ts
-var DEFAULT_RETENTION_POLICY = {
-  snapshots: {
-    maxCount: 10,
-    maxAgeDays: 30
-  },
-  validators: {
-    maxCount: 20,
-    maxAgeDays: 30
-  },
-  health: {
-    dailyRetentionDays: 90,
-    weeklyRetentionDays: 365
-  },
-  tasks: {
-    maxCount: 50,
-    maxAgeDays: 180
-  },
-  cache: {
-    maxAgeDays: 7
-  }
-};
-var DEFAULT_MANIFEST = {
-  version: "1.0.0",
-  projectName: "",
-  lastUpdated: "",
-  reports: {
-    architecture: null,
-    modules: null,
-    health: null,
-    tasks: null
-  },
-  settings: {
-    retentionDays: 30,
-    maxSnapshots: 10,
-    autoCleanup: true
-  }
-};
-
-// scripts/src/lib/validator-gate-report.ts
-var VALIDATOR_GATE_CANDIDATE_PATHS = [
-  "validators/latest/validator-gate-summary.json",
-  "validators/validator-gate-summary.json"
-];
-var VALIDATOR_GATE_HISTORY_ROOT = ".codebuddy/reports/validators/history";
-function readValidatorGateSummaryFile(filePath) {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-    if (parsed && typeof parsed.generatedAt === "string") {
-      return parsed;
-    }
-  } catch {
-  }
-  return null;
-}
-function readLatestValidatorGateReport(targetDir) {
-  for (const relativePath of VALIDATOR_GATE_CANDIDATE_PATHS) {
-    const absolutePath = path2.join(targetDir, ".codebuddy", "reports", relativePath);
-    if (!fs.existsSync(absolutePath)) {
-      continue;
-    }
-    const parsed = readValidatorGateSummaryFile(absolutePath);
-    if (parsed) {
-      return parsed;
-    }
-  }
-  return null;
-}
-function readValidatorGateHistory(targetDir, limit = 10) {
-  const historyRoot = path2.join(targetDir, VALIDATOR_GATE_HISTORY_ROOT);
-  if (!fs.existsSync(historyRoot)) {
-    return [];
-  }
-  const entries = [];
-  for (const dirent of fs.readdirSync(historyRoot, { withFileTypes: true })) {
-    if (!dirent.isDirectory()) {
-      continue;
-    }
-    const summaryPath = path2.join(historyRoot, dirent.name, "validator-gate-summary.json");
-    if (!fs.existsSync(summaryPath)) {
-      continue;
-    }
-    const summary = readValidatorGateSummaryFile(summaryPath);
-    if (!summary) {
-      continue;
-    }
-    entries.push({
-      relativePath: path2.posix.join("validators/history", dirent.name, "validator-gate-summary.json"),
-      generatedAt: summary.generatedAt,
-      scope: summary.scope,
-      strictMode: summary.strictMode,
-      effectiveOk: summary.effectiveOk,
-      errorCount: summary.errorCount,
-      warningCount: summary.warningCount,
-      issueCount: summary.issueCount
-    });
-  }
-  entries.sort((left, right) => {
-    const leftTime = new Date(left.generatedAt).getTime();
-    const rightTime = new Date(right.generatedAt).getTime();
-    if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0;
-    if (Number.isNaN(leftTime)) return 1;
-    if (Number.isNaN(rightTime)) return -1;
-    return rightTime - leftTime;
-  });
-  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : entries.length;
-  return entries.slice(0, normalizedLimit);
-}
-function getPreviousValidatorGateEntry(latest, history) {
-  if (!latest || history.length === 0) {
-    return null;
-  }
-  return history.find((entry) => entry.generatedAt !== latest.generatedAt) || null;
-}
-function computeValidatorGateSeverityScore(entry) {
-  const failPenalty = entry.effectiveOk ? 0 : 1e6;
-  return failPenalty + entry.errorCount * 1e4 + entry.warningCount * 100 + entry.issueCount;
-}
-function buildValidatorGateDelta(latest, previous) {
-  if (!latest || !previous) {
-    return null;
-  }
-  const errorDelta = latest.errorCount - previous.errorCount;
-  const warningDelta = latest.warningCount - previous.warningCount;
-  const issueDelta = latest.issueCount - previous.issueCount;
-  const effectiveOkChanged = latest.effectiveOk !== previous.effectiveOk;
-  const latestScore = computeValidatorGateSeverityScore(latest);
-  const previousScore = computeValidatorGateSeverityScore(previous);
-  let direction = "stable";
-  if (latestScore > previousScore) {
-    direction = "regressed";
-  } else if (latestScore < previousScore) {
-    direction = "improved";
-  }
-  return {
-    previousGeneratedAt: previous.generatedAt,
-    errorDelta,
-    warningDelta,
-    issueDelta,
-    effectiveOkChanged,
-    direction
-  };
-}
-function cleanupValidatorGateHistory(targetDir, retention = DEFAULT_RETENTION_POLICY.validators) {
-  const historyRoot = path2.join(targetDir, VALIDATOR_GATE_HISTORY_ROOT);
-  if (!fs.existsSync(historyRoot)) {
-    return 0;
-  }
-  const entries = fs.readdirSync(historyRoot, { withFileTypes: true }).filter((dirent) => dirent.isDirectory()).map((dirent) => {
-    const directoryPath = path2.join(historyRoot, dirent.name);
-    const summaryPath = path2.join(directoryPath, "validator-gate-summary.json");
-    const summary = fs.existsSync(summaryPath) ? readValidatorGateSummaryFile(summaryPath) : null;
-    const generatedAt = summary?.generatedAt ?? null;
-    const time = generatedAt ? new Date(generatedAt).getTime() : fs.statSync(directoryPath).mtime.getTime();
-    return {
-      directoryPath,
-      time
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
     };
-  }).sort((left, right) => right.time - left.time);
-  const maxAgeMs = retention.maxAgeDays * 24 * 60 * 60 * 1e3;
-  const now = Date.now();
-  let removed = 0;
-  for (let index = 0; index < entries.length; index++) {
-    const entry = entries[index];
-    const tooMany = index >= retention.maxCount;
-    const tooOld = Number.isFinite(entry.time) ? now - entry.time > maxAgeMs : false;
-    if (!tooMany && !tooOld) {
-      continue;
-    }
-    fs.rmSync(entry.directoryPath, { recursive: true, force: true });
-    removed += 1;
-  }
-  return removed;
-}
-
-// scripts/src/lib/workflow-routing-selection.ts
-var fs2 = __toESM(require("fs"));
-var path3 = __toESM(require("path"));
-function readJsonFile(filePath) {
-  if (!fs2.existsSync(filePath)) return null;
-  try {
-    return JSON.parse(fs2.readFileSync(filePath, "utf-8"));
-  } catch {
-    return null;
-  }
-}
-function listWorkflowRoutingReportPaths(projectRoot) {
-  const reportsDir = path3.join(projectRoot, ".codebuddy", "reports", "workflow-routing");
-  if (!fs2.existsSync(reportsDir)) return [];
-  return fs2.readdirSync(reportsDir).filter((fileName) => fileName.endsWith(".routing.json")).map((fileName) => path3.join(reportsDir, fileName)).sort((left, right) => {
-    try {
-      return fs2.statSync(right).mtimeMs - fs2.statSync(left).mtimeMs;
-    } catch {
-      return 0;
-    }
-  });
-}
-function readLatestWorkflowRoutingReport(projectRoot) {
-  for (const reportPath of listWorkflowRoutingReportPaths(projectRoot)) {
-    const parsed = readJsonFile(reportPath);
-    if (parsed && parsed.taskBookId && parsed.decision) {
-      return parsed;
-    }
-  }
-  return null;
-}
-
-// scripts/src/report-manager.ts
-var REPORTS_DIR = ".codebuddy/reports";
-var MANIFEST_FILE = "manifest.json";
-function getReportsPath(targetDir) {
-  return path4.join(targetDir, REPORTS_DIR);
-}
-function ensureDir(dirPath) {
-  if (!fs3.existsSync(dirPath)) {
-    fs3.mkdirSync(dirPath, { recursive: true });
-  }
-}
-function computeHash(content) {
-  return crypto.createHash("md5").update(content).digest("hex").slice(0, 8);
-}
-function formatAge(isoString) {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const hours = Math.floor(diff / (1e3 * 60 * 60));
-  const days = Math.floor(hours / 24);
-  if (days > 0) return `${days}d ago`;
-  if (hours > 0) return `${hours}h ago`;
-  return "just now";
-}
-function getReportAgeHours(isoString) {
-  const diff = Date.now() - new Date(isoString).getTime();
-  return Math.floor(diff / (1e3 * 60 * 60));
-}
-function buildReportStatusSection(meta) {
-  if (!meta) {
-    return {
-      present: false,
-      generatedAt: null,
-      ageHours: null,
-      ageLabel: null,
-      freshness: "missing"
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
     };
-  }
-  const ageHours = getReportAgeHours(meta.generatedAt);
-  return {
-    present: true,
-    generatedAt: meta.generatedAt,
-    ageHours,
-    ageLabel: formatAge(meta.generatedAt),
-    freshness: ageHours < 24 ? "fresh" : "stale"
-  };
-}
-function readManifest(targetDir) {
-  const manifestPath = path4.join(getReportsPath(targetDir), MANIFEST_FILE);
-  if (!fs3.existsSync(manifestPath)) {
-    return {
-      ...DEFAULT_MANIFEST,
-      projectName: path4.basename(targetDir),
-      lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
-    };
-  }
-  try {
-    const content = fs3.readFileSync(manifestPath, "utf-8");
-    return JSON.parse(content);
-  } catch {
-    return {
-      ...DEFAULT_MANIFEST,
-      projectName: path4.basename(targetDir),
-      lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
-    };
-  }
-}
-function writeManifest(targetDir, manifest) {
-  const reportsPath = getReportsPath(targetDir);
-  ensureDir(reportsPath);
-  manifest.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
-  const manifestPath = path4.join(reportsPath, MANIFEST_FILE);
-  fs3.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
-}
-function readReport(targetDir, reportPath) {
-  const fullPath = path4.join(getReportsPath(targetDir), reportPath);
-  if (!fs3.existsSync(fullPath)) {
-    return null;
-  }
-  try {
-    const content = fs3.readFileSync(fullPath, "utf-8");
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
-}
-function writeReport(targetDir, reportPath, data, generatedBy) {
-  const reportsPath = getReportsPath(targetDir);
-  const fullPath = path4.join(reportsPath, reportPath);
-  const dirPath = path4.dirname(fullPath);
-  ensureDir(dirPath);
-  const content = JSON.stringify(data, null, 2);
-  fs3.writeFileSync(fullPath, content, "utf-8");
-  const meta = {
-    type: getReportType(reportPath),
-    path: reportPath,
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    generatedBy,
-    hash: computeHash(content),
-    size: Buffer.byteLength(content, "utf-8")
-  };
-  const manifest = readManifest(targetDir);
-  updateManifestReport(manifest, meta);
-  writeManifest(targetDir, manifest);
-  return meta;
-}
-function getReportType(reportPath) {
-  if (reportPath.includes("architecture")) return "architecture-snapshot";
-  if (reportPath.includes("modules")) return "module-map";
-  if (reportPath.includes("health")) return "health-timeline";
-  if (reportPath.includes("tasks")) return "task-context";
-  return "architecture-snapshot";
-}
-function updateManifestReport(manifest, meta) {
-  switch (meta.type) {
-    case "architecture-snapshot":
-      manifest.reports.architecture = meta;
-      break;
-    case "module-map":
-      manifest.reports.modules = meta;
-      break;
-    case "health-timeline":
-      manifest.reports.health = meta;
-      break;
-    case "task-context":
-      manifest.reports.tasks = meta;
-      break;
-  }
-}
-function cleanupOldSnapshots(targetDir, subDir) {
-  const dirPath = path4.join(getReportsPath(targetDir), subDir);
-  if (!fs3.existsSync(dirPath)) return;
-  const files = fs3.readdirSync(dirPath).filter((f) => f.endsWith(".json") && f !== "latest.json").map((f) => ({
-    name: f,
-    path: path4.join(dirPath, f),
-    time: fs3.statSync(path4.join(dirPath, f)).mtime.getTime()
-  })).sort((a, b) => b.time - a.time);
-  const { maxCount, maxAgeDays } = DEFAULT_RETENTION_POLICY.snapshots;
-  const maxAge = maxAgeDays * 24 * 60 * 60 * 1e3;
-  const now = Date.now();
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    if (i >= maxCount || now - file.time > maxAge) {
-      fs3.unlinkSync(file.path);
-    }
-  }
-}
-function saveModuleMapSnapshot(targetDir, snapshot) {
-  const meta = writeReport(
-    targetDir,
-    "modules/latest.json",
-    snapshot,
-    "module-mapper"
-  );
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const historyPath = `modules/${timestamp}.json`;
-  const historyFullPath = path4.join(getReportsPath(targetDir), historyPath);
-  const historyDir = path4.dirname(historyFullPath);
-  ensureDir(historyDir);
-  fs3.writeFileSync(historyFullPath, JSON.stringify(snapshot, null, 2), "utf-8");
-  cleanupOldSnapshots(targetDir, "modules");
-  return meta;
-}
-function buildStatusSnapshot(targetDir) {
-  const manifest = readManifest(targetDir);
-  const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
-  const validatorGate = readLatestValidatorGateReport(targetDir);
-  const validatorGateHistory = readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY);
-  const recentValidatorGateHistory = validatorGateHistory.slice(0, 5);
-  const previousValidatorGate = getPreviousValidatorGateEntry(validatorGate, validatorGateHistory);
-  const validatorGateDelta = buildValidatorGateDelta(validatorGate, previousValidatorGate);
-  const healthTimeline = readReport(targetDir, "health/timeline.json");
-  const { architecture, modules, health, tasks } = manifest.reports;
-  const workflowRoutingAgeHours = workflowRouting ? getReportAgeHours(workflowRouting.generatedAt) : null;
-  const validatorGateAgeHours = validatorGate ? getReportAgeHours(validatorGate.generatedAt) : null;
-  return {
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    targetDir,
-    reportsPath: getReportsPath(targetDir),
-    manifest: {
-      projectName: manifest.projectName,
-      lastUpdated: manifest.lastUpdated
-    },
-    sections: {
-      architecture: buildReportStatusSection(architecture),
-      modules: buildReportStatusSection(modules),
-      health: {
-        ...buildReportStatusSection(health),
-        trackedDays: healthTimeline?.dataPoints.length || 0
-      },
-      tasks: {
-        present: Boolean(tasks)
-      },
-      workflowRouting: {
-        present: Boolean(workflowRouting),
-        generatedAt: workflowRouting?.generatedAt ?? null,
-        ageHours: workflowRoutingAgeHours,
-        ageLabel: workflowRouting ? formatAge(workflowRouting.generatedAt) : null,
-        workflowId: workflowRouting?.decision.selectedWorkflowId ?? null,
-        mode: workflowRouting?.decision.mode ?? null,
-        confidence: workflowRouting?.decision.confidence ?? null,
-        taskBookId: workflowRouting?.taskBookId ?? null
-      },
-      validatorGate: {
-        present: Boolean(validatorGate),
-        generatedAt: validatorGate?.generatedAt ?? null,
-        ageHours: validatorGateAgeHours,
-        ageLabel: validatorGate ? formatAge(validatorGate.generatedAt) : null,
-        freshness: validatorGate ? validatorGateAgeHours !== null && validatorGateAgeHours < 24 ? "fresh" : "stale" : "missing",
-        scope: validatorGate?.scope ?? null,
-        strictMode: typeof validatorGate?.strictMode === "boolean" ? validatorGate.strictMode : null,
-        effectiveOk: typeof validatorGate?.effectiveOk === "boolean" ? validatorGate.effectiveOk : null,
-        errorCount: validatorGate?.errorCount ?? null,
-        warningCount: validatorGate?.warningCount ?? null,
-        issueCount: validatorGate?.issueCount ?? null,
-        outputDir: validatorGate?.outputDir ?? null,
-        historyDir: validatorGate?.historyDir ?? null,
-        historyCount: validatorGateHistory.length,
-        reportFiles: validatorGate?.reportFiles ?? [],
-        previousRun: previousValidatorGate ? {
-          generatedAt: previousValidatorGate.generatedAt,
-          scope: previousValidatorGate.scope,
-          strictMode: previousValidatorGate.strictMode,
-          effectiveOk: previousValidatorGate.effectiveOk,
-          errorCount: previousValidatorGate.errorCount,
-          warningCount: previousValidatorGate.warningCount,
-          issueCount: previousValidatorGate.issueCount
-        } : null,
-        delta: validatorGateDelta,
-        recentHistory: recentValidatorGateHistory
-      }
-    }
-  };
-}
-function showStatus(targetDir, json = false) {
-  const snapshot = buildStatusSnapshot(targetDir);
-  if (json) {
-    console.log(JSON.stringify(snapshot, null, 2));
-    return;
-  }
-  console.log("");
-  console.log("\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510");
-  console.log("\u2502           CodeBuddy Reports Status                  \u2502");
-  console.log("\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524");
-  if (snapshot.sections.architecture.present && snapshot.sections.architecture.generatedAt) {
-    const fresh = snapshot.sections.architecture.freshness === "fresh" ? "\u2713 Fresh" : "\u25CB Stale";
-    console.log(`\u2502 Architecture:  ${snapshot.sections.architecture.generatedAt.slice(0, 16)}  (${snapshot.sections.architecture.ageLabel})  ${fresh.padEnd(8)} \u2502`);
-  } else {
-    console.log("\u2502 Architecture:  Not generated                        \u2502");
-  }
-  if (snapshot.sections.modules.present && snapshot.sections.modules.generatedAt) {
-    const fresh = snapshot.sections.modules.freshness === "fresh" ? "\u2713 Fresh" : "\u25CB Stale";
-    console.log(`\u2502 Modules:       ${snapshot.sections.modules.generatedAt.slice(0, 16)}  (${snapshot.sections.modules.ageLabel})  ${fresh.padEnd(8)} \u2502`);
-  } else {
-    console.log("\u2502 Modules:       Not generated                        \u2502");
-  }
-  if (snapshot.sections.health.present) {
-    console.log(`\u2502 Health Points: ${snapshot.sections.health.trackedDays} days tracked`.padEnd(52) + "\u2502");
-  } else {
-    console.log("\u2502 Health Points: Not tracked                          \u2502");
-  }
-  if (snapshot.sections.tasks.present) {
-    console.log("\u2502 Active Task:   Yes                                  \u2502");
-  } else {
-    console.log("\u2502 Active Task:   None                                 \u2502");
-  }
-  if (snapshot.sections.workflowRouting.present) {
-    const routeText = `Route: ${snapshot.sections.workflowRouting.workflowId} (${snapshot.sections.workflowRouting.mode}, ${snapshot.sections.workflowRouting.ageLabel})`;
-    console.log(`\u2502 ${routeText}`.padEnd(52) + "\u2502");
-  } else {
-    console.log("\u2502 Route:         No workflow routing report           \u2502");
-  }
-  if (snapshot.sections.validatorGate.present && snapshot.sections.validatorGate.scope) {
-    const scope = snapshot.sections.validatorGate.scope.padEnd(6);
-    const status = snapshot.sections.validatorGate.effectiveOk ? "pass" : "fail";
-    const historySuffix = snapshot.sections.validatorGate.historyCount > 0 ? `, runs=${snapshot.sections.validatorGate.historyCount}` : "";
-    const trendSuffix = snapshot.sections.validatorGate.delta ? `, trend=${snapshot.sections.validatorGate.delta.direction}` : "";
-    const validatorText = `Validators: ${status} (${scope.trim()}, ${snapshot.sections.validatorGate.ageLabel}${historySuffix}${trendSuffix})`;
-    console.log(`\u2502 ${validatorText}`.padEnd(52) + "\u2502");
-  } else {
-    console.log("\u2502 Validators:    No validator gate summary            \u2502");
-  }
-  console.log("\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518");
-  console.log("");
-}
-function cleanup(targetDir, cacheOnly = false) {
-  const reportsPath = getReportsPath(targetDir);
-  if (!fs3.existsSync(reportsPath)) {
-    console.log("No reports directory found.");
-    return;
-  }
-  let cleanedCount = 0;
-  const cachePath = path4.join(targetDir, ".codebuddy/cache");
-  if (fs3.existsSync(cachePath)) {
-    fs3.rmSync(cachePath, { recursive: true });
-    console.log("Cleaned: cache/");
-    cleanedCount++;
-  }
-  if (cacheOnly) {
-    console.log(`Cleanup complete. Removed ${cleanedCount} items.`);
-    return;
-  }
-  cleanupOldSnapshots(targetDir, "architecture");
-  console.log("Cleaned: old architecture snapshots");
-  cleanedCount++;
-  const cleanedValidatorHistory = cleanupValidatorGateHistory(targetDir);
-  console.log(`Cleaned: validator gate history (${cleanedValidatorHistory} removed)`);
-  cleanedCount++;
-  console.log(`Cleanup complete. Removed ${cleanedCount} items.`);
-}
-function exportMarkdown(targetDir) {
-  const manifest = readManifest(targetDir);
-  const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
-  const validatorGate = readLatestValidatorGateReport(targetDir);
-  const validatorGateHistory = readValidatorGateHistory(targetDir, 5);
-  const lines = [];
-  lines.push("# CodeBuddy \u9879\u76EE\u62A5\u544A");
-  lines.push("");
-  lines.push(`> \u9879\u76EE: ${manifest.projectName}`);
-  lines.push(`> \u751F\u6210\u65F6\u95F4: ${(/* @__PURE__ */ new Date()).toISOString()}`);
-  lines.push("");
-  const arch = readReport(targetDir, "architecture/latest.json");
-  if (arch) {
-    lines.push("## \u67B6\u6784\u5206\u6790");
-    lines.push("");
-    lines.push(`- **\u5065\u5EB7\u5EA6**: ${arch.summary.healthScore}/100`);
-    lines.push(`- **\u6587\u4EF6\u6570**: ${arch.summary.totalFiles}`);
-    lines.push(`- **\u4EE3\u7801\u884C\u6570**: ${arch.summary.totalLines.toLocaleString()}`);
-    lines.push(`- **\u95EE\u9898\u6570**: ${arch.summary.issueCount.error} \u9519\u8BEF, ${arch.summary.issueCount.warning} \u8B66\u544A`);
-    lines.push("");
-  }
-  const modules = readReport(targetDir, "modules/latest.json");
-  if (modules) {
-    lines.push("## \u6A21\u5757\u56FE\u8C31");
-    lines.push("");
-    lines.push(`- **\u6A21\u5757\u6570**: ${modules.summary.totalModules}`);
-    lines.push(`- **\u5E73\u5747\u5065\u5EB7\u5EA6**: ${modules.summary.avgHealthScore}/100`);
-    lines.push(`- **\u5FAA\u73AF\u4F9D\u8D56**: ${modules.summary.circularDeps}`);
-    lines.push("");
-    lines.push("### \u6A21\u5757\u5217\u8868");
-    lines.push("");
-    lines.push("| \u6A21\u5757 | \u4E2D\u6587\u540D | \u5206\u7C7B | \u6587\u4EF6\u6570 | \u5065\u5EB7\u5EA6 |");
-    lines.push("|------|--------|------|--------|--------|");
-    for (const mod of modules.modules.slice(0, 20)) {
-      lines.push(`| ${mod.name} | ${mod.chineseName} | ${mod.category} | ${mod.stats.files} | ${mod.healthScore}/100 |`);
-    }
-    lines.push("");
-  }
-  const health = readReport(targetDir, "health/timeline.json");
-  if (health && health.dataPoints.length > 0) {
-    lines.push("## \u5065\u5EB7\u5EA6\u8D8B\u52BF");
-    lines.push("");
-    lines.push(`- **\u8D8B\u52BF**: ${health.trends.direction}`);
-    lines.push(`- **\u53D8\u5316\u7387**: ${health.trends.changeRate}%/\u5468`);
-    lines.push(`- **\u6570\u636E\u70B9**: ${health.dataPoints.length} \u5929`);
-    lines.push("");
-  }
-  if (workflowRouting) {
-    lines.push("## \u6700\u8FD1\u4E00\u6B21 Workflow \u8DEF\u7531");
-    lines.push("");
-    lines.push(`- **TaskBook**: ${workflowRouting.taskBookId}`);
-    lines.push(`- **Workflow**: ${workflowRouting.decision.selectedWorkflowId}`);
-    lines.push(`- **Mode**: ${workflowRouting.decision.mode}`);
-    lines.push(`- **Confidence**: ${workflowRouting.decision.confidence}`);
-    if (workflowRouting.decision.fallbackReason) {
-      lines.push(`- **Fallback Reason**: ${workflowRouting.decision.fallbackReason}`);
-    }
-    if (workflowRouting.decision.reasons.length > 0) {
-      lines.push("- **Reasons**:");
-      for (const reason of workflowRouting.decision.reasons.slice(0, 6)) {
-        lines.push(`  - ${reason}`);
-      }
-    }
-    lines.push("");
-  }
-  if (validatorGate) {
-    lines.push("## \u6700\u8FD1\u4E00\u6B21 Validator Gate");
-    lines.push("");
-    lines.push(`- **Scope**: ${validatorGate.scope}`);
-    lines.push(`- **Strict Mode**: ${validatorGate.strictMode ? "on" : "off"}`);
-    lines.push(`- **Effective Result**: ${validatorGate.effectiveOk ? "pass" : "fail"}`);
-    lines.push(`- **Errors / Warnings**: ${validatorGate.errorCount} / ${validatorGate.warningCount}`);
-    if (validatorGate.historyDir) {
-      lines.push(`- **History Dir**: ${validatorGate.historyDir}`);
-    }
-    const previousValidatorGate = getPreviousValidatorGateEntry(validatorGate, validatorGateHistory);
-    const validatorGateDelta = buildValidatorGateDelta(validatorGate, previousValidatorGate);
-    if (previousValidatorGate && validatorGateDelta) {
-      lines.push(`- **Compared To**: ${previousValidatorGate.generatedAt}`);
-      lines.push(`- **Trend**: ${validatorGateDelta.direction}`);
-      lines.push(`- **Delta**: errors ${validatorGateDelta.errorDelta >= 0 ? "+" : ""}${validatorGateDelta.errorDelta}, warnings ${validatorGateDelta.warningDelta >= 0 ? "+" : ""}${validatorGateDelta.warningDelta}, issues ${validatorGateDelta.issueDelta >= 0 ? "+" : ""}${validatorGateDelta.issueDelta}`);
-    }
-    if (validatorGate.reportFiles.length > 0) {
-      lines.push(`- **Artifacts**: ${validatorGate.reportFiles.join(", ")}`);
-    }
-    lines.push("");
-  }
-  if (validatorGateHistory.length > 0) {
-    lines.push("## Validator Gate \u6700\u8FD1\u8BB0\u5F55");
-    lines.push("");
-    lines.push("| \u65F6\u95F4 | Scope | Strict | Result | Errors | Warnings |");
-    lines.push("|------|-------|--------|--------|--------|----------|");
-    for (const entry of validatorGateHistory) {
-      lines.push(
-        `| ${entry.generatedAt} | ${entry.scope} | ${entry.strictMode ? "on" : "off"} | ${entry.effectiveOk ? "pass" : "fail"} | ${entry.errorCount} | ${entry.warningCount} |`
-      );
-    }
-    lines.push("");
-  }
-  const output = lines.join("\n");
-  const outputPath = path4.join(getReportsPath(targetDir), "export.md");
-  fs3.writeFileSync(outputPath, output, "utf-8");
-  return outputPath;
-}
-function buildExportSnapshot(targetDir, options = {}) {
-  const days = Number.isFinite(options.days) && options.days > 0 ? Math.floor(options.days) : 30;
-  const fromDate = options.fromDate?.trim() || null;
-  const markdownPath = exportMarkdown(targetDir);
-  return {
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    targetDir,
-    reportsPath: getReportsPath(targetDir),
-    input: {
-      days,
-      fromDate
-    },
-    markdown: {
-      path: markdownPath,
-      generatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    },
-    sections: {
-      status: buildStatusSnapshot(targetDir),
-      history: buildHistorySnapshot(targetDir),
-      trend: buildTrendSnapshot(targetDir, days),
-      diff: buildDiffSnapshot(targetDir, fromDate ?? void 0)
-    }
-  };
-}
-function buildAuditFinding(id, status, message) {
-  return { id, status, message };
-}
-function summarizeAuditStatus(findings) {
-  if (findings.some((finding) => finding.status === "missing")) {
-    return "attention";
-  }
-  if (findings.some((finding) => finding.status === "warn")) {
-    return "warn";
-  }
-  return "pass";
-}
-function buildAuditSnapshot(targetDir, options = {}) {
-  const bundle = buildExportSnapshot(targetDir, options);
-  const statusSections = bundle.sections.status.sections;
-  const trendSections = bundle.sections.trend.sections;
-  const diffSections = bundle.sections.diff.sections;
-  const findings = [];
-  findings.push(
-    buildAuditFinding(
-      "architecture-report",
-      !statusSections.architecture.present ? "missing" : statusSections.architecture.freshness === "stale" ? "warn" : "pass",
-      !statusSections.architecture.present ? "Architecture report is missing." : statusSections.architecture.freshness === "stale" ? `Architecture report is stale (${statusSections.architecture.ageLabel}).` : `Architecture report is fresh (${statusSections.architecture.ageLabel}).`
-    )
-  );
-  findings.push(
-    buildAuditFinding(
-      "module-report",
-      !statusSections.modules.present ? "missing" : statusSections.modules.freshness === "stale" ? "warn" : "pass",
-      !statusSections.modules.present ? "Module report is missing." : statusSections.modules.freshness === "stale" ? `Module report is stale (${statusSections.modules.ageLabel}).` : `Module report is fresh (${statusSections.modules.ageLabel}).`
-    )
-  );
-  findings.push(
-    buildAuditFinding(
-      "workflow-routing",
-      statusSections.workflowRouting.present ? "pass" : "warn",
-      statusSections.workflowRouting.present ? `Workflow route is ${statusSections.workflowRouting.workflowId || "unknown"} (${statusSections.workflowRouting.mode || "n/a"}).` : "Workflow routing report is missing."
-    )
-  );
-  const validatorStatus = !statusSections.validatorGate.present ? "warn" : statusSections.validatorGate.effectiveOk !== true ? "warn" : statusSections.validatorGate.freshness === "stale" ? "warn" : statusSections.validatorGate.delta?.direction === "regressed" || (statusSections.validatorGate.warningCount || 0) > 0 ? "warn" : "pass";
-  findings.push(
-    buildAuditFinding(
-      "validator-gate",
-      validatorStatus,
-      !statusSections.validatorGate.present ? "Validator gate summary is missing." : validatorStatus === "pass" ? `Validator gate passed with no active warnings (${statusSections.validatorGate.scope}, ${statusSections.validatorGate.strictMode ? "strict" : "default"}).` : `Validator gate needs attention: ok=${statusSections.validatorGate.effectiveOk}, warnings=${statusSections.validatorGate.warningCount ?? 0}, errors=${statusSections.validatorGate.errorCount ?? 0}, trend=${statusSections.validatorGate.delta?.direction ?? "unknown"}.`
-    )
-  );
-  findings.push(
-    buildAuditFinding(
-      "health-trend",
-      trendSections.health.present ? "pass" : "warn",
-      trendSections.health.present ? `Health trend is ${trendSections.health.direction || "unknown"} across ${trendSections.health.recentPoints.length} points.` : "Health trend data is missing."
-    )
-  );
-  const diffAvailable = diffSections.architecture.present || diffSections.modules.present;
-  findings.push(
-    buildAuditFinding(
-      "diff-coverage",
-      diffAvailable ? "pass" : "warn",
-      diffAvailable ? "Historical diff data is available for review." : "Historical diff data is not available yet."
-    )
-  );
-  return {
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    targetDir,
-    reportsPath: getReportsPath(targetDir),
-    input: {
-      days: bundle.input.days,
-      fromDate: bundle.input.fromDate
-    },
-    overview: {
-      overallStatus: summarizeAuditStatus(findings),
-      architectureFreshness: statusSections.architecture.freshness,
-      modulesFreshness: statusSections.modules.freshness,
-      workflowId: statusSections.workflowRouting.workflowId,
-      workflowMode: statusSections.workflowRouting.mode,
-      validatorStatus,
-      validatorDirection: trendSections.validatorGate.delta?.direction ?? null,
-      healthDirection: trendSections.health.direction ?? null,
-      diffAvailable,
-      findingsCount: findings.filter((finding) => finding.status !== "pass").length
-    },
-    findings,
-    markdown: bundle.markdown,
-    sections: bundle.sections
-  };
-}
-function showAudit(targetDir, options) {
-  const snapshot = buildAuditSnapshot(targetDir, {
-    days: options.days,
-    fromDate: options.fromDate
-  });
-  if (options.json) {
-    console.log(JSON.stringify(snapshot, null, 2));
-    return;
-  }
-  const overallText = snapshot.overview.overallStatus.toUpperCase();
-  const routeText = snapshot.overview.workflowId ? `${snapshot.overview.workflowId} (${snapshot.overview.workflowMode || "n/a"})` : "missing";
-  const validatorText = snapshot.sections.status.sections.validatorGate.present ? `warnings=${snapshot.sections.status.sections.validatorGate.warningCount ?? 0}, errors=${snapshot.sections.status.sections.validatorGate.errorCount ?? 0}` : "missing";
-  console.log("");
-  console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
-  console.log("\u2551                      CodeBuddy Audit Summary                     \u2551");
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  console.log(`\u2551 Overall: ${overallText}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Architecture: ${snapshot.overview.architectureFreshness}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Modules: ${snapshot.overview.modulesFreshness}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Workflow: ${routeText}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Validators: ${validatorText}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Trends: health=${snapshot.overview.healthDirection || "unknown"} validator=${snapshot.overview.validatorDirection || "unknown"}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Diff: ${snapshot.overview.diffAvailable ? "available" : "missing"}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Export: ${snapshot.markdown.path}`.slice(0, 67).padEnd(67) + "\u2551");
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  for (const finding of snapshot.findings) {
-    const line = `\u2551 [${finding.status.toUpperCase()}] ${finding.message}`.slice(0, 67);
-    console.log(line.padEnd(67) + "\u2551");
-  }
-  console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
-  console.log("");
-}
-function exportReportBundle(targetDir, options) {
-  if (options.json) {
-    const snapshot = buildExportSnapshot(targetDir, {
-      days: options.days,
-      fromDate: options.fromDate
-    });
-    console.log(JSON.stringify(snapshot, null, 2));
-    return;
-  }
-  const outputPath = exportMarkdown(targetDir);
-  console.log(`Exported to: ${outputPath}`);
-}
-function getHistorySnapshots(targetDir, subDir) {
-  const dirPath = path4.join(getReportsPath(targetDir), subDir);
-  if (!fs3.existsSync(dirPath)) return [];
-  return fs3.readdirSync(dirPath).filter((f) => f.endsWith(".json") && f !== "latest.json").map((f) => {
-    const datePart = f.replace(".json", "").replace(/T/g, " ").slice(0, 16);
-    return {
-      name: f,
-      date: datePart,
-      path: path4.join(dirPath, f)
-    };
-  }).sort((a, b) => b.date.localeCompare(a.date));
-}
-function readHistoricalSnapshot(targetDir, subDir, fromDate) {
-  const historySnapshots = getHistorySnapshots(targetDir, subDir);
-  if (historySnapshots.length === 0) {
-    return { snapshot: null, path: null };
-  }
-  const matchingSnapshot = fromDate ? historySnapshots.find((snapshot) => snapshot.date.startsWith(fromDate)) : historySnapshots[0];
-  if (!matchingSnapshot) {
-    return { snapshot: null, path: null };
-  }
-  try {
-    return {
-      snapshot: JSON.parse(fs3.readFileSync(matchingSnapshot.path, "utf-8")),
-      path: matchingSnapshot.path
-    };
-  } catch {
-    return { snapshot: null, path: matchingSnapshot.path };
-  }
-}
-function diffArchitectureSnapshots(older, newer) {
-  const olderViolations = new Set(older.violations.map((v) => `${v.rule}:${v.path}`));
-  const newerViolations = new Set(newer.violations.map((v) => `${v.rule}:${v.path}`));
-  const newViolations = [];
-  const resolvedViolations = [];
-  for (const v of newer.violations) {
-    const key = `${v.rule}:${v.path}`;
-    if (!olderViolations.has(key)) {
-      newViolations.push(`[${v.rule}] ${v.message}`);
-    }
-  }
-  for (const v of older.violations) {
-    const key = `${v.rule}:${v.path}`;
-    if (!newerViolations.has(key)) {
-      resolvedViolations.push(`[${v.rule}] ${v.message}`);
-    }
-  }
-  return {
-    from: { date: older.meta.analyzedAt, healthScore: older.summary.healthScore },
-    to: { date: newer.meta.analyzedAt, healthScore: newer.summary.healthScore },
-    healthChange: newer.summary.healthScore - older.summary.healthScore,
-    newViolations,
-    resolvedViolations,
-    fileChanges: {
-      added: Math.max(0, newer.summary.totalFiles - older.summary.totalFiles),
-      removed: Math.max(0, older.summary.totalFiles - newer.summary.totalFiles),
-      linesChanged: newer.summary.totalLines - older.summary.totalLines
-    }
-  };
-}
-function diffModuleSnapshots(older, newer) {
-  const olderModules = new Map(older.modules.map((m) => [m.name, m]));
-  const newerModules = new Map(newer.modules.map((m) => [m.name, m]));
-  const added = [];
-  const removed = [];
-  const changed = [];
-  for (const [name] of newerModules) {
-    if (!olderModules.has(name)) {
-      added.push(name);
-    }
-  }
-  for (const [name] of olderModules) {
-    if (!newerModules.has(name)) {
-      removed.push(name);
-    }
-  }
-  for (const [name, newMod] of newerModules) {
-    const oldMod = olderModules.get(name);
-    if (oldMod) {
-      const healthChange = newMod.healthScore - oldMod.healthScore;
-      const filesChange = newMod.stats.files - oldMod.stats.files;
-      const linesChange = newMod.stats.lines - oldMod.stats.lines;
-      if (healthChange !== 0 || filesChange !== 0 || Math.abs(linesChange) > 50) {
-        changed.push({ name, healthChange, filesChange, linesChange });
-      }
-    }
-  }
-  return { added, removed, changed };
-}
-function buildDiffSnapshot(targetDir, fromDate) {
-  const archLatest = readReport(targetDir, "architecture/latest.json");
-  const modulesLatest = readReport(targetDir, "modules/latest.json");
-  const olderArch = readHistoricalSnapshot(targetDir, "architecture", fromDate);
-  const olderModules = readHistoricalSnapshot(targetDir, "modules", fromDate);
-  return {
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    targetDir,
-    reportsPath: getReportsPath(targetDir),
-    input: {
-      fromDate: fromDate || null
-    },
-    sections: {
-      architecture: {
-        present: Boolean(archLatest && olderArch.snapshot),
-        olderPath: olderArch.path,
-        latestPath: archLatest ? path4.join(getReportsPath(targetDir), "architecture", "latest.json") : null,
-        diff: archLatest && olderArch.snapshot ? diffArchitectureSnapshots(olderArch.snapshot, archLatest) : null
-      },
-      modules: {
-        present: Boolean(modulesLatest && olderModules.snapshot),
-        olderPath: olderModules.path,
-        latestPath: modulesLatest ? path4.join(getReportsPath(targetDir), "modules", "latest.json") : null,
-        diff: modulesLatest && olderModules.snapshot ? diffModuleSnapshots(olderModules.snapshot, modulesLatest) : null
-      }
-    }
-  };
-}
-function showDiff(targetDir, fromDate, json = false) {
-  const snapshot = buildDiffSnapshot(targetDir, fromDate);
-  if (json) {
-    console.log(JSON.stringify(snapshot, null, 2));
-    return;
-  }
-  if (!snapshot.sections.architecture.present && !snapshot.sections.modules.present) {
-    console.log("Cannot compare: missing reports or historical snapshots.");
-    return;
-  }
-  const diff = snapshot.sections.architecture.diff;
-  const moduleDiff = snapshot.sections.modules.diff;
-  console.log("");
-  console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
-  console.log("\u2551                    Architecture Diff Report                       \u2551");
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  if (!diff) {
-    console.log("\u2551 No architecture diff available.".padEnd(67) + "\u2551");
-    console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
-    console.log("");
-    return;
-  }
-  console.log(`\u2551 From: ${diff.from.date.slice(0, 16).padEnd(20)} Health: ${diff.from.healthScore.toString().padStart(3)}/100     \u2551`);
-  console.log(`\u2551 To:   ${diff.to.date.slice(0, 16).padEnd(20)} Health: ${diff.to.healthScore.toString().padStart(3)}/100     \u2551`);
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  const healthIcon = diff.healthChange > 0 ? "\u{1F4C8}" : diff.healthChange < 0 ? "\u{1F4C9}" : "\u27A1\uFE0F";
-  const healthSign = diff.healthChange > 0 ? "+" : "";
-  console.log(`\u2551 Health Change: ${healthIcon} ${healthSign}${diff.healthChange} points`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Files: +${diff.fileChanges.added} / -${diff.fileChanges.removed}  Lines: ${diff.fileChanges.linesChanged > 0 ? "+" : ""}${diff.fileChanges.linesChanged}`.padEnd(67) + "\u2551");
-  if (diff.newViolations.length > 0) {
-    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-    console.log("\u2551 \u{1F534} New Violations:".padEnd(67) + "\u2551");
-    for (const v of diff.newViolations.slice(0, 5)) {
-      console.log(`\u2551   ${v.slice(0, 62).padEnd(62)}   \u2551`);
-    }
-    if (diff.newViolations.length > 5) {
-      console.log(`\u2551   ... and ${diff.newViolations.length - 5} more`.padEnd(67) + "\u2551");
-    }
-  }
-  if (diff.resolvedViolations.length > 0) {
-    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-    console.log("\u2551 \u{1F7E2} Resolved Violations:".padEnd(67) + "\u2551");
-    for (const v of diff.resolvedViolations.slice(0, 5)) {
-      console.log(`\u2551   ${v.slice(0, 62).padEnd(62)}   \u2551`);
-    }
-    if (diff.resolvedViolations.length > 5) {
-      console.log(`\u2551   ... and ${diff.resolvedViolations.length - 5} more`.padEnd(67) + "\u2551");
-    }
-  }
-  if (moduleDiff) {
-    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-    console.log("\u2551 Module Diff:".padEnd(67) + "\u2551");
-    console.log(`\u2551 Added: ${moduleDiff.added.length}  Removed: ${moduleDiff.removed.length}  Changed: ${moduleDiff.changed.length}`.padEnd(67) + "\u2551");
-    for (const entry of moduleDiff.changed.slice(0, 5)) {
-      const line = `${entry.name}  health=${entry.healthChange >= 0 ? "+" : ""}${entry.healthChange}  files=${entry.filesChange >= 0 ? "+" : ""}${entry.filesChange}  lines=${entry.linesChange >= 0 ? "+" : ""}${entry.linesChange}`;
-      console.log(`\u2551   ${line.slice(0, 62).padEnd(62)}   \u2551`);
-    }
-    if (moduleDiff.changed.length > 5) {
-      console.log(`\u2551   ... and ${moduleDiff.changed.length - 5} more`.padEnd(67) + "\u2551");
-    }
-  }
-  console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
-  console.log("");
-}
-function buildTrendSnapshot(targetDir, days = 30) {
-  const timeline = readReport(targetDir, "health/timeline.json");
-  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30;
-  const recentPoints = timeline?.dataPoints.slice(-normalizedDays) || [];
-  const validatorGateHistory = readValidatorGateHistory(targetDir, 5);
-  const latestValidatorGate = validatorGateHistory[0] || null;
-  const previousValidatorGate = validatorGateHistory[1] || null;
-  const validatorGateDelta = latestValidatorGate ? buildValidatorGateDelta(
-    {
-      ok: latestValidatorGate.effectiveOk,
-      effectiveOk: latestValidatorGate.effectiveOk,
-      strictMode: latestValidatorGate.strictMode,
-      scope: latestValidatorGate.scope,
-      generatedAt: latestValidatorGate.generatedAt,
-      errorCount: latestValidatorGate.errorCount,
-      warningCount: latestValidatorGate.warningCount,
-      issueCount: latestValidatorGate.issueCount,
-      outputDir: null,
-      historyDir: null,
-      reportFiles: [],
-      reports: {}
-    },
-    previousValidatorGate
-  ) : null;
-  return {
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    targetDir,
-    reportsPath: getReportsPath(targetDir),
-    sections: {
-      health: {
-        present: Boolean(timeline && timeline.dataPoints.length > 0),
-        days: normalizedDays,
-        direction: timeline?.trends.direction ?? null,
-        changeRate: typeof timeline?.trends.changeRate === "number" ? timeline.trends.changeRate : null,
-        prediction: typeof timeline?.trends.prediction === "number" ? timeline.trends.prediction : null,
-        recentPoints
-      },
-      validatorGate: {
-        present: validatorGateHistory.length > 0,
-        latest: latestValidatorGate ? {
-          generatedAt: latestValidatorGate.generatedAt,
-          scope: latestValidatorGate.scope,
-          strictMode: latestValidatorGate.strictMode,
-          effectiveOk: latestValidatorGate.effectiveOk,
-          errorCount: latestValidatorGate.errorCount,
-          warningCount: latestValidatorGate.warningCount,
-          issueCount: latestValidatorGate.issueCount
-        } : null,
-        previousRun: previousValidatorGate ? {
-          generatedAt: previousValidatorGate.generatedAt,
-          scope: previousValidatorGate.scope,
-          strictMode: previousValidatorGate.strictMode,
-          effectiveOk: previousValidatorGate.effectiveOk,
-          errorCount: previousValidatorGate.errorCount,
-          warningCount: previousValidatorGate.warningCount,
-          issueCount: previousValidatorGate.issueCount
-        } : null,
-        delta: validatorGateDelta,
-        recentRuns: validatorGateHistory,
-        passCount: validatorGateHistory.filter((entry) => entry.effectiveOk).length,
-        failCount: validatorGateHistory.filter((entry) => !entry.effectiveOk).length
-      }
-    }
-  };
-}
-function showTrend(targetDir, days = 30, json = false) {
-  const snapshot = buildTrendSnapshot(targetDir, days);
-  const recentPoints = snapshot.sections.health.recentPoints;
-  if (json) {
-    console.log(JSON.stringify(snapshot, null, 2));
-    return;
-  }
-  if (!snapshot.sections.health.present && !snapshot.sections.validatorGate.present) {
-    console.log("No health or validator trend data found. Run analysis or validator gate first.");
-    return;
-  }
-  console.log("");
-  console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
-  console.log("\u2551                    Health Trend Analysis                          \u2551");
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  if (snapshot.sections.health.present) {
-    const trendDirection = snapshot.sections.health.direction || "stable";
-    const trendIcon = trendDirection === "improving" ? "\u{1F4C8}" : trendDirection === "declining" ? "\u{1F4C9}" : "\u27A1\uFE0F";
-    const trendText = trendDirection === "improving" ? "Improving" : trendDirection === "declining" ? "Declining" : "Stable";
-    console.log(`\u2551 Trend: ${trendIcon} ${trendText}`.padEnd(67) + "\u2551");
-    console.log(`\u2551 Change Rate: ${(snapshot.sections.health.changeRate || 0) > 0 ? "+" : ""}${snapshot.sections.health.changeRate}% per week`.padEnd(67) + "\u2551");
-    console.log(`\u2551 Predicted Next: ${snapshot.sections.health.prediction}/100`.padEnd(67) + "\u2551");
-    console.log(`\u2551 Data Points: ${recentPoints.length} days`.padEnd(67) + "\u2551");
-  } else {
-    console.log("\u2551 Health: no timeline data available".padEnd(67) + "\u2551");
-  }
-  if (recentPoints.length >= 2) {
-    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-    console.log("\u2551 Health Score Chart (last " + days + " days):".padEnd(67) + "\u2551");
-    console.log("\u2551".padEnd(68) + "\u2551");
-    const chartHeight = 8;
-    const chartWidth = 50;
-    const minScore = Math.min(...recentPoints.map((p) => p.healthScore));
-    const maxScore = Math.max(...recentPoints.map((p) => p.healthScore));
-    const range = Math.max(maxScore - minScore, 10);
-    for (let row = chartHeight - 1; row >= 0; row--) {
-      const threshold = minScore + range * row / (chartHeight - 1);
-      let line = `\u2551 ${threshold.toFixed(0).padStart(3)} \u2502`;
-      const step = Math.max(1, Math.floor(recentPoints.length / chartWidth));
-      for (let i = 0; i < chartWidth && i * step < recentPoints.length; i++) {
-        const point = recentPoints[i * step];
-        const normalizedScore = (point.healthScore - minScore) / range;
-        const pointRow = Math.round(normalizedScore * (chartHeight - 1));
-        if (pointRow === row) {
-          line += "\u25CF";
-        } else if (pointRow > row) {
-          line += "\u2502";
-        } else {
-          line += " ";
-        }
-      }
-      console.log(line.padEnd(67) + "\u2551");
-    }
-    console.log("\u2551     \u2514" + "\u2500".repeat(chartWidth) + "".padEnd(11) + "\u2551");
-    const firstDate = recentPoints[0].date.slice(5, 10);
-    const lastDate = recentPoints[recentPoints.length - 1].date.slice(5, 10);
-    console.log(`\u2551      ${firstDate}${"".padEnd(chartWidth - 10)}${lastDate}`.padEnd(67) + "\u2551");
-  }
-  if (recentPoints.length > 0) {
-    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-    console.log("\u2551 Recent Data Points:".padEnd(67) + "\u2551");
-    const lastFive = recentPoints.slice(-5).reverse();
-    for (const point of lastFive) {
-      const bar = "\u2588".repeat(Math.round(point.healthScore / 5));
-      const icon = point.healthScore >= 80 ? "\u{1F7E2}" : point.healthScore >= 60 ? "\u{1F7E1}" : "\u{1F534}";
-      console.log(`\u2551   ${point.date} \u2502 ${icon} ${point.healthScore.toString().padStart(3)}/100 ${bar}`.padEnd(67) + "\u2551");
-    }
-  }
-  if (snapshot.sections.validatorGate.present) {
-    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-    console.log("\u2551 Validator Gate Trend:".padEnd(67) + "\u2551");
-    const latest = snapshot.sections.validatorGate.latest;
-    const delta = snapshot.sections.validatorGate.delta;
-    if (latest) {
-      const trendText = delta ? delta.direction : "unknown";
-      console.log(`\u2551 Latest: ${latest.generatedAt.slice(0, 16)}  ${latest.scope}  ${latest.strictMode ? "strict" : "default"}  ${latest.effectiveOk ? "pass" : "fail"}`.padEnd(67) + "\u2551");
-      console.log(`\u2551 Recent Runs: pass=${snapshot.sections.validatorGate.passCount} fail=${snapshot.sections.validatorGate.failCount}  trend=${trendText}`.padEnd(67) + "\u2551");
-      if (delta) {
-        const deltaLine = `\u0394 errors=${delta.errorDelta >= 0 ? "+" : ""}${delta.errorDelta} warnings=${delta.warningDelta >= 0 ? "+" : ""}${delta.warningDelta} issues=${delta.issueDelta >= 0 ? "+" : ""}${delta.issueDelta}`;
-        console.log(`\u2551 ${deltaLine}`.padEnd(67) + "\u2551");
-      }
-    }
-  }
-  console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
-  console.log("");
-}
-function buildHistorySnapshot(targetDir) {
-  return {
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    targetDir,
-    reportsPath: getReportsPath(targetDir),
-    sections: {
-      architecture: getHistorySnapshots(targetDir, "architecture").map((item) => ({
-        kind: "architecture",
-        name: item.name,
-        date: item.date,
-        path: item.path
-      })),
-      modules: getHistorySnapshots(targetDir, "modules").map((item) => ({
-        kind: "modules",
-        name: item.name,
-        date: item.date,
-        path: item.path
-      })),
-      validatorGate: readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY)
-    }
-  };
-}
-function showHistory(targetDir, json = false) {
-  const snapshot = buildHistorySnapshot(targetDir);
-  const archSnapshots = snapshot.sections.architecture;
-  const moduleSnapshots = snapshot.sections.modules;
-  const validatorGateHistory = snapshot.sections.validatorGate;
-  if (json) {
-    console.log(JSON.stringify(snapshot, null, 2));
-    return;
-  }
-  console.log("");
-  console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
-  console.log("\u2551                    Historical Snapshots                           \u2551");
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  if (archSnapshots.length === 0) {
-    console.log("\u2551 No historical snapshots found.".padEnd(67) + "\u2551");
-  } else {
-    console.log("\u2551 Architecture Snapshots:".padEnd(67) + "\u2551");
-    for (const snap of archSnapshots.slice(0, 10)) {
-      console.log(`\u2551   ${snap.date}  ${snap.name}`.padEnd(67) + "\u2551");
-    }
-    if (archSnapshots.length > 10) {
-      console.log(`\u2551   ... and ${archSnapshots.length - 10} more`.padEnd(67) + "\u2551");
-    }
-  }
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  if (moduleSnapshots.length === 0) {
-    console.log("\u2551 No module snapshots found.".padEnd(67) + "\u2551");
-  } else {
-    console.log("\u2551 Module Snapshots:".padEnd(67) + "\u2551");
-    for (const snap of moduleSnapshots.slice(0, 10)) {
-      console.log(`\u2551   ${snap.date}  ${snap.name}`.padEnd(67) + "\u2551");
-    }
-    if (moduleSnapshots.length > 10) {
-      console.log(`\u2551   ... and ${moduleSnapshots.length - 10} more`.padEnd(67) + "\u2551");
-    }
-  }
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  if (validatorGateHistory.length === 0) {
-    console.log("\u2551 No validator gate history found.".padEnd(67) + "\u2551");
-  } else {
-    console.log("\u2551 Validator Gate Runs:".padEnd(67) + "\u2551");
-    for (const entry of validatorGateHistory.slice(0, 10)) {
-      const line = `${entry.generatedAt.slice(0, 16)}  ${entry.scope}  ${entry.strictMode ? "strict" : "default"}  ${entry.effectiveOk ? "pass" : "fail"}  e=${entry.errorCount} w=${entry.warningCount}`;
-      console.log(`\u2551   ${line.slice(0, 62).padEnd(62)}   \u2551`);
-    }
-    if (validatorGateHistory.length > 10) {
-      console.log(`\u2551   ... and ${validatorGateHistory.length - 10} more`.padEnd(67) + "\u2551");
-    }
-  }
-  console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
-  console.log("");
-}
-function normalizeFsPath(p) {
-  const normalized = path4.normalize(p);
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-function toAbsolutePath(targetDir, p) {
-  return path4.isAbsolute(p) ? p : path4.resolve(targetDir, p);
-}
-function isSameOrSubPath(childPath, parentPath) {
-  const child = normalizeFsPath(childPath);
-  let parent = normalizeFsPath(parentPath);
-  if (child === parent) return true;
-  if (!parent.endsWith(path4.sep)) parent += path4.sep;
-  return child.startsWith(parent);
-}
-function buildGraphIndex(snapshot) {
-  const out = /* @__PURE__ */ new Map();
-  const inn = /* @__PURE__ */ new Map();
-  for (const node of snapshot.graph.nodes) {
-    out.set(node, /* @__PURE__ */ new Set());
-    inn.set(node, /* @__PURE__ */ new Set());
-  }
-  for (const edge of snapshot.graph.edges) {
-    if (!out.has(edge.from)) out.set(edge.from, /* @__PURE__ */ new Set());
-    if (!inn.has(edge.to)) inn.set(edge.to, /* @__PURE__ */ new Set());
-    out.get(edge.from).add(edge.to);
-    inn.get(edge.to).add(edge.from);
-  }
-  return { out, in: inn };
-}
-function bfsTraverse(start, adjacency, depth) {
-  const result = [];
-  if (depth <= 0) return result;
-  const visited = /* @__PURE__ */ new Set([start]);
-  let frontier = /* @__PURE__ */ new Set([start]);
-  for (let d = 1; d <= depth; d++) {
-    const next = /* @__PURE__ */ new Set();
-    for (const node of frontier) {
-      const neighbors = adjacency.get(node);
-      if (!neighbors) continue;
-      for (const n of neighbors) {
-        if (visited.has(n)) continue;
-        visited.add(n);
-        next.add(n);
-        result.push({ name: n, depth: d });
-      }
-    }
-    if (next.size === 0) break;
-    frontier = next;
-  }
-  return result;
-}
-function findModuleByQuery(snapshot, query) {
-  const q = query.trim();
-  if (!q) return { match: null, candidates: [] };
-  const qLower = q.toLowerCase();
-  const modules = snapshot.modules;
-  const exact = modules.find((m) => m.name === q || m.chineseName === q || m.routePath === q || m.path === q);
-  if (exact) return { match: exact, candidates: [exact] };
-  const candidates = modules.filter((m) => {
-    const fields = [m.name, m.chineseName, m.routePath ?? "", m.path];
-    return fields.some((f) => f.toLowerCase().includes(qLower));
-  });
-  if (candidates.length === 1) return { match: candidates[0], candidates };
-  return { match: null, candidates };
-}
-function findBestModuleForFile(targetDir, snapshot, filePathInput) {
-  const fileAbs = toAbsolutePath(targetDir, filePathInput);
-  const candidates = snapshot.modules.filter((m) => isSameOrSubPath(fileAbs, m.path));
-  if (candidates.length === 0) return { fileAbs, module: null, candidates: [] };
-  const sorted = [...candidates].sort((a, b) => normalizeFsPath(b.path).length - normalizeFsPath(a.path).length);
-  return { fileAbs, module: sorted[0], candidates: sorted };
-}
-function summarizeViolationsForPath(targetDir, snapshot, pathPrefixAbs, limit) {
-  const counts = { error: 0, warning: 0, info: 0 };
-  if (!snapshot) return { counts, total: 0, top: [] };
-  const prefix = toAbsolutePath(targetDir, pathPrefixAbs);
-  const matched = snapshot.violations.filter((v) => {
-    const vPath = toAbsolutePath(targetDir, v.path);
-    return isSameOrSubPath(vPath, prefix);
-  });
-  for (const v of matched) {
-    if (v.severity === "error") counts.error += 1;
-    else if (v.severity === "warning") counts.warning += 1;
-    else counts.info += 1;
-  }
-  const top = matched.slice(0, limit).map((v) => ({ rule: v.rule, severity: v.severity, path: v.path, message: v.message }));
-  return { counts, total: matched.length, top };
-}
-function buildViolationsTrend(targetDir, pathPrefixAbs, points) {
-  const history = getHistorySnapshots(targetDir, "architecture").slice(0, Math.max(1, points)).reverse();
-  const result = [];
-  for (const h of history) {
-    try {
-      const snap = JSON.parse(fs3.readFileSync(h.path, "utf-8"));
-      const summary = summarizeViolationsForPath(targetDir, snap, pathPrefixAbs, 0);
-      result.push({
-        date: snap.meta.analyzedAt,
-        total: summary.total,
-        error: summary.counts.error,
-        warning: summary.counts.warning,
-        info: summary.counts.info
-      });
-    } catch {
-    }
-  }
-  return result;
-}
-function buildModuleHealthTrend(targetDir, moduleName, points) {
-  const history = getHistorySnapshots(targetDir, "modules").slice(0, Math.max(1, points)).reverse();
-  const result = [];
-  for (const h of history) {
-    try {
-      const snap = JSON.parse(fs3.readFileSync(h.path, "utf-8"));
-      const mod = snap.modules.find((m) => m.name === moduleName);
-      if (!mod) continue;
-      result.push({
-        date: snap.meta.analyzedAt,
-        healthScore: mod.healthScore,
-        files: mod.stats.files,
-        lines: mod.stats.lines
-      });
-    } catch {
-    }
-  }
-  if (result.length === 0) {
-    const latest = readReport(targetDir, "modules/latest.json");
-    const mod = latest?.modules.find((m) => m.name === moduleName);
-    if (latest && mod) {
-      result.push({
-        date: latest.meta.analyzedAt,
-        healthScore: mod.healthScore,
-        files: mod.stats.files,
-        lines: mod.stats.lines
-      });
-    }
-  }
-  return result;
-}
-function inspectReport(targetDir, opts) {
-  const modulesLatest = readReport(targetDir, "modules/latest.json");
-  const archLatest = readReport(targetDir, "architecture/latest.json");
-  if (!modulesLatest) {
-    const message = "No module report found. Run module-mapper / analysis first.";
-    if (opts.json) {
-      console.log(JSON.stringify({ error: { code: "NO_MODULE_REPORT", message }, source: { targetDir } }, null, 2));
-      return;
-    }
-    console.log(message);
-    return;
-  }
-  if (modulesLatest.modules.length === 0) {
-    const message = "Module report exists, but no modules were detected.";
-    if (opts.json) {
-      console.log(JSON.stringify({ error: { code: "NO_MODULES", message }, source: { targetDir } }, null, 2));
-      return;
-    }
-    console.log(message);
-    return;
-  }
-  let module2 = null;
-  let fileAbs = null;
-  let candidates = [];
-  if (opts.file) {
-    const match = findBestModuleForFile(targetDir, modulesLatest, opts.file);
-    fileAbs = match.fileAbs;
-    module2 = match.module;
-    candidates = match.candidates;
-  } else if (opts.module) {
-    const match = findModuleByQuery(modulesLatest, opts.module);
-    module2 = match.match;
-    candidates = match.candidates;
-  } else {
-    const message = "inspect \u9700\u8981 --module <name> \u6216 --file <path>";
-    if (opts.json) {
-      console.log(JSON.stringify({ error: { code: "MISSING_ARGUMENT", message }, source: { targetDir } }, null, 2));
-      return;
-    }
-    console.error(message);
-    return;
-  }
-  if (!module2) {
-    if (candidates.length > 1) {
-      if (opts.json) {
-        console.log(JSON.stringify({
-          error: { code: "MULTIPLE_MATCHES", message: "Found multiple modules, please be more specific." },
-          source: { targetDir },
-          input: { module: opts.module ?? null, file: opts.file ?? null, resolvedFile: fileAbs },
-          candidates: candidates.slice(0, 50).map((c) => ({
-            name: c.name,
-            chineseName: c.chineseName,
-            routePath: c.routePath ?? null,
-            path: c.path
-          }))
-        }, null, 2));
-        return;
-      }
-      console.log("Found multiple modules, please be more specific:");
-      for (const c of candidates.slice(0, 20)) {
-        console.log(`- ${c.name} (${c.chineseName})  ${c.routePath ?? ""}`.trim());
-      }
-      if (candidates.length > 20) console.log(`... and ${candidates.length - 20} more`);
-      return;
-    }
-    const message = "No matching module found.";
-    if (opts.json) {
-      console.log(JSON.stringify({
-        error: { code: "NO_MATCH", message },
-        source: { targetDir },
-        input: { module: opts.module ?? null, file: opts.file ?? null, resolvedFile: fileAbs }
-      }, null, 2));
-      return;
-    }
-    console.log(message);
-    if (fileAbs) console.log(`file: ${fileAbs}`);
-    return;
-  }
-  const graph = buildGraphIndex(modulesLatest);
-  const upstream = bfsTraverse(module2.name, graph.out, opts.depth);
-  const downstream = bfsTraverse(module2.name, graph.in, opts.depth);
-  const violations = summarizeViolationsForPath(targetDir, archLatest, module2.path, 8);
-  const violationsTrend = buildViolationsTrend(targetDir, module2.path, opts.trendPoints);
-  const moduleHealthTrend = buildModuleHealthTrend(targetDir, module2.name, opts.trendPoints);
-  const moduleRelPath = isSameOrSubPath(module2.path, targetDir) ? path4.relative(targetDir, module2.path) : module2.path;
-  const payload = {
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    source: {
-      targetDir,
-      reports: {
-        modules: "modules/latest.json",
-        architecture: archLatest ? "architecture/latest.json" : null
-      }
-    },
-    input: {
-      module: opts.module ?? null,
-      file: opts.file ?? null,
-      resolvedFile: fileAbs,
-      depth: opts.depth,
-      trendPoints: opts.trendPoints
-    },
-    module: {
-      name: module2.name,
-      chineseName: module2.chineseName,
-      category: module2.category,
-      type: module2.type,
-      routePath: module2.routePath ?? null,
-      path: module2.path,
-      pathRelative: moduleRelPath,
-      stats: module2.stats,
-      healthScore: module2.healthScore
-    },
-    graph: {
-      upstream,
-      downstream,
-      inDegree: graph.in.get(module2.name)?.size ?? 0,
-      outDegree: graph.out.get(module2.name)?.size ?? 0
-    },
-    violations: {
-      total: violations.total,
-      counts: violations.counts,
-      top: violations.top
-    },
-    trends: {
-      moduleHealth: moduleHealthTrend,
-      violations: violationsTrend
-    }
-  };
-  if (opts.json) {
-    console.log(JSON.stringify(payload, null, 2));
-    return;
-  }
-  console.log("");
-  console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
-  console.log("\u2551                         Report Inspect                            \u2551");
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  if (fileAbs) {
-    console.log(`\u2551 File: ${fileAbs}`.padEnd(67) + "\u2551");
-    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  }
-  console.log(`\u2551 Module: ${module2.chineseName} (${module2.name})`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Path: ${moduleRelPath}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Type: ${module2.type}  Category: ${module2.category}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Health: ${module2.healthScore}/100  Files: ${module2.stats.files}  Lines: ${module2.stats.lines.toLocaleString()}`.padEnd(67) + "\u2551");
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  const inDegree = graph.in.get(module2.name)?.size ?? 0;
-  const outDegree = graph.out.get(module2.name)?.size ?? 0;
-  console.log(`\u2551 Graph: dependents(in)=${inDegree}  dependencies(out)=${outDegree}`.padEnd(67) + "\u2551");
-  const upList = upstream.filter((x) => x.depth === 1).map((x) => x.name);
-  const downList = downstream.filter((x) => x.depth === 1).map((x) => x.name);
-  console.log(`\u2551 Upstream (depth=1): ${upList.slice(0, 8).join(", ") || "-"}`.padEnd(67) + "\u2551");
-  console.log(`\u2551 Downstream (depth=1): ${downList.slice(0, 8).join(", ") || "-"}`.padEnd(67) + "\u2551");
-  if (opts.depth > 1) {
-    const upAll = upstream.map((x) => x.name);
-    const downAll = downstream.map((x) => x.name);
-    console.log(`\u2551 Upstream (depth=${opts.depth}): ${upAll.slice(0, 12).join(", ") || "-"}`.padEnd(67) + "\u2551");
-    console.log(`\u2551 Downstream (depth=${opts.depth}): ${downAll.slice(0, 12).join(", ") || "-"}`.padEnd(67) + "\u2551");
-  }
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  console.log(`\u2551 Violations (latest): total=${violations.total}  e=${violations.counts.error}  w=${violations.counts.warning}  i=${violations.counts.info}`.padEnd(67) + "\u2551");
-  for (const v of violations.top) {
-    const line = `[${v.rule}] ${v.message}`;
-    console.log(`\u2551   ${line.slice(0, 62).padEnd(62)}   \u2551`);
-  }
-  if (moduleHealthTrend.length >= 2) {
-    const first = moduleHealthTrend[0];
-    const last = moduleHealthTrend[moduleHealthTrend.length - 1];
-    const delta = last.healthScore - first.healthScore;
-    const sign = delta > 0 ? "+" : "";
-    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-    console.log(`\u2551 Trend (health): ${first.healthScore} -> ${last.healthScore} (${sign}${delta})`.padEnd(67) + "\u2551");
-  }
-  if (violationsTrend.length >= 2) {
-    const first = violationsTrend[0];
-    const last = violationsTrend[violationsTrend.length - 1];
-    const delta = last.total - first.total;
-    const sign = delta > 0 ? "+" : "";
-    console.log(`\u2551 Trend (violations): ${first.total} -> ${last.total} (${sign}${delta})`.padEnd(67) + "\u2551");
-  }
-  console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
-  console.log("");
-}
-function hotspotsReport(targetDir, opts) {
-  const modulesLatest = readReport(targetDir, "modules/latest.json");
-  const archLatest = readReport(targetDir, "architecture/latest.json");
-  if (!modulesLatest) {
-    const message = "No module report found. Run module-mapper / analysis first.";
-    if (opts.json) {
-      console.log(JSON.stringify({ error: { code: "NO_MODULE_REPORT", message }, source: { targetDir } }, null, 2));
-      return;
-    }
-    console.log(message);
-    return;
-  }
-  if (modulesLatest.modules.length === 0) {
-    const message = "Module report exists, but no modules were detected.";
-    if (opts.json) {
-      console.log(JSON.stringify({ error: { code: "NO_MODULES", message }, source: { targetDir } }, null, 2));
-      return;
-    }
-    console.log(message);
-    return;
-  }
-  const graph = buildGraphIndex(modulesLatest);
-  const rows = modulesLatest.modules.map((m) => {
-    const inDegree = graph.in.get(m.name)?.size ?? 0;
-    const outDegree = graph.out.get(m.name)?.size ?? 0;
-    const vSummary = summarizeViolationsForPath(targetDir, archLatest, m.path, 0);
-    return {
-      name: m.name,
-      chineseName: m.chineseName,
-      routePath: m.routePath ?? null,
-      type: m.type,
-      category: m.category,
-      healthScore: m.healthScore,
-      files: m.stats.files,
-      lines: m.stats.lines,
-      inDegree,
-      outDegree,
-      violations: vSummary.total,
-      violationsError: vSummary.counts.error,
-      violationsWarning: vSummary.counts.warning
-    };
-  });
-  const top = Math.max(1, Math.min(50, opts.top));
-  const mostDependedOn = [...rows].sort((a, b) => b.inDegree - a.inDegree).slice(0, top);
-  const largestByLines = [...rows].sort((a, b) => b.lines - a.lines).slice(0, top);
-  const lowestHealth = [...rows].sort((a, b) => a.healthScore - b.healthScore).slice(0, top);
-  const mostViolations = [...rows].sort((a, b) => b.violations - a.violations).slice(0, top);
-  const payload = {
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    source: { targetDir },
-    top,
-    lists: {
-      mostDependedOn,
-      largestByLines,
-      lowestHealth,
-      mostViolations
-    }
-  };
-  if (opts.json) {
-    console.log(JSON.stringify(payload, null, 2));
-    return;
-  }
-  console.log("");
-  console.log("\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
-  console.log("\u2551                         Report Hotspots                           \u2551");
-  console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  const printList = (title, items) => {
-    console.log(`\u2551 ${title}`.padEnd(67) + "\u2551");
-    for (const it of items) {
-      const line = `${it.name}  in=${it.inDegree}  lines=${it.lines}  health=${it.healthScore}  vio=${it.violations}`;
-      console.log(`\u2551   ${line.slice(0, 62).padEnd(62)}   \u2551`);
-    }
-    console.log("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
-  };
-  printList(`Top ${top}: Most Depended-On (downstream impact)`, mostDependedOn);
-  printList(`Top ${top}: Largest By Lines`, largestByLines);
-  printList(`Top ${top}: Lowest Health`, lowestHealth);
-  printList(`Top ${top}: Most Violations (architecture latest)`, mostViolations);
-  console.log("\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D");
-  console.log("");
-}
-function showHelp() {
-  console.log(`
-Report Manager - \u62A5\u544A\u7BA1\u7406\u5668
-
-\u7528\u6CD5: node report-manager.js <command> [options]
-
-\u4EA7\u54C1\u8DEF\u5F84:
-  1. \u89C2\u5BDF / \u5F53\u524D\u72B6\u6001     node report-manager.js status
-  2. \u89C2\u5BDF / \u5BFC\u51FA\u6C47\u62A5     node report-manager.js export
-  3. \u89C2\u5BDF / \u70ED\u70B9\u5B9A\u4F4D     node report-manager.js hotspots --top 10
-  4. \u89C2\u5BDF / \u6DF1\u5165\u5206\u6790     node report-manager.js inspect --module "src/features/user"
-
-\u547D\u4EE4:
-  status              \u67E5\u770B\u62A5\u544A\u72B6\u6001
-    --json            \u8F93\u51FA\u673A\u5668\u53EF\u8BFB\u7684\u5F53\u524D\u62A5\u544A\u6458\u8981
-  cleanup             \u6E05\u7406\u8FC7\u671F\u62A5\u544A
-    --cache-only      \u4EC5\u6E05\u7406\u7F13\u5B58
-  export              \u5BFC\u51FA\u62A5\u544A\u4E3A Markdown
-    --json            \u8F93\u51FA\u7EDF\u4E00\u7684 status/history/trend/diff/export JSON
-    --days <n>        trend/export \u4E2D\u5305\u542B\u7684\u8D8B\u52BF\u5929\u6570 (\u9ED8\u8BA4: 30)
-    --from <date>     diff/export \u7684\u8D77\u59CB\u65E5\u671F (YYYY-MM-DD\uFF0C\u53EF\u9009)
-  diff                \u5BF9\u6BD4\u67B6\u6784\u5FEB\u7167
-    --from <date>     \u8D77\u59CB\u65E5\u671F (YYYY-MM-DD\uFF0C\u53EF\u9009)
-    --json            \u8F93\u51FA architecture / modules diff JSON
-  trend               \u663E\u793A\u5065\u5EB7\u5EA6\u8D8B\u52BF
-    --days <n>        \u663E\u793A\u5929\u6570 (\u9ED8\u8BA4: 30)
-    --json            \u8F93\u51FA health / validator trend JSON
-  history             \u5217\u51FA\u5386\u53F2\u5FEB\u7167
-    --json            \u8F93\u51FA architecture / modules / validator gate \u5386\u53F2 JSON
-  inspect             \u67E5\u8BE2\u6A21\u5757/\u6587\u4EF6\u7684\u4E0A\u4E0B\u6E38\u3001\u70ED\u70B9\u4E0E\u8D8B\u52BF
-    --module <q>      \u6309\u6A21\u5757\uFF08name/chineseName/routePath/path\uFF09\u67E5\u8BE2
-    --file <path>     \u6309\u6587\u4EF6\u8DEF\u5F84\u67E5\u8BE2\uFF08\u4F1A\u81EA\u52A8\u5B9A\u4F4D\u6240\u5C5E\u6A21\u5757\uFF09
-    --depth <n>       \u4F9D\u8D56\u56FE\u904D\u5386\u6DF1\u5EA6 (\u9ED8\u8BA4: 1)
-    --trend <n>       \u8D8B\u52BF\u70B9\u6570 (\u9ED8\u8BA4: 7)
-    --json            \u8F93\u51FA JSON
-  hotspots            \u5217\u51FA\u70ED\u70B9\u6A21\u5757\uFF08\u4F9D\u8D56\u5F71\u54CD/\u89C4\u6A21/\u5065\u5EB7\u5EA6/\u8FDD\u89C4\uFF09
-    --top <n>         \u5217\u8868\u957F\u5EA6 (\u9ED8\u8BA4: 10)
-    --json            \u8F93\u51FA JSON
-
-\u793A\u4F8B:
-  node report-manager.js status
-  node report-manager.js status --json
-  node report-manager.js cleanup
-  node report-manager.js audit
-  node report-manager.js audit --json
-  node report-manager.js export
-  node report-manager.js export --json
-  node report-manager.js diff
-  node report-manager.js diff --from 2025-01-15
-  node report-manager.js diff --json
-  node report-manager.js trend --days 14
-  node report-manager.js trend --json
-  node report-manager.js history
-  node report-manager.js history --json
-  node report-manager.js inspect --module "src/features/user"
-  node report-manager.js inspect --file "src/features/user/index.ts"
-  node report-manager.js hotspots --top 15
-
-\u8BF4\u660E:
-  - \u8FD9\u662F\u201C\u89C2\u5BDF / \u6C47\u62A5\u201D\u5165\u53E3\uFF0C\u4E0D\u8D1F\u8D23\u5B89\u88C5\u6216\u6267\u884C\u95ED\u73AF\u3002
-  - \u5B89\u88C5 / \u8BCA\u65AD\u4F18\u5148\u8D70 codebuddy-loader\uFF1B\u542F\u52A8\u95ED\u73AF\u4F18\u5148\u8D70 task-orchestrator\u3002
-`);
-}
-function main() {
-  const args = process.argv.slice(2);
-  let command = args[0];
-  let targetDir = process.cwd();
-  if (command === "." || command === "./" || command && command.startsWith("./") && !command.includes(" ")) {
-    targetDir = path4.resolve(command);
-    command = args[1];
-  }
-  if (!command || command === "--help" || command === "-h") {
-    showHelp();
-    process.exit(0);
-  }
-  switch (command) {
-    case "status":
-      showStatus(targetDir, args.includes("--json"));
-      break;
-    case "cleanup":
-      const cacheOnly = args.includes("--cache-only");
-      cleanup(targetDir, cacheOnly);
-      break;
-    case "export":
-      exportReportBundle(targetDir, {
-        json: args.includes("--json"),
-        days: (() => {
-          const daysIndex = args.indexOf("--days");
-          return daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
-        })(),
-        fromDate: (() => {
-          const fromIndex = args.indexOf("--from");
-          return fromIndex !== -1 ? args[fromIndex + 1] : void 0;
-        })()
-      });
-      break;
-    case "audit":
-      showAudit(targetDir, {
-        json: args.includes("--json"),
-        days: (() => {
-          const daysIndex = args.indexOf("--days");
-          return daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
-        })(),
-        fromDate: (() => {
-          const fromIndex = args.indexOf("--from");
-          return fromIndex !== -1 ? args[fromIndex + 1] : void 0;
-        })()
-      });
-      break;
-    case "diff": {
-      const fromIndex = args.indexOf("--from");
-      const fromDate = fromIndex !== -1 ? args[fromIndex + 1] : void 0;
-      showDiff(targetDir, fromDate, args.includes("--json"));
-      break;
-    }
-    case "trend": {
-      const daysIndex = args.indexOf("--days");
-      const days = daysIndex !== -1 ? parseInt(args[daysIndex + 1], 10) : 30;
-      showTrend(targetDir, days, args.includes("--json"));
-      break;
-    }
-    case "history":
-      showHistory(targetDir, args.includes("--json"));
-      break;
-    case "inspect": {
-      const moduleIndex = args.indexOf("--module");
-      const fileIndex = args.indexOf("--file");
-      const depthIndex = args.indexOf("--depth");
-      const trendIndex = args.indexOf("--trend");
-      const json = args.includes("--json");
-      const module2 = moduleIndex !== -1 ? args[moduleIndex + 1] : void 0;
-      const file = fileIndex !== -1 ? args[fileIndex + 1] : void 0;
-      const depth = depthIndex !== -1 ? parseInt(args[depthIndex + 1], 10) : 1;
-      const trendPoints = trendIndex !== -1 ? parseInt(args[trendIndex + 1], 10) : 7;
-      inspectReport(targetDir, {
-        module: module2,
-        file,
-        depth: Number.isFinite(depth) && depth > 0 ? depth : 1,
-        trendPoints: Number.isFinite(trendPoints) && trendPoints > 0 ? trendPoints : 7,
-        json
-      });
-      break;
-    }
-    case "hotspots": {
-      const topIndex = args.indexOf("--top");
-      const json = args.includes("--json");
-      const top = topIndex !== -1 ? parseInt(args[topIndex + 1], 10) : 10;
-      hotspotsReport(targetDir, { top: Number.isFinite(top) && top > 0 ? top : 10, json });
-      break;
-    }
-    default:
-      console.error(`Unknown command: ${command}`);
-      showHelp();
-      process.exit(1);
-  }
-}
-if (isDirectCliEntry("report-manager.js")) {
-  main();
-}
-
-// scripts/src/module-mapper.ts
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.analyzeModules = analyzeModules;
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const module_mapper_1 = require("./types/module-mapper");
+const report_manager_1 = require("./report-manager");
+const cli_entry_1 = require("./lib/cli-entry");
+// ============ 业务识别函数 ============
+/**
+ * 根据目录名识别业务信息
+ */
 function identifyBusiness(dirName) {
-  const lowerName = dirName.toLowerCase();
-  for (const mapping of BUSINESS_KEYWORDS) {
-    if (lowerName === mapping.keyword.toLowerCase()) {
-      return { chineseName: mapping.name, category: mapping.category };
-    }
-    if (mapping.aliases) {
-      for (const alias of mapping.aliases) {
-        if (lowerName === alias.toLowerCase()) {
-          return { chineseName: mapping.name, category: mapping.category };
+    const lowerName = dirName.toLowerCase();
+    for (const mapping of module_mapper_1.BUSINESS_KEYWORDS) {
+        if (lowerName === mapping.keyword.toLowerCase()) {
+            return { chineseName: mapping.name, category: mapping.category };
         }
-      }
+        if (mapping.aliases) {
+            for (const alias of mapping.aliases) {
+                if (lowerName === alias.toLowerCase()) {
+                    return { chineseName: mapping.name, category: mapping.category };
+                }
+            }
+        }
+        // 部分匹配（包含关键词）
+        if (lowerName.includes(mapping.keyword.toLowerCase())) {
+            return { chineseName: mapping.name, category: mapping.category };
+        }
     }
-    if (lowerName.includes(mapping.keyword.toLowerCase())) {
-      return { chineseName: mapping.name, category: mapping.category };
-    }
-  }
-  return { chineseName: dirName, category: "\u5176\u4ED6" };
+    // 未匹配到，返回默认值
+    return { chineseName: dirName, category: '其他' };
 }
+/**
+ * 解析路由配置文件
+ */
 function parseRouterConfig(srcPath) {
-  const routeMap = /* @__PURE__ */ new Map();
-  const routerPaths = [
-    path5.join(srcPath, "router/index.ts"),
-    path5.join(srcPath, "router/index.js"),
-    path5.join(srcPath, "router/routes.ts"),
-    path5.join(srcPath, "router/routes.js"),
-    path5.join(srcPath, "routes/index.ts"),
-    path5.join(srcPath, "routes/index.js")
-  ];
-  for (const routerPath of routerPaths) {
-    if (fs4.existsSync(routerPath)) {
-      try {
-        const content = fs4.readFileSync(routerPath, "utf-8");
-        const routeRegex = /path:\s*['"]([^'"]+)['"][^}]*component:\s*\([^)]*\)\s*=>\s*import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-        let match;
-        while ((match = routeRegex.exec(content)) !== null) {
-          const routePath = match[1];
-          const componentPath = match[2];
-          const viewMatch = componentPath.match(/@\/views\/([^'"]+)/);
-          if (viewMatch) {
-            const viewName = viewMatch[1].replace(/\/index(\.vue)?$/, "").replace(/\.vue$/, "");
-            routeMap.set(viewName, { path: routePath });
-          }
-        }
-        const metaRegex = /path:\s*['"]([^'"]+)['"][^}]*meta:\s*\{[^}]*title:\s*['"]([^'"]+)['"]/g;
-        while ((match = metaRegex.exec(content)) !== null) {
-          const routePath = match[1];
-          const title = match[2];
-          for (const [viewName, info] of routeMap.entries()) {
-            if (info.path === routePath) {
-              routeMap.set(viewName, { ...info, title });
+    const routeMap = new Map();
+    // 常见路由文件路径
+    const routerPaths = [
+        path.join(srcPath, 'router/index.ts'),
+        path.join(srcPath, 'router/index.js'),
+        path.join(srcPath, 'router/routes.ts'),
+        path.join(srcPath, 'router/routes.js'),
+        path.join(srcPath, 'routes/index.ts'),
+        path.join(srcPath, 'routes/index.js'),
+    ];
+    for (const routerPath of routerPaths) {
+        if (fs.existsSync(routerPath)) {
+            try {
+                const content = fs.readFileSync(routerPath, 'utf-8');
+                // 匹配路由定义: path: '/xxx', component: () => import('@/views/xxx')
+                const routeRegex = /path:\s*['"]([^'"]+)['"][^}]*component:\s*\([^)]*\)\s*=>\s*import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+                let match;
+                while ((match = routeRegex.exec(content)) !== null) {
+                    const routePath = match[1];
+                    const componentPath = match[2];
+                    // 提取视图名称
+                    const viewMatch = componentPath.match(/@\/views\/([^'"]+)/);
+                    if (viewMatch) {
+                        const viewName = viewMatch[1].replace(/\/index(\.vue)?$/, '').replace(/\.vue$/, '');
+                        routeMap.set(viewName, { path: routePath });
+                    }
+                }
+                // 匹配 meta.title
+                const metaRegex = /path:\s*['"]([^'"]+)['"][^}]*meta:\s*\{[^}]*title:\s*['"]([^'"]+)['"]/g;
+                while ((match = metaRegex.exec(content)) !== null) {
+                    const routePath = match[1];
+                    const title = match[2];
+                    // 更新已存在的路由信息
+                    for (const [viewName, info] of routeMap.entries()) {
+                        if (info.path === routePath) {
+                            routeMap.set(viewName, { ...info, title });
+                        }
+                    }
+                }
             }
-          }
+            catch (_a) {
+                // 忽略解析错误
+            }
+            break; // 找到一个就停止
         }
-      } catch {
-      }
-      break;
     }
-  }
-  return routeMap;
+    return routeMap;
 }
+// ============ 工具函数 ============
+/**
+ * 检查是否应该忽略
+ */
 function shouldIgnore(name, patterns) {
-  for (const pattern of patterns) {
-    if (pattern.startsWith("*.")) {
-      const ext = pattern.slice(1);
-      if (name.endsWith(ext)) return true;
-    } else if (name === pattern || name.includes(pattern)) {
-      return true;
+    for (const pattern of patterns) {
+        if (pattern.startsWith('*.')) {
+            const ext = pattern.slice(1);
+            if (name.endsWith(ext))
+                return true;
+        }
+        else if (name === pattern || name.includes(pattern)) {
+            return true;
+        }
     }
-  }
-  return false;
+    return false;
 }
+/**
+ * 计算文件行数
+ */
 function countFileLines(filePath) {
-  try {
-    const content = fs4.readFileSync(filePath, "utf-8");
-    return content.split("\n").length;
-  } catch {
-    return 0;
-  }
-}
-function parseImports(filePath) {
-  const internal = [];
-  const external = [];
-  try {
-    const content = fs4.readFileSync(filePath, "utf-8");
-    const importRegex = /import\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]/g;
-    let match;
-    while ((match = importRegex.exec(content)) !== null) {
-      const importPath = match[1];
-      if (importPath.startsWith(".") || importPath.startsWith("@/") || importPath.startsWith("~/")) {
-        internal.push(importPath);
-      } else if (!importPath.startsWith("vue") && !importPath.startsWith("@vue")) {
-        external.push(importPath);
-      }
-    }
-    const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-    while ((match = requireRegex.exec(content)) !== null) {
-      const requirePath = match[1];
-      if (requirePath.startsWith(".") || requirePath.startsWith("@/")) {
-        internal.push(requirePath);
-      } else {
-        external.push(requirePath);
-      }
-    }
-  } catch {
-  }
-  return {
-    internal: [...new Set(internal)],
-    external: [...new Set(external)]
-  };
-}
-function scanModules(srcPath, config, maxDepth, routeMap) {
-  const modules = [];
-  for (const pattern of config.modulePatterns) {
-    const moduleDirPath = path5.join(srcPath, pattern.pattern);
-    if (!fs4.existsSync(moduleDirPath)) continue;
-    const stat = fs4.statSync(moduleDirPath);
-    if (!stat.isDirectory()) continue;
-    if (pattern.recursive) {
-      const subDirs = fs4.readdirSync(moduleDirPath);
-      for (const subDir of subDirs) {
-        if (shouldIgnore(subDir, config.ignorePatterns)) continue;
-        const subDirPath = path5.join(moduleDirPath, subDir);
-        const subStat = fs4.statSync(subDirPath);
-        if (subStat.isDirectory()) {
-          const moduleInfo = analyzeModule(
-            subDirPath,
-            `${pattern.pattern}/${subDir}`,
-            pattern.type,
-            config,
-            maxDepth,
-            routeMap
-          );
-          modules.push(moduleInfo);
-        }
-      }
-    } else {
-      const moduleInfo = analyzeModule(
-        moduleDirPath,
-        pattern.pattern,
-        pattern.type,
-        config,
-        maxDepth,
-        routeMap
-      );
-      modules.push(moduleInfo);
-    }
-  }
-  return modules;
-}
-function analyzeModule(modulePath, moduleName, moduleType, config, maxDepth, routeMap) {
-  const stats = collectModuleStats(modulePath, config, maxDepth, 0);
-  const entries = findEntries(modulePath, config);
-  const subModules = findSubModulesDetailed(modulePath, moduleName, config, maxDepth);
-  const { internalDeps, externalDeps } = collectDependencies(modulePath, config, maxDepth, 0);
-  const issues = detectIssues(stats, internalDeps.length, config);
-  const healthScore = calculateHealthScore(stats, issues, internalDeps.length, config);
-  const dirName = path5.basename(modulePath);
-  const businessInfo = identifyBusiness(dirName);
-  let routePath;
-  if (routeMap) {
-    const routeInfo = routeMap.get(moduleName) || routeMap.get(dirName);
-    if (routeInfo) {
-      routePath = routeInfo.path;
-      if (routeInfo.title) {
-        businessInfo.chineseName = routeInfo.title;
-      }
-    }
-  }
-  return {
-    name: moduleName,
-    path: modulePath,
-    type: moduleType,
-    business: {
-      chineseName: businessInfo.chineseName,
-      category: businessInfo.category,
-      routePath
-    },
-    entries,
-    subModules,
-    internalDeps,
-    externalDeps,
-    relatedModules: [],
-    // 后续通过依赖图填充
-    stats,
-    healthScore,
-    issues
-  };
-}
-function collectModuleStats(dirPath, config, maxDepth, currentDepth) {
-  const stats = {
-    files: 0,
-    lines: 0,
-    components: 0,
-    tsFiles: 0,
-    maxFileLines: 0,
-    avgFileLines: 0
-  };
-  if (currentDepth > maxDepth) return stats;
-  let entries;
-  try {
-    entries = fs4.readdirSync(dirPath);
-  } catch {
-    return stats;
-  }
-  for (const entry of entries) {
-    if (shouldIgnore(entry, config.ignorePatterns)) continue;
-    const entryPath = path5.join(dirPath, entry);
-    let entryStat;
     try {
-      entryStat = fs4.statSync(entryPath);
-    } catch {
-      continue;
+        const content = fs.readFileSync(filePath, 'utf-8');
+        return content.split('\n').length;
     }
-    if (entryStat.isFile()) {
-      const ext = path5.extname(entry).toLowerCase();
-      if ([".vue", ".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
-        stats.files++;
-        const lines = countFileLines(entryPath);
-        stats.lines += lines;
-        stats.maxFileLines = Math.max(stats.maxFileLines, lines);
-        if (ext === ".vue") stats.components++;
-        if (ext === ".ts" || ext === ".tsx") stats.tsFiles++;
-      }
-    } else if (entryStat.isDirectory()) {
-      const subStats = collectModuleStats(entryPath, config, maxDepth, currentDepth + 1);
-      stats.files += subStats.files;
-      stats.lines += subStats.lines;
-      stats.components += subStats.components;
-      stats.tsFiles += subStats.tsFiles;
-      stats.maxFileLines = Math.max(stats.maxFileLines, subStats.maxFileLines);
+    catch (_a) {
+        return 0;
     }
-  }
-  stats.avgFileLines = stats.files > 0 ? Math.round(stats.lines / stats.files) : 0;
-  return stats;
 }
-function findEntries(modulePath, config) {
-  const entries = [];
-  try {
-    const files = fs4.readdirSync(modulePath);
-    for (const file of files) {
-      const filePath = path5.join(modulePath, file);
-      const stat = fs4.statSync(filePath);
-      if (stat.isFile()) {
-        for (const pattern of config.entryPatterns) {
-          if (pattern.startsWith("*")) {
-            if (file.endsWith(pattern.slice(1))) {
-              entries.push(file);
-              break;
+/**
+ * 解析文件中的 import 语句
+ */
+function parseImports(filePath) {
+    const internal = [];
+    const external = [];
+    try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        // 匹配 import 语句
+        const importRegex = /import\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]/g;
+        let match;
+        while ((match = importRegex.exec(content)) !== null) {
+            const importPath = match[1];
+            if (importPath.startsWith('.') || importPath.startsWith('@/') || importPath.startsWith('~/')) {
+                internal.push(importPath);
             }
-          } else if (file === pattern) {
-            entries.push(file);
-            break;
-          }
+            else if (!importPath.startsWith('vue') && !importPath.startsWith('@vue')) {
+                external.push(importPath);
+            }
         }
-      }
+        // 匹配 require 语句
+        const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+        while ((match = requireRegex.exec(content)) !== null) {
+            const requirePath = match[1];
+            if (requirePath.startsWith('.') || requirePath.startsWith('@/')) {
+                internal.push(requirePath);
+            }
+            else {
+                external.push(requirePath);
+            }
+        }
     }
-  } catch {
-  }
-  return entries;
+    catch (_a) {
+        // 忽略读取错误
+    }
+    return {
+        internal: [...new Set(internal)],
+        external: [...new Set(external)],
+    };
 }
-function findSubModulesDetailed(modulePath, parentModuleName, config, maxDepth) {
-  const subModules = [];
-  try {
-    const entries = fs4.readdirSync(modulePath);
-    for (const entry of entries) {
-      if (shouldIgnore(entry, config.ignorePatterns)) continue;
-      const entryPath = path5.join(modulePath, entry);
-      const stat = fs4.statSync(entryPath);
-      if (stat.isDirectory()) {
-        const subStats = collectModuleStats(entryPath, config, maxDepth, 0);
-        if (subStats.files > 0) {
-          const businessInfo = identifyBusiness(entry);
-          const healthScore = Math.max(0, 100 - (subStats.maxFileLines > 500 ? 30 : 0) - (subStats.files > 20 ? 20 : 0));
-          subModules.push({
-            name: entry,
+/**
+ * 解析模块路径为模块名
+ */
+function resolveModuleName(importPath, currentModule, srcPath) {
+    // @/ 或 ~/ 开头的绝对引用
+    if (importPath.startsWith('@/') || importPath.startsWith('~/')) {
+        const relativePath = importPath.slice(2);
+        const parts = relativePath.split('/');
+        // 返回第一级或第二级目录作为模块名
+        if (parts.length >= 2) {
+            return `${parts[0]}/${parts[1]}`;
+        }
+        return parts[0];
+    }
+    // 相对路径引用
+    if (importPath.startsWith('.')) {
+        // 简化处理：检查是否跨模块引用
+        if (importPath.startsWith('..')) {
+            // 可能是跨模块引用
+            return null; // 需要更复杂的路径解析
+        }
+    }
+    return null;
+}
+// ============ 模块扫描 ============
+/**
+ * 扫描目录获取模块列表
+ */
+function scanModules(srcPath, config, maxDepth, routeMap) {
+    const modules = [];
+    for (const pattern of config.modulePatterns) {
+        const moduleDirPath = path.join(srcPath, pattern.pattern);
+        if (!fs.existsSync(moduleDirPath))
+            continue;
+        const stat = fs.statSync(moduleDirPath);
+        if (!stat.isDirectory())
+            continue;
+        if (pattern.recursive) {
+            // 递归扫描子目录作为独立模块
+            const subDirs = fs.readdirSync(moduleDirPath);
+            for (const subDir of subDirs) {
+                if (shouldIgnore(subDir, config.ignorePatterns))
+                    continue;
+                const subDirPath = path.join(moduleDirPath, subDir);
+                const subStat = fs.statSync(subDirPath);
+                if (subStat.isDirectory()) {
+                    const moduleInfo = analyzeModule(subDirPath, `${pattern.pattern}/${subDir}`, pattern.type, config, maxDepth, routeMap);
+                    modules.push(moduleInfo);
+                }
+            }
+        }
+        else {
+            // 整个目录作为一个模块
+            const moduleInfo = analyzeModule(moduleDirPath, pattern.pattern, pattern.type, config, maxDepth, routeMap);
+            modules.push(moduleInfo);
+        }
+    }
+    return modules;
+}
+/**
+ * 分析单个模块
+ */
+function analyzeModule(modulePath, moduleName, moduleType, config, maxDepth, routeMap) {
+    const stats = collectModuleStats(modulePath, config, maxDepth, 0);
+    const entries = findEntries(modulePath, config);
+    const subModules = findSubModulesDetailed(modulePath, moduleName, config, maxDepth);
+    const { internalDeps, externalDeps } = collectDependencies(modulePath, config, maxDepth, 0);
+    const issues = detectIssues(stats, internalDeps.length, config);
+    const healthScore = calculateHealthScore(stats, issues, internalDeps.length, config);
+    // 识别业务信息
+    const dirName = path.basename(modulePath);
+    const businessInfo = identifyBusiness(dirName);
+    // 尝试从路由配置获取路由路径
+    let routePath;
+    if (routeMap) {
+        const routeInfo = routeMap.get(moduleName) || routeMap.get(dirName);
+        if (routeInfo) {
+            routePath = routeInfo.path;
+            // 如果路由有 title，优先使用
+            if (routeInfo.title) {
+                businessInfo.chineseName = routeInfo.title;
+            }
+        }
+    }
+    return {
+        name: moduleName,
+        path: modulePath,
+        type: moduleType,
+        business: {
             chineseName: businessInfo.chineseName,
             category: businessInfo.category,
-            path: entryPath,
-            files: subStats.files,
-            lines: subStats.lines,
-            healthScore
-          });
-        }
-      }
-    }
-  } catch {
-  }
-  return subModules;
+            routePath,
+        },
+        entries,
+        subModules,
+        internalDeps,
+        externalDeps,
+        relatedModules: [], // 后续通过依赖图填充
+        stats,
+        healthScore,
+        issues,
+    };
 }
-function collectDependencies(dirPath, config, maxDepth, currentDepth) {
-  const internalDeps = /* @__PURE__ */ new Set();
-  const externalDeps = /* @__PURE__ */ new Set();
-  if (currentDepth > maxDepth) return { internalDeps: [], externalDeps: [] };
-  let entries;
-  try {
-    entries = fs4.readdirSync(dirPath);
-  } catch {
-    return { internalDeps: [], externalDeps: [] };
-  }
-  for (const entry of entries) {
-    if (shouldIgnore(entry, config.ignorePatterns)) continue;
-    const entryPath = path5.join(dirPath, entry);
-    let entryStat;
+/**
+ * 收集模块统计信息
+ */
+function collectModuleStats(dirPath, config, maxDepth, currentDepth) {
+    const stats = {
+        files: 0,
+        lines: 0,
+        components: 0,
+        tsFiles: 0,
+        maxFileLines: 0,
+        avgFileLines: 0,
+    };
+    if (currentDepth > maxDepth)
+        return stats;
+    let entries;
     try {
-      entryStat = fs4.statSync(entryPath);
-    } catch {
-      continue;
+        entries = fs.readdirSync(dirPath);
     }
-    if (entryStat.isFile()) {
-      const ext = path5.extname(entry).toLowerCase();
-      if ([".vue", ".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
-        const imports = parseImports(entryPath);
-        imports.internal.forEach((i) => internalDeps.add(i));
-        imports.external.forEach((e) => externalDeps.add(e.split("/")[0]));
-      }
-    } else if (entryStat.isDirectory()) {
-      const subDeps = collectDependencies(entryPath, config, maxDepth, currentDepth + 1);
-      subDeps.internalDeps.forEach((i) => internalDeps.add(i));
-      subDeps.externalDeps.forEach((e) => externalDeps.add(e));
+    catch (_a) {
+        return stats;
     }
-  }
-  return {
-    internalDeps: [...internalDeps],
-    externalDeps: [...externalDeps]
-  };
+    for (const entry of entries) {
+        if (shouldIgnore(entry, config.ignorePatterns))
+            continue;
+        const entryPath = path.join(dirPath, entry);
+        let entryStat;
+        try {
+            entryStat = fs.statSync(entryPath);
+        }
+        catch (_b) {
+            continue;
+        }
+        if (entryStat.isFile()) {
+            const ext = path.extname(entry).toLowerCase();
+            if (['.vue', '.ts', '.tsx', '.js', '.jsx'].includes(ext)) {
+                stats.files++;
+                const lines = countFileLines(entryPath);
+                stats.lines += lines;
+                stats.maxFileLines = Math.max(stats.maxFileLines, lines);
+                if (ext === '.vue')
+                    stats.components++;
+                if (ext === '.ts' || ext === '.tsx')
+                    stats.tsFiles++;
+            }
+        }
+        else if (entryStat.isDirectory()) {
+            const subStats = collectModuleStats(entryPath, config, maxDepth, currentDepth + 1);
+            stats.files += subStats.files;
+            stats.lines += subStats.lines;
+            stats.components += subStats.components;
+            stats.tsFiles += subStats.tsFiles;
+            stats.maxFileLines = Math.max(stats.maxFileLines, subStats.maxFileLines);
+        }
+    }
+    stats.avgFileLines = stats.files > 0 ? Math.round(stats.lines / stats.files) : 0;
+    return stats;
 }
+/**
+ * 查找入口文件
+ */
+function findEntries(modulePath, config) {
+    const entries = [];
+    try {
+        const files = fs.readdirSync(modulePath);
+        for (const file of files) {
+            const filePath = path.join(modulePath, file);
+            const stat = fs.statSync(filePath);
+            if (stat.isFile()) {
+                for (const pattern of config.entryPatterns) {
+                    if (pattern.startsWith('*')) {
+                        if (file.endsWith(pattern.slice(1))) {
+                            entries.push(file);
+                            break;
+                        }
+                    }
+                    else if (file === pattern) {
+                        entries.push(file);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    catch (_a) {
+        // 忽略错误
+    }
+    return entries;
+}
+/**
+ * 查找子模块（详细版）
+ */
+function findSubModulesDetailed(modulePath, parentModuleName, config, maxDepth) {
+    const subModules = [];
+    try {
+        const entries = fs.readdirSync(modulePath);
+        for (const entry of entries) {
+            if (shouldIgnore(entry, config.ignorePatterns))
+                continue;
+            const entryPath = path.join(modulePath, entry);
+            const stat = fs.statSync(entryPath);
+            if (stat.isDirectory()) {
+                // 检查子目录是否包含代码文件
+                const subStats = collectModuleStats(entryPath, config, maxDepth, 0);
+                if (subStats.files > 0) {
+                    // 识别子模块业务信息
+                    const businessInfo = identifyBusiness(entry);
+                    // 计算子模块健康度
+                    const healthScore = Math.max(0, 100 - (subStats.maxFileLines > 500 ? 30 : 0) - (subStats.files > 20 ? 20 : 0));
+                    subModules.push({
+                        name: entry,
+                        chineseName: businessInfo.chineseName,
+                        category: businessInfo.category,
+                        path: entryPath,
+                        files: subStats.files,
+                        lines: subStats.lines,
+                        healthScore,
+                    });
+                }
+            }
+        }
+    }
+    catch (_a) {
+        // 忽略错误
+    }
+    return subModules;
+}
+/**
+ * 查找子模块（简化版，保留兼容）
+ */
+function findSubModules(modulePath, config) {
+    const subModules = [];
+    try {
+        const entries = fs.readdirSync(modulePath);
+        for (const entry of entries) {
+            if (shouldIgnore(entry, config.ignorePatterns))
+                continue;
+            const entryPath = path.join(modulePath, entry);
+            const stat = fs.statSync(entryPath);
+            if (stat.isDirectory()) {
+                // 检查子目录是否包含代码文件
+                const hasCode = fs.readdirSync(entryPath).some(f => ['.vue', '.ts', '.tsx', '.js', '.jsx'].includes(path.extname(f).toLowerCase()));
+                if (hasCode) {
+                    subModules.push(entry);
+                }
+            }
+        }
+    }
+    catch (_a) {
+        // 忽略错误
+    }
+    return subModules;
+}
+/**
+ * 收集模块依赖
+ */
+function collectDependencies(dirPath, config, maxDepth, currentDepth) {
+    const internalDeps = new Set();
+    const externalDeps = new Set();
+    if (currentDepth > maxDepth)
+        return { internalDeps: [], externalDeps: [] };
+    let entries;
+    try {
+        entries = fs.readdirSync(dirPath);
+    }
+    catch (_a) {
+        return { internalDeps: [], externalDeps: [] };
+    }
+    for (const entry of entries) {
+        if (shouldIgnore(entry, config.ignorePatterns))
+            continue;
+        const entryPath = path.join(dirPath, entry);
+        let entryStat;
+        try {
+            entryStat = fs.statSync(entryPath);
+        }
+        catch (_b) {
+            continue;
+        }
+        if (entryStat.isFile()) {
+            const ext = path.extname(entry).toLowerCase();
+            if (['.vue', '.ts', '.tsx', '.js', '.jsx'].includes(ext)) {
+                const imports = parseImports(entryPath);
+                imports.internal.forEach(i => internalDeps.add(i));
+                imports.external.forEach(e => externalDeps.add(e.split('/')[0])); // 取包名
+            }
+        }
+        else if (entryStat.isDirectory()) {
+            const subDeps = collectDependencies(entryPath, config, maxDepth, currentDepth + 1);
+            subDeps.internalDeps.forEach(i => internalDeps.add(i));
+            subDeps.externalDeps.forEach(e => externalDeps.add(e));
+        }
+    }
+    return {
+        internalDeps: [...internalDeps],
+        externalDeps: [...externalDeps],
+    };
+}
+/**
+ * 检测模块问题
+ */
 function detectIssues(stats, depsCount, config) {
-  const issues = [];
-  const { thresholds } = config;
-  if (stats.files > thresholds.maxFilesPerModule) {
-    issues.push({
-      type: "size",
-      severity: "warning",
-      message: `\u6A21\u5757\u6587\u4EF6\u6570 ${stats.files} \u8D85\u8FC7\u9608\u503C ${thresholds.maxFilesPerModule}`
-    });
-  }
-  if (stats.lines > thresholds.maxLinesPerModule) {
-    issues.push({
-      type: "size",
-      severity: "error",
-      message: `\u6A21\u5757\u4EE3\u7801\u884C\u6570 ${stats.lines} \u8D85\u8FC7\u9608\u503C ${thresholds.maxLinesPerModule}`
-    });
-  }
-  if (stats.maxFileLines > 500) {
-    issues.push({
-      type: "complexity",
-      severity: "error",
-      message: `\u5B58\u5728\u8D85\u5927\u6587\u4EF6\uFF08${stats.maxFileLines} \u884C\uFF09`
-    });
-  }
-  if (depsCount > thresholds.maxDependencies) {
-    issues.push({
-      type: "coupling",
-      severity: "warning",
-      message: `\u6A21\u5757\u4F9D\u8D56\u6570 ${depsCount} \u8D85\u8FC7\u9608\u503C ${thresholds.maxDependencies}`
-    });
-  }
-  return issues;
+    const issues = [];
+    const { thresholds } = config;
+    if (stats.files > thresholds.maxFilesPerModule) {
+        issues.push({
+            type: 'size',
+            severity: 'warning',
+            message: `模块文件数 ${stats.files} 超过阈值 ${thresholds.maxFilesPerModule}`,
+        });
+    }
+    if (stats.lines > thresholds.maxLinesPerModule) {
+        issues.push({
+            type: 'size',
+            severity: 'error',
+            message: `模块代码行数 ${stats.lines} 超过阈值 ${thresholds.maxLinesPerModule}`,
+        });
+    }
+    if (stats.maxFileLines > 500) {
+        issues.push({
+            type: 'complexity',
+            severity: 'error',
+            message: `存在超大文件（${stats.maxFileLines} 行）`,
+        });
+    }
+    if (depsCount > thresholds.maxDependencies) {
+        issues.push({
+            type: 'coupling',
+            severity: 'warning',
+            message: `模块依赖数 ${depsCount} 超过阈值 ${thresholds.maxDependencies}`,
+        });
+    }
+    return issues;
 }
+/**
+ * 计算模块健康度评分
+ */
 function calculateHealthScore(stats, issues, depsCount, config) {
-  let score = 100;
-  const { thresholds } = config;
-  if (stats.files > thresholds.maxFilesPerModule) {
-    score -= Math.min(20, (stats.files - thresholds.maxFilesPerModule) * 2);
-  }
-  if (stats.lines > thresholds.maxLinesPerModule) {
-    score -= Math.min(25, Math.floor((stats.lines - thresholds.maxLinesPerModule) / 500) * 5);
-  }
-  if (stats.maxFileLines > 500) {
-    score -= Math.min(20, Math.floor((stats.maxFileLines - 500) / 100) * 5);
-  }
-  if (depsCount > thresholds.maxDependencies) {
-    score -= Math.min(15, (depsCount - thresholds.maxDependencies) * 3);
-  }
-  for (const issue of issues) {
-    if (issue.severity === "error") score -= 5;
-    if (issue.severity === "warning") score -= 2;
-  }
-  return Math.max(0, score);
+    let score = 100;
+    const { thresholds } = config;
+    // 文件数扣分
+    if (stats.files > thresholds.maxFilesPerModule) {
+        score -= Math.min(20, (stats.files - thresholds.maxFilesPerModule) * 2);
+    }
+    // 代码行数扣分
+    if (stats.lines > thresholds.maxLinesPerModule) {
+        score -= Math.min(25, Math.floor((stats.lines - thresholds.maxLinesPerModule) / 500) * 5);
+    }
+    // 大文件扣分
+    if (stats.maxFileLines > 500) {
+        score -= Math.min(20, Math.floor((stats.maxFileLines - 500) / 100) * 5);
+    }
+    // 依赖数扣分
+    if (depsCount > thresholds.maxDependencies) {
+        score -= Math.min(15, (depsCount - thresholds.maxDependencies) * 3);
+    }
+    // 问题扣分
+    for (const issue of issues) {
+        if (issue.severity === 'error')
+            score -= 5;
+        if (issue.severity === 'warning')
+            score -= 2;
+    }
+    return Math.max(0, score);
 }
+// ============ 依赖图构建 ============
+/**
+ * 构建依赖图
+ */
 function buildDependencyGraph(modules, srcPath) {
-  const nodes = modules.map((m) => m.name);
-  const edges = [];
-  const edgeMap = /* @__PURE__ */ new Map();
-  for (const module2 of modules) {
-    for (const dep of module2.internalDeps) {
-      let targetModule = null;
-      if (dep.startsWith("@/") || dep.startsWith("~/")) {
-        const relativePath = dep.slice(2);
-        const parts = relativePath.split("/");
-        for (const m of modules) {
-          if (relativePath.startsWith(m.name) || m.name.endsWith(parts[0])) {
-            targetModule = m.name;
-            break;
-          }
+    const nodes = modules.map(m => m.name);
+    const edges = [];
+    const edgeMap = new Map();
+    for (const module of modules) {
+        for (const dep of module.internalDeps) {
+            // 解析依赖路径为模块名
+            let targetModule = null;
+            if (dep.startsWith('@/') || dep.startsWith('~/')) {
+                const relativePath = dep.slice(2);
+                const parts = relativePath.split('/');
+                // 匹配模块名
+                for (const m of modules) {
+                    if (relativePath.startsWith(m.name) || m.name.endsWith(parts[0])) {
+                        targetModule = m.name;
+                        break;
+                    }
+                }
+            }
+            if (targetModule && targetModule !== module.name) {
+                const key = `${module.name}->${targetModule}`;
+                if (edgeMap.has(key)) {
+                    edgeMap.get(key).count++;
+                }
+                else {
+                    const edge = {
+                        from: module.name,
+                        to: targetModule,
+                        type: 'import',
+                        count: 1,
+                    };
+                    edgeMap.set(key, edge);
+                    edges.push(edge);
+                }
+                // 更新关联模块
+                if (!module.relatedModules.includes(targetModule)) {
+                    module.relatedModules.push(targetModule);
+                }
+            }
         }
-      }
-      if (targetModule && targetModule !== module2.name) {
-        const key = `${module2.name}->${targetModule}`;
-        if (edgeMap.has(key)) {
-          edgeMap.get(key).count++;
-        } else {
-          const edge = {
-            from: module2.name,
-            to: targetModule,
-            type: "import",
-            count: 1
-          };
-          edgeMap.set(key, edge);
-          edges.push(edge);
-        }
-        if (!module2.relatedModules.includes(targetModule)) {
-          module2.relatedModules.push(targetModule);
-        }
-      }
     }
-  }
-  return { nodes, edges };
+    return { nodes, edges };
 }
+/**
+ * 检测循环依赖
+ */
 function detectCircularDeps(graph) {
-  const cycles = [];
-  const visited = /* @__PURE__ */ new Set();
-  const recursionStack = /* @__PURE__ */ new Set();
-  const path6 = [];
-  function dfs(node) {
-    visited.add(node);
-    recursionStack.add(node);
-    path6.push(node);
-    const outEdges = graph.edges.filter((e) => e.from === node);
-    for (const edge of outEdges) {
-      if (!visited.has(edge.to)) {
-        dfs(edge.to);
-      } else if (recursionStack.has(edge.to)) {
-        const cycleStart = path6.indexOf(edge.to);
-        if (cycleStart !== -1) {
-          cycles.push([...path6.slice(cycleStart), edge.to]);
+    const cycles = [];
+    const visited = new Set();
+    const recursionStack = new Set();
+    const path = [];
+    function dfs(node) {
+        visited.add(node);
+        recursionStack.add(node);
+        path.push(node);
+        const outEdges = graph.edges.filter(e => e.from === node);
+        for (const edge of outEdges) {
+            if (!visited.has(edge.to)) {
+                dfs(edge.to);
+            }
+            else if (recursionStack.has(edge.to)) {
+                // 发现循环
+                const cycleStart = path.indexOf(edge.to);
+                if (cycleStart !== -1) {
+                    cycles.push([...path.slice(cycleStart), edge.to]);
+                }
+            }
         }
-      }
+        path.pop();
+        recursionStack.delete(node);
     }
-    path6.pop();
-    recursionStack.delete(node);
-  }
-  for (const node of graph.nodes) {
-    if (!visited.has(node)) {
-      dfs(node);
+    for (const node of graph.nodes) {
+        if (!visited.has(node)) {
+            dfs(node);
+        }
     }
-  }
-  return cycles;
+    return cycles;
 }
+// ============ 输出格式化 ============
+/**
+ * 生成 Mermaid 图表
+ */
 function generateMermaidGraph(graph, modules) {
-  const lines = ["graph LR"];
-  const typeStyles = {
-    page: ":::page",
-    feature: ":::feature",
-    shared: ":::shared",
-    util: ":::util",
-    api: ":::api",
-    store: ":::store",
-    layout: ":::layout"
-  };
-  for (const edge of graph.edges) {
-    const fromNode = edge.from.replace(/[\/\-]/g, "_");
-    const toNode = edge.to.replace(/[\/\-]/g, "_");
-    if (edge.count > 3) {
-      lines.push(`    ${fromNode} ==> ${toNode}`);
-    } else {
-      lines.push(`    ${fromNode} --> ${toNode}`);
+    const lines = ['graph LR'];
+    // 添加节点样式
+    const typeStyles = {
+        page: ':::page',
+        feature: ':::feature',
+        shared: ':::shared',
+        util: ':::util',
+        api: ':::api',
+        store: ':::store',
+        layout: ':::layout',
+    };
+    // 添加边
+    for (const edge of graph.edges) {
+        const fromNode = edge.from.replace(/[\/\-]/g, '_');
+        const toNode = edge.to.replace(/[\/\-]/g, '_');
+        if (edge.count > 3) {
+            lines.push(`    ${fromNode} ==> ${toNode}`);
+        }
+        else {
+            lines.push(`    ${fromNode} --> ${toNode}`);
+        }
     }
-  }
-  lines.push("");
-  lines.push("    classDef page fill:#e1f5fe,stroke:#01579b");
-  lines.push("    classDef feature fill:#f3e5f5,stroke:#4a148c");
-  lines.push("    classDef shared fill:#e8f5e9,stroke:#1b5e20");
-  lines.push("    classDef util fill:#fff3e0,stroke:#e65100");
-  lines.push("    classDef api fill:#fce4ec,stroke:#880e4f");
-  lines.push("    classDef store fill:#e0f2f1,stroke:#004d40");
-  for (const module2 of modules) {
-    const nodeId = module2.name.replace(/[\/\-]/g, "_");
-    const style = typeStyles[module2.type] || "";
-    if (style) {
-      lines.push(`    class ${nodeId} ${module2.type}`);
+    // 添加样式定义
+    lines.push('');
+    lines.push('    classDef page fill:#e1f5fe,stroke:#01579b');
+    lines.push('    classDef feature fill:#f3e5f5,stroke:#4a148c');
+    lines.push('    classDef shared fill:#e8f5e9,stroke:#1b5e20');
+    lines.push('    classDef util fill:#fff3e0,stroke:#e65100');
+    lines.push('    classDef api fill:#fce4ec,stroke:#880e4f');
+    lines.push('    classDef store fill:#e0f2f1,stroke:#004d40');
+    // 应用样式
+    for (const module of modules) {
+        const nodeId = module.name.replace(/[\/\-]/g, '_');
+        const style = typeStyles[module.type] || '';
+        if (style) {
+            lines.push(`    class ${nodeId} ${module.type}`);
+        }
     }
-  }
-  return lines.join("\n");
+    return lines.join('\n');
 }
+/**
+ * 生成 Markdown 输出
+ */
 function formatMarkdown(result) {
-  const lines = [];
-  lines.push("# \u9879\u76EE\u529F\u80FD\u6A21\u5757\u56FE\u8C31");
-  lines.push("");
-  lines.push(`> \u9879\u76EE: ${result.projectName}`);
-  lines.push(`> \u5206\u6790\u65F6\u95F4: ${result.analyzedAt}`);
-  lines.push("");
-  lines.push("## \u{1F4CA} \u6458\u8981\u7EDF\u8BA1");
-  lines.push("");
-  lines.push(`- **\u603B\u6A21\u5757\u6570**: ${result.summary.totalModules}`);
-  lines.push(`- **\u603B\u6587\u4EF6\u6570**: ${result.summary.totalFiles}`);
-  lines.push(`- **\u603B\u4EE3\u7801\u884C\u6570**: ${result.summary.totalLines.toLocaleString()}`);
-  lines.push(`- **\u5E73\u5747\u5065\u5EB7\u5EA6**: ${result.summary.avgHealthScore}/100`);
-  if (result.summary.circularDeps > 0) {
-    lines.push(`- **\u26A0\uFE0F \u5FAA\u73AF\u4F9D\u8D56**: ${result.summary.circularDeps} \u5904`);
-  }
-  lines.push("");
-  lines.push("## \u{1F4E6} \u4E1A\u52A1\u6A21\u5757\u56FE\u8C31");
-  lines.push("");
-  const categoryMap = /* @__PURE__ */ new Map();
-  for (const module2 of result.modules) {
-    const category = module2.business?.category || "\u5176\u4ED6";
-    if (!categoryMap.has(category)) {
-      categoryMap.set(category, []);
+    var _a, _b, _c, _d;
+    const lines = [];
+    // 标题
+    lines.push('# 项目功能模块图谱');
+    lines.push('');
+    lines.push(`> 项目: ${result.projectName}`);
+    lines.push(`> 分析时间: ${result.analyzedAt}`);
+    lines.push('');
+    // 摘要统计
+    lines.push('## 📊 摘要统计');
+    lines.push('');
+    lines.push(`- **总模块数**: ${result.summary.totalModules}`);
+    lines.push(`- **总文件数**: ${result.summary.totalFiles}`);
+    lines.push(`- **总代码行数**: ${result.summary.totalLines.toLocaleString()}`);
+    lines.push(`- **平均健康度**: ${result.summary.avgHealthScore}/100`);
+    if (result.summary.circularDeps > 0) {
+        lines.push(`- **⚠️ 循环依赖**: ${result.summary.circularDeps} 处`);
     }
-    categoryMap.get(category).push(module2);
-  }
-  const categoryOrder = ["\u7528\u6237\u8BA4\u8BC1", "\u7528\u6237\u7BA1\u7406", "\u4E1A\u52A1\u529E\u7406", "\u6570\u636E\u7BA1\u7406", "\u7CFB\u7EDF\u8BBE\u7F6E", "\u901A\u7528\u7EC4\u4EF6", "\u5DE5\u5177\u51FD\u6570", "\u5176\u4ED6"];
-  for (const category of categoryOrder) {
-    const modules = categoryMap.get(category);
-    if (!modules || modules.length === 0) continue;
-    lines.push(`### ${category}`);
-    lines.push("");
-    lines.push("| \u6A21\u5757 | \u4E2D\u6587\u540D | \u8DEF\u7531 | \u6587\u4EF6\u6570 | \u884C\u6570 | \u5065\u5EB7\u5EA6 |");
-    lines.push("|------|--------|------|--------|------|--------|");
-    const sortedModules = [...modules].sort((a, b) => b.stats.lines - a.stats.lines);
-    for (const module2 of sortedModules) {
-      const healthIcon = module2.healthScore >= 80 ? "\u{1F7E2}" : module2.healthScore >= 60 ? "\u{1F7E1}" : "\u{1F534}";
-      const chineseName = module2.business?.chineseName || module2.name;
-      const routePath = module2.business?.routePath || "-";
-      lines.push(`| ${module2.name} | ${chineseName} | ${routePath} | ${module2.stats.files} | ${module2.stats.lines.toLocaleString()} | ${healthIcon} ${module2.healthScore}/100 |`);
-      if (module2.subModules && module2.subModules.length > 0) {
-        for (const sub of module2.subModules) {
-          const subHealthIcon = sub.healthScore >= 80 ? "\u{1F7E2}" : sub.healthScore >= 60 ? "\u{1F7E1}" : "\u{1F534}";
-          lines.push(`| \u251C\u2500 ${sub.name} | ${sub.chineseName} | - | ${sub.files} | ${sub.lines.toLocaleString()} | ${subHealthIcon} ${sub.healthScore}/100 |`);
+    lines.push('');
+    // 按业务分类展示模块
+    lines.push('## 📦 业务模块图谱');
+    lines.push('');
+    // 按业务分类分组
+    const categoryMap = new Map();
+    for (const module of result.modules) {
+        const category = ((_a = module.business) === null || _a === void 0 ? void 0 : _a.category) || '其他';
+        if (!categoryMap.has(category)) {
+            categoryMap.set(category, []);
         }
-      }
+        categoryMap.get(category).push(module);
     }
-    lines.push("");
-  }
-  if (result.mermaidGraph) {
-    lines.push("## \u{1F517} \u6A21\u5757\u4F9D\u8D56\u56FE");
-    lines.push("");
-    lines.push("```mermaid");
-    lines.push(result.mermaidGraph);
-    lines.push("```");
-    lines.push("");
-  }
-  const problemModules = result.modules.filter((m) => m.healthScore < 60 || m.issues.length > 0);
-  if (problemModules.length > 0) {
-    lines.push("## \u26A0\uFE0F \u9700\u5173\u6CE8\u7684\u6A21\u5757");
-    lines.push("");
-    for (const module2 of problemModules.slice(0, 10)) {
-      const healthIcon = module2.healthScore >= 80 ? "\u{1F7E2}" : module2.healthScore >= 60 ? "\u{1F7E1}" : "\u{1F534}";
-      const chineseName = module2.business?.chineseName || module2.name;
-      lines.push(`### ${healthIcon} ${chineseName} (${module2.name})`);
-      lines.push("");
-      lines.push(`- **\u8DEF\u5F84**: \`${module2.path}\``);
-      lines.push(`- **\u5065\u5EB7\u5EA6**: ${module2.healthScore}/100`);
-      lines.push(`- **\u7EDF\u8BA1**: ${module2.stats.files} \u6587\u4EF6, ${module2.stats.lines.toLocaleString()} \u884C`);
-      if (module2.subModules && module2.subModules.length > 0) {
-        lines.push(`- **\u5B50\u6A21\u5757**: ${module2.subModules.map((s) => `${s.chineseName}(${s.name})`).join(", ")}`);
-      }
-      if (module2.issues.length > 0) {
-        lines.push(`- **\u95EE\u9898**:`);
-        for (const issue of module2.issues) {
-          const icon = issue.severity === "error" ? "\u{1F534}" : issue.severity === "warning" ? "\u{1F7E1}" : "\u{1F535}";
-          lines.push(`  - ${icon} ${issue.message}`);
+    // 按分类输出
+    const categoryOrder = ['用户认证', '用户管理', '业务办理', '数据管理', '系统设置', '通用组件', '工具函数', '其他'];
+    for (const category of categoryOrder) {
+        const modules = categoryMap.get(category);
+        if (!modules || modules.length === 0)
+            continue;
+        lines.push(`### ${category}`);
+        lines.push('');
+        lines.push('| 模块 | 中文名 | 路由 | 文件数 | 行数 | 健康度 |');
+        lines.push('|------|--------|------|--------|------|--------|');
+        const sortedModules = [...modules].sort((a, b) => b.stats.lines - a.stats.lines);
+        for (const module of sortedModules) {
+            const healthIcon = module.healthScore >= 80 ? '🟢' : module.healthScore >= 60 ? '🟡' : '🔴';
+            const chineseName = ((_b = module.business) === null || _b === void 0 ? void 0 : _b.chineseName) || module.name;
+            const routePath = ((_c = module.business) === null || _c === void 0 ? void 0 : _c.routePath) || '-';
+            lines.push(`| ${module.name} | ${chineseName} | ${routePath} | ${module.stats.files} | ${module.stats.lines.toLocaleString()} | ${healthIcon} ${module.healthScore}/100 |`);
+            // 输出子模块
+            if (module.subModules && module.subModules.length > 0) {
+                for (const sub of module.subModules) {
+                    const subHealthIcon = sub.healthScore >= 80 ? '🟢' : sub.healthScore >= 60 ? '🟡' : '🔴';
+                    lines.push(`| ├─ ${sub.name} | ${sub.chineseName} | - | ${sub.files} | ${sub.lines.toLocaleString()} | ${subHealthIcon} ${sub.healthScore}/100 |`);
+                }
+            }
         }
-      }
-      lines.push("");
+        lines.push('');
     }
-  }
-  lines.push("---");
-  lines.push("");
-  lines.push("\u{1F4A1} **\u76F8\u5173\u64CD\u4F5C**:");
-  lines.push('- \u67E5\u770B\u7ED3\u6784\u5065\u5EB7\u5EA6 \u2192 \u8F93\u5165 "\u7ED3\u6784\u5206\u6790"');
-  lines.push('- \u91CD\u6784\u67D0\u4E2A\u6A21\u5757 \u2192 \u8F93\u5165 "\u91CD\u6784 [\u6A21\u5757\u540D] \u6A21\u5757"');
-  lines.push('- \u5206\u6790\u5177\u4F53\u6587\u4EF6 \u2192 \u8F93\u5165 "\u5206\u6790 xxx.vue"');
-  lines.push("");
-  return lines.join("\n");
+    // 依赖关系图
+    if (result.mermaidGraph) {
+        lines.push('## 🔗 模块依赖图');
+        lines.push('');
+        lines.push('```mermaid');
+        lines.push(result.mermaidGraph);
+        lines.push('```');
+        lines.push('');
+    }
+    // 模块详情（仅显示问题模块）
+    const problemModules = result.modules.filter(m => m.healthScore < 60 || m.issues.length > 0);
+    if (problemModules.length > 0) {
+        lines.push('## ⚠️ 需关注的模块');
+        lines.push('');
+        for (const module of problemModules.slice(0, 10)) {
+            const healthIcon = module.healthScore >= 80 ? '🟢' : module.healthScore >= 60 ? '🟡' : '🔴';
+            const chineseName = ((_d = module.business) === null || _d === void 0 ? void 0 : _d.chineseName) || module.name;
+            lines.push(`### ${healthIcon} ${chineseName} (${module.name})`);
+            lines.push('');
+            lines.push(`- **路径**: \`${module.path}\``);
+            lines.push(`- **健康度**: ${module.healthScore}/100`);
+            lines.push(`- **统计**: ${module.stats.files} 文件, ${module.stats.lines.toLocaleString()} 行`);
+            if (module.subModules && module.subModules.length > 0) {
+                lines.push(`- **子模块**: ${module.subModules.map(s => `${s.chineseName}(${s.name})`).join(', ')}`);
+            }
+            if (module.issues.length > 0) {
+                lines.push(`- **问题**:`);
+                for (const issue of module.issues) {
+                    const icon = issue.severity === 'error' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
+                    lines.push(`  - ${icon} ${issue.message}`);
+                }
+            }
+            lines.push('');
+        }
+    }
+    // 关联提示
+    lines.push('---');
+    lines.push('');
+    lines.push('💡 **相关操作**:');
+    lines.push('- 查看结构健康度 → 输入 "结构分析"');
+    lines.push('- 重构某个模块 → 输入 "重构 [模块名] 模块"');
+    lines.push('- 分析具体文件 → 输入 "分析 xxx.vue"');
+    lines.push('');
+    return lines.join('\n');
 }
+/**
+ * 生成 JSON 输出
+ */
 function formatJson(result) {
-  return JSON.stringify(result, null, 2);
+    return JSON.stringify(result, null, 2);
 }
+// ============ 主函数 ============
+/**
+ * 分析项目模块
+ */
 function analyzeModules(options) {
-  const {
-    targetPath,
-    srcDir = "src",
-    maxDepth = 5,
-    mode = "summary",
-    analyzeDeps = true
-  } = options;
-  const fullPath = path5.resolve(targetPath);
-  if (!fs4.existsSync(fullPath)) {
-    throw new Error(`\u76EE\u6807\u8DEF\u5F84\u4E0D\u5B58\u5728: ${fullPath}`);
-  }
-  let scanPath = fullPath;
-  const possibleSrcDirs = [srcDir, "src", "packages", "apps", "libs"];
-  for (const dir of possibleSrcDirs) {
-    const candidatePath = path5.join(fullPath, dir);
-    if (fs4.existsSync(candidatePath) && fs4.statSync(candidatePath).isDirectory()) {
-      scanPath = candidatePath;
-      break;
+    const { targetPath, srcDir = 'src', maxDepth = 5, mode = 'summary', analyzeDeps = true, } = options;
+    // 验证路径
+    const fullPath = path.resolve(targetPath);
+    if (!fs.existsSync(fullPath)) {
+        throw new Error(`目标路径不存在: ${fullPath}`);
     }
-  }
-  const config = DEFAULT_MAPPER_CONFIG;
-  const routeMap = parseRouterConfig(scanPath);
-  const modules = scanModules(scanPath, config, maxDepth, routeMap);
-  const dependencyGraph = analyzeDeps ? buildDependencyGraph(modules, scanPath) : { nodes: [], edges: [] };
-  const circularDeps = analyzeDeps ? detectCircularDeps(dependencyGraph) : [];
-  const mermaidGraph = mode !== "summary" ? generateMermaidGraph(dependencyGraph, modules) : void 0;
-  const modulesByType = {
-    page: 0,
-    feature: 0,
-    shared: 0,
-    util: 0,
-    api: 0,
-    store: 0,
-    layout: 0
-  };
-  let totalFiles = 0;
-  let totalLines = 0;
-  let totalHealth = 0;
-  for (const module2 of modules) {
-    modulesByType[module2.type]++;
-    totalFiles += module2.stats.files;
-    totalLines += module2.stats.lines;
-    totalHealth += module2.healthScore;
-  }
-  const isolatedModules = modules.filter(
-    (m) => m.relatedModules.length === 0 && !dependencyGraph.edges.some((e) => e.to === m.name)
-  ).length;
-  const summary = {
-    totalModules: modules.length,
-    modulesByType,
-    totalFiles,
-    totalLines,
-    avgHealthScore: modules.length > 0 ? Math.round(totalHealth / modules.length) : 0,
-    circularDeps: circularDeps.length,
-    isolatedModules
-  };
-  return {
-    projectName: path5.basename(fullPath),
-    analyzedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    modules,
-    dependencyGraph,
-    summary,
-    mermaidGraph
-  };
+    // 确定扫描起点（支持多种项目结构）
+    let scanPath = fullPath;
+    const possibleSrcDirs = [srcDir, 'src', 'packages', 'apps', 'libs'];
+    for (const dir of possibleSrcDirs) {
+        const candidatePath = path.join(fullPath, dir);
+        if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).isDirectory()) {
+            scanPath = candidatePath;
+            break;
+        }
+    }
+    // 使用默认配置
+    const config = module_mapper_1.DEFAULT_MAPPER_CONFIG;
+    // 解析路由配置
+    const routeMap = parseRouterConfig(scanPath);
+    // 扫描模块
+    const modules = scanModules(scanPath, config, maxDepth, routeMap);
+    // 构建依赖图
+    const dependencyGraph = analyzeDeps ? buildDependencyGraph(modules, scanPath) : { nodes: [], edges: [] };
+    // 检测循环依赖
+    const circularDeps = analyzeDeps ? detectCircularDeps(dependencyGraph) : [];
+    // 生成 Mermaid 图表
+    const mermaidGraph = mode !== 'summary' ? generateMermaidGraph(dependencyGraph, modules) : undefined;
+    // 计算摘要
+    const modulesByType = {
+        page: 0,
+        feature: 0,
+        shared: 0,
+        util: 0,
+        api: 0,
+        store: 0,
+        layout: 0,
+    };
+    let totalFiles = 0;
+    let totalLines = 0;
+    let totalHealth = 0;
+    for (const module of modules) {
+        modulesByType[module.type]++;
+        totalFiles += module.stats.files;
+        totalLines += module.stats.lines;
+        totalHealth += module.healthScore;
+    }
+    const isolatedModules = modules.filter(m => m.relatedModules.length === 0 &&
+        !dependencyGraph.edges.some(e => e.to === m.name)).length;
+    const summary = {
+        totalModules: modules.length,
+        modulesByType,
+        totalFiles,
+        totalLines,
+        avgHealthScore: modules.length > 0 ? Math.round(totalHealth / modules.length) : 0,
+        circularDeps: circularDeps.length,
+        isolatedModules,
+    };
+    return {
+        projectName: path.basename(fullPath),
+        analyzedAt: new Date().toISOString(),
+        modules,
+        dependencyGraph,
+        summary,
+        mermaidGraph,
+    };
 }
+// ============ CLI 入口 ============
+/**
+ * 解析命令行参数
+ */
 function parseArgs(args) {
-  const options = {
-    targetPath: "",
-    noSave: false
-  };
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--help" || arg === "-h") {
-      options.help = true;
-    } else if (arg === "--mode" && args[i + 1]) {
-      options.mode = args[++i];
-    } else if (arg === "--output" && args[i + 1]) {
-      options.outputFormat = args[++i];
-    } else if (arg === "--no-deps") {
-      options.analyzeDeps = false;
-    } else if (arg === "--max-depth" && args[i + 1]) {
-      options.maxDepth = parseInt(args[++i], 10);
-    } else if (arg === "--no-save") {
-      options.noSave = true;
-    } else if (!arg.startsWith("-") && !options.targetPath) {
-      options.targetPath = arg;
+    const options = {
+        targetPath: '',
+        noSave: false,
+    };
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (arg === '--help' || arg === '-h') {
+            options.help = true;
+        }
+        else if (arg === '--mode' && args[i + 1]) {
+            options.mode = args[++i];
+        }
+        else if (arg === '--output' && args[i + 1]) {
+            options.outputFormat = args[++i];
+        }
+        else if (arg === '--no-deps') {
+            options.analyzeDeps = false;
+        }
+        else if (arg === '--max-depth' && args[i + 1]) {
+            options.maxDepth = parseInt(args[++i], 10);
+        }
+        else if (arg === '--no-save') {
+            options.noSave = true;
+        }
+        else if (!arg.startsWith('-') && !options.targetPath) {
+            options.targetPath = arg;
+        }
     }
-  }
-  return options;
+    return options;
 }
-function showHelp2() {
-  console.log(`
-Module Mapper - \u529F\u80FD\u6A21\u5757\u56FE\u8C31\u5206\u6790\u5668
+/**
+ * 显示帮助信息
+ */
+function showHelp() {
+    console.log(`
+Module Mapper - 功能模块图谱分析器
 
-\u7528\u6CD5: node module-mapper.js <path> [options]
+用法: node module-mapper.js <path> [options]
 
-\u53C2\u6570:
-  <path>              \u76EE\u6807\u9879\u76EE\u8DEF\u5F84
+参数:
+  <path>              目标项目路径
 
-\u9009\u9879:
-  --mode <mode>       \u8F93\u51FA\u6A21\u5F0F: summary | full | graph (\u9ED8\u8BA4: summary)
-  --output <format>   \u8F93\u51FA\u683C\u5F0F: json | markdown | mermaid (\u9ED8\u8BA4: markdown)
-  --no-deps           \u8DF3\u8FC7\u4F9D\u8D56\u5206\u6790\uFF08\u52A0\u5FEB\u901F\u5EA6\uFF09
-  --max-depth <n>     \u6700\u5927\u626B\u63CF\u6DF1\u5EA6 (\u9ED8\u8BA4: 5)
-  --no-save           \u4E0D\u4FDD\u5B58\u62A5\u544A\u5230 .codebuddy/reports/
-  -h, --help          \u663E\u793A\u5E2E\u52A9\u4FE1\u606F
+选项:
+  --mode <mode>       输出模式: summary | full | graph (默认: summary)
+  --output <format>   输出格式: json | markdown | mermaid (默认: markdown)
+  --no-deps           跳过依赖分析（加快速度）
+  --max-depth <n>     最大扫描深度 (默认: 5)
+  --no-save           不保存报告到 .codebuddy/reports/
+  -h, --help          显示帮助信息
 
-\u793A\u4F8B:
+示例:
   node module-mapper.js ./my-project
   node module-mapper.js ./my-project --mode full --output json
   node module-mapper.js ./my-project --mode graph --output mermaid
 `);
 }
+/**
+ * 将分析结果转换为模块图谱快照
+ */
 function toModuleMapSnapshot(result) {
-  const categories = {};
-  for (const module2 of result.modules) {
-    const cat = module2.business?.category || "\u5176\u4ED6";
-    if (!categories[cat]) {
-      categories[cat] = { modules: [], totalFiles: 0, totalLines: 0 };
+    var _a;
+    // 按分类统计
+    const categories = {};
+    for (const module of result.modules) {
+        const cat = ((_a = module.business) === null || _a === void 0 ? void 0 : _a.category) || '其他';
+        if (!categories[cat]) {
+            categories[cat] = { modules: [], totalFiles: 0, totalLines: 0 };
+        }
+        categories[cat].modules.push(module.name);
+        categories[cat].totalFiles += module.stats.files;
+        categories[cat].totalLines += module.stats.lines;
     }
-    categories[cat].modules.push(module2.name);
-    categories[cat].totalFiles += module2.stats.files;
-    categories[cat].totalLines += module2.stats.lines;
-  }
-  const modules = result.modules.map((m) => ({
-    name: m.name,
-    chineseName: m.business?.chineseName || m.name,
-    category: m.business?.category || "\u5176\u4ED6",
-    type: m.type,
-    path: m.path,
-    routePath: m.business?.routePath,
-    stats: {
-      files: m.stats.files,
-      lines: m.stats.lines,
-      components: m.stats.components
-    },
-    healthScore: m.healthScore,
-    subModules: m.subModules.map((s) => ({
-      name: s.name,
-      chineseName: s.chineseName,
-      files: s.files,
-      lines: s.lines
-    })),
-    dependencies: m.internalDeps.slice(0, 10),
-    dependents: m.relatedModules
-  }));
-  return {
-    meta: {
-      version: "1.0.0",
-      projectName: result.projectName,
-      analyzedAt: result.analyzedAt,
-      analyzedBy: "module-mapper"
-    },
-    summary: {
-      totalModules: result.summary.totalModules,
-      avgHealthScore: result.summary.avgHealthScore,
-      circularDeps: result.summary.circularDeps,
-      isolatedModules: result.summary.isolatedModules
-    },
-    categories,
-    modules,
-    graph: {
-      nodes: result.dependencyGraph.nodes,
-      edges: result.dependencyGraph.edges.map((e) => ({
-        from: e.from,
-        to: e.to,
-        weight: e.count
-      }))
-    }
-  };
+    // 转换模块列表
+    const modules = result.modules.map(m => {
+        var _a, _b, _c;
+        return ({
+            name: m.name,
+            chineseName: ((_a = m.business) === null || _a === void 0 ? void 0 : _a.chineseName) || m.name,
+            category: ((_b = m.business) === null || _b === void 0 ? void 0 : _b.category) || '其他',
+            type: m.type,
+            path: m.path,
+            routePath: (_c = m.business) === null || _c === void 0 ? void 0 : _c.routePath,
+            stats: {
+                files: m.stats.files,
+                lines: m.stats.lines,
+                components: m.stats.components,
+            },
+            healthScore: m.healthScore,
+            subModules: m.subModules.map(s => ({
+                name: s.name,
+                chineseName: s.chineseName,
+                files: s.files,
+                lines: s.lines,
+            })),
+            dependencies: m.internalDeps.slice(0, 10),
+            dependents: m.relatedModules,
+        });
+    });
+    return {
+        meta: {
+            version: '1.0.0',
+            projectName: result.projectName,
+            analyzedAt: result.analyzedAt,
+            analyzedBy: 'module-mapper',
+        },
+        summary: {
+            totalModules: result.summary.totalModules,
+            avgHealthScore: result.summary.avgHealthScore,
+            circularDeps: result.summary.circularDeps,
+            isolatedModules: result.summary.isolatedModules,
+        },
+        categories,
+        modules,
+        graph: {
+            nodes: result.dependencyGraph.nodes,
+            edges: result.dependencyGraph.edges.map(e => ({
+                from: e.from,
+                to: e.to,
+                weight: e.count,
+            })),
+        },
+    };
 }
+/**
+ * 保存模块图谱报告
+ */
 function saveReports(targetPath, result) {
-  try {
-    const snapshot = toModuleMapSnapshot(result);
-    saveModuleMapSnapshot(targetPath, snapshot);
-    const reportsPath = getReportsPath(targetPath);
-    const modulesDir = path5.join(reportsPath, "modules");
-    if (!fs4.existsSync(modulesDir)) {
-      fs4.mkdirSync(modulesDir, { recursive: true });
+    try {
+        // 保存 JSON 格式（机器可读）
+        const snapshot = toModuleMapSnapshot(result);
+        (0, report_manager_1.saveModuleMapSnapshot)(targetPath, snapshot);
+        // 保存 Markdown 格式（人类可读）
+        const reportsPath = (0, report_manager_1.getReportsPath)(targetPath);
+        const modulesDir = path.join(reportsPath, 'modules');
+        if (!fs.existsSync(modulesDir)) {
+            fs.mkdirSync(modulesDir, { recursive: true });
+        }
+        const markdownContent = formatMarkdown(result);
+        fs.writeFileSync(path.join(modulesDir, 'latest.md'), markdownContent, 'utf-8');
+        // 如果有 Mermaid 图表，单独保存
+        if (result.mermaidGraph) {
+            fs.writeFileSync(path.join(modulesDir, 'dependency-graph.mmd'), result.mermaidGraph, 'utf-8');
+        }
+        console.log(`[Reports] 已保存模块图谱到 .codebuddy/reports/modules/ (json + md)`);
     }
-    const markdownContent = formatMarkdown(result);
-    fs4.writeFileSync(path5.join(modulesDir, "latest.md"), markdownContent, "utf-8");
-    if (result.mermaidGraph) {
-      fs4.writeFileSync(path5.join(modulesDir, "dependency-graph.mmd"), result.mermaidGraph, "utf-8");
+    catch (error) {
+        console.warn(`[Reports] 保存报告失败: ${error.message}`);
     }
-    console.log(`[Reports] \u5DF2\u4FDD\u5B58\u6A21\u5757\u56FE\u8C31\u5230 .codebuddy/reports/modules/ (json + md)`);
-  } catch (error) {
-    console.warn(`[Reports] \u4FDD\u5B58\u62A5\u544A\u5931\u8D25: ${error.message}`);
-  }
 }
+/**
+ * 检查是否有可复用的报告
+ */
 function checkExistingReport(targetPath) {
-  try {
-    const manifest = readManifest(targetPath);
-    if (manifest.reports.modules) {
-      const ageHours = getReportAgeHours(manifest.reports.modules.generatedAt);
-      return { exists: true, ageHours };
+    try {
+        const manifest = (0, report_manager_1.readManifest)(targetPath);
+        if (manifest.reports.modules) {
+            const ageHours = (0, report_manager_1.getReportAgeHours)(manifest.reports.modules.generatedAt);
+            return { exists: true, ageHours };
+        }
     }
-  } catch {
-  }
-  return { exists: false, ageHours: -1 };
+    catch (_a) {
+        // 忽略
+    }
+    return { exists: false, ageHours: -1 };
 }
-function main2() {
-  const args = process.argv.slice(2);
-  const options = parseArgs(args);
-  if (options.help) {
-    showHelp2();
-    process.exit(0);
-  }
-  if (!options.targetPath) {
-    console.error("\u9519\u8BEF: \u8BF7\u6307\u5B9A\u76EE\u6807\u9879\u76EE\u8DEF\u5F84");
-    showHelp2();
-    process.exit(1);
-  }
-  try {
-    const existing = checkExistingReport(options.targetPath);
-    if (existing.exists && existing.ageHours < 24 && existing.ageHours >= 0) {
-      console.log(`[Reports] \u53D1\u73B0 ${existing.ageHours} \u5C0F\u65F6\u524D\u7684\u62A5\u544A\uFF0C\u53EF\u901A\u8FC7 --no-save \u8DF3\u8FC7\u4FDD\u5B58`);
+/**
+ * 主入口
+ */
+function main() {
+    const args = process.argv.slice(2);
+    const options = parseArgs(args);
+    if (options.help) {
+        showHelp();
+        process.exit(0);
     }
-    const result = analyzeModules(options);
-    const outputFormat = options.outputFormat || "markdown";
-    if (outputFormat === "json") {
-      console.log(formatJson(result));
-    } else if (outputFormat === "mermaid" && result.mermaidGraph) {
-      console.log(result.mermaidGraph);
-    } else {
-      console.log(formatMarkdown(result));
+    if (!options.targetPath) {
+        console.error('错误: 请指定目标项目路径');
+        showHelp();
+        process.exit(1);
     }
-    if (!options.noSave) {
-      saveReports(path5.resolve(options.targetPath), result);
+    try {
+        // 检查是否有可复用的报告
+        const existing = checkExistingReport(options.targetPath);
+        if (existing.exists && existing.ageHours < 24 && existing.ageHours >= 0) {
+            console.log(`[Reports] 发现 ${existing.ageHours} 小时前的报告，可通过 --no-save 跳过保存`);
+        }
+        const result = analyzeModules(options);
+        const outputFormat = options.outputFormat || 'markdown';
+        if (outputFormat === 'json') {
+            console.log(formatJson(result));
+        }
+        else if (outputFormat === 'mermaid' && result.mermaidGraph) {
+            console.log(result.mermaidGraph);
+        }
+        else {
+            console.log(formatMarkdown(result));
+        }
+        // 保存报告
+        if (!options.noSave) {
+            saveReports(path.resolve(options.targetPath), result);
+        }
     }
-  } catch (error) {
-    console.error("\u5206\u6790\u5931\u8D25:", error.message);
-    process.exit(1);
-  }
+    catch (error) {
+        console.error('分析失败:', error.message);
+        process.exit(1);
+    }
 }
-if (isDirectCliEntry("module-mapper.js")) {
-  main2();
+// CLI 入口 - 仅当作为主模块运行时才执行
+if ((0, cli_entry_1.isDirectCliEntry)('module-mapper.js')) {
+    main();
 }
-// Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
-  analyzeModules
-});

@@ -3,6 +3,11 @@ import * as path from 'path';
 import {
   VALIDATOR_GATE_STANDARD_LATEST_DIR,
 } from './lib/validator-gate-report';
+import {
+  finalizeRepoStateValidation,
+  looksLikeRepositoryFactRoot,
+  validateRepoStateRoot,
+} from './repo-state-validator';
 import { finalizeRuleValidation, validateRulesDir } from './rule-validator';
 import { finalizeSkillValidation, validateSkillsDir } from './skill-validator';
 import type { ValidatorGateScope, ValidatorGateSummary } from './types/reports';
@@ -20,8 +25,10 @@ type ValidatorGateOptions = {
   outDir: string | null;
   rulesDir: string | null;
   skillsDir: string | null;
+  repoRoot: string | null;
 };
 
+type RepoStateValidationReport = ReturnType<typeof finalizeRepoStateValidation>;
 type RuleValidationReport = ReturnType<typeof finalizeRuleValidation>;
 type SkillValidationReport = ReturnType<typeof finalizeSkillValidation>;
 
@@ -29,6 +36,7 @@ type ValidatorGateReport = ValidatorGateSummary & {
   reports: {
     rules?: RuleValidationReport;
     skills?: SkillValidationReport;
+    repoState?: RepoStateValidationReport;
   };
 };
 
@@ -80,6 +88,10 @@ function parseCli(args: string[]): ParsedCli {
       parsed.flags.skillsDir = args[++i];
       continue;
     }
+    if ((a === '--repo-root' || a === '--repo-dir') && args[i + 1]) {
+      parsed.flags.repoRoot = args[++i];
+      continue;
+    }
 
     parsed.flags[a.replace(/^--?/, '')] = true;
   }
@@ -90,7 +102,7 @@ function parseCli(args: string[]): ParsedCli {
 
 function showHelp(): void {
   console.log(`
-Validator Gate - 聚合 rules/skills validator 并输出可审计结果
+Validator Gate - 聚合 rules/skills/repo-state validator 并输出可审计结果
 
 用法:
   node scripts/dist/validator-gate.js [command] [options]
@@ -99,12 +111,14 @@ Validator Gate - 聚合 rules/skills validator 并输出可审计结果
   run                          运行 validator gate（默认）
 
 选项:
-  --scope <all|rules|skills>   选择执行范围（默认: all）
+  --scope <all|rules|skills|repo-state>
+                               选择执行范围（默认: all）
   --strict                     warning 和 error 都作为 gate
   --json                       输出聚合 JSON 报告
   --out-dir <path>             额外把 summary 和子报告写入目录
   --rules-dir <path>           指定 rules 根目录
   --skills-dir <path>          指定 skills 根目录
+  --repo-root <path>           指定仓库根目录（repo-state validator 用）
   --help, -h                   显示帮助
 `.trim());
 }
@@ -187,7 +201,7 @@ function resolveStandardValidatorHistoryDir(outDir: string, generatedAt: string)
 }
 
 function parseScope(value: string | boolean | undefined): ValidatorGateScope {
-  if (value === 'rules' || value === 'skills' || value === 'all') return value;
+  if (value === 'rules' || value === 'skills' || value === 'repo-state' || value === 'all') return value;
   return 'all';
 }
 
@@ -211,8 +225,16 @@ export function buildValidatorGateReport(options: ValidatorGateOptions): Validat
     reports.skills = finalizeSkillValidation(validateSkillsDir(skillsDir), options.strict);
   }
 
-  const includedReports = [reports.rules, reports.skills].filter(
-    (value): value is RuleValidationReport | SkillValidationReport => Boolean(value),
+  const resolvedRepoRoot = options.repoRoot ? path.resolve(process.cwd(), options.repoRoot) : process.cwd();
+  const shouldRunRepoState = scope === 'repo-state'
+    || ((scope === 'all') && (Boolean(options.repoRoot) || looksLikeRepositoryFactRoot(resolvedRepoRoot)));
+
+  if (shouldRunRepoState) {
+    reports.repoState = finalizeRepoStateValidation(validateRepoStateRoot(resolvedRepoRoot), options.strict);
+  }
+
+  const includedReports = [reports.rules, reports.skills, reports.repoState].filter(
+    (value): value is RuleValidationReport | SkillValidationReport | RepoStateValidationReport => Boolean(value),
   );
 
   return {
@@ -249,6 +271,10 @@ export function runValidatorGate(options: ValidatorGateOptions): ValidatorGateRe
       writeJson(path.join(outDir, 'skill-validator-report.json'), report.reports.skills);
       report.reportFiles.push('skill-validator-report.json');
     }
+    if (report.reports.repoState) {
+      writeJson(path.join(outDir, 'repo-state-validator-report.json'), report.reports.repoState);
+      report.reportFiles.push('repo-state-validator-report.json');
+    }
     writeJson(path.join(outDir, 'validator-gate-summary.json'), report);
     report.reportFiles.push('validator-gate-summary.json');
 
@@ -258,6 +284,9 @@ export function runValidatorGate(options: ValidatorGateOptions): ValidatorGateRe
       }
       if (report.reports.skills) {
         writeJson(path.join(historyDir, 'skill-validator-report.json'), report.reports.skills);
+      }
+      if (report.reports.repoState) {
+        writeJson(path.join(historyDir, 'repo-state-validator-report.json'), report.reports.repoState);
       }
       writeJson(path.join(historyDir, 'validator-gate-summary.json'), report);
     }
@@ -287,6 +316,7 @@ function main(): void {
     outDir: typeof parsed.flags.outDir === 'string' ? parsed.flags.outDir : null,
     rulesDir: typeof parsed.flags.rulesDir === 'string' ? parsed.flags.rulesDir : null,
     skillsDir: typeof parsed.flags.skillsDir === 'string' ? parsed.flags.skillsDir : null,
+    repoRoot: typeof parsed.flags.repoRoot === 'string' ? parsed.flags.repoRoot : null,
   };
 
   let report: ValidatorGateReport;

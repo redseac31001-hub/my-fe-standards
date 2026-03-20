@@ -2889,6 +2889,18 @@ description: Validate that strict mode fails on warning-only skill issues.
         if (!reportAuditPayload?.sections?.status?.sections?.validatorGate?.present) {
           throw new Error('report-manager audit --json missing validator gate status section');
         }
+        const auditLatestPath = path.join(projectDir, '.codebuddy', 'reports', 'audit', 'latest', 'audit-summary.json');
+        if (!fs.existsSync(auditLatestPath)) {
+          throw new Error('report-manager audit did not write standard audit latest summary');
+        }
+        const auditLatestPayload = JSON.parse(fs.readFileSync(auditLatestPath, 'utf-8'));
+        if (!auditLatestPayload?.outputDir || !auditLatestPayload?.historyDir) {
+          throw new Error('standard audit summary missing outputDir/historyDir');
+        }
+        const auditHistoryPath = path.join(projectDir, auditLatestPayload.historyDir, 'audit-summary.json');
+        if (!fs.existsSync(auditHistoryPath)) {
+          throw new Error('report-manager audit did not write audit history snapshot');
+        }
 
         logSuccess('task-orchestrator auto route observability passed');
       } catch (e) {

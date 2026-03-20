@@ -96,6 +96,11 @@ const PROFILE_RESIDUAL_ARTIFACTS = {
     ],
     full: [],
 };
+const OPTIONAL_STATIC_SUPPORT_FILES = new Set([
+    '.codebuddy/scripts/agent-runtime.js',
+    '.codebuddy/scripts/types/agent-runtime.js',
+    '.codebuddy/scripts/types/index.js',
+]);
 const LEGACY_ORCHESTRATOR_ARTIFACTS = [
     '.codebuddy/agent-calls/agent-call.schema.json',
     '.codebuddy/agent-calls/README.md',
@@ -370,7 +375,8 @@ function inspectInstallState(targetDir, installState, installStateExists) {
             const absoluteRoot = path.join(targetDir, relativeRoot);
             return (0, install_sync_1.listFilesRecursive)(absoluteRoot)
                 .map(filePath => (0, install_sync_1.toProjectRelativePath)(targetDir, filePath))
-                .filter(filePath => !managedFileSet.has(filePath));
+                .filter(filePath => !managedFileSet.has(filePath))
+                .filter(filePath => !OPTIONAL_STATIC_SUPPORT_FILES.has(filePath));
         }).sort()
         : [];
     const expectedResiduals = installState ? PROFILE_RESIDUAL_ARTIFACTS[installState.profile] : [];

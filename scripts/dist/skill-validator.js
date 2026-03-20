@@ -1,655 +1,619 @@
 "use strict";
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// scripts/src/skill-validator.ts
-var skill_validator_exports = {};
-__export(skill_validator_exports, {
-  finalizeSkillValidation: () => finalizeSkillValidation,
-  validateSkillsDir: () => validateSkillsDir
+/**
+ * Skill Validator (dependency-free)
+ *
+ * Validate Skill folders for basic correctness:
+ * - Supports repo mode: ./custom-skills
+ * - Supports project mode: active skills root from ./.codebuddy/install.json (after codebuddy-loader)
+ */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
 });
-module.exports = __toCommonJS(skill_validator_exports);
-var fs = __toESM(require("fs"));
-var path = __toESM(require("path"));
-
-// scripts/src/lib/frontmatter-utils.ts
-function normalizeNewlines(text) {
-  return text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
-}
-function stripWrappingQuotes(value) {
-  const trimmed = value.trim();
-  if (trimmed.length >= 2) {
-    const first = trimmed[0];
-    const last = trimmed[trimmed.length - 1];
-    if (first === '"' && last === '"' || first === "'" && last === "'") {
-      return trimmed.slice(1, -1).trim();
-    }
-  }
-  return trimmed;
-}
-function countLeadingSpaces(line) {
-  const match = line.match(/^ */);
-  return match ? match[0].length : 0;
-}
-function indentPrefix(indent) {
-  return " ".repeat(Math.max(0, indent));
-}
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function parseFrontmatterBlock(md) {
-  const normalized = normalizeNewlines(md);
-  if (!normalized.startsWith("---")) {
-    return { ok: false, error: "missing YAML frontmatter (must start with ---)" };
-  }
-  const match = normalized.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!match) {
-    return { ok: false, error: "YAML frontmatter is not closed (missing ending ---)" };
-  }
-  return { ok: true, frontmatter: match[1], endIndex: match[0].length };
-}
-function extractYamlScalar(frontmatter, key, indent = 0) {
-  const normalized = normalizeNewlines(frontmatter);
-  const pattern = new RegExp(`^${escapeRegex(indentPrefix(indent))}${escapeRegex(key)}:\\s*(.+)$`, "m");
-  const match = normalized.match(pattern);
-  if (!match) return void 0;
-  return stripWrappingQuotes(match[1]);
-}
-function listYamlKeys(yaml, indent = 0) {
-  const normalized = normalizeNewlines(yaml);
-  const prefix = indentPrefix(indent);
-  const keys = [];
-  for (const line of normalized.split("\n")) {
-    const match = line.match(new RegExp(`^${escapeRegex(prefix)}([A-Za-z0-9_-]+):(?:\\s+.*)?$`));
-    if (match) keys.push(match[1]);
-  }
-  return keys;
-}
-function extractYamlSection(frontmatter, key, indent = 0) {
-  const normalized = normalizeNewlines(frontmatter);
-  const lines = normalized.split("\n");
-  const prefix = indentPrefix(indent);
-  const startPattern = new RegExp(`^${escapeRegex(prefix)}${escapeRegex(key)}:\\s*$`);
-  for (let i = 0; i < lines.length; i++) {
-    if (!startPattern.test(lines[i])) continue;
-    const collected = [];
-    for (let j = i + 1; j < lines.length; j++) {
-      const line = lines[j];
-      if (!line.trim()) {
-        collected.push(line);
-        continue;
-      }
-      if (countLeadingSpaces(line) <= indent) break;
-      collected.push(line);
-    }
-    return collected.join("\n");
-  }
-  return null;
-}
-function parseYamlList(frontmatter, key, indent = 0) {
-  const normalized = normalizeNewlines(frontmatter);
-  const lines = normalized.split("\n");
-  const prefix = indentPrefix(indent);
-  const itemPrefix = indentPrefix(indent + 2);
-  const startPattern = new RegExp(`^${escapeRegex(prefix)}${escapeRegex(key)}:\\s*$`);
-  const itemPattern = new RegExp(`^${escapeRegex(itemPrefix)}-\\s*(.+?)\\s*$`);
-  const values = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (!startPattern.test(lines[i])) continue;
-    for (let j = i + 1; j < lines.length; j++) {
-      const line = lines[j];
-      if (!line.trim()) continue;
-      const currentIndent = countLeadingSpaces(line);
-      if (currentIndent <= indent) break;
-      const itemMatch = line.match(itemPattern);
-      if (itemMatch) values.push(stripWrappingQuotes(itemMatch[1]));
-    }
-    break;
-  }
-  return values;
-}
-
-// scripts/src/skill-validator.ts
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.validateSkillsDir = validateSkillsDir;
+exports.finalizeSkillValidation = finalizeSkillValidation;
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const frontmatter_utils_1 = require("./lib/frontmatter-utils");
 function toPosixPath(p) {
-  return p.replace(/\\/g, "/");
+    return p.replace(/\\/g, '/');
 }
 function parseCli(args) {
-  const parsed = { command: null, positionals: [], flags: {} };
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (!a.startsWith("-") && !parsed.command) {
-      parsed.command = a;
-      continue;
+    const parsed = { command: null, positionals: [], flags: {} };
+    for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (!a.startsWith('-') && !parsed.command) {
+            parsed.command = a;
+            continue;
+        }
+        if (!a.startsWith('-')) {
+            parsed.positionals.push(a);
+            continue;
+        }
+        if (a === '--json') {
+            parsed.flags.json = true;
+            continue;
+        }
+        if (a === '--help' || a === '-h') {
+            parsed.flags.help = true;
+            continue;
+        }
+        if (a === '--strict') {
+            parsed.flags.strict = true;
+            continue;
+        }
+        if ((a === '--dir' || a === '--root') && args[i + 1]) {
+            parsed.flags.dir = args[++i];
+            continue;
+        }
+        parsed.flags[a.replace(/^--?/, '')] = true;
     }
-    if (!a.startsWith("-")) {
-      parsed.positionals.push(a);
-      continue;
-    }
-    if (a === "--json") {
-      parsed.flags.json = true;
-      continue;
-    }
-    if (a === "--help" || a === "-h") {
-      parsed.flags.help = true;
-      continue;
-    }
-    if (a === "--strict") {
-      parsed.flags.strict = true;
-      continue;
-    }
-    if ((a === "--dir" || a === "--root") && args[i + 1]) {
-      parsed.flags.dir = args[++i];
-      continue;
-    }
-    parsed.flags[a.replace(/^--?/, "")] = true;
-  }
-  if (!parsed.command) parsed.command = "check";
-  return parsed;
+    if (!parsed.command)
+        parsed.command = 'check';
+    return parsed;
 }
 function showHelp() {
-  console.log(`
-Skill Validator - Skills \u57FA\u7840\u6821\u9A8C
+    console.log(`
+Skill Validator - Skills 基础校验
 
-\u7528\u6CD5:
+用法:
   node .codebuddy/scripts/skill-validator.js [command] [options]
 
-\u547D\u4EE4:
-  check                        \u6821\u9A8C skills\uFF08\u9ED8\u8BA4\uFF09
+命令:
+  check                        校验 skills（默认）
 
-\u9009\u9879:
-  --dir, --root <path>         skills \u76EE\u5F55\uFF08\u9ED8\u8BA4: ./custom-skills \u6216 install.json \u8BB0\u5F55\u7684 active skills root \u81EA\u52A8\u63A2\u6D4B\uFF09
-  --json                       \u8F93\u51FA JSON
-  --strict                     \u5B58\u5728 warning/error \u65F6 exit=1\uFF1B\u9ED8\u8BA4\u4EC5 error \u624D exit=1
-  --help, -h                   \u663E\u793A\u5E2E\u52A9
+选项:
+  --dir, --root <path>         skills 目录（默认: ./custom-skills 或 install.json 记录的 active skills root 自动探测）
+  --json                       输出 JSON
+  --strict                     存在 warning/error 时 exit=1；默认仅 error 才 exit=1
+  --help, -h                   显示帮助
 
-\u8BF4\u660E:
-  - \u9ED8\u8BA4\u9012\u5F52\u6821\u9A8C skill \u76EE\u5F55\u4E0B\u5168\u90E8 Markdown \u6587\u4EF6\u7684\u76F8\u5BF9\u94FE\u63A5
-  - \u6307\u5411 skill \u6839\u76EE\u5F55\u5916\u90E8\u7684\u76F8\u5BF9\u8DEF\u5F84\uFF0C\u9700\u7528 metadata.link_whitelist \u663E\u5F0F\u653E\u884C
+说明:
+  - 默认递归校验 skill 目录下全部 Markdown 文件的相对链接
+  - 指向 skill 根目录外部的相对路径，需用 metadata.link_whitelist 显式放行
 `.trim());
 }
 function readText(filePath) {
-  try {
-    return { ok: true, data: fs.readFileSync(filePath, "utf-8") };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
+    try {
+        return { ok: true, data: fs.readFileSync(filePath, 'utf-8') };
+    }
+    catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
 }
 function detectInstalledSkillsDir(cwd) {
-  const installStatePath = path.join(cwd, ".codebuddy", "install.json");
-  if (!fs.existsSync(installStatePath)) {
+    var _a, _b;
+    const installStatePath = path.join(cwd, '.codebuddy', 'install.json');
+    if (!fs.existsSync(installStatePath)) {
+        return null;
+    }
+    try {
+        const installState = JSON.parse(fs.readFileSync(installStatePath, 'utf-8'));
+        const skillsRootDir = ((_a = installState.outputs) === null || _a === void 0 ? void 0 : _a.skillsRootDir)
+            || ((((_b = installState.stats) === null || _b === void 0 ? void 0 : _b.skills) || 0) > 0 ? '.codebuddy/skills' : null);
+        if (!skillsRootDir) {
+            return null;
+        }
+        const absolutePath = path.resolve(cwd, skillsRootDir);
+        if (fs.existsSync(absolutePath) && fs.statSync(absolutePath).isDirectory()) {
+            return absolutePath;
+        }
+    }
+    catch (_c) {
+        // ignore invalid install state
+    }
     return null;
-  }
-  try {
-    const installState = JSON.parse(fs.readFileSync(installStatePath, "utf-8"));
-    const skillsRootDir = installState.outputs?.skillsRootDir || ((installState.stats?.skills || 0) > 0 ? ".codebuddy/skills" : null);
-    if (!skillsRootDir) {
-      return null;
-    }
-    const absolutePath = path.resolve(cwd, skillsRootDir);
-    if (fs.existsSync(absolutePath) && fs.statSync(absolutePath).isDirectory()) {
-      return absolutePath;
-    }
-  } catch {
-  }
-  return null;
 }
 function detectDefaultSkillsDir(cwd) {
-  const installedSkillsDir = detectInstalledSkillsDir(cwd);
-  const candidates = [
-    path.join(cwd, "custom-skills"),
-    installedSkillsDir,
-    path.join(cwd, ".codebuddy", "skills")
-  ].filter((value) => Boolean(value));
-  for (const c of candidates) {
-    try {
-      if (fs.existsSync(c) && fs.statSync(c).isDirectory()) return c;
-    } catch {
+    const installedSkillsDir = detectInstalledSkillsDir(cwd);
+    const candidates = [
+        path.join(cwd, 'custom-skills'),
+        installedSkillsDir,
+        path.join(cwd, '.codebuddy', 'skills'),
+    ].filter((value) => Boolean(value));
+    for (const c of candidates) {
+        try {
+            if (fs.existsSync(c) && fs.statSync(c).isDirectory())
+                return c;
+        }
+        catch (_a) {
+            // ignore
+        }
     }
-  }
-  return null;
+    return null;
 }
 function listSkillDirs(skillsDir) {
-  try {
-    return fs.readdirSync(skillsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).filter((name) => !name.startsWith("."));
-  } catch {
-    return [];
-  }
+    try {
+        return fs
+            .readdirSync(skillsDir, { withFileTypes: true })
+            .filter(e => e.isDirectory())
+            .map(e => e.name)
+            .filter(name => !name.startsWith('.'));
+    }
+    catch (_a) {
+        return [];
+    }
 }
 function isSubPath(parentDir, childPath) {
-  const rel = path.relative(parentDir, childPath);
-  return rel === "" || !rel.startsWith("..") && !path.isAbsolute(rel);
+    const rel = path.relative(parentDir, childPath);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 function listMarkdownFiles(rootDir) {
-  const files = [];
-  const queue = [rootDir];
-  const ignoredDirNames = /* @__PURE__ */ new Set([".git", "node_modules", "__pycache__"]);
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current) continue;
-    let entries = [];
-    try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
-    } catch {
-      continue;
+    const files = [];
+    const queue = [rootDir];
+    const ignoredDirNames = new Set(['.git', 'node_modules', '__pycache__']);
+    while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current)
+            continue;
+        let entries = [];
+        try {
+            entries = fs.readdirSync(current, { withFileTypes: true });
+        }
+        catch (_a) {
+            continue;
+        }
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                if (ignoredDirNames.has(entry.name))
+                    continue;
+                queue.push(path.join(current, entry.name));
+                continue;
+            }
+            if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+                files.push(path.join(current, entry.name));
+            }
+        }
     }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (ignoredDirNames.has(entry.name)) continue;
-        queue.push(path.join(current, entry.name));
-        continue;
-      }
-      if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
-        files.push(path.join(current, entry.name));
-      }
-    }
-  }
-  return files.sort((a, b) => a.localeCompare(b));
+    return files.sort((a, b) => a.localeCompare(b));
 }
 function listBundledFiles(skillDir) {
-  const files = [];
-  const ignoredDirNames = /* @__PURE__ */ new Set([".git", "node_modules", "__pycache__"]);
-  const bundledDirNames = ["references", "scripts", "assets"];
-  for (const bundledDirName of bundledDirNames) {
-    const bundledDir = path.join(skillDir, bundledDirName);
-    if (!fs.existsSync(bundledDir)) continue;
-    const queue = [bundledDir];
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current) continue;
-      let entries = [];
-      try {
-        entries = fs.readdirSync(current, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const entry of entries) {
-        if (entry.name.startsWith(".")) continue;
-        const fullPath = path.join(current, entry.name);
-        if (entry.isDirectory()) {
-          if (ignoredDirNames.has(entry.name)) continue;
-          queue.push(fullPath);
-          continue;
+    const files = [];
+    const ignoredDirNames = new Set(['.git', 'node_modules', '__pycache__']);
+    const bundledDirNames = ['references', 'scripts', 'assets'];
+    for (const bundledDirName of bundledDirNames) {
+        const bundledDir = path.join(skillDir, bundledDirName);
+        if (!fs.existsSync(bundledDir))
+            continue;
+        const queue = [bundledDir];
+        while (queue.length > 0) {
+            const current = queue.shift();
+            if (!current)
+                continue;
+            let entries = [];
+            try {
+                entries = fs.readdirSync(current, { withFileTypes: true });
+            }
+            catch (_a) {
+                continue;
+            }
+            for (const entry of entries) {
+                if (entry.name.startsWith('.'))
+                    continue;
+                const fullPath = path.join(current, entry.name);
+                if (entry.isDirectory()) {
+                    if (ignoredDirNames.has(entry.name))
+                        continue;
+                    queue.push(fullPath);
+                    continue;
+                }
+                if (entry.isFile()) {
+                    files.push(fullPath);
+                }
+            }
         }
-        if (entry.isFile()) {
-          files.push(fullPath);
-        }
-      }
     }
-  }
-  return files.sort((a, b) => a.localeCompare(b));
+    return files.sort((a, b) => a.localeCompare(b));
 }
 function stripMarkdownCode(markdown) {
-  return markdown.replace(/```[\s\S]*?```/g, (block) => block.replace(/[^\n]/g, " ")).replace(/~~~[\s\S]*?~~~/g, (block) => block.replace(/[^\n]/g, " ")).replace(/`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
+    return markdown
+        .replace(/```[\s\S]*?```/g, block => block.replace(/[^\n]/g, ' '))
+        .replace(/~~~[\s\S]*?~~~/g, block => block.replace(/[^\n]/g, ' '))
+        .replace(/`[^`\n]*`/g, code => code.replace(/[^\n]/g, ' '));
 }
 function countLineAtOffset(text, offset) {
-  let line = 1;
-  for (let i = 0; i < offset; i++) {
-    if (text.charCodeAt(i) === 10) line++;
-  }
-  return line;
+    let line = 1;
+    for (let i = 0; i < offset; i++) {
+        if (text.charCodeAt(i) === 10)
+            line++;
+    }
+    return line;
 }
 function parseMarkdownLinks(markdown) {
-  const links = [];
-  const sanitized = stripMarkdownCode(markdown);
-  const re = /!?\[([^\]\n]*?)\]\(([^)\n]+)\)/g;
-  let m;
-  while (m = re.exec(sanitized)) {
-    if (m[0].startsWith("!")) continue;
-    const destination = splitMarkdownLinkDestination(m[2]);
-    if (!destination.target) continue;
-    links.push({
-      text: m[1].trim(),
-      target: destination.target,
-      title: destination.title,
-      line: countLineAtOffset(sanitized, m.index)
-    });
-  }
-  return links;
+    const links = [];
+    const sanitized = stripMarkdownCode(markdown);
+    const re = /!?\[([^\]\n]*?)\]\(([^)\n]+)\)/g;
+    let m;
+    while ((m = re.exec(sanitized))) {
+        if (m[0].startsWith('!'))
+            continue;
+        const destination = splitMarkdownLinkDestination(m[2]);
+        if (!destination.target)
+            continue;
+        links.push({
+            text: m[1].trim(),
+            target: destination.target,
+            title: destination.title,
+            line: countLineAtOffset(sanitized, m.index),
+        });
+    }
+    return links;
 }
 function splitMarkdownLinkDestination(raw) {
-  const trimmed = raw.trim();
-  if (!trimmed) return { target: "", title: null };
-  if (trimmed.startsWith("<")) {
-    const closing = trimmed.indexOf(">");
-    if (closing > 0) {
-      const target = trimmed.slice(1, closing).trim();
-      const title = trimmed.slice(closing + 1).trim();
-      return { target, title: title || null };
+    var _a, _b, _c;
+    const trimmed = raw.trim();
+    if (!trimmed)
+        return { target: '', title: null };
+    if (trimmed.startsWith('<')) {
+        const closing = trimmed.indexOf('>');
+        if (closing > 0) {
+            const target = trimmed.slice(1, closing).trim();
+            const title = trimmed.slice(closing + 1).trim();
+            return { target, title: title || null };
+        }
     }
-  }
-  const match = trimmed.match(/^(\S+)(?:\s+(?:"([^"]*)"|'([^']*)'|\(([^)]*)\)))?$/);
-  if (!match) {
-    return { target: trimmed, title: null };
-  }
-  return {
-    target: match[1].trim(),
-    title: (match[2] ?? match[3] ?? match[4] ?? "").trim() || null
-  };
+    const match = trimmed.match(/^(\S+)(?:\s+(?:"([^"]*)"|'([^']*)'|\(([^)]*)\)))?$/);
+    if (!match) {
+        return { target: trimmed, title: null };
+    }
+    return {
+        target: match[1].trim(),
+        title: ((_c = (_b = (_a = match[2]) !== null && _a !== void 0 ? _a : match[3]) !== null && _b !== void 0 ? _b : match[4]) !== null && _c !== void 0 ? _c : '').trim() || null,
+    };
 }
 function normalizeLocalMarkdownTarget(target) {
-  let normalized = target.trim();
-  const hashIndex = normalized.indexOf("#");
-  if (hashIndex >= 0) normalized = normalized.slice(0, hashIndex);
-  const queryIndex = normalized.indexOf("?");
-  if (queryIndex >= 0) normalized = normalized.slice(0, queryIndex);
-  return normalized.trim();
+    let normalized = target.trim();
+    const hashIndex = normalized.indexOf('#');
+    if (hashIndex >= 0)
+        normalized = normalized.slice(0, hashIndex);
+    const queryIndex = normalized.indexOf('?');
+    if (queryIndex >= 0)
+        normalized = normalized.slice(0, queryIndex);
+    return normalized.trim();
 }
 function normalizeWhitelistEntry(value) {
-  return toPosixPath(value.trim()).replace(/^\.\//, "");
+    return toPosixPath(value.trim()).replace(/^\.\//, '');
 }
 function parseLinkWhitelist(frontmatter) {
-  const metadataBlock = extractYamlSection(frontmatter, "metadata");
-  if (!metadataBlock) return [];
-  return parseYamlList(metadataBlock, "link_whitelist", 2).map(normalizeWhitelistEntry).filter(Boolean);
+    const metadataBlock = (0, frontmatter_utils_1.extractYamlSection)(frontmatter, 'metadata');
+    if (!metadataBlock)
+        return [];
+    return (0, frontmatter_utils_1.parseYamlList)(metadataBlock, 'link_whitelist', 2)
+        .map(normalizeWhitelistEntry)
+        .filter(Boolean);
 }
 function isWhitelistedRelativePath(relativeTarget, whitelist) {
-  const normalizedTarget = normalizeWhitelistEntry(relativeTarget);
-  return whitelist.some((rule) => {
-    const normalizedRule = normalizeWhitelistEntry(rule);
-    if (!normalizedRule) return false;
-    if (normalizedRule.endsWith("/")) {
-      const prefix = normalizedRule.slice(0, -1);
-      return normalizedTarget === prefix || normalizedTarget.startsWith(normalizedRule);
-    }
-    return normalizedTarget === normalizedRule;
-  });
+    const normalizedTarget = normalizeWhitelistEntry(relativeTarget);
+    return whitelist.some(rule => {
+        const normalizedRule = normalizeWhitelistEntry(rule);
+        if (!normalizedRule)
+            return false;
+        if (normalizedRule.endsWith('/')) {
+            const prefix = normalizedRule.slice(0, -1);
+            return normalizedTarget === prefix || normalizedTarget.startsWith(normalizedRule);
+        }
+        return normalizedTarget === normalizedRule;
+    });
 }
 function formatLinkLabel(link) {
-  if (link.text) return `"${link.text}"`;
-  if (link.title) return `"${link.title}"`;
-  return link.target;
+    if (link.text)
+        return `"${link.text}"`;
+    if (link.title)
+        return `"${link.title}"`;
+    return link.target;
 }
 function validateMarkdownFile(skillId, skillDir, filePath, whitelist) {
-  const issues = [];
-  const relativeFile = toPosixPath(path.relative(process.cwd(), filePath));
-  const read = readText(filePath);
-  if (!read.ok) {
-    issues.push({ level: "error", skillId, file: relativeFile, message: `\u8BFB\u53D6\u5931\u8D25: ${read.error}` });
-    return { issues, checkedLinkCount: 0 };
-  }
-  const raw = read.data;
-  const backtickFenceCount = raw.match(/^```/gm)?.length ?? 0;
-  if (backtickFenceCount % 2 !== 0) {
-    issues.push({ level: "error", skillId, file: relativeFile, message: "\u5B58\u5728\u672A\u95ED\u5408\u7684\u4EE3\u7801\u5757\uFF08``` \u6570\u91CF\u4E3A\u5947\u6570\uFF09" });
-  }
-  const tildeFenceCount = raw.match(/^~~~/gm)?.length ?? 0;
-  if (tildeFenceCount % 2 !== 0) {
-    issues.push({ level: "error", skillId, file: relativeFile, message: "\u5B58\u5728\u672A\u95ED\u5408\u7684\u4EE3\u7801\u5757\uFF08~~~ \u6570\u91CF\u4E3A\u5947\u6570\uFF09" });
-  }
-  const links = parseMarkdownLinks(raw);
-  for (const link of links) {
-    const localTarget = normalizeLocalMarkdownTarget(link.target);
-    if (!localTarget || isSkippableLink(localTarget)) continue;
-    if (localTarget.startsWith("/")) continue;
-    if (path.isAbsolute(localTarget)) continue;
-    const resolved = path.resolve(path.dirname(filePath), localTarget);
-    if (!fs.existsSync(resolved)) {
-      issues.push({
-        level: "error",
-        skillId,
-        file: relativeFile,
-        message: `\u7B2C ${link.line} \u884C\u94FE\u63A5 ${formatLinkLabel(link)} \u76EE\u6807\u4E0D\u5B58\u5728: ${localTarget}`
-      });
-      continue;
+    var _a, _b, _c, _d;
+    const issues = [];
+    const relativeFile = toPosixPath(path.relative(process.cwd(), filePath));
+    const read = readText(filePath);
+    if (!read.ok) {
+        issues.push({ level: 'error', skillId, file: relativeFile, message: `读取失败: ${read.error}` });
+        return { issues, checkedLinkCount: 0 };
     }
-    if (!isSubPath(skillDir, resolved)) {
-      const escapedRelativePath = normalizeWhitelistEntry(toPosixPath(path.relative(skillDir, resolved)));
-      if (!isWhitelistedRelativePath(escapedRelativePath, whitelist)) {
-        issues.push({
-          level: "error",
-          skillId,
-          file: relativeFile,
-          message: `\u7B2C ${link.line} \u884C\u94FE\u63A5 ${formatLinkLabel(link)} \u6307\u5411 skill \u76EE\u5F55\u5916\u90E8: ${escapedRelativePath}\uFF08\u53EF\u7528 metadata.link_whitelist \u663E\u5F0F\u653E\u884C\uFF09`
-        });
-      }
+    const raw = read.data;
+    const backtickFenceCount = (_b = (_a = raw.match(/^```/gm)) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0;
+    if (backtickFenceCount % 2 !== 0) {
+        issues.push({ level: 'error', skillId, file: relativeFile, message: '存在未闭合的代码块（``` 数量为奇数）' });
     }
-  }
-  return { issues, checkedLinkCount: links.length };
+    const tildeFenceCount = (_d = (_c = raw.match(/^~~~/gm)) === null || _c === void 0 ? void 0 : _c.length) !== null && _d !== void 0 ? _d : 0;
+    if (tildeFenceCount % 2 !== 0) {
+        issues.push({ level: 'error', skillId, file: relativeFile, message: '存在未闭合的代码块（~~~ 数量为奇数）' });
+    }
+    const links = parseMarkdownLinks(raw);
+    for (const link of links) {
+        const localTarget = normalizeLocalMarkdownTarget(link.target);
+        if (!localTarget || isSkippableLink(localTarget))
+            continue;
+        if (localTarget.startsWith('/'))
+            continue; // treat absolute path as external to the skill package
+        if (path.isAbsolute(localTarget))
+            continue;
+        const resolved = path.resolve(path.dirname(filePath), localTarget);
+        if (!fs.existsSync(resolved)) {
+            issues.push({
+                level: 'error',
+                skillId,
+                file: relativeFile,
+                message: `第 ${link.line} 行链接 ${formatLinkLabel(link)} 目标不存在: ${localTarget}`,
+            });
+            continue;
+        }
+        if (!isSubPath(skillDir, resolved)) {
+            const escapedRelativePath = normalizeWhitelistEntry(toPosixPath(path.relative(skillDir, resolved)));
+            if (!isWhitelistedRelativePath(escapedRelativePath, whitelist)) {
+                issues.push({
+                    level: 'error',
+                    skillId,
+                    file: relativeFile,
+                    message: `第 ${link.line} 行链接 ${formatLinkLabel(link)} 指向 skill 目录外部: ${escapedRelativePath}（可用 metadata.link_whitelist 显式放行）`,
+                });
+            }
+        }
+    }
+    return { issues, checkedLinkCount: links.length };
 }
 function collectReferencedSkillFiles(skillDir, markdownFiles) {
-  const referenced = /* @__PURE__ */ new Set();
-  for (const markdownFile of markdownFiles) {
-    const read = readText(markdownFile);
-    if (!read.ok) continue;
-    const links = parseMarkdownLinks(read.data);
-    for (const link of links) {
-      const localTarget = normalizeLocalMarkdownTarget(link.target);
-      if (!localTarget || isSkippableLink(localTarget)) continue;
-      if (localTarget.startsWith("/")) continue;
-      if (path.isAbsolute(localTarget)) continue;
-      const resolved = path.resolve(path.dirname(markdownFile), localTarget);
-      if (!fs.existsSync(resolved)) continue;
-      if (!isSubPath(skillDir, resolved)) continue;
-      let stats;
-      try {
-        stats = fs.statSync(resolved);
-      } catch {
-        continue;
-      }
-      if (stats.isFile()) {
-        referenced.add(path.resolve(resolved));
-      }
+    const referenced = new Set();
+    for (const markdownFile of markdownFiles) {
+        const read = readText(markdownFile);
+        if (!read.ok)
+            continue;
+        const links = parseMarkdownLinks(read.data);
+        for (const link of links) {
+            const localTarget = normalizeLocalMarkdownTarget(link.target);
+            if (!localTarget || isSkippableLink(localTarget))
+                continue;
+            if (localTarget.startsWith('/'))
+                continue;
+            if (path.isAbsolute(localTarget))
+                continue;
+            const resolved = path.resolve(path.dirname(markdownFile), localTarget);
+            if (!fs.existsSync(resolved))
+                continue;
+            if (!isSubPath(skillDir, resolved))
+                continue;
+            let stats;
+            try {
+                stats = fs.statSync(resolved);
+            }
+            catch (_a) {
+                continue;
+            }
+            if (stats.isFile()) {
+                referenced.add(path.resolve(resolved));
+            }
+        }
     }
-  }
-  return referenced;
+    return referenced;
 }
 function validateBundledFileReferences(skillId, skillDir, markdownFiles) {
-  const issues = [];
-  const bundledFiles = listBundledFiles(skillDir);
-  if (bundledFiles.length === 0) return issues;
-  const referencedFiles = collectReferencedSkillFiles(skillDir, markdownFiles);
-  for (const bundledFile of bundledFiles) {
-    const resolvedBundledFile = path.resolve(bundledFile);
-    if (referencedFiles.has(resolvedBundledFile)) continue;
-    issues.push({
-      level: "warning",
-      skillId,
-      file: toPosixPath(path.relative(process.cwd(), bundledFile)),
-      message: `bundled file \u672A\u88AB\u4EFB\u4F55 Markdown \u94FE\u63A5\u5F15\u7528: ${toPosixPath(path.relative(skillDir, bundledFile))}`
-    });
-  }
-  return issues;
+    const issues = [];
+    const bundledFiles = listBundledFiles(skillDir);
+    if (bundledFiles.length === 0)
+        return issues;
+    const referencedFiles = collectReferencedSkillFiles(skillDir, markdownFiles);
+    for (const bundledFile of bundledFiles) {
+        const resolvedBundledFile = path.resolve(bundledFile);
+        if (referencedFiles.has(resolvedBundledFile))
+            continue;
+        issues.push({
+            level: 'warning',
+            skillId,
+            file: toPosixPath(path.relative(process.cwd(), bundledFile)),
+            message: `bundled file 未被任何 Markdown 链接引用: ${toPosixPath(path.relative(skillDir, bundledFile))}`,
+        });
+    }
+    return issues;
 }
 function isSkippableLink(url) {
-  if (url.startsWith("#")) return true;
-  if (url.startsWith("http://") || url.startsWith("https://")) return true;
-  if (url.startsWith("mailto:")) return true;
-  if (/^[a-zA-Z]+:\/\//.test(url)) return true;
-  return false;
+    if (url.startsWith('#'))
+        return true;
+    if (url.startsWith('http://') || url.startsWith('https://'))
+        return true;
+    if (url.startsWith('mailto:'))
+        return true;
+    if (/^[a-zA-Z]+:\/\//.test(url))
+        return true;
+    return false;
 }
 function validateSkillDir(skillId, skillDir) {
-  const issues = [];
-  const skillFile = path.join(skillDir, "SKILL.md");
-  const relSkillFile = toPosixPath(path.relative(process.cwd(), skillFile));
-  if (!fs.existsSync(skillFile)) {
-    issues.push({ level: "error", skillId, file: toPosixPath(path.relative(process.cwd(), skillDir)), message: "\u7F3A\u5C11 SKILL.md" });
-    return { issues, checkedFileCount: 0, checkedLinkCount: 0 };
-  }
-  const read = readText(skillFile);
-  if (!read.ok) {
-    issues.push({ level: "error", skillId, file: relSkillFile, message: `\u8BFB\u53D6\u5931\u8D25: ${read.error}` });
-    return { issues, checkedFileCount: 1, checkedLinkCount: 0 };
-  }
-  const raw = read.data;
-  const fm = parseFrontmatterBlock(raw);
-  if (!fm.ok) {
-    issues.push({ level: "error", skillId, file: relSkillFile, message: fm.error });
-    return { issues, checkedFileCount: 1, checkedLinkCount: 0 };
-  }
-  const frontmatter = fm.frontmatter;
-  const name = (extractYamlScalar(frontmatter, "name") ?? "").trim();
-  const description = (extractYamlScalar(frontmatter, "description") ?? "").trim();
-  if (!name) issues.push({ level: "error", skillId, file: relSkillFile, message: "frontmatter \u7F3A\u5C11 name" });
-  if (!description) issues.push({ level: "error", skillId, file: relSkillFile, message: "frontmatter \u7F3A\u5C11 description" });
-  if (name && name !== skillId) {
-    issues.push({ level: "warning", skillId, file: relSkillFile, message: `skillId \u4E0E frontmatter.name \u4E0D\u4E00\u81F4\uFF08dir=${skillId}, name=${name}\uFF09` });
-  }
-  const topLevelKeys = listYamlKeys(frontmatter);
-  const allowedKeys = /* @__PURE__ */ new Set(["name", "description", "metadata", "triggers", "tools", "related"]);
-  for (const k of topLevelKeys) {
-    if (!allowedKeys.has(k)) {
-      issues.push({ level: "warning", skillId, file: relSkillFile, message: `frontmatter \u5305\u542B\u975E\u63A8\u8350\u5B57\u6BB5: ${k}\uFF08\u5EFA\u8BAE\u4EC5\u4FDD\u7559 name/description/metadata\uFF09` });
+    var _a, _b;
+    const issues = [];
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    const relSkillFile = toPosixPath(path.relative(process.cwd(), skillFile));
+    if (!fs.existsSync(skillFile)) {
+        issues.push({ level: 'error', skillId, file: toPosixPath(path.relative(process.cwd(), skillDir)), message: '缺少 SKILL.md' });
+        return { issues, checkedFileCount: 0, checkedLinkCount: 0 };
     }
-  }
-  for (const legacyKey of ["triggers", "tools", "related"]) {
-    if (topLevelKeys.includes(legacyKey)) {
-      issues.push({
-        level: "warning",
-        skillId,
-        file: relSkillFile,
-        message: `top-level ${legacyKey} \u5DF2\u5E9F\u5F03\uFF0C\u5EFA\u8BAE\u8FC1\u79FB\u5230 metadata.${legacyKey}`
-      });
+    const read = readText(skillFile);
+    if (!read.ok) {
+        issues.push({ level: 'error', skillId, file: relSkillFile, message: `读取失败: ${read.error}` });
+        return { issues, checkedFileCount: 1, checkedLinkCount: 0 };
     }
-  }
-  const metadataBlock = extractYamlSection(frontmatter, "metadata");
-  if (metadataBlock) {
-    const metadataKeys = listYamlKeys(metadataBlock, 2);
-    const allowedMetadataKeys = /* @__PURE__ */ new Set([
-      "triggers",
-      "tools",
-      "related",
-      "languages",
-      "frameworks",
-      "roles",
-      "scenarios",
-      "workspace_scope",
-      "link_whitelist"
-    ]);
-    for (const key of metadataKeys) {
-      if (!allowedMetadataKeys.has(key)) {
-        issues.push({
-          level: "warning",
-          skillId,
-          file: relSkillFile,
-          message: `metadata \u5305\u542B\u672A\u77E5\u5B57\u6BB5: ${key}\uFF08\u63A8\u8350\u4EC5\u4F7F\u7528 triggers/tools/related\uFF09`
-        });
-      }
+    const raw = read.data;
+    const fm = (0, frontmatter_utils_1.parseFrontmatterBlock)(raw);
+    if (!fm.ok) {
+        issues.push({ level: 'error', skillId, file: relSkillFile, message: fm.error });
+        return { issues, checkedFileCount: 1, checkedLinkCount: 0 };
     }
-    for (const key of ["triggers", "tools", "related"]) {
-      if (topLevelKeys.includes(key) && parseYamlList(metadataBlock, key, 2).length > 0) {
-        issues.push({
-          level: "warning",
-          skillId,
-          file: relSkillFile,
-          message: `\u540C\u65F6\u5B58\u5728 legacy ${key} \u4E0E metadata.${key}\uFF0C\u5EFA\u8BAE\u53EA\u4FDD\u7559 metadata.${key}`
-        });
-      }
+    const frontmatter = fm.frontmatter;
+    const name = ((_a = (0, frontmatter_utils_1.extractYamlScalar)(frontmatter, 'name')) !== null && _a !== void 0 ? _a : '').trim();
+    const description = ((_b = (0, frontmatter_utils_1.extractYamlScalar)(frontmatter, 'description')) !== null && _b !== void 0 ? _b : '').trim();
+    if (!name)
+        issues.push({ level: 'error', skillId, file: relSkillFile, message: 'frontmatter 缺少 name' });
+    if (!description)
+        issues.push({ level: 'error', skillId, file: relSkillFile, message: 'frontmatter 缺少 description' });
+    if (name && name !== skillId) {
+        issues.push({ level: 'warning', skillId, file: relSkillFile, message: `skillId 与 frontmatter.name 不一致（dir=${skillId}, name=${name}）` });
     }
-  }
-  const whitelist = parseLinkWhitelist(frontmatter);
-  const markdownFiles = listMarkdownFiles(skillDir);
-  let checkedLinkCount = 0;
-  for (const markdownFile of markdownFiles) {
-    const result = validateMarkdownFile(skillId, skillDir, markdownFile, whitelist);
-    checkedLinkCount += result.checkedLinkCount;
-    issues.push(...result.issues);
-  }
-  issues.push(...validateBundledFileReferences(skillId, skillDir, markdownFiles));
-  return { issues, checkedFileCount: markdownFiles.length, checkedLinkCount };
+    const topLevelKeys = (0, frontmatter_utils_1.listYamlKeys)(frontmatter);
+    const allowedKeys = new Set(['name', 'description', 'metadata', 'triggers', 'tools', 'related']);
+    for (const k of topLevelKeys) {
+        if (!allowedKeys.has(k)) {
+            issues.push({ level: 'warning', skillId, file: relSkillFile, message: `frontmatter 包含非推荐字段: ${k}（建议仅保留 name/description/metadata）` });
+        }
+    }
+    for (const legacyKey of ['triggers', 'tools', 'related']) {
+        if (topLevelKeys.includes(legacyKey)) {
+            issues.push({
+                level: 'warning',
+                skillId,
+                file: relSkillFile,
+                message: `top-level ${legacyKey} 已废弃，建议迁移到 metadata.${legacyKey}`,
+            });
+        }
+    }
+    const metadataBlock = (0, frontmatter_utils_1.extractYamlSection)(frontmatter, 'metadata');
+    if (metadataBlock) {
+        const metadataKeys = (0, frontmatter_utils_1.listYamlKeys)(metadataBlock, 2);
+        const allowedMetadataKeys = new Set([
+            'triggers',
+            'tools',
+            'related',
+            'languages',
+            'frameworks',
+            'roles',
+            'scenarios',
+            'workspace_scope',
+            'link_whitelist',
+        ]);
+        for (const key of metadataKeys) {
+            if (!allowedMetadataKeys.has(key)) {
+                issues.push({
+                    level: 'warning',
+                    skillId,
+                    file: relSkillFile,
+                    message: `metadata 包含未知字段: ${key}（推荐仅使用 triggers/tools/related）`,
+                });
+            }
+        }
+        for (const key of ['triggers', 'tools', 'related']) {
+            if (topLevelKeys.includes(key) && (0, frontmatter_utils_1.parseYamlList)(metadataBlock, key, 2).length > 0) {
+                issues.push({
+                    level: 'warning',
+                    skillId,
+                    file: relSkillFile,
+                    message: `同时存在 legacy ${key} 与 metadata.${key}，建议只保留 metadata.${key}`,
+                });
+            }
+        }
+    }
+    const whitelist = parseLinkWhitelist(frontmatter);
+    const markdownFiles = listMarkdownFiles(skillDir);
+    let checkedLinkCount = 0;
+    for (const markdownFile of markdownFiles) {
+        const result = validateMarkdownFile(skillId, skillDir, markdownFile, whitelist);
+        checkedLinkCount += result.checkedLinkCount;
+        issues.push(...result.issues);
+    }
+    issues.push(...validateBundledFileReferences(skillId, skillDir, markdownFiles));
+    return { issues, checkedFileCount: markdownFiles.length, checkedLinkCount };
 }
 function validateSkillsDir(skillsDir) {
-  const skillDirs = listSkillDirs(skillsDir);
-  const issues = [];
-  let checkedFileCount = 0;
-  let checkedLinkCount = 0;
-  for (const skillId of skillDirs) {
-    const abs = path.join(skillsDir, skillId);
-    const res = validateSkillDir(skillId, abs);
-    checkedFileCount += res.checkedFileCount;
-    checkedLinkCount += res.checkedLinkCount;
-    issues.push(...res.issues);
-  }
-  const errorCount = issues.filter((i) => i.level === "error").length;
-  const warningCount = issues.filter((i) => i.level === "warning").length;
-  return {
-    ok: errorCount === 0,
-    skillsDir: toPosixPath(path.relative(process.cwd(), skillsDir) || "."),
-    checkedSkillCount: skillDirs.length,
-    checkedFileCount,
-    checkedLinkCount,
-    issueCount: issues.length,
-    errorCount,
-    warningCount,
-    issues
-  };
+    const skillDirs = listSkillDirs(skillsDir);
+    const issues = [];
+    let checkedFileCount = 0;
+    let checkedLinkCount = 0;
+    for (const skillId of skillDirs) {
+        const abs = path.join(skillsDir, skillId);
+        const res = validateSkillDir(skillId, abs);
+        checkedFileCount += res.checkedFileCount;
+        checkedLinkCount += res.checkedLinkCount;
+        issues.push(...res.issues);
+    }
+    const errorCount = issues.filter(i => i.level === 'error').length;
+    const warningCount = issues.filter(i => i.level === 'warning').length;
+    return {
+        ok: errorCount === 0,
+        skillsDir: toPosixPath(path.relative(process.cwd(), skillsDir) || '.'),
+        checkedSkillCount: skillDirs.length,
+        checkedFileCount,
+        checkedLinkCount,
+        issueCount: issues.length,
+        errorCount,
+        warningCount,
+        issues,
+    };
 }
 function finalizeSkillValidation(payload, strict) {
-  return {
-    ...payload,
-    strictMode: strict,
-    effectiveOk: strict ? payload.errorCount === 0 && payload.warningCount === 0 : payload.ok
-  };
+    return {
+        ...payload,
+        strictMode: strict,
+        effectiveOk: strict ? payload.errorCount === 0 && payload.warningCount === 0 : payload.ok,
+    };
 }
 function main() {
-  const parsed = parseCli(process.argv.slice(2));
-  if (parsed.flags.help || parsed.command === "help") {
-    showHelp();
-    process.exit(0);
-  }
-  if (parsed.command !== "check") {
-    console.error(`\u9519\u8BEF: \u672A\u77E5\u547D\u4EE4: ${parsed.command}`);
-    showHelp();
-    process.exit(1);
-  }
-  const json = Boolean(parsed.flags.json);
-  const strict = Boolean(parsed.flags.strict);
-  const dirFlag = typeof parsed.flags.dir === "string" ? parsed.flags.dir : null;
-  const skillsDir = dirFlag ? path.resolve(process.cwd(), dirFlag) : detectDefaultSkillsDir(process.cwd());
-  if (!skillsDir) {
-    const msg = "\u672A\u627E\u5230 skills \u76EE\u5F55\uFF08\u671F\u671B ./custom-skills \u6216 install.json \u8BB0\u5F55\u7684 active skills root\uFF09\u3002\u8BF7\u4F7F\u7528 --dir \u6307\u5B9A\u3002";
+    const parsed = parseCli(process.argv.slice(2));
+    if (parsed.flags.help || parsed.command === 'help') {
+        showHelp();
+        process.exit(0);
+    }
+    if (parsed.command !== 'check') {
+        console.error(`错误: 未知命令: ${parsed.command}`);
+        showHelp();
+        process.exit(1);
+    }
+    const json = Boolean(parsed.flags.json);
+    const strict = Boolean(parsed.flags.strict);
+    const dirFlag = typeof parsed.flags.dir === 'string' ? parsed.flags.dir : null;
+    const skillsDir = dirFlag ? path.resolve(process.cwd(), dirFlag) : detectDefaultSkillsDir(process.cwd());
+    if (!skillsDir) {
+        const msg = '未找到 skills 目录（期望 ./custom-skills 或 install.json 记录的 active skills root）。请使用 --dir 指定。';
+        if (json) {
+            console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
+        }
+        else {
+            console.error(`错误: ${msg}`);
+        }
+        process.exit(1);
+    }
+    const payload = finalizeSkillValidation(validateSkillsDir(skillsDir), strict);
     if (json) {
-      console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
-    } else {
-      console.error(`\u9519\u8BEF: ${msg}`);
+        console.log(JSON.stringify(payload, null, 2));
     }
-    process.exit(1);
-  }
-  const payload = finalizeSkillValidation(validateSkillsDir(skillsDir), strict);
-  if (json) {
-    console.log(JSON.stringify(payload, null, 2));
-  } else {
-    console.log(`[skill-validator] root: ${payload.skillsDir}`);
-    console.log(
-      `[skill-validator] checked skills: ${payload.checkedSkillCount}, files: ${payload.checkedFileCount}, links: ${payload.checkedLinkCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`
-    );
-    for (const it of payload.issues) {
-      const prefix = it.level === "error" ? "ERROR" : "WARN";
-      const s = it.skillId ? `(${it.skillId}) ` : "";
-      console.log(`- ${prefix} ${s}${it.file}: ${it.message}`);
+    else {
+        console.log(`[skill-validator] root: ${payload.skillsDir}`);
+        console.log(`[skill-validator] checked skills: ${payload.checkedSkillCount}, files: ${payload.checkedFileCount}, links: ${payload.checkedLinkCount}, errors: ${payload.errorCount}, warnings: ${payload.warningCount}`);
+        for (const it of payload.issues) {
+            const prefix = it.level === 'error' ? 'ERROR' : 'WARN';
+            const s = it.skillId ? `(${it.skillId}) ` : '';
+            console.log(`- ${prefix} ${s}${it.file}: ${it.message}`);
+        }
     }
-  }
-  if (!payload.effectiveOk) process.exit(1);
+    if (!payload.effectiveOk)
+        process.exit(1);
 }
 if (require.main === module) {
-  main();
+    main();
 }
-// Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
-  finalizeSkillValidation,
-  validateSkillsDir
-});

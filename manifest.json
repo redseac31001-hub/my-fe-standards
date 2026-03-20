@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-03-17T08:02:25.613Z",
+  "generatedAt": "2026-03-20T07:47:21.819Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -1302,37 +1302,37 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "6bdb62104d5038624ad6160534a32260fd20cefe2f130804f158e50e59e1c52f",
-      "size": 868463,
-      "entryCount": 156,
-      "generatedAt": "2026-03-17T08:02:25.472Z"
+      "sha256": "a373c5fb9689e0bb3262aa477fdcd8acb35d8a97b8c3646cbfe6c21466916885",
+      "size": 885494,
+      "entryCount": 157,
+      "generatedAt": "2026-03-20T07:47:21.467Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "568c0a1bcb24cfed973c87543b57f73dc25a2e22fde3368b453a04defcf9d259",
-      "size": 1289341,
-      "entryCount": 165,
-      "generatedAt": "2026-03-17T08:02:25.508Z"
+      "sha256": "d468f771e267814776038b25e1a08d42fd067e5e1c8d3950dad9304eb41de6ad",
+      "size": 1336749,
+      "entryCount": 167,
+      "generatedAt": "2026-03-20T07:47:21.564Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "f4b8d8a1cbbb8be1930071c9bfa14d40c1aa7bbd1201a290fd44e587b6c8fd90",
-      "size": 2006458,
-      "entryCount": 184,
-      "generatedAt": "2026-03-17T08:02:25.545Z"
+      "sha256": "11972fc3489e4cf9949b0de6b4b6319439ab511aac920322ebd4ed6cb6493532",
+      "size": 2053866,
+      "entryCount": 186,
+      "generatedAt": "2026-03-20T07:47:21.669Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "ebc00647f43a24f9fe60443f00952f6483fc6bb1d2feadafa5db738a749a79f0",
-      "size": 2022349,
-      "entryCount": 185,
-      "generatedAt": "2026-03-17T08:02:25.590Z"
+      "sha256": "fbf232d13537c93986db7182d5ea243d180de72ab7da323316bb3bfb27ffdb84",
+      "size": 2069757,
+      "entryCount": 187,
+      "generatedAt": "2026-03-20T07:47:21.786Z"
     }
   },
   "stats": {

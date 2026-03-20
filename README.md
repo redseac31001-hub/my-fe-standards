@@ -96,7 +96,10 @@ npm run tool:convert -- --tool cursor
 npm run build
 npm run build:release
 npm run tool:convert -- --tool all
+npm run gate:quick
+npm run gate:release
 npm test
+npm run validate:repo
 npm run ci:correctness
 npm run ci:full
 npm run doctor:mcp-server-deps
@@ -111,16 +114,26 @@ node test/run-tests.js --list-cases
 node test/run-tests.js --suite local --case antdv-project
 ```
 
+当前封版边界：
+
+- 业务项目发布以 `npm run gate:quick` + 一条定点 smoke 作为主门槛
+- `npm run doctor:mcp-server-deps` 仍保留为独立环境健康检查，不阻塞当前业务项目安装/下载/使用封版
+- 本地 Windows 下 `gate:release` 长链路稳定性继续按非阻塞项处理
+
 ## Validator 模式
 
-仓库当前有两个轻量 validator：
+仓库当前有三个轻量 validator：
 
 - `rule-validator`：检查 `rules/` 的元数据和结构完整性
 - `skill-validator`：检查 `custom-skills/` 的 frontmatter、Markdown 链接和 bundled file discoverability
+- `repo-state-validator`：检查 `README / ROADMAP / HANDOFF / docs index / Team Collaboration Protocol` 这些仓库事实源是否齐全、互相可达、且没有明显过期
+
+`repo-state-validator` 面向本仓库根目录使用；安装到业务项目后的 `validator-gate` 会在不满足仓库事实源基线时自动跳过这部分检查，避免影响业务项目默认链路。
 
 默认模式用于开发期回看，不会因为 warning 中断本地流：
 
 ```bash
+npm run validate:repo
 npm run validate:rules
 npm run validate:skills
 ```
@@ -133,6 +146,7 @@ npm run validate:skills
 `--strict` 用于发布前、审查前或后续可选 CI gate：
 
 ```bash
+npm run validate:repo:strict
 npm run validate:rules:strict
 npm run validate:skills:strict
 ```
@@ -166,6 +180,7 @@ npm run validate:gate:strict -- --scope all --json --out-dir artifacts/validator
 该命令会输出：
 
 - `validator-gate-summary.json`
+- `repo-state-validator-report.json`
 - `rule-validator-report.json`
 - `skill-validator-report.json`
 
@@ -215,6 +230,61 @@ node .codebuddy/scripts/report-manager.js export --json
 ```bash
 node .codebuddy/scripts/report-manager.js audit --json
 ```
+
+## Gate Paths
+
+为减少评审和发布时的命令拼装成本，当前仓库统一两条 gate：
+
+### Quick Gate
+
+用于日常开发收口、代码评审前的快速信心检查：
+
+```bash
+npm run gate:quick
+```
+
+它等价于：
+
+```bash
+npm run build
+npm run test:lib
+npm run validate:all
+```
+
+语义：
+
+- 尽快发现构建、baseline 和仓库事实源/规则/技能漂移
+- 保持 warning 友好，不把 strict gate 提前带进日常迭代
+
+### Release Gate
+
+用于准备合并、发布、或阶段性交接前的完整收口：
+
+```bash
+npm run gate:release
+```
+
+它等价于：
+
+```bash
+npm run build
+npm test
+npm run test:full
+npm run validate:all:strict
+node scripts/dist/validator-gate.js run --strict --scope all --json
+node scripts/dist/report-manager.js audit --json
+```
+
+语义：
+
+- `build / test / test:full / validate:all:strict / validator-gate --strict` 构成硬 gate
+- `report-manager audit --json` 负责补充机器可读审计证据，不会单独把报告 freshness 变成硬失败
+
+当前边界：
+
+- 这两条 gate 只是统一入口，不改变默认 `npm test`
+- 默认 push/PR gate 仍按现有 CI 配置执行，不自动升级为 release gate
+- `doctor:mcp-server-deps` 仍作为独立环境健康检查，暂不并入这两条 gate
 
 ## 仓库结构
 

@@ -15,11 +15,24 @@ const FRONTMATTER_DEPENDENCIES = ['lib/frontmatter-utils.js'];
 const INSTALL_ROOTS_DEPENDENCIES = ['lib/install-roots.js', 'lib/install-sync.js'];
 const MODULE_MAPPER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, 'types/module-mapper.js'];
 const STRUCTURE_ANALYZER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, 'types/structure-analyzer.js'];
-const VALIDATOR_GATE_DEPENDENCIES = ['lib/validator-gate-report.js', 'types/reports.js'];
+const VALIDATOR_GATE_DEPENDENCIES = [
+  'rule-validator.js',
+  'skill-validator.js',
+  'repo-state-validator.js',
+  'lib/validator-gate-report.js',
+  'types/reports.js',
+];
 const WORKFLOW_ROUTING_DEPENDENCIES = [
   'lib/project-detection.js',
   'lib/workflow-routing.js',
   'lib/workflow-routing-selection.js',
+];
+const REPORT_MANAGER_DEPENDENCIES = [
+  ...CLI_ENTRY_DEPENDENCIES,
+  ...WORKFLOW_ROUTING_DEPENDENCIES,
+  'lib/validator-gate-report.js',
+  'lib/audit-report.js',
+  'types/reports.js',
 ];
 const TASK_EXECUTOR_DEPENDENCIES = [
   ...CLI_ENTRY_DEPENDENCIES,
@@ -41,7 +54,7 @@ export const CORE_SCRIPTS: ScriptDistributionFile[] = [
 export const ANALYSIS_SCRIPTS: ScriptDistributionFile[] = [
   { file: 'structure-analyzer.js', dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },
   { file: 'module-mapper.js', dependencies: MODULE_MAPPER_DEPENDENCIES },
-  { file: 'report-manager.js', dependencies: [...CLI_ENTRY_DEPENDENCIES, ...WORKFLOW_ROUTING_DEPENDENCIES] },
+  { file: 'report-manager.js', dependencies: REPORT_MANAGER_DEPENDENCIES },
 ];
 
 export const ORCHESTRATOR_SCRIPTS: ScriptDistributionFile[] = [

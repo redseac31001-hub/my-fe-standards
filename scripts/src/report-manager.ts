@@ -16,6 +16,13 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { isDirectCliEntry } from './lib/cli-entry';
 import {
+  AUDIT_HISTORY_ROOT,
+  AUDIT_STANDARD_LATEST_DIR,
+  cleanupAuditHistory,
+  readAuditHistory,
+  readLatestAuditReport,
+} from './lib/audit-report';
+import {
   buildValidatorGateDelta,
   cleanupValidatorGateHistory,
   getPreviousValidatorGateEntry,
@@ -28,6 +35,7 @@ import {
   ReportsManifest,
   ReportMeta,
   ArchitectureSnapshot,
+  AuditHistoryEntry,
   ModuleDiffSnapshot,
   ModuleMapSnapshot,
   HealthTimeline,
@@ -66,6 +74,15 @@ function ensureDir(dirPath: string): void {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
+}
+
+function writeJsonReport(filePath: string, payload: unknown): void {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+}
+
+function buildHistoryStamp(isoTimestamp: string): string {
+  return isoTimestamp.replace(/[:.]/g, '-');
 }
 
 /**
@@ -437,6 +454,9 @@ export function buildStatusSnapshot(targetDir: string): ReportManagerStatusSnaps
   const workflowRouting = readLatestWorkflowRoutingReport(targetDir);
   const validatorGate = readLatestValidatorGateReport(targetDir);
   const validatorGateHistory = readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY);
+  const auditReport = readLatestAuditReport(targetDir);
+  const auditHistory = readAuditHistory(targetDir, Number.POSITIVE_INFINITY);
+  const recentAuditHistory = auditHistory.slice(0, 5);
   const recentValidatorGateHistory = validatorGateHistory.slice(0, 5);
   const previousValidatorGate = getPreviousValidatorGateEntry(validatorGate, validatorGateHistory);
   const validatorGateDelta = buildValidatorGateDelta(validatorGate, previousValidatorGate);
@@ -445,6 +465,7 @@ export function buildStatusSnapshot(targetDir: string): ReportManagerStatusSnaps
 
   const workflowRoutingAgeHours = workflowRouting ? getReportAgeHours(workflowRouting.generatedAt) : null;
   const validatorGateAgeHours = validatorGate ? getReportAgeHours(validatorGate.generatedAt) : null;
+  const auditAgeHours = auditReport ? getReportAgeHours(auditReport.generatedAt) : null;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -503,6 +524,21 @@ export function buildStatusSnapshot(targetDir: string): ReportManagerStatusSnaps
         } : null,
         delta: validatorGateDelta,
         recentHistory: recentValidatorGateHistory,
+      },
+      audit: {
+        present: Boolean(auditReport),
+        generatedAt: auditReport?.generatedAt ?? null,
+        ageHours: auditAgeHours,
+        ageLabel: auditReport ? formatAge(auditReport.generatedAt) : null,
+        freshness: auditReport
+          ? (auditAgeHours !== null && auditAgeHours < 24 ? 'fresh' : 'stale')
+          : 'missing',
+        overallStatus: auditReport?.overview?.overallStatus ?? null,
+        findingsCount: auditReport?.overview?.findingsCount ?? 0,
+        outputDir: auditReport?.outputDir ?? null,
+        historyDir: auditReport?.historyDir ?? null,
+        historyCount: auditHistory.length,
+        recentHistory: recentAuditHistory,
       },
     },
   };
@@ -573,6 +609,16 @@ function showStatus(targetDir: string, json: boolean = false): void {
     console.log('│ Validators:    No validator gate summary            │');
   }
 
+  if (snapshot.sections.audit.present && snapshot.sections.audit.overallStatus) {
+    const historySuffix = snapshot.sections.audit.historyCount > 0
+      ? `, runs=${snapshot.sections.audit.historyCount}`
+      : '';
+    const auditText = `Audit:         ${snapshot.sections.audit.overallStatus} (${snapshot.sections.audit.ageLabel}${historySuffix})`;
+    console.log(`│ ${auditText}`.padEnd(52) + '│');
+  } else {
+    console.log('│ Audit:         No audit summary                     │');
+  }
+
   console.log('└─────────────────────────────────────────────────────┘');
   console.log('');
 }
@@ -612,6 +658,10 @@ function cleanup(targetDir: string, cacheOnly: boolean = false): void {
 
   const cleanedValidatorHistory = cleanupValidatorGateHistory(targetDir);
   console.log(`Cleaned: validator gate history (${cleanedValidatorHistory} removed)`);
+  cleanedCount++;
+
+  const cleanedAuditHistory = cleanupAuditHistory(targetDir);
+  console.log(`Cleaned: audit history (${cleanedAuditHistory} removed)`);
   cleanedCount++;
 
   console.log(`Cleanup complete. Removed ${cleanedCount} items.`);
@@ -906,14 +956,35 @@ export function buildAuditSnapshot(
       diffAvailable,
       findingsCount: findings.filter((finding) => finding.status !== 'pass').length,
     },
+    outputDir: null,
+    historyDir: null,
+    reportFiles: [],
     findings,
     markdown: bundle.markdown,
     sections: bundle.sections,
   };
 }
 
+export function buildAndPersistAuditSnapshot(
+  targetDir: string,
+  options: { days?: number; fromDate?: string } = {},
+): ReportManagerAuditSnapshot {
+  const snapshot = buildAuditSnapshot(targetDir, options);
+  const latestDir = path.join(targetDir, AUDIT_STANDARD_LATEST_DIR);
+  const historyDir = path.join(targetDir, AUDIT_HISTORY_ROOT, buildHistoryStamp(snapshot.generatedAt));
+
+  snapshot.outputDir = path.relative(targetDir, latestDir).replace(/\\/g, '/');
+  snapshot.historyDir = path.relative(targetDir, historyDir).replace(/\\/g, '/');
+  snapshot.reportFiles = ['audit-summary.json'];
+
+  writeJsonReport(path.join(latestDir, 'audit-summary.json'), snapshot);
+  writeJsonReport(path.join(historyDir, 'audit-summary.json'), snapshot);
+
+  return snapshot;
+}
+
 function showAudit(targetDir: string, options: { json: boolean; days?: number; fromDate?: string }): void {
-  const snapshot = buildAuditSnapshot(targetDir, {
+  const snapshot = buildAndPersistAuditSnapshot(targetDir, {
     days: options.days,
     fromDate: options.fromDate,
   });
@@ -1424,6 +1495,7 @@ export function buildHistorySnapshot(targetDir: string): ReportManagerHistorySna
         path: item.path,
       })),
       validatorGate: readValidatorGateHistory(targetDir, Number.POSITIVE_INFINITY),
+      audit: readAuditHistory(targetDir, Number.POSITIVE_INFINITY),
     },
   };
 }
@@ -1433,6 +1505,7 @@ function showHistory(targetDir: string, json: boolean = false): void {
   const archSnapshots = snapshot.sections.architecture;
   const moduleSnapshots = snapshot.sections.modules;
   const validatorGateHistory = snapshot.sections.validatorGate;
+  const auditHistory = snapshot.sections.audit;
 
   if (json) {
     console.log(JSON.stringify(snapshot, null, 2));
@@ -1482,6 +1555,21 @@ function showHistory(targetDir: string, json: boolean = false): void {
     }
     if (validatorGateHistory.length > 10) {
       console.log(`║   ... and ${validatorGateHistory.length - 10} more`.padEnd(67) + '║');
+    }
+  }
+
+  console.log('╠══════════════════════════════════════════════════════════════════╣');
+
+  if (auditHistory.length === 0) {
+    console.log('║ No audit history found.'.padEnd(67) + '║');
+  } else {
+    console.log('║ Audit Runs:'.padEnd(67) + '║');
+    for (const entry of auditHistory.slice(0, 10)) {
+      const line = `${entry.generatedAt.slice(0, 16)}  ${entry.overallStatus}  findings=${entry.findingsCount}  validator=${entry.validatorStatus || 'n/a'}`;
+      console.log(`║   ${line.slice(0, 62).padEnd(62)}   ║`);
+    }
+    if (auditHistory.length > 10) {
+      console.log(`║   ... and ${auditHistory.length - 10} more`.padEnd(67) + '║');
     }
   }
 
@@ -2177,6 +2265,8 @@ export {
   getReportsPath,
   getReportAgeHours,
   cleanup as cleanupReports,
+  readLatestAuditReport,
+  readAuditHistory,
   readLatestValidatorGateReport,
   readValidatorGateHistory,
 };

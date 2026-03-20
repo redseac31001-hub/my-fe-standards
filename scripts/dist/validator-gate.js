@@ -38,6 +38,7 @@ exports.runValidatorGate = runValidatorGate;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const validator_gate_report_1 = require("./lib/validator-gate-report");
+const repo_state_validator_1 = require("./repo-state-validator");
 const rule_validator_1 = require("./rule-validator");
 const skill_validator_1 = require("./skill-validator");
 function toPosixPath(p) {
@@ -83,6 +84,10 @@ function parseCli(args) {
             parsed.flags.skillsDir = args[++i];
             continue;
         }
+        if ((a === '--repo-root' || a === '--repo-dir') && args[i + 1]) {
+            parsed.flags.repoRoot = args[++i];
+            continue;
+        }
         parsed.flags[a.replace(/^--?/, '')] = true;
     }
     if (!parsed.command)
@@ -91,7 +96,7 @@ function parseCli(args) {
 }
 function showHelp() {
     console.log(`
-Validator Gate - 聚合 rules/skills validator 并输出可审计结果
+Validator Gate - 聚合 rules/skills/repo-state validator 并输出可审计结果
 
 用法:
   node scripts/dist/validator-gate.js [command] [options]
@@ -100,12 +105,14 @@ Validator Gate - 聚合 rules/skills validator 并输出可审计结果
   run                          运行 validator gate（默认）
 
 选项:
-  --scope <all|rules|skills>   选择执行范围（默认: all）
+  --scope <all|rules|skills|repo-state>
+                               选择执行范围（默认: all）
   --strict                     warning 和 error 都作为 gate
   --json                       输出聚合 JSON 报告
   --out-dir <path>             额外把 summary 和子报告写入目录
   --rules-dir <path>           指定 rules 根目录
   --skills-dir <path>          指定 skills 根目录
+  --repo-root <path>           指定仓库根目录（repo-state validator 用）
   --help, -h                   显示帮助
 `.trim());
 }
@@ -182,7 +189,7 @@ function resolveStandardValidatorHistoryDir(outDir, generatedAt) {
     return path.join(path.dirname(outDir), 'history', stamp);
 }
 function parseScope(value) {
-    if (value === 'rules' || value === 'skills' || value === 'all')
+    if (value === 'rules' || value === 'skills' || value === 'repo-state' || value === 'all')
         return value;
     return 'all';
 }
@@ -203,7 +210,13 @@ function buildValidatorGateReport(options) {
         }
         reports.skills = (0, skill_validator_1.finalizeSkillValidation)((0, skill_validator_1.validateSkillsDir)(skillsDir), options.strict);
     }
-    const includedReports = [reports.rules, reports.skills].filter((value) => Boolean(value));
+    const resolvedRepoRoot = options.repoRoot ? path.resolve(process.cwd(), options.repoRoot) : process.cwd();
+    const shouldRunRepoState = scope === 'repo-state'
+        || ((scope === 'all') && (Boolean(options.repoRoot) || (0, repo_state_validator_1.looksLikeRepositoryFactRoot)(resolvedRepoRoot)));
+    if (shouldRunRepoState) {
+        reports.repoState = (0, repo_state_validator_1.finalizeRepoStateValidation)((0, repo_state_validator_1.validateRepoStateRoot)(resolvedRepoRoot), options.strict);
+    }
+    const includedReports = [reports.rules, reports.skills, reports.repoState].filter((value) => Boolean(value));
     return {
         ok: includedReports.every(report => report.ok),
         effectiveOk: includedReports.every(report => report.effectiveOk),
@@ -236,6 +249,10 @@ function runValidatorGate(options) {
             writeJson(path.join(outDir, 'skill-validator-report.json'), report.reports.skills);
             report.reportFiles.push('skill-validator-report.json');
         }
+        if (report.reports.repoState) {
+            writeJson(path.join(outDir, 'repo-state-validator-report.json'), report.reports.repoState);
+            report.reportFiles.push('repo-state-validator-report.json');
+        }
         writeJson(path.join(outDir, 'validator-gate-summary.json'), report);
         report.reportFiles.push('validator-gate-summary.json');
         if (historyDir) {
@@ -244,6 +261,9 @@ function runValidatorGate(options) {
             }
             if (report.reports.skills) {
                 writeJson(path.join(historyDir, 'skill-validator-report.json'), report.reports.skills);
+            }
+            if (report.reports.repoState) {
+                writeJson(path.join(historyDir, 'repo-state-validator-report.json'), report.reports.repoState);
             }
             writeJson(path.join(historyDir, 'validator-gate-summary.json'), report);
         }
@@ -268,6 +288,7 @@ function main() {
         outDir: typeof parsed.flags.outDir === 'string' ? parsed.flags.outDir : null,
         rulesDir: typeof parsed.flags.rulesDir === 'string' ? parsed.flags.rulesDir : null,
         skillsDir: typeof parsed.flags.skillsDir === 'string' ? parsed.flags.skillsDir : null,
+        repoRoot: typeof parsed.flags.repoRoot === 'string' ? parsed.flags.repoRoot : null,
     };
     let report;
     try {

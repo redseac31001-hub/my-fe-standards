@@ -15,7 +15,7 @@ export type ReportType =
   | 'health-timeline'
   | 'task-context';
 
-export type ValidatorGateScope = 'all' | 'rules' | 'skills';
+export type ValidatorGateScope = 'all' | 'rules' | 'skills' | 'repo-state';
 
 export interface ValidatorGateEmbeddedReport {
   ok: boolean;
@@ -41,6 +41,7 @@ export interface ValidatorGateSummary {
   reports: {
     rules?: ValidatorGateEmbeddedReport;
     skills?: ValidatorGateEmbeddedReport;
+    repoState?: ValidatorGateEmbeddedReport;
   };
 }
 
@@ -121,6 +122,19 @@ export interface ReportManagerStatusSnapshot {
       delta: ValidatorGateDelta | null;
       recentHistory: ValidatorGateHistoryEntry[];
     };
+    audit: {
+      present: boolean;
+      generatedAt: string | null;
+      ageHours: number | null;
+      ageLabel: string | null;
+      freshness: 'fresh' | 'stale' | 'missing';
+      overallStatus: ReportManagerAuditSnapshot['overview']['overallStatus'] | null;
+      findingsCount: number;
+      outputDir: string | null;
+      historyDir: string | null;
+      historyCount: number;
+      recentHistory: AuditHistoryEntry[];
+    };
   };
 }
 
@@ -139,6 +153,7 @@ export interface ReportManagerHistorySnapshot {
     architecture: ReportHistoryItem[];
     modules: ReportHistoryItem[];
     validatorGate: ValidatorGateHistoryEntry[];
+    audit: AuditHistoryEntry[];
   };
 }
 
@@ -242,6 +257,15 @@ export interface ReportManagerAuditFinding {
   message: string;
 }
 
+export interface AuditHistoryEntry {
+  relativePath: string;
+  generatedAt: string;
+  overallStatus: 'pass' | 'warn' | 'attention';
+  findingsCount: number;
+  validatorStatus: ReportManagerAuditFindingStatus | null;
+  validatorDirection: ValidatorGateTrendDirection | null;
+}
+
 export interface ReportManagerAuditSnapshot {
   generatedAt: string;
   targetDir: string;
@@ -262,6 +286,9 @@ export interface ReportManagerAuditSnapshot {
     diffAvailable: boolean;
     findingsCount: number;
   };
+  outputDir: string | null;
+  historyDir: string | null;
+  reportFiles: string[];
   findings: ReportManagerAuditFinding[];
   markdown: ReportManagerExportSnapshot['markdown'];
   sections: ReportManagerExportSnapshot['sections'];
@@ -615,6 +642,11 @@ export interface RetentionPolicy {
     maxCount: number;
     maxAgeDays: number;
   };
+  /** Audit 历史 */
+  audits: {
+    maxCount: number;
+    maxAgeDays: number;
+  };
   /** 健康度 */
   health: {
     dailyRetentionDays: number;
@@ -640,6 +672,10 @@ export const DEFAULT_RETENTION_POLICY: RetentionPolicy = {
     maxAgeDays: 30,
   },
   validators: {
+    maxCount: 20,
+    maxAgeDays: 30,
+  },
+  audits: {
     maxCount: 20,
     maxAgeDays: 30,
   },

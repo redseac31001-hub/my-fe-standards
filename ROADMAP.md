@@ -69,6 +69,7 @@ Current strategic focus:
 - preserve local file-based knowledge delivery
 - keep the current single-worker execution path stable
 - turn existing workflow templates into a self-amplifying routing layer
+- turn current observability and collaboration surfaces into a release-ready operating baseline
 - defer weak-model/strong-model routing until it becomes a real requirement
 
 ## Global Done Criteria
@@ -98,6 +99,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 | P8 Model Router | DEFERRED | Medium | L | Split cheap routing from expensive implementation | Revisit only if multi-tier model routing becomes necessary |
 | P9 Evaluation and Metrics | DONE | Medium | M | Measure failure points and optimization impact | Extend metrics only when a concrete operational question appears |
 | P10 Workflow Router | DONE | High | M | Turn `micro / sprint / default` into an automatic execution amplifier | Keep routing heuristics stable; revisit only when metrics show a real mismatch or optimization gap |
+| P11 Release Readiness and Collaboration Reliability | IN_PROGRESS | High | M | Make repository facts, release gates, audit persistence, and handoff surfaces more reliable | Start `P11.4` `mcp-server` dependency-health closure |
 
 ## Milestone 1: Loader Consolidation
 
@@ -397,6 +399,46 @@ If an item changes packaging or skill lifecycle behavior, also verify:
   - Workflow routing regression coverage already exists in baseline, correctness, and `test/run-tests.js`.
   - The Windows-only dead-process lock correctness follow-up is tracked separately as a deferred operational item and does not change the mainline status of P10.
 
+## Milestone 7: Release Readiness and Collaboration Reliability
+
+### P11. Release Readiness and Collaboration Reliability
+
+- Status: IN_PROGRESS
+- Priority: High
+- Estimate: M
+- Started: 2026-03-19
+- Completed:
+- Blocked By:
+- Goal: make repository fact sources, release/review commands, audit artifacts, and handoff rules reliable enough to be reviewed and resumed without reconstructing state from chat context.
+- Deliverables:
+  - repository fact-source validator
+  - formal quick gate / release gate definitions
+  - standard audit report lane
+  - clear `mcp-server` dependency-health policy
+- Acceptance:
+  - repository fact sources can be checked by a validator instead of only by human memory
+  - review-time validation paths collapse into a small set of named gates
+  - audit output can be persisted and revisited like other report artifacts
+  - `doctor:mcp-server-deps` is either green or explicitly documented as a non-blocking exception
+- Next Action: implement `P11.4` by closing or explicitly downgrading `doctor:mcp-server-deps` drift.
+- Notes:
+  - This item must preserve the existing `.codebuddy/` contract and avoid new mandatory business-project install steps.
+  - Detailed execution plan lives in `docs/plans/release-readiness-and-collaboration-reliability-plan.md`.
+  - `P11.1` is complete: `repo-state-validator` now exists, is wired into `validator-gate`, and keeps business-project compatibility by auto-skipping repo-state checks outside repository roots.
+  - `P11.1` validation passed: `npm run build:scripts`, `npm run validate:repo`, `npm run validate:repo:strict`, `npm run test:lib`, `npm run build`, `npm run validate:all:strict`, `node scripts/dist/validator-gate.js run --strict --scope all --json`.
+  - `P11.2` is complete: `gate:quick` and `gate:release` now provide named review/release entrypoints, and README/Handoff/Team Collaboration Protocol now describe their intended use and boundaries.
+  - `P11.3` is complete: `report-manager audit` now persists `latest + history` artifacts, `status/history/export/audit` read them back, and business-project local E2E verifies the installed `.codebuddy/scripts/report-manager.js` flow.
+  - `P11.3` validation passed: `npm run build`, `npm run test:lib`, `node test/run-tests.js --suite local --case vue3-project`.
+
+#### P11 Execution Breakdown
+
+| Subtask | Status | Goal | Exit Criteria |
+|---------|--------|------|---------------|
+| P11.1 Repository Fact-Source Validator | DONE | Detect drift across README / docs index / handoff / roadmap / team protocol | `repo-state-validator` exists, warns by default, and is wired into `validator-gate` |
+| P11.2 Quick and Release Gate Standardization | DONE | Collapse review/release command sprawl into two named paths | README, protocol, and handoff agree on quick vs. release gates |
+| P11.3 Audit Standard Report Lane | DONE | Persist audit output as `latest + history` artifacts | audit output is readable from a standard report location and business-project E2E |
+| P11.4 MCP Server Dependency-Health Closure | TODO | Resolve or explicitly downgrade `doctor:mcp-server-deps` drift | current release treats it as a documented non-blocking exception |
+
 ## Recommended Execution Order
 
 1. P1 Script Bundling
@@ -408,7 +450,8 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 7. P7 Worker Executor
 8. P9 Evaluation and Metrics
 9. P10 Workflow Router
-10. P8 Model Router (deferred)
+10. P11 Release Readiness and Collaboration Reliability
+11. P8 Model Router (deferred)
 
 ## Deferred Operational Follow-ups
 
@@ -429,6 +472,26 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 - Current Notes:
   - The suite now supports filtered correctness runs, so this item can resume with a single targeted regression instead of the whole suite.
   - The remaining work is to verify the Windows-specific lock cleanup path end-to-end, not to redesign the main TaskBook or orchestrator flow.
+
+### Release Gate Long-Chain Validation Stability
+
+- Status: DEFERRED
+- Priority: Medium
+- Scope:
+  - `npm run test:correctness`
+  - `npm run gate:release`
+  - local Windows long-chain validation behavior
+- Why Deferred:
+  - The current problem is validation duration/stability on long local chains, not a business-project install or runtime contract break.
+  - It does not block loader install, remote content-pack delivery, `.codebuddy/` protocol stability, or daily business-project usage.
+  - This iteration should not spend mainline execution budget on making the full local release gate comfortable before the next release-governance task actually needs it.
+- Resume When:
+  - full local `gate:release` must become a hard release requirement again
+  - a dedicated validation-governance slot is available to split or optimize the long chain without regressing current gate semantics
+- Current Notes:
+  - `gate:quick` already passes and remains the preferred mainline confidence gate.
+  - `gate:release` should currently be treated as a release-governance aid, not a blocker for business-project install/download/use decisions.
+  - Focused smoke and fixture validation remain preferred over one-shot long-chain execution until this item is resumed.
 
 ## Explicit Non-Goals For Now
 
@@ -456,6 +519,8 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 - 2026-03-14: Added P10 `Workflow Router` as the next execution-layer optimization, with a dedicated detailed plan in `docs/plans/automatic-workflow-routing-plan.md`.
 - 2026-03-16: Deferred the Windows-only dead-process lock correctness follow-up as a non-blocking operational item; keep main install and AI IDE paths moving and resume only with a dedicated targeted validation pass.
 - 2026-03-16: Marked P10 `Workflow Router` as DONE to reflect the implemented routing library, orchestrator/executor auto-routing, routing reports, metrics/doctor/report visibility, workflow guide updates, and E2E coverage already present in the codebase.
+- 2026-03-19: Added P11 `Release Readiness and Collaboration Reliability` to formalize repository fact-source validation, gate standardization, audit persistence, and `mcp-server` dependency-health closure.
+- 2026-03-19: Deferred local `gate:release` long-chain stability as a non-blocking operational item; keep business-project install/use decisions tied to quick gate plus focused smoke instead of one-shot full local release validation.
 
 ## Short Version
 

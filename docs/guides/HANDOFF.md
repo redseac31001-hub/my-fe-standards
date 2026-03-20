@@ -15,6 +15,8 @@ date: 2026-02-07
 - 2026-02-07 已验证通过：`npm run build` + `node test/run-tests.js`（Workflow v2.0.0 七步闭环 + 3 个新 Agent + Prompt 模板体系）
 - 2026-03-12 已重新验证通过：`npm run build` + `npm run test:correctness` + `npm run test:full`
 - 2026-03-12 已确认主链路失败根因不是 `EPERM`，而是业务项目内 `.codebuddy/scripts/*.js` 缺少随脚本一起分发的 `scripts/dist/lib/*.js` 运行时依赖；该问题已修复并通过本地/远程 E2E 回归
+- 2026-03-20 当前下一主线仍为 `P11 Release Readiness and Collaboration Reliability`：`P11.1 repo-state-validator`、`P11.2 quick/release gate`、`P11.3 audit 标准报告通道` 已完成；`gate:release` 的本地长链路稳定性继续封存为非阻塞项，下一步转到 `P11.4 mcp-server` 依赖健康策略
+- 2026-03-20 `P11.3` 已重新验证通过：`npm run build`、`npm run test:lib`、`node test/run-tests.js --suite local --case vue3-project`
 - 2026-02-02 MCP Server 已对齐 CLI：新增 `taskbook_report` / `taskbook_unblock`
 - 2026-03-12 `npm run doctor:mcp-server-deps` 仍会提示 `mcp-server` 依赖基线漂移与缺少 `package-lock.json`；这是独立于主链路的环境整洁问题，不影响当前 loader / orchestrator / E2E 主链路结果
 - 2026-02-02 TaskBook 并发协作 SOP 已落地：`docs/guides/taskbook-collaboration-sop.md`（含可选强制模式 `CODEBUDDY_TASKBOOK_REQUIRE_IF_REV=1` / `--require-if-rev`）
@@ -91,6 +93,7 @@ npm run test:full
 - `npm run build` 成功（会编译 `scripts/src/*` 并生成 `manifest.json`）
 - `npm run doctor:mcp-server-deps` 理想情况下输出为 `ok`；若输出为 `needs_attention`，先区分它是否阻塞你当前任务：
   - 如果当前任务是 loader / rules / skills / agents / TaskBook / orchestrator 主链路，并且 `npm run test:correctness` 与 `npm run test:full` 已通过，可先继续开发
+  - 对当前业务项目封版，`doctor:mcp-server-deps` 继续按非阻塞发布例外处理；优先看 `npm run gate:quick` 和定点 smoke 是否通过
   - 如果当前任务涉及 `mcp-server` 本身、准备做 handoff / release、或要让别人从干净环境直接使用 MCP Server，则不要跳过，需在联网环境执行 `cd mcp-server && npm install` 后提交刷新后的依赖基线
   - 离线环境不能可靠模拟“干净安装 + 正确 lockfile 刷新”的场景；当前工作区在 `2026-03-12` 用 `npm install --package-lock-only --offline --ignore-scripts --dry-run` 实测返回 `ENOTCACHED`
 - `npm run test:correctness` 通过（覆盖已知高优先级正确性缺陷回归）
@@ -183,6 +186,7 @@ P5（规则/技能/调度：可控性与工程化）
 - ✅（2026-03-17）`test/run-tests.js` 的业务项目 observability E2E 已覆盖 `validator-gate -> doctor/status/history/trend/diff/export` 整条链路
 - ✅（2026-03-17）`test/run-tests.js` 已支持 `--list-cases` 与 `--case <name-or-dir>`，后续复现单个业务项目场景时不必再跑整套 `local`
 - ✅（2026-03-17）`report-manager audit --json` 已成为单命令审计入口，业务项目 E2E 现已覆盖 `validator-gate -> doctor/status/history/trend/diff/export/audit`
+- ✅（2026-03-19）已完成 `P11.1 repo-state-validator`：`README / ROADMAP / HANDOFF / docs/README / Team Collaboration Protocol` 的一致性现在可以被机器检查，并已接入 `validator-gate`
 
 ### 2026-03-17 Validator 审查顺序
 
@@ -207,6 +211,60 @@ P5（规则/技能/调度：可控性与工程化）
 - 默认 `npm test` 仍不自动包含 strict validator gate
 - 默认 push/PR 的 `Correctness Gate` 仍不自动包含 strict validator gate
 - strict validator 目前是显式 opt-in，用于 release/review，而不是每次本地改动都强制执行
+- `repo-state-validator` 仅面向本仓库；安装到业务项目后的 `validator-gate` 在缺少仓库事实源时会自动跳过 repo-state 检查
+
+### 2026-03-19 Gate 收口顺序
+
+当前统一两条 gate：
+
+1. Quick Gate
+   - `npm run gate:quick`
+   - 适用：日常开发收口、代码评审前、快速确认主线没有被打断
+   - 等价于：
+     - `npm run build`
+     - `npm run test:lib`
+     - `npm run validate:all`
+2. Release Gate
+   - `npm run gate:release`
+   - 适用：准备合并、发布、或阶段性交接前
+   - 等价于：
+     - `npm run build`
+     - `npm test`
+     - `npm run test:full`
+     - `npm run validate:all:strict`
+     - `node scripts/dist/validator-gate.js run --strict --scope all --json`
+     - `node scripts/dist/report-manager.js audit --json`
+
+说明：
+
+- `Release Gate` 里的 `audit --json` 负责补充审计证据，不单独承担硬失败语义
+- `doctor:mcp-server-deps` 仍保持独立检查，待 `P11.4` 单独收口
+- 本地 Windows 下 `gate:release` 的长链路执行体验目前已封存为非阻塞项，不作为业务项目安装/下载/使用的阻塞门槛
+
+### 2026-03-19 Release Gate 封存边界
+
+- 当前封存项：
+  - `npm run test:correctness` 的长时间执行/稳定性
+  - `npm run gate:release` 在本地 Windows 下的一次性长链路执行体验
+- 当前不受影响的主线：
+  - `codebuddy-loader` 安装
+  - remote 下载与 content-pack 使用
+  - `.codebuddy/` 契约
+  - `task-orchestrator / task-executor / report-manager`
+  - validator / validator-gate / doctor / audit 的日常使用
+- 当前建议门槛：
+  - 主线开发和业务项目接入以 `npm run gate:quick` + 定点 smoke/E2E 为主
+  - `gate:release` 暂作为发布治理辅助，而不是业务项目安装可用性的硬前提
+
+### 2026-03-19 P11.1 最小验证
+
+- `npm run build:scripts`
+- `npm run validate:repo`
+- `npm run validate:repo:strict`
+- `npm run test:lib`
+- `npm run build`
+- `npm run validate:all:strict`
+- `node scripts/dist/validator-gate.js run --strict --scope all --json`
 
 P6（开发闭环流程优化：11 步→7 步）
 - ✅（2026-02-07）Workflow v2.0.0：7 步闭环（需求澄清+PRD → 项目分析 → 任务分解 → TDD 实现 → 代码审查 → 构建修复 → 验收提交）

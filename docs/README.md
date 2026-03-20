@@ -57,6 +57,7 @@
 - [Automatic Workflow Routing Plan](./plans/automatic-workflow-routing-plan.md)
 - [Next Iteration Correctness Stabilization Plan](./plans/next-iteration-correctness-stabilization-plan.md)
 - [Validator Strict Productization Plan](./plans/validator-strict-productization-plan.md)
+- [Release Readiness and Collaboration Reliability Plan](./plans/release-readiness-and-collaboration-reliability-plan.md)
 
 ## History
 

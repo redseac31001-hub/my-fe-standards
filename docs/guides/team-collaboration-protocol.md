@@ -214,9 +214,28 @@ node test/run-tests.js --suite remote
 Recommended:
 
 ```bash
+npm run gate:quick
+npm run validate:repo
 npm run validate:all
 node .codebuddy/scripts/report-manager.js audit --json
 ```
+
+### Named gate paths
+
+Use these names in handoff, review, and PR notes instead of restating long command lists every time:
+
+- `quick gate`
+  - command: `npm run gate:quick`
+  - use when: day-to-day implementation is ready for local review
+- `release gate`
+  - command: `npm run gate:release`
+  - use when: preparing merge, release, or stage handoff
+
+Interpretation:
+
+- `quick gate` is confidence-oriented and warning-tolerant
+- `release gate` includes strict validator checks and full E2E coverage
+- `report-manager audit --json` inside `release gate` is evidence collection, not a standalone hard blocker
 
 ## Handoff Checklist
 
