@@ -2907,6 +2907,13 @@ var QUALITY_SKILL_ROUTE_KEYWORDS = [
   "wcag",
   "\u65E0\u969C\u788D"
 ];
+var IMPLEMENTATION_SKILL_ROUTE_KEYWORDS = [
+  "component",
+  "state",
+  "refactor",
+  "\u91CD\u6784",
+  "store"
+];
 var DOCUMENTATION_SKILL_ROUTE_KEYWORDS = [
   "system-overview",
   "design-document",
@@ -3004,7 +3011,7 @@ function classifySkillRouteCategory(skill) {
   if (/(structure|module|architecture)/.test(text)) {
     return "architecture";
   }
-  if (/(component|state|refactor|重构|store)/.test(text)) {
+  if (includesAnyKeyword(text, IMPLEMENTATION_SKILL_ROUTE_KEYWORDS)) {
     return "implementation";
   }
   if (includesAnyKeyword(text, QUALITY_SKILL_ROUTE_KEYWORDS)) {

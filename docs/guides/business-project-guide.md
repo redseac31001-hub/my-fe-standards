@@ -45,7 +45,8 @@ curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/gl
 Windows PowerShell：
 
 ```powershell
-irm https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
 ```
 
 如需完整编排能力，追加：
@@ -60,6 +61,13 @@ irm https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/sc
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+```
+
+Windows PowerShell：
+
+```powershell
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-loader.bundle.js -OutFile codebuddy-loader.bundle.js
+node codebuddy-loader.bundle.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
 ```
 
 **执行过程**：
@@ -363,6 +371,9 @@ cat package.json | grep -E "ant-design-vue|vant"
 # 确保 Node.js 在 PATH 中
 node --version
 ```
+
+Windows PowerShell 下不要使用 `irm ... | node -` 直接把远程脚本文本通过管道送给 Node。
+推荐统一采用“先下载到文件，再执行”的方式，避免脚本文本在 PowerShell 到原生命令之间发生转码。
 
 ### Q7: 重复运行加载器会覆盖已有配置吗
 

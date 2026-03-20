@@ -590,6 +590,14 @@ const QUALITY_SKILL_ROUTE_KEYWORDS = [
   '\u65e0\u969c\u788d',
 ] as const;
 
+const IMPLEMENTATION_SKILL_ROUTE_KEYWORDS = [
+  'component',
+  'state',
+  'refactor',
+  '\u91cd\u6784',
+  'store',
+] as const;
+
 const DOCUMENTATION_SKILL_ROUTE_KEYWORDS = [
   'system-overview',
   'design-document',
@@ -703,7 +711,7 @@ function classifySkillRouteCategory(skill: SkillMetadata): SkillRouteCategory {
   if (/(structure|module|architecture)/.test(text)) {
     return 'architecture';
   }
-  if (/(component|state|refactor|重构|store)/.test(text)) {
+  if (includesAnyKeyword(text, IMPLEMENTATION_SKILL_ROUTE_KEYWORDS)) {
     return 'implementation';
   }
   if (includesAnyKeyword(text, QUALITY_SKILL_ROUTE_KEYWORDS)) {
