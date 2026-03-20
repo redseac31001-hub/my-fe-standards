@@ -89,8 +89,15 @@ curl -fsSL https://your-server.com/standards/scripts/dist/codebuddy-install.js |
 Windows PowerShell：
 
 ```powershell
-irm https://your-server.com/standards/scripts/dist/codebuddy-install.js | node - --remote https://your-server.com/standards
+iwr https://your-server.com/standards/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://your-server.com/standards
 ```
+
+说明：
+
+- Windows PowerShell 5.1 下不建议使用 `irm ... | node -` 直接把脚本文本通过管道送给 Node。
+- 该方式会经过 PowerShell 到原生命令的文本转码，可能把非 ASCII 字符替换成 `?`，从而破坏正则字面量或帮助文本。
+- Windows 侧推荐统一采用“先下载到文件，再执行”的方式。
 
 如果你想先下载再执行：
 
@@ -103,6 +110,13 @@ node codebuddy-install.js --remote https://your-server.com/standards
 
 ```bash
 curl -fsSL https://your-server.com/standards/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://your-server.com/standards
+```
+
+Windows PowerShell 请改用：
+
+```powershell
+iwr https://your-server.com/standards/scripts/dist/codebuddy-loader.bundle.js -OutFile codebuddy-loader.bundle.js
+node codebuddy-loader.bundle.js --remote https://your-server.com/standards
 ```
 
 ### 先下载再执行

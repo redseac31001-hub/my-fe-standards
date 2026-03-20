@@ -50,6 +50,13 @@ npm run remote
 curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
 ```
 
+Windows PowerShell 建议使用下载后执行，避免 `irm ... | node -` 的文本转码问题：
+
+```powershell
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2 --profile full --pack-only
+```
+
 ### 本地业务夹具远程 Smoke
 
 ```bash

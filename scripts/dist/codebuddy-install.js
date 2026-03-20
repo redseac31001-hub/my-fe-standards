@@ -69,7 +69,8 @@ CodeBuddy Remote Installer
   node codebuddy-install.js --remote https://example.com/my-fe-standards
   node codebuddy-install.js --remote https://example.com/my-fe-standards --full
   curl -fsSL https://example.com/my-fe-standards/scripts/dist/codebuddy-install.js | node - --remote https://example.com/my-fe-standards
-  irm https://example.com/my-fe-standards/scripts/dist/codebuddy-install.js | node - --remote https://example.com/my-fe-standards
+  iwr https://example.com/my-fe-standards/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+  node codebuddy-install.js --remote https://example.com/my-fe-standards
 `.trim());
 }
 function fail(message) {

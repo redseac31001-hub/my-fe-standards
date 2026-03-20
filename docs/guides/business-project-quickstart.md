@@ -22,6 +22,13 @@ date: 2026-03-16
 node scripts/dist/codebuddy-loader.js
 ```
 
+如果你使用远程源，Windows PowerShell 推荐：
+
+```powershell
+iwr https://your-server.com/standards/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://your-server.com/standards --profile full --pack-only
+```
+
 如果你使用远程源，按你的远程安装方式执行即可；Quickstart 不改变安装步骤。
 
 安装后先确认：

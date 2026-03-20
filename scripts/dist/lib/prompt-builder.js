@@ -445,10 +445,70 @@ function generateQuickActionGuide() {
 优先读短入口：\`.codebuddy/scripts/README.md\`、\`.codebuddy/commands/README.md\`、\`.codebuddy/rules_cache/\`。
 `;
 }
+const ORCHESTRATION_ROUTE_KEYWORDS = [
+    'orchestrator',
+    'planner',
+    'tdd',
+    '\u7f16\u6392',
+    '\u89c4\u5212',
+    '\u4ea4\u4ed8',
+];
+const DOCUMENTATION_ROUTE_KEYWORDS = [
+    'overview',
+    'design',
+    'documentation',
+    'document',
+    '\u6982\u8981\u8bbe\u8ba1',
+    '\u8bbe\u8ba1\u6587\u6863',
+    '\u6587\u6863\u751f\u6210',
+    '\u65b9\u6848\u8f93\u51fa',
+    'word',
+];
+const DIAGNOSIS_ROUTE_KEYWORDS = [
+    'build',
+    'bug',
+    'fix',
+    'debug',
+    'investigator',
+    'profiler',
+    '\u4fee\u590d',
+    '\u6392\u67e5',
+    '\u8bca\u65ad',
+    '\u6784\u5efa',
+    '\u6027\u80fd',
+];
+const REVIEW_ROUTE_KEYWORDS = [
+    'review',
+    'security',
+    'structure',
+    'analyzer',
+    '\u5ba1\u67e5',
+    '\u67b6\u6784',
+    '\u5b89\u5168',
+];
+const QUALITY_SKILL_ROUTE_KEYWORDS = [
+    'review',
+    'testing',
+    'a11y',
+    'i18n',
+    'wcag',
+    '\u65e0\u969c\u788d',
+];
+const DOCUMENTATION_SKILL_ROUTE_KEYWORDS = [
+    'system-overview',
+    'design-document',
+    'overview design',
+    '\u6982\u8981\u8bbe\u8ba1',
+    '\u8bbe\u8ba1\u6587\u6863',
+    'word \u6a21\u677f',
+];
 function truncateText(value, max = 48) {
     if (value.length <= max)
         return value;
     return `${value.slice(0, max - 1).trimEnd()}...`;
+}
+function includesAnyKeyword(text, keywords) {
+    return keywords.some(keyword => text.includes(keyword));
 }
 function summarizeRouteTriggers(triggers, maxItems = 3) {
     const values = [...new Set((triggers || []).map(trigger => trigger.trim()).filter(Boolean))];
@@ -475,16 +535,16 @@ function buildAgentHint(agent) {
 }
 function classifyAgentRouteCategory(agent) {
     const text = `${agent.id} ${agent.name} ${agent.description}`.toLowerCase();
-    if (/(orchestrator|planner|tdd|编排|规划|交付)/.test(text)) {
+    if (includesAnyKeyword(text, ORCHESTRATION_ROUTE_KEYWORDS)) {
         return 'orchestration';
     }
-    if (/(overview|design|documentation|document|概要设计|设计文档|文档生成|方案输出|word)/.test(text)) {
+    if (includesAnyKeyword(text, DOCUMENTATION_ROUTE_KEYWORDS)) {
         return 'documentation';
     }
-    if (/(build|bug|fix|debug|investigator|profiler|修复|排查|诊断|构建|性能)/.test(text)) {
+    if (includesAnyKeyword(text, DIAGNOSIS_ROUTE_KEYWORDS)) {
         return 'diagnosis';
     }
-    if (/(review|security|structure|analyzer|审查|架构|安全)/.test(text)) {
+    if (includesAnyKeyword(text, REVIEW_ROUTE_KEYWORDS)) {
         return 'review';
     }
     return 'other';
@@ -536,13 +596,13 @@ function classifySkillRouteCategory(skill) {
     if (/(component|state|refactor|重构|store)/.test(text)) {
         return 'implementation';
     }
-    if (/(review|testing|a11y|i18n|wcag|无障碍)/.test(text)) {
+    if (includesAnyKeyword(text, QUALITY_SKILL_ROUTE_KEYWORDS)) {
         return 'quality';
     }
     if (/(performance|build|render|bundle)/.test(text)) {
         return 'performance';
     }
-    if (/(system-overview|design-document|overview design|概要设计|设计文档|word 模板)/.test(text)) {
+    if (includesAnyKeyword(text, DOCUMENTATION_SKILL_ROUTE_KEYWORDS)) {
         return 'documentation';
     }
     if (/(prd|ralph|skill-creator|requirements|spec)/.test(text)) {
