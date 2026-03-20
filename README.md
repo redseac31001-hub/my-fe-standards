@@ -114,6 +114,7 @@ npm run codebuddy
 npm run remote
 npm run remote:full
 npm run smoke:business-remote
+npm run smoke:remote-powershell
 node scripts/dist/codebuddy-loader.js --workspace-scope project-targeted --project mcp-server --role backend
 node scripts/dist/skill-validator.js check
 npm run test:full
@@ -126,6 +127,13 @@ node test/run-tests.js --suite local --case antdv-project
 - 业务项目发布以 `npm run gate:quick` + 一条定点 smoke 作为主门槛
 - `npm run doctor:mcp-server-deps` 仍保留为独立环境健康检查，不阻塞当前业务项目安装/下载/使用封版
 - 本地 Windows 下 `gate:release` 长链路稳定性继续按非阻塞项处理
+
+远程下载/安装面额外约束：
+
+- 只要变更触达远程 bootstrap surface，push 前必须执行 `npm run smoke:remote-powershell`
+- 该模拟会在本地静态服务上验证两条真实入口：
+  - `codebuddy-install.js` 下载到文件后执行
+  - `codebuddy-loader.bundle.js` 直接通过 PowerShell 管道执行
 
 ## Validator 模式
 

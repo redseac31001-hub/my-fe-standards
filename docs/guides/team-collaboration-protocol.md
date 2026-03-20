@@ -166,6 +166,7 @@ At minimum, include:
 - what was changed
 - what was intentionally not changed
 - what commands were used to validate
+- whether remote bootstrap simulation was required and, if so, which command was run
 
 Good examples:
 
@@ -206,6 +207,32 @@ Then expand only if needed:
 
 ```bash
 node test/run-tests.js --suite local
+node test/run-tests.js --suite remote
+```
+
+### Remote bootstrap / download path changes
+
+If a change can affect how a business project downloads or starts the remote
+runtime, run a local PowerShell bootstrap simulation before push:
+
+```bash
+npm run smoke:remote-powershell
+```
+
+This rule is triggered when any of these are true:
+
+- `codebuddy-install.js` behavior changed
+- `codebuddy-loader.bundle.js` behavior changed
+- a loader-bundled dependency changed and may affect remote install, prompt
+  routing, distribution, or text parsing
+- `manifest.json` or `packs/*.json` changed
+- remote install copy-paste commands changed in README or business-project guides
+- a loader-bundled file gained new non-ASCII matching/parsing logic
+
+If the same change also affects installed-project runtime behavior after
+bootstrap, add:
+
+```bash
 node test/run-tests.js --suite remote
 ```
 

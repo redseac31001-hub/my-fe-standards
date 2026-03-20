@@ -46,6 +46,8 @@
     "test:full": "node test/run-tests.js",
     "smoke:business-remote": "npm run build && node test/test-business-remote-fixture.js",
     "smoke:business-remote:run": "node test/test-business-remote-fixture.js",
+    "smoke:remote-powershell": "npm run build && node test/test-powershell-remote-loader.js",
+    "smoke:remote-powershell:run": "node test/test-powershell-remote-loader.js",
     "serve": "node scripts/dist/simple-server.js",
     "remote": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm",
     "remote:full": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm --enable-orchestrator",

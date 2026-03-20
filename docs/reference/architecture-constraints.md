@@ -89,6 +89,35 @@ Constraint:
   - `packs/*.json`
 - do not make source directories mandatory for normal remote installs
 
+### 4a. Remote bootstrap downloadability
+
+Business projects must remain able to download and start the remote runtime
+from a maintainer machine before push.
+
+Constraint:
+
+- if a change touches the remote bootstrap surface, run a local bootstrap
+  simulation before push
+- the minimum Windows-compatible simulation command is
+  `npm run smoke:remote-powershell`
+- the simulation must prove both supported bootstrap paths still work:
+  - `codebuddy-install.js` downloaded to a file, then executed
+  - `codebuddy-loader.bundle.js` piped through PowerShell into `node -`
+
+Trigger conditions:
+
+- changes to `scripts/src/codebuddy-install.ts`
+- changes to `scripts/src/codebuddy-loader.ts`
+- changes to loader-bundled dependencies that can affect install, routing,
+  distribution, prompt selection, or text parsing
+- changes to `scripts/dist/codebuddy-install.js`
+- changes to `scripts/dist/codebuddy-loader.bundle.js`
+- changes to `manifest.json` or `packs/*.json`
+- changes to remote install copy-paste commands in `README` or business-project
+  guides
+- changes that introduce new non-ASCII parsing or matching logic into code that
+  ships inside `codebuddy-loader.bundle.js`
+
 ### 5. Default workflow usability
 
 The default workflow is part of the product surface, not an internal detail.
@@ -257,6 +286,7 @@ Every proposed change must be checked against:
 - `.codebuddy/` runtime contract
 - agent-call file/API protocol
 - remote minimum artifact set
+- remote bootstrap downloadability
 - default workflow burden
 - AI IDE / tool invocation flow
 
@@ -306,8 +336,10 @@ If any answer is `yes`, the protocol should remain backward-compatible or be ver
 - Does this change enlarge the minimal remote artifact set?
 - Does this change make `--pack-only` less viable?
 - Does this change require exposing more repository internals to business projects?
+- Does this change touch the remote bootstrap/download path used by business projects?
 
 If any answer is `yes`, the feature should remain optional or publisher-side only.
+If the last answer is `yes`, run `npm run smoke:remote-powershell` before push.
 
 ### Workflow / Execution Path
 

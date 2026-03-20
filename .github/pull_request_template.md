@@ -65,6 +65,7 @@ Reference: [docs/reference/architecture-constraints.md](docs/reference/architect
 - [ ] `npm test`
 - [ ] Docs/links checked
 - [ ] Relevant remote/private-deployment path checked
+- [ ] If remote bootstrap/download surface changed, `npm run smoke:remote-powershell` was run
 
 Commands/results:
 
