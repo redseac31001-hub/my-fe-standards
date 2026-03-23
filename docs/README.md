@@ -1,6 +1,6 @@
 # Docs Index
 
-> Last updated: 2026-03-16
+> Last updated: 2026-03-23
 > Scope: repository documentation layout
 
 ## Structure
@@ -15,6 +15,7 @@
 
 - Want the shortest product entry path: [Product Surface Guide](./guides/product-surface-guide.md)
 - Want the shortest business-project path: [Business Project Quickstart](./guides/business-project-quickstart.md)
+- Want to decide between direct execution and orchestration for a business-project task: [Business Project Guide](./guides/business-project-guide.md), [Team Collaboration Protocol](./guides/team-collaboration-protocol.md)
 - Want the team progress/handoff protocol: [Team Collaboration Protocol](./guides/team-collaboration-protocol.md)
 - Want to install into a business project: [Business Project Guide](./guides/business-project-guide.md)
 - Want to run workflow/task execution: [Workflows Guide](./guides/workflows-guide.md)

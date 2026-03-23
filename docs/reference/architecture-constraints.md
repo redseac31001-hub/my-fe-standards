@@ -1,6 +1,6 @@
 # Architecture Constraints
 
-> Last updated: 2026-03-14
+> Last updated: 2026-03-23
 > Scope: change constraints for delivery, install, execution, and tool compatibility
 
 ## Purpose
@@ -129,6 +129,42 @@ Constraint:
 - the default path should remain runnable in a normal business project without extra infrastructure
 
 ## Design Principles
+
+### Small-Change Direct Execution First
+
+Small, low-uncertainty tasks should default to direct execution before they
+escalate into workflow orchestration.
+
+This is a product rule, not just a team preference.
+
+Why:
+
+- small tasks should not pay orchestration overhead by default
+- the system should stay lighter for business projects and daily use
+- complex execution machinery should remain focused on tasks that actually need
+  traceability, branching, or handoff
+
+Typical direct-execution candidates:
+
+- clear API replacement based on an explicit contract document
+- mock-to-real request migration in a small scope
+- a localized bug fix with limited file churn
+- a focused refactor that does not reshape cross-module contracts
+
+Constraint:
+
+- do not force small, well-bounded tasks through `task-orchestrator`,
+  multi-step workflow, or agent handoff unless complexity actually requires it
+- do not ban rules, skills, or validators from helping these tasks; they remain
+  reference and quality layers, not mandatory ceremony
+
+Escalate to orchestrated execution when any of these become true:
+
+- the change spans multiple pages, stores, services, or business domains
+- the external contract is incomplete or materially ambiguous
+- the task needs staged review, handoff, or parallel ownership
+- the task requires durable task tracking beyond a single direct execution pass
+- the task introduces architectural, routing, state-model, or workflow changes
 
 ### Default Path First
 

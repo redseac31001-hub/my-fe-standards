@@ -91,6 +91,34 @@ npm run test:full
 
 完整入口说明见 [Product Surface Guide](./docs/guides/product-surface-guide.md)。
 
+## 任务执行路径
+
+当前默认遵循一条基础约定：`Small-Change Direct Execution First`。
+
+含义：
+
+- 小范围、边界清楚、低不确定性的任务，默认直接由 AI 执行
+- 不默认拉起 `task-orchestrator`、workflow、agent handoff
+- rules / skills / validators 仍可作为参考和校验层，但不应成为小任务的固定仪式
+
+典型适用场景：
+
+- 已提供明确 API 文档的 mock -> real API 替换
+- 小范围请求参数/返回参数适配
+- 单一业务域内的局部 bug 修复
+
+升级到编排路径的信号：
+
+- 跨多个页面、store、service 或业务域
+- 需求或接口契约不完整
+- 需要阶段性交接、并行协作或持久 task tracking
+- 涉及状态流、路由、权限、缓存等重设计
+
+团队约定和判定细则见
+[Team Collaboration Protocol](./docs/guides/team-collaboration-protocol.md)
+和
+[Architecture Constraints](./docs/reference/architecture-constraints.md)。
+
 ### 多工具格式转换
 
 ```bash

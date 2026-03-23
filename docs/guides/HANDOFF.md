@@ -17,6 +17,7 @@ date: 2026-02-07
 - 2026-03-12 已确认主链路失败根因不是 `EPERM`，而是业务项目内 `.codebuddy/scripts/*.js` 缺少随脚本一起分发的 `scripts/dist/lib/*.js` 运行时依赖；该问题已修复并通过本地/远程 E2E 回归
 - 2026-03-20 当前下一主线仍为 `P11 Release Readiness and Collaboration Reliability`：`P11.1 repo-state-validator`、`P11.2 quick/release gate`、`P11.3 audit 标准报告通道` 已完成；`gate:release` 的本地长链路稳定性继续封存为非阻塞项，下一步转到 `P11.4 mcp-server` 依赖健康策略
 - 2026-03-20 `P11.3` 已重新验证通过：`npm run build`、`npm run test:lib`、`node test/run-tests.js --suite local --case vue3-project`
+- 2026-03-23 已新增基础执行约定 `Small-Change Direct Execution First`：小范围、契约明确、低不确定性的任务默认直执行，不默认拉起 orchestrator/workflow/agent；复杂或跨域任务再升级到编排路径
 - 2026-02-02 MCP Server 已对齐 CLI：新增 `taskbook_report` / `taskbook_unblock`
 - 2026-03-12 `npm run doctor:mcp-server-deps` 仍会提示 `mcp-server` 依赖基线漂移与缺少 `package-lock.json`；这是独立于主链路的环境整洁问题，不影响当前 loader / orchestrator / E2E 主链路结果
 - 2026-02-02 TaskBook 并发协作 SOP 已落地：`docs/guides/taskbook-collaboration-sop.md`（含可选强制模式 `CODEBUDDY_TASKBOOK_REQUIRE_IF_REV=1` / `--require-if-rev`）

@@ -1,7 +1,7 @@
 # MY-FE-STANDARDS 项目架构图谱
 
 > Role: capability and structure source of truth
-> Updated: 2026-03-10
+> Updated: 2026-03-23
 > Use `README.md` for entry and `ROADMAP.md` for execution status.
 
 ---
@@ -9,6 +9,12 @@
 ## 项目概述
 
 **AI 辅助开发平台**：集成规则引擎 + 技能系统 + Agent 系统 + Reports 项目记忆 + MCP Server，为团队提供统一的 AI 辅助能力。
+
+当前基础执行原则：
+
+- 小范围、契约明确、低不确定性的任务，默认直执行
+- 跨模块、跨业务域、需要追踪/交接的任务，再升级到 workflow / orchestrator / agent 路径
+- `rules / skills / validators` 默认作为知识和校验层，不强制把每个小任务都拉进重流程
 
 ---
 
@@ -159,6 +165,7 @@ my-fe-standards/
 | | 远程加载 | `scripts/src/codebuddy-loader.ts` | 支持远程拉取规则 |
 | | Workspace 多项目识别 | `scripts/src/codebuddy-loader.ts` | 多语言项目自动发现（JS/TS/Java/Go/Python/Rust/.NET） |
 | | @project 快捷定位 | `scripts/src/lib/prompt-builder.ts` | 对话中使用 `@project` 锁定目标项目，自动应用对应规则 |
+| | 小任务直执行优先 | `docs/reference/architecture-constraints.md` | 小范围、契约明确任务默认直执行；复杂任务再升级到编排路径 |
 | **Rules 规则** | | | |
 | | 整洁代码原则 | `rules/layer1_base/code-quality/` | 命名、函数、SOLID、代码坏味道、审查清单 |
 | | 架构规范 | `rules/layer1_base/architecture/` | Feature-Based 目录结构 |

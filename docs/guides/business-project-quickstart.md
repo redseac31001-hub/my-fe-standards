@@ -1,6 +1,6 @@
 ---
 title: Business Project Quickstart
-date: 2026-03-16
+date: 2026-03-23
 ---
 
 # Business Project Quickstart
@@ -63,6 +63,22 @@ node .codebuddy/scripts/task-orchestrator.js --title "修复登录 401" --descri
 ```bash
 node .codebuddy/scripts/task-orchestrator.js --taskbook <taskBookId> --show-workflow-route --json
 ```
+
+如果当前任务很小、边界清楚、契约明确，优先走直执行，不必默认先拉起 orchestrator。
+
+典型场景：
+
+- 已提供 API 文档的 mock -> real API 替换
+- 单模块字段映射调整
+- 小范围局部修复
+
+这类任务建议先让 AI：
+
+1. 阅读需求/API 文档和当前相关代码
+2. 给出一个极短执行计划
+3. 直接改代码并做最小验证
+
+只有当任务跨模块、跨业务域、或需要交接/追踪时，再切回 `task-orchestrator` 路径。
 
 ## 3. blocked 后继续
 
@@ -149,6 +165,21 @@ node .codebuddy/scripts/report-manager.js status
 
 # 5) 继续推进
 node .codebuddy/scripts/task-executor.js <taskBookId>
+```
+
+小任务版本：
+
+```bash
+# 1) 安装/同步
+node scripts/dist/codebuddy-loader.js
+
+# 2) 让 AI 先读 API/需求文档与当前相关代码
+
+# 3) 直接执行小范围替换
+
+# 4) 做最小验证
+npm run build
+npm test
 ```
 
 ## 6. 下一步

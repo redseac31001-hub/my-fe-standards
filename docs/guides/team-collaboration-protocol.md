@@ -1,6 +1,6 @@
 # Team Collaboration Protocol
 
-> Last updated: 2026-03-17
+> Last updated: 2026-03-23
 > Scope: repository progress tracking, handoff, review, and verification
 
 ## Goal
@@ -178,6 +178,56 @@ Good examples:
 
 Use the smallest validation that still proves the change.
 
+## Execution Path Selection
+
+Use the lightest execution path that still provides enough control.
+
+### Small-Change Direct Execution Rule
+
+Default to direct AI execution when the task is small, explicit, and likely to
+finish within one focused implementation pass.
+
+Typical signals:
+
+- the requirement or API contract is already written down
+- the change is confined to a small file set
+- the change stays within one business area
+- the work is primarily adaptation, replacement, or parameter mapping
+- no multi-person coordination or staged handoff is needed
+
+Examples:
+
+- replace mock API calls with a provided real API contract
+- adjust request/response field mapping for one module
+- fix a localized interaction bug without changing surrounding architecture
+
+Direct execution means:
+
+- do not start with `task-orchestrator`
+- do not require a workflow/taskbook by default
+- use rules, skills, validators, and local docs as reference material only when
+  they materially help
+- still record outcome and validation in normal repository facts when the change
+  lands
+
+### Escalation To Orchestration
+
+Escalate from direct execution to workflow/taskbook/agent orchestration when
+the task stops being small or predictable.
+
+Escalation triggers:
+
+- more than one module boundary or business domain is affected
+- the API or requirement is incomplete, contradictory, or risky
+- state flow, routing, permissions, caching, or error handling must be redesigned
+- the change needs staged review, durable handoff, or parallel work ownership
+- the expected validation path is too large for one direct pass
+
+Short decision rule:
+
+- small and explicit: direct execution first
+- broad or uncertain: orchestrate
+
 ### Docs-only changes
 
 Usually enough:
@@ -246,6 +296,29 @@ npm run validate:repo
 npm run validate:all
 node .codebuddy/scripts/report-manager.js audit --json
 ```
+
+### Direct-execution task changes
+
+If the task intentionally follows the small-change direct-execution path,
+prefer a short, targeted validation set over full orchestration validation.
+
+Typical pattern:
+
+```bash
+npm run build
+npm test
+```
+
+Then add the narrowest domain-specific verification that proves the change.
+
+Examples:
+
+- one focused page/module smoke
+- one targeted local E2E case
+- one API adaptation path with visible request/response confirmation
+
+Do not escalate validation to full workflow coverage unless the task itself
+crosses the direct-execution boundary.
 
 ### Named gate paths
 

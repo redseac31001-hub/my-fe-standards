@@ -8,10 +8,11 @@
 2. [资源下载与加载](#2-资源下载与加载)
 3. [本仓库内的影子业务项目 Smoke](#3-本仓库内的影子业务项目-smoke)
 4. [加载后的目录结构](#4-加载后的目录结构)
-5. [预期完成目标](#5-预期完成目标)
-6. [检测验证标准](#6-检测验证标准)
-7. [常见问题与排查](#7-常见问题与排查)
-8. [进阶用法](#8-进阶用法)
+5. [任务执行路径选择](#5-任务执行路径选择)
+6. [预期完成目标](#6-预期完成目标)
+7. [检测验证标准](#7-检测验证标准)
+8. [常见问题与排查](#8-常见问题与排查)
+9. [进阶用法](#9-进阶用法)
 
 ---
 
@@ -180,9 +181,52 @@ your-project/
 
 ---
 
-## 5. 预期完成目标
+## 5. 任务执行路径选择
 
-### 4.1 加载完成标准
+当前业务项目默认遵循一条基础约定：`Small-Change Direct Execution First`。
+
+含义：
+
+- 小范围、契约明确、低不确定性的任务，默认直接由 AI 执行
+- 不默认拉起 `task-orchestrator`、workflow、agent handoff
+- 已安装的 rules、skills、validators 仍可作为参考和校验层，但不应成为小任务的固定仪式
+
+典型适用场景：
+
+- 已提供 API 文档的 mock -> real API 替换
+- 单一模块内的请求参数、返回参数适配
+- 局部交互问题修复或小范围业务补丁
+
+建议做法：
+
+1. 先让 AI 阅读 API/需求文档和当前相关代码
+2. 产出一个极短替换计划
+3. 直接修改代码并做最小验证
+4. 只有在复杂度上升后，才升级到编排路径
+
+升级到编排路径的信号：
+
+- 跨多个页面、store、service 或业务域
+- 接口契约不完整或存在明显歧义
+- 需要阶段性交接、并行协作或持久 task tracking
+- 涉及状态流、路由、权限、缓存、错误恢复等重设计
+
+直执行任务的推荐最小验证：
+
+```bash
+npm run build
+npm test
+```
+
+然后补一条最窄的业务验证，例如：
+
+- 单页面 smoke
+- 单模块请求链路验证
+- 一条本地 E2E case
+
+## 6. 预期完成目标
+
+### 6.1 加载完成标准
 
 | 检查项 | 预期结果 | 验证方法 |
 |--------|---------|---------|
@@ -195,7 +239,7 @@ your-project/
 | .gitignore 更新 | 包含 `.codebuddy/`、`codebuddy-loader.bundle.js` 条目 | `grep codebuddy .gitignore` |
 | Vue 版本检测 | 正确识别 Vue 2/3（如适用） | 查看加载日志 |
 
-### 4.2 AI 行为预期
+### 6.2 AI 行为预期
 
 加载规则后，AI 助手的行为应满足：
 
@@ -216,7 +260,7 @@ your-project/
 - 关联文件 > 15 个时自动裁剪，只读核心文件
 - 调试场景按数据层→业务层→视图层分层验证
 
-### 4.3 技术栈覆盖
+### 6.3 技术栈覆盖
 
 | 技术栈 | 规则覆盖 | 触发条件 |
 |--------|---------|---------|
@@ -232,9 +276,9 @@ your-project/
 
 ---
 
-## 6. 检测验证标准
+## 7. 检测验证标准
 
-### 5.1 加载验证（自动化检查脚本）
+### 7.1 加载验证（自动化检查脚本）
 
 在业务项目根目录执行以下命令逐项验证：
 
@@ -261,7 +305,7 @@ node .codebuddy/scripts/agent-registry.js show bug-investigator --json && echo "
 test -f .codebuddy/rules_cache/layer3_action/context-management.md && echo "PASS: context-management 已安装" || echo "FAIL: context-management 缺失"
 ```
 
-### 5.2 规则有效性验证
+### 7.2 规则有效性验证
 
 ```bash
 # 使用内置校验器检查规则完整性
@@ -271,7 +315,7 @@ node .codebuddy/scripts/rule-validator.js check
 node .codebuddy/scripts/skill-validator.js check
 ```
 
-### 5.3 项目分析验证
+### 7.3 项目分析验证
 
 ```bash
 # 运行项目结构分析（验证脚本可执行）
@@ -284,7 +328,7 @@ node .codebuddy/scripts/module-mapper.js .
 node .codebuddy/scripts/report-manager.js status
 ```
 
-### 5.4 AI 行为验证清单
+### 7.4 AI 行为验证清单
 
 在 CodeBuddy 中逐项测试以下场景：
 
@@ -299,7 +343,7 @@ node .codebuddy/scripts/report-manager.js status
 
 ---
 
-## 7. 常见问题与排查
+## 8. 常见问题与排查
 
 ### Q1: 远程加载失败，提示网络超时
 
@@ -381,7 +425,7 @@ Windows PowerShell 下不要使用 `irm ... | node -` 直接把远程脚本文�
 
 ---
 
-## 8. 进阶用法
+## 9. 进阶用法
 
 ### 7.1 按任务类型筛选
 
