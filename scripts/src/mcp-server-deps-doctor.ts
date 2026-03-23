@@ -1,6 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+type CliArgs = {
+  strict: boolean;
+  json: boolean;
+};
+
 type PackageJsonLike = {
   name?: string;
   version?: string;
@@ -18,6 +23,26 @@ type DependencyIssue = {
   installed: string | null;
   kind: 'missing' | 'invalid';
 };
+
+type DoctorResult = {
+  project: string;
+  version: string;
+  lockfilePresent: boolean;
+  dependencyState: 'ok' | 'needs_attention';
+  releaseImpact: 'none' | 'non_blocking_exception';
+  strictMode: boolean;
+  effectiveOk: boolean;
+  invalidDependencies: DependencyIssue[];
+  missingDependencies: DependencyIssue[];
+  suggestedNextSteps: string[];
+};
+
+function parseArgs(argv: string[]): CliArgs {
+  return {
+    strict: argv.includes('--strict'),
+    json: argv.includes('--json'),
+  };
+}
 
 function readJsonFile<T>(filePath: string): T | null {
   if (!fs.existsSync(filePath)) return null;
@@ -77,7 +102,86 @@ function getInstalledVersion(lockfile: LockfileLike | null, nodeModulesDir: stri
   return typeof packageJson?.version === 'string' ? packageJson.version : null;
 }
 
+function buildResult(
+  packageJson: PackageJsonLike,
+  missingLockfile: boolean,
+  invalidDeps: DependencyIssue[],
+  missingDeps: DependencyIssue[],
+  strictMode: boolean,
+): DoctorResult {
+  const hasProblems = missingLockfile || invalidDeps.length > 0 || missingDeps.length > 0;
+
+  return {
+    project: packageJson.name || 'mcp-server',
+    version: packageJson.version || 'unknown',
+    lockfilePresent: !missingLockfile,
+    dependencyState: hasProblems ? 'needs_attention' : 'ok',
+    releaseImpact: hasProblems ? 'non_blocking_exception' : 'none',
+    strictMode,
+    effectiveOk: hasProblems ? !strictMode : true,
+    invalidDependencies: invalidDeps,
+    missingDependencies: missingDeps,
+    suggestedNextSteps: hasProblems
+      ? [
+          'For business-project release and normal repository work, treat this as a documented non-blocking exception.',
+          'If the task touches mcp-server itself or must prove a clean-environment MCP setup, run `cd mcp-server && npm install` in a normal networked environment and commit the refreshed dependency baseline.',
+        ]
+      : [
+          'Dependency baseline is consistent.',
+        ],
+  };
+}
+
+function formatTextReport(result: DoctorResult): string {
+  const lines = [
+    'MCP Server Dependency Doctor',
+    `Project: ${result.project}@${result.version}`,
+    `Lockfile: ${result.lockfilePresent ? 'present' : 'missing'}`,
+    `Dependency state: ${result.dependencyState}`,
+    `Release impact: ${result.releaseImpact}`,
+    `Strict mode: ${result.strictMode ? 'on' : 'off'}`,
+    `Effective result: ${result.effectiveOk ? 'ok' : 'fail'}`,
+    '',
+  ];
+
+  if (result.invalidDependencies.length > 0) {
+    lines.push(`Invalid dependencies (${result.invalidDependencies.length}):`);
+    for (const issue of result.invalidDependencies) {
+      lines.push(`- ${issue.name}: installed=${issue.installed || 'unknown'}, declared=${issue.declared}`);
+    }
+    lines.push('');
+  }
+
+  if (result.missingDependencies.length > 0) {
+    lines.push(`Missing dependencies (${result.missingDependencies.length}):`);
+    for (const issue of result.missingDependencies) {
+      lines.push(`- ${issue.name}: required=${issue.declared}`);
+    }
+    lines.push('');
+  }
+
+  if (!result.lockfilePresent) {
+    lines.push('Lockfile issue:');
+    lines.push('- missing mcp-server/package-lock.json');
+    lines.push('');
+  }
+
+  lines.push('Suggested next step:');
+  for (const step of result.suggestedNextSteps) {
+    lines.push(`- ${step}`);
+  }
+
+  if (result.releaseImpact === 'non_blocking_exception' && !result.strictMode) {
+    lines.push('');
+    lines.push('Note: default mode keeps this check non-blocking for mainline repository and business-project release decisions.');
+    lines.push('Use `--strict` only when the task specifically targets mcp-server dependency hygiene.');
+  }
+
+  return lines.join('\n');
+}
+
 function main(): void {
+  const args = parseArgs(process.argv.slice(2));
   const repoRoot = process.cwd();
   const mcpServerDir = path.join(repoRoot, 'mcp-server');
   const packageJsonPath = path.join(mcpServerDir, 'package.json');
@@ -129,48 +233,15 @@ function main(): void {
 
   const invalidDeps = dependencyIssues.filter(issue => issue.kind === 'invalid');
   const missingDeps = dependencyIssues.filter(issue => issue.kind === 'missing');
-  const hasProblems = missingLockfile || invalidDeps.length > 0 || missingDeps.length > 0;
+  const result = buildResult(packageJson, missingLockfile, invalidDeps, missingDeps, args.strict);
 
-  const lines = [
-    'MCP Server Dependency Doctor',
-    `Project: ${packageJson.name || 'mcp-server'}@${packageJson.version || 'unknown'}`,
-    `Lockfile: ${missingLockfile ? 'missing' : 'present'}`,
-    `Dependency state: ${hasProblems ? 'needs_attention' : 'ok'}`,
-    '',
-  ];
-
-  if (invalidDeps.length > 0) {
-    lines.push(`Invalid dependencies (${invalidDeps.length}):`);
-    for (const issue of invalidDeps) {
-      lines.push(`- ${issue.name}: installed=${issue.installed || 'unknown'}, declared=${issue.declared}`);
-    }
-    lines.push('');
-  }
-
-  if (missingDeps.length > 0) {
-    lines.push(`Missing dependencies (${missingDeps.length}):`);
-    for (const issue of missingDeps) {
-      lines.push(`- ${issue.name}: required=${issue.declared}`);
-    }
-    lines.push('');
-  }
-
-  if (missingLockfile) {
-    lines.push('Lockfile issue:');
-    lines.push(`- missing ${path.relative(repoRoot, packageLockPath).replace(/\\/g, '/')}`);
-    lines.push('');
-  }
-
-  if (hasProblems) {
-    lines.push('Suggested next step:');
-    lines.push('- In a normal networked environment, run `cd mcp-server && npm install` and commit the refreshed dependency baseline.');
+  if (args.json) {
+    console.log(JSON.stringify(result, null, 2));
   } else {
-    lines.push('Suggested next step:');
-    lines.push('- Dependency baseline is consistent.');
+    console.log(formatTextReport(result));
   }
 
-  console.log(lines.join('\n'));
-  process.exit(hasProblems ? 1 : 0);
+  process.exit(result.effectiveOk ? 0 : 1);
 }
 
 main();

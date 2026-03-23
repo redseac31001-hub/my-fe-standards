@@ -1,6 +1,6 @@
 # ROADMAP
 
-> Last updated: 2026-03-16
+> Last updated: 2026-03-23
 > Type: living roadmap
 > Scope: loader, skills, agents, orchestrator, execution layer
 
@@ -99,7 +99,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 | P8 Model Router | DEFERRED | Medium | L | Split cheap routing from expensive implementation | Revisit only if multi-tier model routing becomes necessary |
 | P9 Evaluation and Metrics | DONE | Medium | M | Measure failure points and optimization impact | Extend metrics only when a concrete operational question appears |
 | P10 Workflow Router | DONE | High | M | Turn `micro / sprint / default` into an automatic execution amplifier | Keep routing heuristics stable; revisit only when metrics show a real mismatch or optimization gap |
-| P11 Release Readiness and Collaboration Reliability | IN_PROGRESS | High | M | Make repository facts, release gates, audit persistence, and handoff surfaces more reliable | Start `P11.4` `mcp-server` dependency-health closure |
+| P11 Release Readiness and Collaboration Reliability | DONE | High | M | Make repository facts, release gates, audit persistence, and handoff surfaces more reliable | Keep the release-readiness baseline stable; revisit only when release governance exposes a concrete gap |
 
 ## Milestone 1: Loader Consolidation
 
@@ -403,11 +403,11 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 
 ### P11. Release Readiness and Collaboration Reliability
 
-- Status: IN_PROGRESS
+- Status: DONE
 - Priority: High
 - Estimate: M
 - Started: 2026-03-19
-- Completed:
+- Completed: 2026-03-23
 - Blocked By:
 - Goal: make repository fact sources, release/review commands, audit artifacts, and handoff rules reliable enough to be reviewed and resumed without reconstructing state from chat context.
 - Deliverables:
@@ -420,15 +420,16 @@ If an item changes packaging or skill lifecycle behavior, also verify:
   - review-time validation paths collapse into a small set of named gates
   - audit output can be persisted and revisited like other report artifacts
   - `doctor:mcp-server-deps` is either green or explicitly documented as a non-blocking exception
-- Next Action: implement `P11.4` by closing or explicitly downgrading `doctor:mcp-server-deps` drift.
+- Next Action: keep the current release-readiness baseline stable and revisit only when release governance exposes a concrete gap.
 - Notes:
   - This item must preserve the existing `.codebuddy/` contract and avoid new mandatory business-project install steps.
   - Detailed execution plan lives in `docs/plans/release-readiness-and-collaboration-reliability-plan.md`.
   - `P11.1` is complete: `repo-state-validator` now exists, is wired into `validator-gate`, and keeps business-project compatibility by auto-skipping repo-state checks outside repository roots.
   - `P11.1` validation passed: `npm run build:scripts`, `npm run validate:repo`, `npm run validate:repo:strict`, `npm run test:lib`, `npm run build`, `npm run validate:all:strict`, `node scripts/dist/validator-gate.js run --strict --scope all --json`.
-  - `P11.2` is complete: `gate:quick` and `gate:release` now provide named review/release entrypoints, and README/Handoff/Team Collaboration Protocol now describe their intended use and boundaries.
-  - `P11.3` is complete: `report-manager audit` now persists `latest + history` artifacts, `status/history/export/audit` read them back, and business-project local E2E verifies the installed `.codebuddy/scripts/report-manager.js` flow.
-  - `P11.3` validation passed: `npm run build`, `npm run test:lib`, `node test/run-tests.js --suite local --case vue3-project`.
+- `P11.2` is complete: `gate:quick` and `gate:release` now provide named review/release entrypoints, and README/Handoff/Team Collaboration Protocol now describe their intended use and boundaries.
+- `P11.3` is complete: `report-manager audit` now persists `latest + history` artifacts, `status/history/export/audit` read them back, and business-project local E2E verifies the installed `.codebuddy/scripts/report-manager.js` flow.
+- `P11.3` validation passed: `npm run build`, `npm run test:lib`, `node test/run-tests.js --suite local --case vue3-project`.
+- `P11.4` is complete: `doctor:mcp-server-deps` now explicitly reports a non-blocking release exception by default, `doctor:mcp-server-deps:strict` exists for MCP-specific work, and README/Handoff now document the escalation boundary.
 
 #### P11 Execution Breakdown
 
@@ -437,7 +438,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 | P11.1 Repository Fact-Source Validator | DONE | Detect drift across README / docs index / handoff / roadmap / team protocol | `repo-state-validator` exists, warns by default, and is wired into `validator-gate` |
 | P11.2 Quick and Release Gate Standardization | DONE | Collapse review/release command sprawl into two named paths | README, protocol, and handoff agree on quick vs. release gates |
 | P11.3 Audit Standard Report Lane | DONE | Persist audit output as `latest + history` artifacts | audit output is readable from a standard report location and business-project E2E |
-| P11.4 MCP Server Dependency-Health Closure | TODO | Resolve or explicitly downgrade `doctor:mcp-server-deps` drift | current release treats it as a documented non-blocking exception |
+| P11.4 MCP Server Dependency-Health Closure | DONE | Resolve or explicitly downgrade `doctor:mcp-server-deps` drift | `doctor:mcp-server-deps` is explicit by default and `doctor:mcp-server-deps:strict` is available for MCP-specific tasks |
 
 ## Recommended Execution Order
 
@@ -521,6 +522,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 - 2026-03-16: Marked P10 `Workflow Router` as DONE to reflect the implemented routing library, orchestrator/executor auto-routing, routing reports, metrics/doctor/report visibility, workflow guide updates, and E2E coverage already present in the codebase.
 - 2026-03-19: Added P11 `Release Readiness and Collaboration Reliability` to formalize repository fact-source validation, gate standardization, audit persistence, and `mcp-server` dependency-health closure.
 - 2026-03-19: Deferred local `gate:release` long-chain stability as a non-blocking operational item; keep business-project install/use decisions tied to quick gate plus focused smoke instead of one-shot full local release validation.
+- 2026-03-23: Completed P11.4 by formalizing `doctor:mcp-server-deps` as a documented non-blocking release exception in default mode and adding a strict MCP-specific escalation path.
 
 ## Short Version
 

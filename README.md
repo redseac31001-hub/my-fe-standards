@@ -138,6 +138,7 @@ npm run validate:repo
 npm run ci:correctness
 npm run ci:full
 npm run doctor:mcp-server-deps
+npm run doctor:mcp-server-deps:strict
 npm run codebuddy
 npm run remote
 npm run remote:full
@@ -153,7 +154,7 @@ node test/run-tests.js --suite local --case antdv-project
 当前封版边界：
 
 - 业务项目发布以 `npm run gate:quick` + 一条定点 smoke 作为主门槛
-- `npm run doctor:mcp-server-deps` 仍保留为独立环境健康检查，不阻塞当前业务项目安装/下载/使用封版
+- `npm run doctor:mcp-server-deps` 仍保留为独立环境健康检查，默认按非阻塞发布例外处理；只有 `npm run doctor:mcp-server-deps:strict` 才将其升级为硬失败
 - 本地 Windows 下 `gate:release` 长链路稳定性继续按非阻塞项处理
 
 远程下载/安装面额外约束：
@@ -327,7 +328,33 @@ node scripts/dist/report-manager.js audit --json
 
 - 这两条 gate 只是统一入口，不改变默认 `npm test`
 - 默认 push/PR gate 仍按现有 CI 配置执行，不自动升级为 release gate
-- `doctor:mcp-server-deps` 仍作为独立环境健康检查，暂不并入这两条 gate
+- `doctor:mcp-server-deps` 仍作为独立环境健康检查，默认是明确的非阻塞发布例外，暂不并入这两条 gate
+
+## MCP Server 依赖健康例外
+
+`npm run doctor:mcp-server-deps` 当前默认语义是：
+
+- 暴露 `mcp-server` 依赖基线漂移、缺少 `package-lock.json`、或本地 `node_modules` 偏差
+- 明确标记为 `non_blocking_exception`
+- 不阻塞当前业务项目安装、下载、使用和主线封版
+
+适用场景：
+
+- 仓库主线开发
+- 业务项目发布
+- loader / orchestrator / report / validator 主链路验证
+
+只有在下面场景，才应把它升级为硬门槛：
+
+- 当前任务直接改动 `mcp-server`
+- 需要证明一个干净环境里的 MCP Server 可直接安装
+- 准备交付或审查 MCP Server 自身的依赖基线
+
+此时使用：
+
+```bash
+npm run doctor:mcp-server-deps:strict
+```
 
 ## 仓库结构
 

@@ -1,6 +1,6 @@
 # Release Readiness and Collaboration Reliability Plan
 
-> Last updated: 2026-03-19
+> Last updated: 2026-03-23
 > Type: execution plan
 > Scope: repository fact sources, release gates, audit persistence, and collaboration reliability
 
@@ -173,7 +173,7 @@ Acceptance:
 
 ### W4. MCP Server Dependency-Health Closure
 
-Status: `TODO`
+Status: `DONE`
 
 Goal:
 
@@ -191,6 +191,13 @@ Acceptance:
 - `doctor:mcp-server-deps` is no longer an ambiguous warning source
 - future handoff does not need to rediscover the same caveat
 - current business-project release can proceed with this item documented as non-blocking while follow-up remains open
+
+Completed notes:
+
+- `doctor:mcp-server-deps` now explicitly reports a `non_blocking_exception` release impact in default mode
+- default mode stays non-blocking for mainline repository work and business-project release decisions
+- `doctor:mcp-server-deps:strict` now exists for tasks that directly target `mcp-server` dependency hygiene
+- README and HANDOFF now document the exact escalation boundary instead of treating the command as an ambiguous warning source
 
 ## Execution Order
 

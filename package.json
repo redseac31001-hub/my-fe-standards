@@ -26,6 +26,7 @@
     "codebuddy": "node scripts/dist/codebuddy-loader.js",
     "codebuddy:install": "node scripts/dist/codebuddy-loader.js",
     "doctor:mcp-server-deps": "node scripts/dist/mcp-server-deps-doctor.js",
+    "doctor:mcp-server-deps:strict": "node scripts/dist/mcp-server-deps-doctor.js --strict",
     "tool:convert": "node scripts/dist/tool-converter.js",
     "validate:gate": "node scripts/dist/validator-gate.js run",
     "validate:gate:strict": "node scripts/dist/validator-gate.js run --strict",
