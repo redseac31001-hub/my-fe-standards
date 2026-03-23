@@ -402,7 +402,9 @@ async function testDistributionProfiles() {
   const analysisScripts = getScriptsForProfile('analysis').map(item => item.file);
   assert.equal(analysisScripts.includes('task-orchestrator.js'), false);
   assert.equal(analysisScripts.includes('report-manager.js'), true);
+  assert.equal(analysisScripts.includes('task-intake-router.js'), true);
   const analysisArtifacts = getScriptArtifactsForProfile('analysis');
+  assert.equal(analysisArtifacts.includes('lib/task-intake-routing.js'), true);
   assert.equal(analysisArtifacts.includes('lib/validator-gate-report.js'), true);
   assert.equal(analysisArtifacts.includes('lib/audit-report.js'), true);
   assert.equal(analysisArtifacts.includes('types/reports.js'), true);

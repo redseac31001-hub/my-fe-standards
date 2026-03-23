@@ -75,6 +75,14 @@ node .codebuddy/scripts/task-orchestrator.js --title "修复登录 401" --descri
 node .codebuddy/scripts/task-orchestrator.js --taskbook <taskBookId> --show-workflow-route --json
 ```
 
+如果你还没决定这是不是一个该进编排的任务，先跑：
+
+```bash
+node .codebuddy/scripts/task-intake-router.js --description "replace mock login API" --files 4 --contract explicit
+```
+
+它只负责给出 `direct` vs `orchestrated` 建议，不会替你启动 orchestrator。
+
 相关文档：
 
 - [Workflows Guide](./workflows-guide.md)

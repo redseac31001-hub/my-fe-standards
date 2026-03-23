@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-23
 > Scope: turn `Small-Change Direct Execution First` into an executable advisory capability
-> Status: Phase 1 completed on 2026-03-23
+> Status: Phase 1 and business-project distribution completed on 2026-03-23
 
 ## Goal
 
@@ -85,6 +85,17 @@ Keep `direct` when the task is small, bounded, and explicit:
 
 Possible future follow-ups, only if they become useful:
 
-- distribute the intake router into installed business projects
-- surface the decision inside generated README/help
-- connect the decision to orchestrator entrypoints as an explicit opt-in
+- connect the advisory decision to orchestrator entrypoints as an explicit opt-in
+- add richer task-shape signals if real projects show misclassification
+- expose intake decisions in report/audit surfaces only if teams need durable traceability
+
+## Completed Follow-up
+
+The first follow-up has already been completed:
+
+- installed business projects now receive `task-intake-router.js` in `analysis`
+  and heavier profiles
+- generated `.codebuddy/scripts/README.md` now surfaces the intake decision
+  command
+- business-project docs now show when to run the intake advisor before deciding
+  whether to enter orchestration

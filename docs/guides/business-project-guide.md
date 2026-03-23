@@ -200,9 +200,15 @@ your-project/
 建议做法：
 
 1. 先让 AI 阅读 API/需求文档和当前相关代码
-2. 产出一个极短替换计划
-3. 直接修改代码并做最小验证
-4. 只有在复杂度上升后，才升级到编排路径
+2. 边界不明显时，先运行：
+
+```bash
+node .codebuddy/scripts/task-intake-router.js --description "replace mock login API with the provided contract" --files 4 --contract explicit --uncertainty low
+```
+
+3. 再给出一个极短执行计划
+4. 直接修改代码并做最小验证
+5. 只有在复杂度上升后，才升级到编排路径
 
 升级到编排路径的信号：
 

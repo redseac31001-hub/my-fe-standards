@@ -15,6 +15,7 @@ const FRONTMATTER_DEPENDENCIES = ['lib/frontmatter-utils.js'];
 const INSTALL_ROOTS_DEPENDENCIES = ['lib/install-roots.js', 'lib/install-sync.js'];
 const MODULE_MAPPER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, 'types/module-mapper.js'];
 const STRUCTURE_ANALYZER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, 'types/structure-analyzer.js'];
+const TASK_INTAKE_ROUTER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, 'lib/task-intake-routing.js'];
 const VALIDATOR_GATE_DEPENDENCIES = [
   'rule-validator.js',
   'skill-validator.js',
@@ -52,6 +53,7 @@ export const CORE_SCRIPTS: ScriptDistributionFile[] = [
 ];
 
 export const ANALYSIS_SCRIPTS: ScriptDistributionFile[] = [
+  { file: 'task-intake-router.js', dependencies: TASK_INTAKE_ROUTER_DEPENDENCIES },
   { file: 'structure-analyzer.js', dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },
   { file: 'module-mapper.js', dependencies: MODULE_MAPPER_DEPENDENCIES },
   { file: 'report-manager.js', dependencies: REPORT_MANAGER_DEPENDENCIES },

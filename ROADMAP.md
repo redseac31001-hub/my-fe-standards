@@ -463,12 +463,13 @@ If an item changes packaging or skill lifecycle behavior, also verify:
   - A maintainer or AI session can run one command and receive `direct` vs `orchestrated` plus reasons.
   - The decision model is implemented in code, not left only in docs.
   - Existing `task-orchestrator` default behavior stays unchanged.
-- Next Action: keep the advisory router stable and only expand it if a real business-project or orchestration-intake need appears.
+- Next Action: keep the advisory router stable and only expand it if a stronger orchestration-intake or automation need appears.
 - Notes:
   - This is intentionally not a model router.
   - Phase 1 is advisory-only and should not auto-start orchestration.
   - Detailed plan lives in `docs/plans/task-intake-router-plan.md`.
   - Phase 1 validation passed: `npm run build:scripts`, `npm run test:lib`, `npm run intake:route -- --description "replace mock login API with the provided contract" --files 4 --contract explicit --uncertainty low`.
+  - Business-project installs now include `task-intake-router.js` in `analysis` and heavier profiles, and generated `.codebuddy/scripts/README.md` surfaces it as the intake decision entrypoint.
 
 #### P12 Execution Breakdown
 
@@ -566,6 +567,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 - 2026-03-23: Completed P11.4 by formalizing `doctor:mcp-server-deps` as a documented non-blocking release exception in default mode and adding a strict MCP-specific escalation path.
 - 2026-03-23: Started P12 `Task Intake Router` to make the `Small-Change Direct Execution First` rule executable as an advisory capability without changing orchestrator defaults.
 - 2026-03-23: Completed P12 `Task Intake Router` Phase 1 with a shared routing library, standalone CLI, documentation updates, and focused baseline coverage.
+- 2026-03-23: Extended P12 into installed business projects so `task-intake-router.js` is distributed with `analysis`+ profiles and validated through installed-project smoke coverage.
 
 ## Short Version
 

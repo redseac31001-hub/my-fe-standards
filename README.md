@@ -113,6 +113,12 @@ npm run test:full
 npm run intake:route -- --description "replace mock login API with the provided contract" --files 4 --contract explicit --uncertainty low
 ```
 
+安装到业务项目后，也可以直接运行：
+
+```bash
+node .codebuddy/scripts/task-intake-router.js --description "replace mock login API with the provided contract" --files 4 --contract explicit --uncertainty low
+```
+
 升级到编排路径的信号：
 
 - 跨多个页面、store、service 或业务域

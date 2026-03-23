@@ -175,6 +175,14 @@ function getScriptPromptEntry(script) {
             usage: `node ${path} status`,
         };
     }
+    if (script === 'task-intake-router.js') {
+        return {
+            file: script,
+            path,
+            description: '任务入口判断器（直执行 vs 编排）',
+            usage: `node ${path} --description "replace mock login API" --files 4 --contract explicit`,
+        };
+    }
     if (script === 'agent-call-manager.js') {
         return {
             file: script,
@@ -257,6 +265,7 @@ function buildScriptPromptGroups(scripts) {
             files: present,
         });
     };
+    addGroup('任务入口判断', '任务边界不明显时，先判断是直执行还是进入编排', 'node .codebuddy/scripts/task-intake-router.js --description "replace mock login API" --files 4 --contract explicit', ['task-intake-router.js']);
     addGroup('结构分析', '先生成结构和模块边界，再决定是否继续深挖', 'node .codebuddy/scripts/structure-analyzer.js .', ['structure-analyzer.js', 'module-mapper.js']);
     addGroup('报告查询', '优先复用已有报告，避免重复扫描', 'node .codebuddy/scripts/report-manager.js status', ['report-manager.js']);
     addGroup('规则与契约校验', '规则、技能、TaskBook/Workflow 变更前先校验', 'node .codebuddy/scripts/contract-validator.js --workflows --taskbooks', ['rule-validator.js', 'skill-validator.js', 'validator-gate.js', 'contract-validator.js', 'agent-registry.js']);
@@ -360,6 +369,7 @@ function generateScriptsReadme(scripts) {
         '### 2. 启动闭环',
         '',
         '```bash',
+        'node .codebuddy/scripts/task-intake-router.js --description "replace mock login API" --files 4 --contract explicit',
         'node .codebuddy/scripts/task-orchestrator.js "实现用户登录" --type new-feature',
         'node .codebuddy/scripts/task-orchestrator.js --taskbook <taskBookId> --show-workflow-route --json',
         '```',
@@ -403,6 +413,7 @@ function generateScriptsReadme(scripts) {
         '### 编排 / 契约校验',
         '',
         '```bash',
+        'node .codebuddy/scripts/task-intake-router.js --description "replace mock login API" --files 4 --contract explicit',
         'node .codebuddy/scripts/contract-validator.js --workflows --taskbooks',
         'node .codebuddy/scripts/task-orchestrator.js "实现用户登录" --type new-feature',
         '```',

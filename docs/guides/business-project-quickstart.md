@@ -66,6 +66,12 @@ node .codebuddy/scripts/task-orchestrator.js --taskbook <taskBookId> --show-work
 
 如果当前任务很小、边界清楚、契约明确，优先走直执行，不必默认先拉起 orchestrator。
 
+如果边界不明显，先跑一次判断：
+
+```bash
+node .codebuddy/scripts/task-intake-router.js --description "replace mock login API with the provided contract" --files 4 --contract explicit --uncertainty low
+```
+
 典型场景：
 
 - 已提供 API 文档的 mock -> real API 替换
@@ -174,6 +180,9 @@ node .codebuddy/scripts/task-executor.js <taskBookId>
 node scripts/dist/codebuddy-loader.js
 
 # 2) 让 AI 先读 API/需求文档与当前相关代码
+
+# 2.5) 边界不明显时先判断路径
+node .codebuddy/scripts/task-intake-router.js --description "replace mock login API with the provided contract" --files 4 --contract explicit --uncertainty low
 
 # 3) 直接执行小范围替换
 
