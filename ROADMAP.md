@@ -70,6 +70,7 @@ Current strategic focus:
 - keep the current single-worker execution path stable
 - turn existing workflow templates into a self-amplifying routing layer
 - turn current observability and collaboration surfaces into a release-ready operating baseline
+- turn the direct-execution rule into an explicit intake-routing capability before any future model routing
 - defer weak-model/strong-model routing until it becomes a real requirement
 
 ## Global Done Criteria
@@ -100,6 +101,7 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 | P9 Evaluation and Metrics | DONE | Medium | M | Measure failure points and optimization impact | Extend metrics only when a concrete operational question appears |
 | P10 Workflow Router | DONE | High | M | Turn `micro / sprint / default` into an automatic execution amplifier | Keep routing heuristics stable; revisit only when metrics show a real mismatch or optimization gap |
 | P11 Release Readiness and Collaboration Reliability | DONE | High | M | Make repository facts, release gates, audit persistence, and handoff surfaces more reliable | Keep the release-readiness baseline stable; revisit only when release governance exposes a concrete gap |
+| P12 Task Intake Router | DONE | High | S | Turn direct-execution vs orchestration choice into a shared advisory capability | Keep the advisory router stable; distribute into business projects only if a concrete use case appears |
 
 ## Milestone 1: Loader Consolidation
 
@@ -440,6 +442,44 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 | P11.3 Audit Standard Report Lane | DONE | Persist audit output as `latest + history` artifacts | audit output is readable from a standard report location and business-project E2E |
 | P11.4 MCP Server Dependency-Health Closure | DONE | Resolve or explicitly downgrade `doctor:mcp-server-deps` drift | `doctor:mcp-server-deps` is explicit by default and `doctor:mcp-server-deps:strict` is available for MCP-specific tasks |
 
+## Milestone 8: Intake Routing
+
+### P12. Task Intake Router
+
+- Status: DONE
+- Priority: High
+- Estimate: S
+- Started: 2026-03-23
+- Completed: 2026-03-23
+- Blocked By:
+- Goal: turn `Small-Change Direct Execution First` from a documentation rule into a shared advisory capability that can consistently recommend direct execution vs orchestration.
+- Deliverables:
+  - shared task-intake routing types
+  - shared task-intake routing library
+  - standalone CLI entrypoint
+  - documentation and handoff updates
+  - focused baseline coverage
+- Acceptance:
+  - A maintainer or AI session can run one command and receive `direct` vs `orchestrated` plus reasons.
+  - The decision model is implemented in code, not left only in docs.
+  - Existing `task-orchestrator` default behavior stays unchanged.
+- Next Action: keep the advisory router stable and only expand it if a real business-project or orchestration-intake need appears.
+- Notes:
+  - This is intentionally not a model router.
+  - Phase 1 is advisory-only and should not auto-start orchestration.
+  - Detailed plan lives in `docs/plans/task-intake-router-plan.md`.
+  - Phase 1 validation passed: `npm run build:scripts`, `npm run test:lib`, `npm run intake:route -- --description "replace mock login API with the provided contract" --files 4 --contract explicit --uncertainty low`.
+
+#### P12 Execution Breakdown
+
+| Subtask | Status | Goal | Exit Criteria |
+|---------|--------|------|---------------|
+| P12.1 Scope and Plan | DONE | Define advisory-only scope and acceptance | Roadmap and plan doc agree on P12 boundaries |
+| P12.2 Shared Routing Library | DONE | Encode direct vs orchestration heuristics in one place | Library returns deterministic recommendation plus reasons |
+| P12.3 CLI Entrypoint | DONE | Expose the router through a simple command | Maintainers can run the command without invoking orchestrator |
+| P12.4 Docs and Handoff | DONE | Surface the command and decision model in normal entrypoints | README / Handoff / protocol explain when to use it |
+| P12.5 Minimal Validation | DONE | Prove the new path with focused tests | `build:scripts` and `test:lib` pass |
+
 ## Recommended Execution Order
 
 1. P1 Script Bundling
@@ -452,7 +492,8 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 8. P9 Evaluation and Metrics
 9. P10 Workflow Router
 10. P11 Release Readiness and Collaboration Reliability
-11. P8 Model Router (deferred)
+11. P12 Task Intake Router
+12. P8 Model Router (deferred)
 
 ## Deferred Operational Follow-ups
 
@@ -523,6 +564,8 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 - 2026-03-19: Added P11 `Release Readiness and Collaboration Reliability` to formalize repository fact-source validation, gate standardization, audit persistence, and `mcp-server` dependency-health closure.
 - 2026-03-19: Deferred local `gate:release` long-chain stability as a non-blocking operational item; keep business-project install/use decisions tied to quick gate plus focused smoke instead of one-shot full local release validation.
 - 2026-03-23: Completed P11.4 by formalizing `doctor:mcp-server-deps` as a documented non-blocking release exception in default mode and adding a strict MCP-specific escalation path.
+- 2026-03-23: Started P12 `Task Intake Router` to make the `Small-Change Direct Execution First` rule executable as an advisory capability without changing orchestrator defaults.
+- 2026-03-23: Completed P12 `Task Intake Router` Phase 1 with a shared routing library, standalone CLI, documentation updates, and focused baseline coverage.
 
 ## Short Version
 

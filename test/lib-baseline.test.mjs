@@ -21,11 +21,13 @@ const installStateDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'inst
 const installRootsDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'install-roots.js');
 const projectDetectionDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'project-detection.js');
 const workflowRoutingDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'workflow-routing.js');
+const taskIntakeRoutingDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'task-intake-routing.js');
 const ruleValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'rule-validator.js');
 const skillValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'skill-validator.js');
 const repoStateValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'repo-state-validator.js');
 const validatorGateDistPath = path.join(repoRoot, 'scripts', 'dist', 'validator-gate.js');
 const reportManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'report-manager.js');
+const taskIntakeRouterDistPath = path.join(repoRoot, 'scripts', 'dist', 'task-intake-router.js');
 const runTestsPath = path.join(repoRoot, 'test', 'run-tests.js');
 
 function assertBuiltArtifactExists(filePath, hintCommand) {
@@ -1102,6 +1104,65 @@ async function testWorkflowRoutingLibrary() {
   assert.equal(reusedDecision.mode, 'reused');
   assert.equal(reusedDecision.selectedWorkflowId, 'sprint');
   assert.equal(reusedDecision.reusedFromTaskBook, true);
+}
+
+async function testTaskIntakeRoutingLibrary() {
+  assertBuiltArtifactExists(taskIntakeRoutingDistPath, 'npm run build:scripts');
+  assertBuiltArtifactExists(taskIntakeRouterDistPath, 'npm run build:scripts');
+  const {
+    createDefaultTaskIntakeInput,
+    routeTaskIntake,
+  } = require(taskIntakeRoutingDistPath);
+  const {
+    parseTaskIntakeCliArgs,
+    routeTaskIntakeCli,
+  } = require(taskIntakeRouterDistPath);
+
+  const directDecision = routeTaskIntake(createDefaultTaskIntakeInput({
+    description: 'replace mock login API with the provided contract',
+    contractState: 'explicit',
+    uncertainty: 'low',
+    estimatedFileCount: 4,
+    estimatedModuleCount: 1,
+    estimatedDomainCount: 1,
+    estimatedEndpointCount: 2,
+  }));
+  assert.equal(directDecision.recommendedPath, 'direct');
+  assert.equal(directDecision.inferredKind, 'api-adaptation');
+  assert.equal(directDecision.hardEscalationTriggers.length, 0);
+  assert.ok(directDecision.reasons.some(reason => reason.includes('small-change direct-execution boundary')));
+
+  const orchestratedDecision = routeTaskIntake(createDefaultTaskIntakeInput({
+    description: 'replace API layer across user and admin modules with staged review',
+    contractState: 'partial',
+    uncertainty: 'medium',
+    estimatedFileCount: 12,
+    estimatedModuleCount: 3,
+    estimatedDomainCount: 2,
+    requiresHandoff: true,
+    changesStateModel: true,
+  }));
+  assert.equal(orchestratedDecision.recommendedPath, 'orchestrated');
+  assert.ok(orchestratedDecision.hardEscalationTriggers.some(trigger => trigger.includes('estimatedModuleCount=3')));
+  assert.ok(orchestratedDecision.hardEscalationTriggers.some(trigger => trigger.includes('staged handoff')));
+
+  const parsedDirect = parseTaskIntakeCliArgs([
+    '--description', 'replace mock login API with the provided contract',
+    '--files', '4',
+    '--contract', 'explicit',
+    '--uncertainty', 'low',
+  ]);
+  const cliDirectDecision = routeTaskIntakeCli(parsedDirect);
+  assert.equal(cliDirectDecision.recommendedPath, 'direct');
+
+  const parsedEscalated = parseTaskIntakeCliArgs([
+    '--description', 'feature redesign across checkout and account flows',
+    '--modules', '2',
+    '--tracking',
+  ]);
+  const cliEscalatedDecision = routeTaskIntakeCli(parsedEscalated);
+  assert.equal(cliEscalatedDecision.recommendedPath, 'orchestrated');
+  assert.ok(cliEscalatedDecision.hardEscalationTriggers.length >= 1);
 }
 
 async function testDoctorArchitectureWarnings() {
@@ -2687,6 +2748,7 @@ async function main() {
     ['metadata parser normalizes skill and agent metadata', testMetadataParser],
     ['distribution profiles keep profile boundaries and runtime artifacts stable', testDistributionProfiles],
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
+    ['task intake router recommends direct vs orchestrated execution deterministically', testTaskIntakeRoutingLibrary],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],
     ['doctor surfaces latest validator gate summary when present', testDoctorValidatorGateWarnings],
     ['doctor ignores known optional static support files', testDoctorIgnoresKnownOptionalStaticSupportFiles],

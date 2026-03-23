@@ -59,6 +59,7 @@
 - [Next Iteration Correctness Stabilization Plan](./plans/next-iteration-correctness-stabilization-plan.md)
 - [Validator Strict Productization Plan](./plans/validator-strict-productization-plan.md)
 - [Release Readiness and Collaboration Reliability Plan](./plans/release-readiness-and-collaboration-reliability-plan.md)
+- [Task Intake Router Plan](./plans/task-intake-router-plan.md)
 
 ## History
 

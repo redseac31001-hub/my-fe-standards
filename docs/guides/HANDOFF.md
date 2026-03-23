@@ -18,6 +18,7 @@ date: 2026-02-07
 - 2026-03-23 `P11 Release Readiness and Collaboration Reliability` 已完成：`P11.1 repo-state-validator`、`P11.2 quick/release gate`、`P11.3 audit 标准报告通道`、`P11.4 mcp-server` 依赖健康例外收口均已落地；`gate:release` 的本地长链路稳定性继续封存为非阻塞项
 - 2026-03-20 `P11.3` 已重新验证通过：`npm run build`、`npm run test:lib`、`node test/run-tests.js --suite local --case vue3-project`
 - 2026-03-23 已新增基础执行约定 `Small-Change Direct Execution First`：小范围、契约明确、低不确定性的任务默认直执行，不默认拉起 orchestrator/workflow/agent；复杂或跨域任务再升级到编排路径
+- 2026-03-23 `P12 Task Intake Router` Phase 1 已完成：共享 intake 决策模型与独立 CLI 已落地，团队现在可以在不改变现有 orchestrator 默认行为的前提下，用统一命令判断“直执行 vs 编排”
 - 2026-02-02 MCP Server 已对齐 CLI：新增 `taskbook_report` / `taskbook_unblock`
 - 2026-03-23 `P11.4` 已按“明确的非阻塞发布例外”收口：`npm run doctor:mcp-server-deps` 默认只暴露 `mcp-server` 依赖基线问题，不阻塞业务项目封版；只有 `npm run doctor:mcp-server-deps:strict` 才将其升级为硬失败
 - 2026-02-02 TaskBook 并发协作 SOP 已落地：`docs/guides/taskbook-collaboration-sop.md`（含可选强制模式 `CODEBUDDY_TASKBOOK_REQUIRE_IF_REV=1` / `--require-if-rev`）
@@ -27,6 +28,7 @@ date: 2026-02-07
   - `PROJECT.md`：能力清单/架构图谱（权威概览）
   - `README.md`：快速入口与命令
   - `docs/guides/team-collaboration-protocol.md`：团队读取进度、更新事实源、交接与验证约定
+  - `docs/plans/task-intake-router-plan.md`：P12 intake 路由边界与验收标准
   - `docs/guides/workflows-guide.md`：Workflow Spec 与闭环执行方式
   - `docs/guides/e2e-validation-playbook.md`：业务项目端到端验收脚本（remote 加载 → 闭环）
 

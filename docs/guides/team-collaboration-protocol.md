@@ -228,6 +228,17 @@ Short decision rule:
 - small and explicit: direct execution first
 - broad or uncertain: orchestrate
 
+If the boundary is not obvious, run the intake advisor before choosing a path:
+
+```bash
+npm run intake:route -- --description "replace mock login API with the provided contract" --files 4 --contract explicit --uncertainty low
+```
+
+Interpretation:
+
+- `direct` means stay on the lightweight path and avoid `task-orchestrator` by default
+- `orchestrated` means promote the task into workflow / TaskBook / handoff execution
+
 ### Docs-only changes
 
 Usually enough:

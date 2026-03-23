@@ -425,6 +425,58 @@ export interface WorkflowRoutingDecision {
   generatedAt: string;
 }
 
+export type TaskIntakeExecutionPath = 'direct' | 'orchestrated';
+export type TaskIntakeContractState = 'explicit' | 'partial' | 'none';
+export type TaskIntakeUncertainty = 'low' | 'medium' | 'high';
+export type TaskIntakeKind =
+  | 'api-adaptation'
+  | 'bugfix'
+  | 'refactor'
+  | 'feature'
+  | 'review'
+  | 'analysis'
+  | 'unknown';
+
+export interface TaskIntakeRoutingInput {
+  title: string | null;
+  description: string | null;
+  kind: TaskIntakeKind | null;
+  contractState: TaskIntakeContractState;
+  uncertainty: TaskIntakeUncertainty;
+  estimatedFileCount: number | null;
+  estimatedModuleCount: number | null;
+  estimatedDomainCount: number | null;
+  estimatedEndpointCount: number | null;
+  requiresHandoff: boolean;
+  requiresParallelWork: boolean;
+  requiresDurableTracking: boolean;
+  changesArchitecture: boolean;
+  changesStateModel: boolean;
+  changesRouting: boolean;
+  changesWorkflow: boolean;
+  routeHints: string[];
+}
+
+export interface TaskIntakeRoutingSignal {
+  id: string;
+  matched: boolean;
+  detail?: string;
+  weight?: number;
+  hardEscalation?: boolean;
+}
+
+export interface TaskIntakeRoutingDecision {
+  recommendedPath: TaskIntakeExecutionPath;
+  confidence: 'high' | 'medium' | 'low';
+  inferredKind: TaskIntakeKind;
+  reasons: string[];
+  signals: TaskIntakeRoutingSignal[];
+  hardEscalationTriggers: string[];
+  suggestedNextSteps: string[];
+  suggestedValidation: string[];
+  generatedAt: string;
+}
+
 // ============ TaskBook 系统类型 ============
 
 /**

@@ -107,6 +107,12 @@ npm run test:full
 - 小范围请求参数/返回参数适配
 - 单一业务域内的局部 bug 修复
 
+如果边界不明显，先跑一次 intake advisor，再决定是否要进编排：
+
+```bash
+npm run intake:route -- --description "replace mock login API with the provided contract" --files 4 --contract explicit --uncertainty low
+```
+
 升级到编排路径的信号：
 
 - 跨多个页面、store、service 或业务域
@@ -131,6 +137,7 @@ npm run tool:convert -- --tool cursor
 npm run build
 npm run build:release
 npm run tool:convert -- --tool all
+npm run intake:route -- --description "replace mock login API" --files 4 --contract explicit
 npm run gate:quick
 npm run gate:release
 npm test
