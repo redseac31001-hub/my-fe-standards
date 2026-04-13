@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildDownloadUrlCandidates = buildDownloadUrlCandidates;
+exports.shouldRunInstallerCli = shouldRunInstallerCli;
 const fs = __importStar(require("fs"));
 const http = __importStar(require("http"));
 const https = __importStar(require("https"));
@@ -139,6 +140,15 @@ function buildDownloadUrlCandidates(url, remoteBearerToken) {
         url,
         ...getConfiguredMirrorPrefixes().map(prefix => `${prefix}${url}`),
     ]);
+}
+function shouldRunInstallerCli(mainModule, currentModule, argv) {
+    if (mainModule === currentModule) {
+        return true;
+    }
+    if (currentModule.id === '[stdin]') {
+        return true;
+    }
+    return argv[1] === '-';
 }
 function parseArgs(argv) {
     var _a, _b, _c, _d;
@@ -408,7 +418,7 @@ async function main() {
     }
     process.exit((_a = result.status) !== null && _a !== void 0 ? _a : 1);
 }
-if (require.main === module) {
+if (shouldRunInstallerCli(require.main, module, process.argv)) {
     main().catch((error) => {
         fail(error instanceof Error ? error.message : String(error));
     });

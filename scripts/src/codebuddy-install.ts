@@ -129,6 +129,22 @@ export function buildDownloadUrlCandidates(url: string, remoteBearerToken: strin
   ]);
 }
 
+export function shouldRunInstallerCli(
+  mainModule: NodeJS.Module | undefined,
+  currentModule: NodeJS.Module,
+  argv: string[],
+): boolean {
+  if (mainModule === currentModule) {
+    return true;
+  }
+
+  if (currentModule.id === '[stdin]') {
+    return true;
+  }
+
+  return argv[1] === '-';
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   let remoteBaseUrl: string | null = null;
   let loaderUrl: string | null = null;
@@ -441,7 +457,7 @@ async function main(): Promise<void> {
   process.exit(result.status ?? 1);
 }
 
-if (require.main === module) {
+if (shouldRunInstallerCli(require.main, module, process.argv)) {
   main().catch((error) => {
     fail(error instanceof Error ? error.message : String(error));
   });

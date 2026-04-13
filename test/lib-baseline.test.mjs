@@ -611,7 +611,7 @@ async function testFetcherBuildsGithubRawFallbackCandidates() {
 
 async function testInstallerBuildsGithubRawFallbackCandidates() {
   assertBuiltArtifactExists(codebuddyInstallDistPath, 'npm run build:scripts');
-  const { buildDownloadUrlCandidates } = require(codebuddyInstallDistPath);
+  const { buildDownloadUrlCandidates, shouldRunInstallerCli } = require(codebuddyInstallDistPath);
 
   const loaderUrl = 'https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-loader.bundle.js';
   assert.deepEqual(buildDownloadUrlCandidates(loaderUrl, null), [
@@ -622,6 +622,13 @@ async function testInstallerBuildsGithubRawFallbackCandidates() {
 
   assert.deepEqual(buildDownloadUrlCandidates(loaderUrl, 'secret'), [loaderUrl]);
   assert.deepEqual(buildDownloadUrlCandidates('https://intra.example.com/loader.js', null), ['https://intra.example.com/loader.js']);
+
+  const stdinModule = { id: '[stdin]' };
+  const fileModule = { id: '.' };
+  assert.equal(shouldRunInstallerCli(fileModule, fileModule, ['node', 'codebuddy-install.js']), true);
+  assert.equal(shouldRunInstallerCli(undefined, stdinModule, ['node', '-']), true);
+  assert.equal(shouldRunInstallerCli(undefined, fileModule, ['node', '-']), true);
+  assert.equal(shouldRunInstallerCli(undefined, fileModule, ['node', 'required-from-test.js']), false);
 }
 
 async function testStructureAnalyzerBuildsEngineeringScorecard() {
