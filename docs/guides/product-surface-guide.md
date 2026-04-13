@@ -74,6 +74,15 @@ node .codebuddy/scripts/task-orchestrator.js "修复登录页 401 重试逻辑"
 node .codebuddy/scripts/task-orchestrator.js --title "修复登录 401" --description "处理重试和提示" --type debugging
 ```
 
+产品层可以有两种等价入口：
+
+- 显式短命令：`/task <需求>`
+- 自然语言任务请求：例如“帮我实现登录”“规划这次重构”
+
+两者都不应直接变成自由对话，而应先经过同一条底层链路：
+
+`task-intake-routing -> TaskBook.plan -> planner -> validator -> executor`
+
 当你不显式指定 `--workflow` 时，`task-orchestrator` 会自动选择 `micro / sprint / default`。
 
 如果你只关心为什么选到某个 workflow：

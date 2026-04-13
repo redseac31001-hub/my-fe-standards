@@ -22,6 +22,7 @@
 2. 有欢迎 Banner、统一路由表、快速上手提示。
 3. 会按项目技术栈裁剪 Agent / Skill。
 4. 很适合演示“对话触发 Agent / Skill”的能力。
+5. 对话式任务请求和 `/task` 可以被讲成两种产品入口，但目标是收敛到同一条底层闭环链。
 
 当前 `demo` profile 还不满足：
 
@@ -54,6 +55,12 @@ codebuddy-install --remote https://raw.githubusercontent.com/redseac31001-hub/my
 4. Agent / Skill 触发能力也都还在。
 
 这版是**最适合立刻给团队做演示**的。
+
+演示时建议明确讲一句：
+
+- 用户可以直接说“帮我实现登录”“规划这次重构”
+- 也可以显式输入 `/task ...`
+- 这两种入口在产品层不同，但底层都应收敛到 `task-intake-routing -> TaskBook -> planner -> validator -> executor`
 
 #### 业务项目安装命令
 

@@ -485,6 +485,10 @@ async function testPromptBuilderDemoProfileHelpers() {
     generateDemoWelcomeBanner,
     generateUnifiedRoutingPrompt,
     generateDemoRuntimeSummary,
+    generateCommandsReadme,
+    generateScriptsReadme,
+    generateQuickActionGuide,
+    generateDemoQuickActionGuide,
   } = require(promptBuilderDistPath);
 
   const banner = generateDemoWelcomeBanner({
@@ -499,6 +503,7 @@ async function testPromptBuilderDemoProfileHelpers() {
   });
   assert.match(banner, /已识别技术栈: \*\*Vue 3 \+ TypeScript \+ Ant Design Vue\*\*/);
   assert.match(banner, /已加载: 4 条核心规范 \| 6 个 Agent \| 8 个 Skill/);
+  assert.match(banner, /两者都应进入同一任务编排链路/);
 
   const routing = generateUnifiedRoutingPrompt(
     [{ id: 'component-refactoring', name: 'Refactor', description: 'Refactor component', triggers: ['组件重构/拆分组件'] }],
@@ -515,6 +520,26 @@ async function testPromptBuilderDemoProfileHelpers() {
   assert.match(runtimeSummary, /## 已安装运行时/);
   assert.match(runtimeSummary, /工具脚本 4 个 \| 命令 2 个/);
   assert.doesNotMatch(runtimeSummary, /工作流/);
+
+  const commandsReadme = generateCommandsReadme(['task.md', 'agent-call.md']);
+  assert.match(commandsReadme, /也应进入同一路由/);
+  assert.match(commandsReadme, /TaskBook \/ Planner \/ Validator 链路/);
+
+  const scriptsReadme = generateScriptsReadme([
+    'task-intake-router.js',
+    'task-orchestrator.js',
+    'taskbook-manager.js',
+    'task-executor.js',
+  ]);
+  assert.match(scriptsReadme, /task-intake-routing -> TaskBook\.plan -> planner validator/);
+
+  const quickAction = generateQuickActionGuide();
+  assert.match(quickAction, /等价自然语言任务请求/);
+  assert.match(quickAction, /TaskBook \/ Planner \/ Validator 闭环/);
+
+  const demoQuickAction = generateDemoQuickActionGuide();
+  assert.match(demoQuickAction, /两者必须归一化到同一闭环/);
+  assert.match(demoQuickAction, /不要把对话式请求当作自由聊天/);
 }
 
 async function testDistributionProfiles() {
@@ -2328,6 +2353,162 @@ async function testContractValidatorArchitectureWarnings() {
   }
 }
 
+async function testContractValidatorUnderstandsExpandedPlannerContracts() {
+  assertBuiltArtifactExists(contractValidatorDistPath, 'npm run build:scripts');
+  const { runContractValidation } = require(contractValidatorDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-contract-validator-planner-'));
+  try {
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'agent-calls'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'taskbooks', 'active'), { recursive: true });
+
+    const requestId = 'req-planner-123';
+    const taskBookId = 'tb-planner-demo';
+    const promptHeader = {
+      requestId,
+      agentId: 'planner',
+      taskBookId,
+      taskBookRevision: 1,
+      recommendedWorkflowId: 'default',
+      recommendedSpecMode: 'linked-spec-kit',
+      timestamp: '2026-04-13T07:00:00.000Z',
+      promptPath: `.codebuddy/agent-calls/${requestId}.prompt.md`,
+      resultPath: `.codebuddy/agent-calls/${requestId}.result.json`,
+    };
+
+    await fsp.writeFile(
+      path.join(tempDir, '.codebuddy', 'agent-calls', `${requestId}.prompt.md`),
+      [
+        '# Agent Call: planner',
+        '',
+        '## Header (JSON)',
+        '```json',
+        JSON.stringify(promptHeader, null, 2),
+        '```',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const plannerResult = {
+      requestId,
+      kind: 'planner',
+      status: 'success',
+      output: {
+        planId: taskBookId,
+        summary: 'Move account and checkout address flow onto one verified execution plan.',
+        recommendedWorkflowId: 'default',
+        specMode: 'linked-spec-kit',
+        goals: ['Switch mock addresses to real API'],
+        constraints: ['Keep routing behavior stable'],
+        risks: [
+          { level: 'medium', summary: 'Legacy checkout flow may hide extra coupling' },
+        ],
+        specRef: `.codebuddy/specs/${taskBookId}-v1/00-overview.md`,
+        tasks: [
+          {
+            planId: 'TASK-1',
+            title: 'Analyze address flow boundaries',
+            type: 'analysis',
+            priority: 'high',
+            acceptanceCriteria: ['Affected account/checkout files are identified'],
+            executionSpec: {
+              agentHint: 'planner',
+              deliverables: ['Impact summary'],
+              verification: ['Review affected file list'],
+            },
+          },
+          {
+            planId: 'TASK-2',
+            title: 'Implement unified address data path',
+            type: 'implement',
+            priority: 'critical',
+            dependencies: ['TASK-1'],
+            acceptanceCriteria: ['Account and checkout share the real API-backed address flow'],
+            executionSpec: {
+              agentHint: 'coder',
+              deliverables: ['Code diff', 'Smoke verification note'],
+              verification: ['npm run build'],
+              specRef: `.codebuddy/specs/${taskBookId}-v1/00-overview.md`,
+            },
+          },
+        ],
+      },
+      completedAt: '2026-04-13T07:01:00.000Z',
+    };
+
+    await fsp.writeFile(
+      path.join(tempDir, '.codebuddy', 'agent-calls', `${requestId}.result.json`),
+      `${JSON.stringify(plannerResult, null, 2)}\n`,
+      'utf-8',
+    );
+
+    const taskBook = {
+      id: taskBookId,
+      title: 'Planner contract parity demo',
+      description: 'Validate plan/executionSpec parity in contract-validator.',
+      taskType: 'refactoring',
+      createdAt: '2026-04-13T07:00:00.000Z',
+      status: 'draft',
+      plan: {
+        planId: taskBookId,
+        version: 1,
+        source: 'planner',
+        summary: 'Keep dialogue and /task on the same planner contract.',
+        recommendedWorkflowId: 'default',
+        specMode: 'linked-spec-kit',
+        goals: ['Persist routed plan hints'],
+      },
+      context: {
+        relatedFiles: ['src/account/index.vue', 'src/checkout/index.vue'],
+        dependencies: ['vue', 'vuex'],
+      },
+      tasks: [
+        {
+          id: 'task-1',
+          title: 'Analyze impact',
+          type: 'analysis',
+          status: 'pending',
+          priority: 'high',
+          dependencies: [],
+          acceptanceCriteria: ['Affected modules are listed'],
+          executionSpec: {
+            agentHint: 'planner',
+            deliverables: ['Impact note'],
+            verification: ['Review note completeness'],
+          },
+        },
+      ],
+      changelog: [],
+    };
+
+    await fsp.writeFile(
+      path.join(tempDir, '.codebuddy', 'taskbooks', 'active', `${taskBookId}.json`),
+      `${JSON.stringify(taskBook, null, 2)}\n`,
+      'utf-8',
+    );
+
+    const validReport = runContractValidation(['--agent-calls', '--taskbooks', '--json'], tempDir);
+    assert.equal(validReport.ok, true);
+    assert.equal(validReport.issues.filter(issue => issue.level === 'error').length, 0);
+
+    plannerResult.output.recommendedWorkflowId = 'micro';
+    plannerResult.output.tasks[1].executionSpec.agentHint = 'pair-programmer';
+    await fsp.writeFile(
+      path.join(tempDir, '.codebuddy', 'agent-calls', `${requestId}.result.json`),
+      `${JSON.stringify(plannerResult, null, 2)}\n`,
+      'utf-8',
+    );
+
+    const invalidReport = runContractValidation(['--agent-calls', '--taskbooks', '--json'], tempDir);
+    assert.equal(invalidReport.ok, false);
+    assert.equal(invalidReport.issues.some(issue => String(issue.message || '').includes('planner output.recommendedWorkflowId must match prompt header recommendation')), true);
+    assert.equal(invalidReport.issues.some(issue => String(issue.message || '').includes('executionSpec.agentHint must be one of')), true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function testRuleValidatorMetadataWarnings() {
   assertBuiltArtifactExists(ruleValidatorDistPath, 'npm run build:scripts');
   const { validateRulesDir, finalizeRuleValidation } = require(ruleValidatorDistPath);
@@ -3523,6 +3704,7 @@ async function main() {
     ['doctor ignores known optional static support files', testDoctorIgnoresKnownOptionalStaticSupportFiles],
     ['doctor warns when validator gate regresses relative to previous run', testDoctorWarnsOnValidatorGateRegressionEvenWhenLatestPasses],
     ['contract validator architecture drift checks stay opt-in and additive', testContractValidatorArchitectureWarnings],
+    ['contract validator understands expanded planner contracts and route hints', testContractValidatorUnderstandsExpandedPlannerContracts],
     ['rule validator warns when recommended metadata is missing', testRuleValidatorMetadataWarnings],
     ['skill validator warns on bundled files that are never linked from markdown', testSkillValidatorBundledReferenceWarnings],
     ['repo state validator warns on stale or weak repository fact sources', testRepoStateValidatorWarnsOnMissingLinksAndStaleFacts],

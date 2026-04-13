@@ -55,8 +55,47 @@
   "$defs": {
     "plannerOutput": {
       "type": "object",
-      "required": ["tasks"],
+      "required": ["planId", "tasks"],
       "properties": {
+        "planId": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "recommendedWorkflowId": {
+          "type": "string",
+          "enum": ["micro", "sprint", "default"]
+        },
+        "specMode": {
+          "type": "string",
+          "enum": ["inline-open-spec", "linked-spec-kit"]
+        },
+        "goals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "outOfScope": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "clarifications": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "risks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/plannerRisk" }
+        },
+        "epics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/plannerEpic" }
+        },
+        "specRef": { "type": "string", "minLength": 1 },
         "tasks": {
           "type": "array",
           "items": { "$ref": "#/$defs/plannerTask" }
@@ -67,7 +106,7 @@
     },
     "plannerTask": {
       "type": "object",
-      "required": ["planId", "title", "type"],
+      "required": ["planId", "title", "type", "acceptanceCriteria"],
       "properties": {
         "planId": { "type": "string", "minLength": 1 },
         "title": { "type": "string", "minLength": 1 },
@@ -83,7 +122,53 @@
             "tags": { "type": "array", "items": { "type": "string" } }
           },
           "additionalProperties": true
-        }
+        },
+        "executionSpec": { "$ref": "#/$defs/plannerExecutionSpec" }
+      },
+      "additionalProperties": true
+    },
+    "plannerRisk": {
+      "type": "object",
+      "required": ["summary"],
+      "properties": {
+        "level": { "type": "string", "enum": ["low", "medium", "high"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "mitigation": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "plannerEpic": {
+      "type": "object",
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "plannerExecutionSpec": {
+      "type": "object",
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "agentHint": {
+          "type": "string",
+          "enum": ["coder", "tester", "reviewer", "refactor", "doc-writer", "planner"]
+        },
+        "deliverables": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "verification": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dependenciesNote": { "type": "string", "minLength": 1 },
+        "specRef": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": true
     },

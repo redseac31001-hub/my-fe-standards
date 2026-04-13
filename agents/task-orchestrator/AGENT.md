@@ -71,6 +71,8 @@ model: opus
 6. **交付验收** - 确保所有任务完成并请求用户验收
 
 > ⚠️ **职责边界**：如果用户只想要规划方案（不需要执行编码），应由 `planner` Agent 处理。`task-orchestrator` 在 Phase 4 收到用户"确认执行"后才进入编码阶段。涉及运行时 bug 排查时，Phase 5 应编排 `bug-investigator` Agent 进行根因定位。
+> 
+> ⚠️ **入口等价性**：显式 `/task` 与等价的自然语言任务请求（例如“帮我实现…”、“规划这个需求”）是同一产品入口的两种表面形式。只要命中任务编排意图，都必须先经过同一条 `task-intake-routing -> TaskBook.plan -> planner 校验 -> executor` 链路，不得退化成自由对话规划。
 
 ---
 
@@ -90,7 +92,8 @@ model: opus
    - 读取 `package.json` 识别测试框架和构建工具
    - 扫描 `.codebuddy/reports/` 获取最近一次健康度报告（如存在）
 5. 初始化 TaskBook 草稿，将上下文注入 `TaskBook.context`
-   - **可选增强**: 如果 `.codebuddy/scripts/taskbook-manager.js` 存在，可调用以持久化任务状态（支持跨会话恢复）。否则在对话上下文中维护即可。
+   - **强制要求**: 在完整运行时中，如果 `.codebuddy/scripts/taskbook-manager.js` 存在，必须先持久化 TaskBook，再继续后续阶段。不要只在对话上下文中维护草稿。
+   - 只有在轻量安装档位未分发 TaskBook runtime 且用户明确接受降级时，才允许临时以内存态继续。
 
 **上下文注入工具调用**:
 ```
@@ -132,7 +135,7 @@ Task(structure-analyzer): 获取架构分析
 **目标**: 生成结构化的任务清单
 
 **执行步骤**:
-1. 调用 Planner Agent 生成实施计划
+1. 调用 Planner Agent 生成可写回 TaskBook 的结构化计划
 2. 按 INVEST 原则拆分为原子任务:
    - **I**ndependent: 任务独立可执行
    - **N**egotiable: 可协商调整
@@ -142,21 +145,24 @@ Task(structure-analyzer): 获取架构分析
    - **T**estable: 可验证完成
 3. 识别任务依赖关系
 4. 确定执行顺序（考虑并行可能性）
-5. 为每个任务定义验收标准
+5. 为每个任务定义验收标准和最小执行契约（Open Spec）
 
-**任务类型**:
-- `requirement`: 需求澄清
-- `prd`: PRD 生成
+**Planner 任务类型（第一阶段固定）**:
 - `analysis`: 分析和调研
 - `design`: 接口设计和架构决策
-- `test`: 编写测试用例（TDD RED）
-- `implement`: 代码实现（TDD GREEN）
-- `refactor`: 重构优化（TDD REFACTOR）
+- `test`: 测试用例与验证设计
+- `implement`: 代码实现与必要重构
 - `review`: 代码审查
-- `build-fix`: 构建修复
-- `acceptance`: 验收确认
 
-**输出**: TaskBook.tasks 完整填充
+**Planner 输出契约**:
+- 顶层必须包含 `planId`，且应与 `taskBook.id` 一致
+- 若路由阶段已给出 `recommendedWorkflowId / specMode`，Planner 输出必须保持一致
+- 每个任务必须包含 `planId / title / type / priority / dependencies / acceptanceCriteria`
+- 每个任务应携带 `executionSpec`，至少包含 `agentHint / deliverables / verification`
+- `acceptanceCriteria` 表示业务/结果层验收；`verification` 表示技术/工程层校验，不得混写
+- `refactor / build-fix / acceptance` 可以作为执行阶段的内部动作或修复循环，不应作为 Planner 第一阶段的任务类型
+
+**输出**: `TaskBook.plan + TaskBook.tasks` 完整填充，并写回持久化 TaskBook
 
 ---
 
@@ -199,11 +205,9 @@ Task(structure-analyzer): 获取架构分析
 3. **Agent 编排**:
    - `design` 任务 → 自行完成或调用 Architect Agent
    - `test` 任务 → 调用 TDD-Driver Agent（RED 阶段）
-   - `implement` 任务 → 调用 TDD-Driver Agent（GREEN 阶段）
-   - `refactor` 任务 → 调用 TDD-Driver Agent（REFACTOR 阶段）
-   - `debugging` 任务 → 调用 Bug-Investigator Agent（根因定位 + 修复方案）
+   - `implement` 任务 → 调用 TDD-Driver Agent（GREEN 阶段），必要时在同一任务内完成受控重构
    - `review` 任务 → 调用 Code-Reviewer Agent
-   - `build-fix` 任务 → 调用 Build-Fix Agent
+   - 运行时故障 / 测试失败 → 作为 `implement` 或 `review` 任务的修复子流程，调用 Bug-Investigator / Build-Fix Agent，不单独扩展 Planner 任务类型
 4. **状态更新**: 实时更新 TaskBook.tasks[].status
 5. **阻塞处理**: 遇到阻塞立即暂停，请求用户介入
 
@@ -221,7 +225,7 @@ pending → in_progress → done
 
 **测试→修复自动循环（强制执行）**:
 
-每个 `implement` / `refactor` 任务完成后，必须执行以下验证循环：
+每个 `implement` 任务完成后，必须执行以下验证循环：
 
 ```
 任务完成 → npm test
@@ -278,7 +282,7 @@ npm test        # 全量测试验证
 
 **输出**: TaskBook.changelog 持续更新
 
-> **可选增强**: 如果 `.codebuddy/scripts/taskbook-manager.js` 存在，变更日志可持久化到 TaskBook JSON 文件中（支持跨会话恢复和审计）。否则在对话上下文中维护变更记录即可。
+> **强制要求**: 如果 `.codebuddy/scripts/taskbook-manager.js` 存在，变更日志必须持久化到 TaskBook JSON 文件中（支持跨会话恢复和审计）。不要只在对话上下文中维护变更记录。
 
 ---
 
@@ -289,14 +293,14 @@ npm test        # 全量测试验证
 **执行步骤**:
 1. 检查所有任务状态（done / blocked / skipped 统计）
 2. **AI 自主汇总执行结果**：
-   - 回顾 Phase 5 中各任务的完成情况（对话上下文中已有完整记录）
+   - 以 TaskBook、agent-call result、测试/构建报告为准回顾 Phase 5 中各任务的完成情况
    - 汇总代码变更内容、测试结果、遗留问题
 3. **运行自动化验证**：
    - 运行 `npm test`（如存在）确认测试通过
    - 运行 `npm run build`（如存在）确认构建通过
 4. **生成验收报告**：包含执行摘要 + 代码变更 + 测试结果 + 遗留问题 + 下一步建议 + 整体评分
 5. 展示完整验收报告，请求用户验收
-6. **可选增强**: 如果 `.codebuddy/scripts/taskbook-manager.js` 存在，可将结果持久化到 TaskBook 并归档到 `.codebuddy/taskbooks/history/`
+6. **强制要求**: 如果 `.codebuddy/scripts/taskbook-manager.js` 存在，必须将结果持久化到 TaskBook 并归档到 `.codebuddy/taskbooks/history/`
 
 **验收报告展示结构**:
 ```
@@ -362,7 +366,7 @@ npm test        # 全量测试验证
 | Phase 5 | bug-investigator | 运行时 Bug 根因定位（分层验证 + 依赖图裁剪） |
 | Phase 5 | security-reviewer | 安全审查（按需，有安全相关改动时触发） |
 | Phase 5 | performance-profiler | 性能分析（按需，有性能相关改动时触发） |
-| Phase 7 | AI 自主汇总 | 回顾对话上下文，生成验收报告 |
+| Phase 7 | AI 自主汇总 | 以 TaskBook、agent-call 结果和验证报告为准生成验收报告 |
 
 ---
 

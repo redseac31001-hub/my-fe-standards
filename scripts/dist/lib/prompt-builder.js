@@ -309,6 +309,7 @@ function generateCommandsPrompt(commands) {
 # 📋 Slash Commands 索引
 
 本规则库只保留少量高频命令作为短入口；详细参数和完整说明已外迁到 \`.codebuddy/commands/README.md\`。
+\`/task\` 是显式短命令；等价的自然语言任务请求（例如“帮我实现…”、“规划这个需求”）也必须归一化到同一条 TaskBook / Planner / Validator 闭环，而不是当作自由聊天处理。
 
 ## 快速入口
 
@@ -333,7 +334,7 @@ function generateCommandsReadme(commands) {
         '优先按下面四条路径理解当前安装，而不是先扫完整命令表：',
         '',
         '1. 安装 / 同步 / 诊断：先看 `.codebuddy/scripts/README.md` 里的 `codebuddy-loader.js` 入口。',
-        '2. 启动闭环：需求、缺陷、重构优先走 `/task`。',
+        '2. 启动闭环：需求、缺陷、重构优先走 `/task`；直接说“帮我实现…”“帮我规划…”也应进入同一路由。',
         '3. 接管 / 写回：需要处理 `.codebuddy/agent-calls/*.prompt.md` 时，使用 `/agent-call`。',
         '4. 观察 / 汇报：报告与趋势优先走 `.codebuddy/scripts/report-manager.js`。',
         '',
@@ -343,7 +344,7 @@ function generateCommandsReadme(commands) {
         '',
         '## 快速入口',
         '',
-        '- 业务需求、重构、缺陷修复：优先使用 `/task`，详细说明见 `task.md`。',
+        '- 业务需求、重构、缺陷修复：优先使用 `/task`；等价自然语言任务请求也必须归一化到同一条 TaskBook / Planner / Validator 链路，详细说明见 `task.md`。',
         '- 需要执行 `.codebuddy/agent-calls/*.prompt.md`：使用 `/agent-call`，详细说明见 `agent-call.md`。',
         '',
         '## 推荐阅读顺序',
@@ -372,6 +373,8 @@ function generateScriptsReadme(scripts) {
         '```',
         '',
         '### 2. 启动闭环',
+        '',
+        '显式 `/task` 与等价的自然语言任务请求，都应先经过 `task-intake-routing -> TaskBook.plan -> planner validator` 同一条执行链路。',
         '',
         '```bash',
         'node .codebuddy/scripts/task-intake-router.js --description "replace mock login API" --files 4 --contract explicit',
@@ -450,13 +453,15 @@ function generateQuickActionGuide() {
 
 | 场景 | 优先动作 | 入口 |
 |------|----------|------|
-| 新功能 / 重构 / 缺陷修复 | 走任务闭环，不要手工跳步骤 | \`/task <需求>\` |
+| 新功能 / 重构 / 缺陷修复 | 走任务闭环；用户直接说“帮我实现…”时也要按 \`/task\` 同路由处理 | \`/task <需求>\` 或等价自然语言任务请求 |
 | 需要理解项目结构 | 先做结构分析，再读相关规则/代码 | \`node .codebuddy/scripts/structure-analyzer.js .\` |
 | 需要查看已有分析结果 | 先查报告状态，避免重复扫描 | \`node .codebuddy/scripts/report-manager.js status\` |
 | 需要生成系统概要设计 / 设计文档 | 优先路由到专用设计文档 Agent，再按需加载 skill 和模板 | \`system-overview-writer\` |
 | 需要执行外部 Agent Call | 读取 prompt，写回 result.json | \`/agent-call <requestId>\` |
 | 需要校验 TaskBook / Workflow 契约 | 先跑契约校验 | \`node .codebuddy/scripts/contract-validator.js --workflows --taskbooks\` |
 | 需要细节规范 | 按需读取缓存规则，不要全文扫读全部规则 | \`.codebuddy/rules_cache/\` |
+
+对话式任务请求与 \`/task\` 是同一产品入口的两种表面形式：都必须先做 task-intake routing，再进入 TaskBook / Planner / Validator 闭环。
 
 优先读短入口：\`.codebuddy/scripts/README.md\`、\`.codebuddy/commands/README.md\`、\`.codebuddy/rules_cache/\`。
 `;
@@ -1150,7 +1155,7 @@ function generateDemoWelcomeBanner(options) {
 已加载: ${options.layer1RulesCount} 条核心规范 | ${options.agentsCount} 个 Agent | ${options.skillsCount} 个 Skill
 
 快速上手:
-- 输入 \`/task 实现用户登录\` 启动任务编排
+- 输入 \`/task 实现用户登录\`，或直接说“帮我实现用户登录”；两者都应进入同一任务编排链路
 - 输入 "审查这段代码" 触发代码审查
 - 输入 "帮我排查这个 bug" 启动 Bug 调查
 - 输入 "分析项目结构" 执行架构分析
@@ -1212,10 +1217,12 @@ function generateDemoQuickActionGuide() {
 
 | 场景 | 入口 |
 |------|------|
-| 新功能 / 重构 / 缺陷修复 | \`/task <需求描述>\` |
+| 新功能 / 重构 / 缺陷修复 | \`/task <需求描述>\` 或直接说“帮我实现…”；两者必须归一化到同一闭环 |
 | 代码审查 | 说 "审查这段代码" 或 "code review" |
 | Bug 排查 | 说 "帮我排查" 或 "修复 bug" |
 | 项目结构分析 | 说 "分析项目结构" |
+
+命中任务编排意图后，不要把对话式请求当作自由聊天；应与 \`/task\` 共用同一条 TaskBook / Planner / Validator 路由。
 
 需要查看规则详情时，使用 \`read_file\` 读取 \`.codebuddy/rules_cache/\` 下对应文件。
 

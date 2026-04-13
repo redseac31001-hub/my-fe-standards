@@ -36,9 +36,13 @@ type ValidationReport = {
 
 const TASKBOOK_STATUSES = new Set(['draft', 'confirmed', 'executing', 'completed', 'aborted']);
 const TASKBOOK_TYPES = new Set(['new-feature', 'refactoring', 'debugging', 'testing', 'code-review']);
-const TASK_TYPES = new Set(['analysis', 'design', 'test', 'implement', 'review']);
+const TASKBOOK_TASK_TYPES = new Set(['requirement', 'prd', 'analysis', 'design', 'test', 'implement', 'refactor', 'review', 'build-fix', 'acceptance']);
+const PLANNER_TASK_TYPES = new Set(['analysis', 'design', 'test', 'implement', 'review']);
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'done', 'blocked', 'skipped']);
 const TASK_PRIORITIES = new Set(['critical', 'high', 'medium', 'low']);
+const TASK_AGENT_HINTS = new Set(['coder', 'tester', 'reviewer', 'refactor', 'doc-writer', 'planner']);
+const BUILTIN_WORKFLOW_IDS = new Set(['micro', 'sprint', 'default']);
+const TASK_SPEC_MODES = new Set(['inline-open-spec', 'linked-spec-kit']);
 const CHANGE_TYPES = new Set(['added', 'modified', 'removed', 'reordered']);
 
 const AGENT_CALL_STATUSES = new Set(['success', 'failed', 'blocked']);
@@ -67,6 +71,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(v => typeof v === 'string');
+}
+
+function hasNonEmptyStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every(v => typeof v === 'string' && v.trim().length > 0);
 }
 
 function isValidDateTime(value: unknown): boolean {
@@ -115,6 +123,8 @@ type AgentCallPromptHeader = {
   taskBookRevision?: number;
   taskId?: string;
   taskType?: string;
+  recommendedWorkflowId?: string;
+  recommendedSpecMode?: string;
   timestamp?: string;
   promptPath?: string;
   resultPath?: string;
@@ -156,13 +166,280 @@ function parseAgentCallResultKind(data: unknown): AgentCallKind | null {
   return null;
 }
 
-function validatePlannerAgentCallOutput(output: unknown, file: string): Issue[] {
+function detectDependencyCycle(tasks: Array<{ id: string; dependencies: string[] }>): string[] {
+  const graph = new Map<string, string[]>();
+  for (const task of tasks) graph.set(task.id, task.dependencies);
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const trail: string[] = [];
+
+  const dfs = (node: string): string[] => {
+    if (visiting.has(node)) {
+      const index = trail.indexOf(node);
+      return index >= 0 ? [...trail.slice(index), node] : [node, node];
+    }
+    if (visited.has(node)) return [];
+
+    visiting.add(node);
+    trail.push(node);
+    for (const dep of graph.get(node) ?? []) {
+      const cycle = dfs(dep);
+      if (cycle.length > 0) return cycle;
+    }
+    trail.pop();
+    visiting.delete(node);
+    visited.add(node);
+    return [];
+  };
+
+  for (const node of graph.keys()) {
+    const cycle = dfs(node);
+    if (cycle.length > 0) return cycle;
+  }
+  return [];
+}
+
+function validateTaskScope(scope: unknown, file: string, basePath: string): Issue[] {
   const issues: Issue[] = [];
   const error = (message: string) => issues.push({ level: 'error', file, message });
+  if (!isPlainObject(scope)) {
+    error(`${basePath} must be an object`);
+    return issues;
+  }
+  for (const scopeKey of ['files', 'modules', 'tags'] as const) {
+    const scopeValue = scope[scopeKey];
+    if (typeof scopeValue !== 'undefined' && !isStringArray(scopeValue)) {
+      error(`${basePath}.${scopeKey} must be an array of strings`);
+    }
+  }
+  return issues;
+}
+
+function validateExecutionSpec(spec: unknown, file: string, basePath: string, opts?: { warnIfRecommended?: boolean }): Issue[] {
+  const issues: Issue[] = [];
+  const error = (message: string) => issues.push({ level: 'error', file, message });
+  const warn = (message: string) => issues.push({ level: 'warning', file, message });
+
+  if (!isPlainObject(spec)) {
+    error(`${basePath} must be an object`);
+    return issues;
+  }
+
+  if (typeof spec.summary !== 'undefined' && !isNonEmptyString(spec.summary)) {
+    error(`${basePath}.summary must be a non-empty string when provided`);
+  }
+  if (typeof spec.agentHint !== 'undefined' && (!isNonEmptyString(spec.agentHint) || !TASK_AGENT_HINTS.has(spec.agentHint))) {
+    error(`${basePath}.agentHint must be one of: ${Array.from(TASK_AGENT_HINTS).join(', ')}`);
+  }
+  if (typeof spec.dependenciesNote !== 'undefined' && !isNonEmptyString(spec.dependenciesNote)) {
+    error(`${basePath}.dependenciesNote must be a non-empty string when provided`);
+  }
+  if (typeof spec.specRef !== 'undefined' && !isNonEmptyString(spec.specRef)) {
+    error(`${basePath}.specRef must be a non-empty string when provided`);
+  }
+
+  for (const listKey of ['deliverables', 'verification', 'constraints'] as const) {
+    const listValue = spec[listKey];
+    if (typeof listValue !== 'undefined' && !hasNonEmptyStringArray(listValue)) {
+      error(`${basePath}.${listKey} must be a non-empty array of strings when provided`);
+    }
+  }
+
+  if (opts?.warnIfRecommended === true) {
+    if (typeof spec.deliverables === 'undefined') warn(`${basePath}.deliverables is recommended`);
+    if (typeof spec.verification === 'undefined') warn(`${basePath}.verification is recommended`);
+  }
+
+  return issues;
+}
+
+function validateTaskBookPlan(plan: unknown, file: string, taskBookId?: string): Issue[] {
+  const issues: Issue[] = [];
+  const error = (message: string) => issues.push({ level: 'error', file, message });
+  const warn = (message: string) => issues.push({ level: 'warning', file, message });
+
+  if (!isPlainObject(plan)) {
+    error('plan must be an object');
+    return issues;
+  }
+
+  if (!isNonEmptyString(plan.planId)) {
+    error('plan.planId must be a non-empty string');
+  } else if (isNonEmptyString(taskBookId) && plan.planId !== taskBookId) {
+    error(`plan.planId must match taskbook id (${taskBookId})`);
+  }
+
+  if (typeof plan.version !== 'number' || !Number.isInteger(plan.version) || plan.version < 1) {
+    error('plan.version must be an integer >= 1');
+  }
+
+  if (typeof plan.specMode !== 'undefined' && (!isNonEmptyString(plan.specMode) || !TASK_SPEC_MODES.has(plan.specMode))) {
+    error(`plan.specMode must be one of: ${Array.from(TASK_SPEC_MODES).join(', ')}`);
+  }
+  if (typeof plan.recommendedWorkflowId !== 'undefined' && (!isNonEmptyString(plan.recommendedWorkflowId) || !BUILTIN_WORKFLOW_IDS.has(plan.recommendedWorkflowId))) {
+    error(`plan.recommendedWorkflowId must be one of: ${Array.from(BUILTIN_WORKFLOW_IDS).join(', ')}`);
+  }
+  if (typeof plan.summary !== 'undefined' && !isNonEmptyString(plan.summary)) {
+    error('plan.summary must be a non-empty string when provided');
+  } else if (typeof plan.summary === 'undefined') {
+    warn('plan.summary is recommended');
+  }
+  if (typeof plan.specRef !== 'undefined' && !isNonEmptyString(plan.specRef)) {
+    error('plan.specRef must be a non-empty string when provided');
+  }
+  if (typeof plan.linkedTaskBookRevision !== 'undefined') {
+    const revision = plan.linkedTaskBookRevision;
+    if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 0) {
+      error('plan.linkedTaskBookRevision must be a non-negative integer when provided');
+    }
+  }
+  if (typeof plan.source !== 'undefined' && (!isNonEmptyString(plan.source) || !new Set(['planner', 'manual', 'task-intake-routing']).has(plan.source))) {
+    error('plan.source must be one of: planner, manual, task-intake-routing');
+  }
+
+  for (const key of ['goals', 'outOfScope', 'assumptions', 'constraints', 'clarifications'] as const) {
+    const value = plan[key];
+    if (typeof value === 'undefined') continue;
+    if (!isStringArray(value)) error(`plan.${key} must be an array of strings`);
+  }
+
+  if (typeof plan.risks !== 'undefined') {
+    if (!Array.isArray(plan.risks)) {
+      error('plan.risks must be an array');
+    } else {
+      for (const [index, rawRisk] of plan.risks.entries()) {
+        if (!isPlainObject(rawRisk)) {
+          error(`plan.risks[${index}] must be an object`);
+          continue;
+        }
+        if (!isNonEmptyString(rawRisk.summary)) error(`plan.risks[${index}].summary must be a non-empty string`);
+        if (!isNonEmptyString(rawRisk.level) || !new Set(['low', 'medium', 'high']).has(rawRisk.level)) {
+          error(`plan.risks[${index}].level must be one of: low, medium, high`);
+        }
+        if (typeof rawRisk.mitigation !== 'undefined' && !isNonEmptyString(rawRisk.mitigation)) {
+          error(`plan.risks[${index}].mitigation must be a non-empty string when provided`);
+        }
+      }
+    }
+  }
+
+  if (typeof plan.epics !== 'undefined') {
+    if (!Array.isArray(plan.epics)) {
+      error('plan.epics must be an array');
+    } else {
+      for (const [index, rawEpic] of plan.epics.entries()) {
+        if (!isPlainObject(rawEpic)) {
+          error(`plan.epics[${index}] must be an object`);
+          continue;
+        }
+        if (!isNonEmptyString(rawEpic.id)) error(`plan.epics[${index}].id must be a non-empty string`);
+        if (!isNonEmptyString(rawEpic.title)) error(`plan.epics[${index}].title must be a non-empty string`);
+        if (typeof rawEpic.summary !== 'undefined' && !isNonEmptyString(rawEpic.summary)) {
+          error(`plan.epics[${index}].summary must be a non-empty string when provided`);
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
+function validatePlannerAgentCallOutput(output: unknown, file: string, header?: AgentCallPromptHeader | null): Issue[] {
+  const issues: Issue[] = [];
+  const error = (message: string) => issues.push({ level: 'error', file, message });
+  const warn = (message: string) => issues.push({ level: 'warning', file, message });
 
   if (!isPlainObject(output)) {
     error('agent-call output must be an object for planner');
     return issues;
+  }
+
+  if (!isNonEmptyString(output.planId)) {
+    error('planner output.planId must be a non-empty string');
+  } else if (isNonEmptyString(header?.taskBookId) && output.planId !== header?.taskBookId) {
+    error(`planner output.planId must equal prompt header taskBookId (${header?.taskBookId})`);
+  }
+
+  if (typeof output.summary !== 'undefined' && !isNonEmptyString(output.summary)) {
+    error('planner output.summary must be a non-empty string when provided');
+  } else if (typeof output.summary === 'undefined') {
+    warn('planner output.summary is recommended');
+  }
+
+  if (typeof output.recommendedWorkflowId !== 'undefined') {
+    if (!isNonEmptyString(output.recommendedWorkflowId) || !BUILTIN_WORKFLOW_IDS.has(output.recommendedWorkflowId)) {
+      error(`planner output.recommendedWorkflowId must be one of: ${Array.from(BUILTIN_WORKFLOW_IDS).join(', ')}`);
+    } else if (isNonEmptyString(header?.recommendedWorkflowId) && output.recommendedWorkflowId !== header.recommendedWorkflowId) {
+      error(`planner output.recommendedWorkflowId must match prompt header recommendation (${header?.recommendedWorkflowId})`);
+    }
+  } else {
+    warn('planner output.recommendedWorkflowId is recommended');
+  }
+
+  if (typeof output.specMode !== 'undefined') {
+    if (!isNonEmptyString(output.specMode) || !TASK_SPEC_MODES.has(output.specMode)) {
+      error(`planner output.specMode must be one of: ${Array.from(TASK_SPEC_MODES).join(', ')}`);
+    } else if (isNonEmptyString(header?.recommendedSpecMode) && output.specMode !== header.recommendedSpecMode) {
+      error(`planner output.specMode must match prompt header recommendation (${header?.recommendedSpecMode})`);
+    }
+  } else {
+    warn('planner output.specMode is recommended');
+  }
+
+  for (const key of ['goals', 'outOfScope', 'assumptions', 'constraints', 'clarifications'] as const) {
+    const value = output[key];
+    if (typeof value === 'undefined') {
+      warn(`planner output.${key} is recommended`);
+      continue;
+    }
+    if (!isStringArray(value)) {
+      error(`planner output.${key} must be an array of strings`);
+    }
+  }
+
+  if (typeof output.risks === 'undefined') {
+    warn('planner output.risks is recommended');
+  } else if (!Array.isArray(output.risks)) {
+    error('planner output.risks must be an array');
+  } else {
+    for (const [index, rawRisk] of output.risks.entries()) {
+      if (!isPlainObject(rawRisk)) {
+        error(`planner output.risks[${index}] must be an object`);
+        continue;
+      }
+      if (!isNonEmptyString(rawRisk.summary)) {
+        error(`planner output.risks[${index}].summary must be a non-empty string`);
+      }
+      if (typeof rawRisk.level !== 'undefined' && (!isNonEmptyString(rawRisk.level) || !['low', 'medium', 'high'].includes(rawRisk.level))) {
+        error(`planner output.risks[${index}].level must be one of: low, medium, high`);
+      }
+      if (typeof rawRisk.mitigation !== 'undefined' && !isNonEmptyString(rawRisk.mitigation)) {
+        error(`planner output.risks[${index}].mitigation must be a non-empty string when provided`);
+      }
+    }
+  }
+
+  if (typeof output.specRef !== 'undefined' && !isNonEmptyString(output.specRef)) {
+    error('planner output.specRef must be a non-empty string when provided');
+  }
+
+  if (typeof output.epics !== 'undefined') {
+    if (!Array.isArray(output.epics)) {
+      error('planner output.epics must be an array');
+    } else {
+      for (const [index, rawEpic] of output.epics.entries()) {
+        if (!isPlainObject(rawEpic)) {
+          error(`planner output.epics[${index}] must be an object`);
+          continue;
+        }
+        if (!isNonEmptyString(rawEpic.id)) error(`planner output.epics[${index}].id must be a non-empty string`);
+        if (!isNonEmptyString(rawEpic.title)) error(`planner output.epics[${index}].title must be a non-empty string`);
+        if (typeof rawEpic.summary !== 'undefined' && !isNonEmptyString(rawEpic.summary)) {
+          error(`planner output.epics[${index}].summary must be a non-empty string when provided`);
+        }
+      }
+    }
   }
 
   const tasks = output.tasks;
@@ -176,10 +453,8 @@ function validatePlannerAgentCallOutput(output: unknown, file: string): Issue[] 
     return issues;
   }
 
-  const allowedTypes = new Set(['analysis', 'design', 'test', 'implement', 'review']);
-  const allowedPriorities = TASK_PRIORITIES;
-
   const seenPlanIds = new Set<string>();
+  const parsedTasks: Array<{ id: string; dependencies: string[] }> = [];
   for (const [index, raw] of tasks.entries()) {
     if (!isPlainObject(raw)) {
       error(`planner output.tasks[${index}] must be an object`);
@@ -200,18 +475,14 @@ function validatePlannerAgentCallOutput(output: unknown, file: string): Issue[] 
 
     if (!isNonEmptyString(title)) error(`planner output.tasks[${index}].title must be a non-empty string`);
 
-    if (!isNonEmptyString(type) || !allowedTypes.has(type)) {
-      error(`planner output.tasks[${index}].type must be one of: ${Array.from(allowedTypes).join(', ')}`);
+    if (!isNonEmptyString(type) || !PLANNER_TASK_TYPES.has(type)) {
+      error(`planner output.tasks[${index}].type must be one of: ${Array.from(PLANNER_TASK_TYPES).join(', ')}`);
     }
 
     if (typeof priority !== 'undefined') {
-      if (!isNonEmptyString(priority) || !allowedPriorities.has(priority)) {
-        error(`planner output.tasks[${index}].priority must be one of: ${Array.from(allowedPriorities).join(', ')}`);
+      if (!isNonEmptyString(priority) || !TASK_PRIORITIES.has(priority)) {
+        error(`planner output.tasks[${index}].priority must be one of: ${Array.from(TASK_PRIORITIES).join(', ')}`);
       }
-    }
-
-    if (typeof raw.acceptanceCriteria !== 'undefined' && !isStringArray(raw.acceptanceCriteria)) {
-      error(`planner output.tasks[${index}].acceptanceCriteria must be an array of strings (when provided)`);
     }
 
     if (typeof raw.dependencies !== 'undefined') {
@@ -227,23 +498,25 @@ function validatePlannerAgentCallOutput(output: unknown, file: string): Issue[] 
       }
     }
 
-    if (typeof raw.scope !== 'undefined') {
-      const scope = raw.scope;
-      if (!isPlainObject(scope)) {
-        error(`planner output.tasks[${index}].scope must be an object (when provided)`);
-      } else {
-        if (typeof scope.files !== 'undefined' && !isStringArray(scope.files)) {
-          error(`planner output.tasks[${index}].scope.files must be an array of strings (when provided)`);
-        }
-        if (typeof scope.modules !== 'undefined' && !isStringArray(scope.modules)) {
-          error(`planner output.tasks[${index}].scope.modules must be an array of strings (when provided)`);
-        }
-        if (typeof scope.tags !== 'undefined' && !isStringArray(scope.tags)) {
-          error(`planner output.tasks[${index}].scope.tags must be an array of strings (when provided)`);
-        }
-      }
+    if (!hasNonEmptyStringArray(raw.acceptanceCriteria)) {
+      error(`planner output.tasks[${index}].acceptanceCriteria must be a non-empty array of strings`);
     }
+
+    if (typeof raw.scope !== 'undefined') issues.push(...validateTaskScope(raw.scope, file, `planner output.tasks[${index}].scope`));
+    if (typeof raw.executionSpec !== 'undefined') {
+      issues.push(...validateExecutionSpec(raw.executionSpec, file, `planner output.tasks[${index}].executionSpec`, { warnIfRecommended: true }));
+    } else {
+      warn(`planner output.tasks[${index}].executionSpec is recommended`);
+    }
+
+    parsedTasks.push({
+      id: isNonEmptyString(planId) ? planId : `invalid-${index}`,
+      dependencies: isStringArray(raw.dependencies) ? raw.dependencies : [],
+    });
   }
+
+  const cycle = detectDependencyCycle(parsedTasks);
+  if (cycle.length > 0) error(`planner output.tasks contains a dependency cycle: ${cycle.join(' -> ')}`);
 
   return issues;
 }
@@ -332,7 +605,7 @@ function validateAgentCallResult(
   if (status === 'success') {
     if (typeof completedAt === 'undefined') warn('agent-call completedAt is recommended when status=success');
     const kind = opts?.kind ?? 'unknown';
-    if (kind === 'planner') issues.push(...validatePlannerAgentCallOutput(output, file));
+    if (kind === 'planner') issues.push(...validatePlannerAgentCallOutput(output, file, opts?.promptHeader ?? null));
     else if (kind === 'manual-task') issues.push(...validateManualTaskAgentCallOutput(output, file));
   }
 
@@ -419,7 +692,12 @@ function validateTaskBook(data: unknown, file: string): Issue[] {
     }
   }
 
+  if ('plan' in data && typeof data.plan !== 'undefined') {
+    issues.push(...validateTaskBookPlan(data.plan, file, isNonEmptyString(data.id) ? data.id : undefined));
+  }
+
   const taskIdSet = new Set<string>();
+  const parsedTasks: Array<{ id: string; dependencies: string[] }> = [];
 
   if ('tasks' in data) {
     if (!Array.isArray(data.tasks)) {
@@ -444,8 +722,8 @@ function validateTaskBook(data: unknown, file: string): Issue[] {
 
         if (!isNonEmptyString(t.title)) error(`tasks[${index}].title must be a non-empty string`);
 
-        if (!isNonEmptyString(t.type) || !TASK_TYPES.has(t.type)) {
-          error(`tasks[${index}].type must be one of: ${Array.from(TASK_TYPES).join(', ')}`);
+        if (!isNonEmptyString(t.type) || !TASKBOOK_TASK_TYPES.has(t.type)) {
+          error(`tasks[${index}].type must be one of: ${Array.from(TASKBOOK_TASK_TYPES).join(', ')}`);
         }
 
         if (!isNonEmptyString(t.status) || !TASK_STATUSES.has(t.status)) {
@@ -457,23 +735,11 @@ function validateTaskBook(data: unknown, file: string): Issue[] {
         }
 
         if (!isStringArray(t.dependencies)) error(`tasks[${index}].dependencies must be an array of strings`);
-        if (!isStringArray(t.acceptanceCriteria)) error(`tasks[${index}].acceptanceCriteria must be an array of strings`);
+        if (!hasNonEmptyStringArray(t.acceptanceCriteria)) error(`tasks[${index}].acceptanceCriteria must be a non-empty array of strings`);
 
-        if ('scope' in t && typeof t.scope !== 'undefined') {
-          const scope = t.scope;
-          if (!isPlainObject(scope)) {
-            error(`tasks[${index}].scope must be an object (when provided)`);
-          } else {
-            if ('files' in scope && typeof scope.files !== 'undefined' && !isStringArray(scope.files)) {
-              error(`tasks[${index}].scope.files must be an array of strings (when provided)`);
-            }
-            if ('modules' in scope && typeof scope.modules !== 'undefined' && !isStringArray(scope.modules)) {
-              error(`tasks[${index}].scope.modules must be an array of strings (when provided)`);
-            }
-            if ('tags' in scope && typeof scope.tags !== 'undefined' && !isStringArray(scope.tags)) {
-              error(`tasks[${index}].scope.tags must be an array of strings (when provided)`);
-            }
-          }
+        if ('scope' in t && typeof t.scope !== 'undefined') issues.push(...validateTaskScope(t.scope, file, `tasks[${index}].scope`));
+        if ('executionSpec' in t && typeof t.executionSpec !== 'undefined') {
+          issues.push(...validateExecutionSpec(t.executionSpec, file, `tasks[${index}].executionSpec`));
         }
 
         if ('executedBy' in t && typeof t.executedBy !== 'undefined' && typeof t.executedBy !== 'string') {
@@ -522,6 +788,11 @@ function validateTaskBook(data: unknown, file: string): Issue[] {
             }
           }
         }
+
+        parsedTasks.push({
+          id: isNonEmptyString(t.id) ? t.id : `invalid-${index}`,
+          dependencies: isStringArray(t.dependencies) ? t.dependencies : [],
+        });
       }
 
       // dependency check
@@ -534,6 +805,11 @@ function validateTaskBook(data: unknown, file: string): Issue[] {
             error(`tasks[${index}].dependencies contains unknown task id: ${dep}`);
           }
         }
+      }
+
+      const cycle = detectDependencyCycle(parsedTasks);
+      if (cycle.length > 0) {
+        error(`tasks contains a dependency cycle: ${cycle.join(' -> ')}`);
       }
     }
   }

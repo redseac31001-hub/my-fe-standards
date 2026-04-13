@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-04-13T14:29:24.608Z",
+  "generatedAt": "2026-04-13T15:22:09.571Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -1194,8 +1194,8 @@
     {
       "path": "agents/task-orchestrator/AGENT.md",
       "name": "AGENT",
-      "size": 14827,
-      "mtime": "2026-03-02T08:19:08.863Z",
+      "size": 15959,
+      "mtime": "2026-04-13T15:18:08.369Z",
       "encoding": "utf8"
     },
     {
@@ -1309,46 +1309,46 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "ae8d89fd09a6b6fd2dfad0484f6499d5def5af12a7ddd306d8f6656e9323b121",
-      "size": 891181,
+      "sha256": "4e3c51f562c99ba479af5ec2cf77ace9b3bac1d807928432528ef5ddc537a9b6",
+      "size": 892562,
       "entryCount": 157,
-      "generatedAt": "2026-04-13T14:29:24.424Z"
+      "generatedAt": "2026-04-13T15:22:09.334Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "35afa15c59a12bda83efd1524d98e5066f988c5a57a426af7c108cbc5d22c149",
-      "size": 1410411,
+      "sha256": "5754762765653885d7d42cffb7a52cdc8e64bcc38d43493f0797b2b11c3a5403",
+      "size": 1411792,
       "entryCount": 169,
-      "generatedAt": "2026-04-13T14:29:24.461Z"
+      "generatedAt": "2026-04-13T15:22:09.378Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "1f0888247cfccbc14d0fd3b7ffe08883c2f3fcc42cbe7f48c8b417da80ddaf2f",
-      "size": 2215201,
+      "sha256": "e624a7a6518c88b6a4d08ac88a8ee071ab8a3e29c02381c74dbefd7b1d72e13f",
+      "size": 2231710,
       "entryCount": 188,
-      "generatedAt": "2026-04-13T14:29:24.506Z"
+      "generatedAt": "2026-04-13T15:22:09.434Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "7e6c21f68ea99410e012099d4d79f3c7d0c43f9f13de2a29592a3f7dea60af7a",
-      "size": 2231135,
+      "sha256": "fc261b87ff43b54f0862aa7693d569c6c5fc43fc486e2063bb0bcbd86f67f362",
+      "size": 2247644,
       "entryCount": 189,
-      "generatedAt": "2026-04-13T14:29:24.558Z"
+      "generatedAt": "2026-04-13T15:22:09.501Z"
     },
     "demo": {
       "profile": "demo",
       "file": "packs/content-pack-demo.json",
       "format": "content-pack-json-v1",
-      "sha256": "0bd775ca94be6fb8c82d14d4b1a85690e4c5927d03039a414ccab39cd7870ccd",
-      "size": 1067162,
+      "sha256": "128527b5b62daf3c67caee62d364fe6f815d5986468cdbea53cbdbf998d58ac2",
+      "size": 1068543,
       "entryCount": 160,
-      "generatedAt": "2026-04-13T14:29:24.599Z"
+      "generatedAt": "2026-04-13T15:22:09.559Z"
     }
   },
   "stats": {

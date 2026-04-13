@@ -24,6 +24,8 @@ triggers:
 6. **追踪变更** - 记录所有偏离原计划的改动
 7. **请求验收** - 生成报告，完成闭环
 
+`/task` 是显式短命令；如果用户直接说“帮我实现这个需求”“帮我规划这次改造”，也应内部视为同一入口。两者都必须先经过 `task-intake-routing -> TaskBook.plan -> planner/output validator -> executor` 这条闭环链路，而不是当作自由聊天处理。
+
 ---
 
 ## 使用方法
