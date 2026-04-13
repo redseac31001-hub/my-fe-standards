@@ -164,6 +164,9 @@ var TASKBOOK_FILE_DELETE_RETRY_MS = 80;
 var TASKBOOK_FILE_DELETE_MAX_RETRIES = 6;
 var TASKBOOK_FILE_DELETE_RETRY_CODES = /* @__PURE__ */ new Set(["EBUSY", "EMFILE", "ENFILE", "EPERM"]);
 var IN_PROCESS_LOCK_DEPTHS = /* @__PURE__ */ new Map();
+var ALLOWED_TASK_AGENT_HINTS = /* @__PURE__ */ new Set(["coder", "tester", "reviewer", "refactor", "doc-writer", "planner"]);
+var ALLOWED_SPEC_MODES = /* @__PURE__ */ new Set(["inline-open-spec", "linked-spec-kit"]);
+var ALLOWED_WORKFLOW_IDS = /* @__PURE__ */ new Set(["micro", "sprint", "default"]);
 var SLEEP_INT32 = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) {
   Atomics.wait(SLEEP_INT32, 0, 0, ms);
@@ -184,6 +187,80 @@ function generateTaskBookId(title) {
 }
 function now() {
   return (/* @__PURE__ */ new Date()).toISOString();
+}
+function uniqStrings(values) {
+  if (!values || values.length === 0) return void 0;
+  const normalized = values.map((value) => value.trim()).filter(Boolean);
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : void 0;
+}
+function normalizeExecutionSpec(spec) {
+  if (!spec) return void 0;
+  const normalized = {};
+  if (typeof spec.summary === "string" && spec.summary.trim()) normalized.summary = spec.summary.trim();
+  if (typeof spec.agentHint === "string" && ALLOWED_TASK_AGENT_HINTS.has(spec.agentHint)) normalized.agentHint = spec.agentHint;
+  if (typeof spec.specRef === "string" && spec.specRef.trim()) normalized.specRef = spec.specRef.trim();
+  if (typeof spec.dependenciesNote === "string" && spec.dependenciesNote.trim()) normalized.dependenciesNote = spec.dependenciesNote.trim();
+  const deliverables = uniqStrings(spec.deliverables);
+  if (deliverables) normalized.deliverables = deliverables;
+  const verification = uniqStrings(spec.verification);
+  if (verification) normalized.verification = verification;
+  const constraints = uniqStrings(spec.constraints);
+  if (constraints) normalized.constraints = constraints;
+  return Object.keys(normalized).length > 0 ? normalized : void 0;
+}
+function normalizePlanRisk(risk) {
+  if (!risk || typeof risk.summary !== "string" || !risk.summary.trim()) return void 0;
+  return {
+    level: risk.level === "low" || risk.level === "medium" || risk.level === "high" ? risk.level : "medium",
+    summary: risk.summary.trim(),
+    mitigation: typeof risk.mitigation === "string" && risk.mitigation.trim() ? risk.mitigation.trim() : void 0
+  };
+}
+function normalizePlanEpic(epic) {
+  if (!epic || typeof epic.id !== "string" || !epic.id.trim() || typeof epic.title !== "string" || !epic.title.trim()) {
+    return void 0;
+  }
+  return {
+    id: epic.id.trim(),
+    title: epic.title.trim(),
+    summary: typeof epic.summary === "string" && epic.summary.trim() ? epic.summary.trim() : void 0
+  };
+}
+function normalizeTaskBookPlan(taskBookId, plan, revision) {
+  if (!plan) return void 0;
+  const normalized = {
+    planId: taskBookId,
+    version: typeof plan.version === "number" && Number.isInteger(plan.version) && plan.version > 0 ? plan.version : 1,
+    linkedTaskBookRevision: revision
+  };
+  if (typeof plan.specMode === "string" && ALLOWED_SPEC_MODES.has(plan.specMode)) normalized.specMode = plan.specMode;
+  if (typeof plan.recommendedWorkflowId === "string" && ALLOWED_WORKFLOW_IDS.has(plan.recommendedWorkflowId)) {
+    normalized.recommendedWorkflowId = plan.recommendedWorkflowId;
+  }
+  if (typeof plan.summary === "string" && plan.summary.trim()) normalized.summary = plan.summary.trim();
+  if (typeof plan.specRef === "string" && plan.specRef.trim()) normalized.specRef = plan.specRef.trim();
+  if (typeof plan.source === "string" && ["planner", "manual", "task-intake-routing"].includes(plan.source)) {
+    normalized.source = plan.source;
+  }
+  const goals = uniqStrings(plan.goals);
+  if (goals) normalized.goals = goals;
+  const outOfScope = uniqStrings(plan.outOfScope);
+  if (outOfScope) normalized.outOfScope = outOfScope;
+  const assumptions = uniqStrings(plan.assumptions);
+  if (assumptions) normalized.assumptions = assumptions;
+  const constraints = uniqStrings(plan.constraints);
+  if (constraints) normalized.constraints = constraints;
+  const clarifications = uniqStrings(plan.clarifications);
+  if (clarifications) normalized.clarifications = clarifications;
+  if (Array.isArray(plan.risks)) {
+    const risks = plan.risks.map(normalizePlanRisk).filter((risk) => Boolean(risk));
+    if (risks.length > 0) normalized.risks = risks;
+  }
+  if (Array.isArray(plan.epics)) {
+    const epics = plan.epics.map(normalizePlanEpic).filter((epic) => Boolean(epic));
+    if (epics.length > 0) normalized.epics = epics;
+  }
+  return normalized;
 }
 function ensureDir(dirPath) {
   if (!fs2.existsSync(dirPath)) {
@@ -394,6 +471,11 @@ var TaskBookManager = class {
     if (!taskBook.updatedAt) {
       taskBook.updatedAt = taskBook.createdAt;
     }
+    taskBook.plan = normalizeTaskBookPlan(taskBook.id, taskBook.plan, taskBook.revision) ?? taskBook.plan;
+    taskBook.tasks = (taskBook.tasks ?? []).map((task) => ({
+      ...task,
+      executionSpec: normalizeExecutionSpec(task.executionSpec)
+    }));
     return taskBook;
   }
   touch(taskBook) {
@@ -402,6 +484,9 @@ var TaskBookManager = class {
     }
     taskBook.revision += 1;
     taskBook.updatedAt = now();
+    if (taskBook.plan) {
+      taskBook.plan = normalizeTaskBookPlan(taskBook.id, taskBook.plan, taskBook.revision);
+    }
   }
   assertRevision(taskBook, expectedRevision) {
     if (typeof expectedRevision !== "number") return;
@@ -494,6 +579,12 @@ ${lockInfo}` : "";
       taskType: params.taskType,
       createdAt: now(),
       status: "draft",
+      plan: normalizeTaskBookPlan(id, params.plan, 0) ?? {
+        planId: id,
+        version: 1,
+        linkedTaskBookRevision: 0,
+        source: "manual"
+      },
       context: {
         relatedFiles: [],
         dependencies: []
@@ -580,6 +671,29 @@ ${lockInfo}` : "";
       return taskBook;
     });
   }
+  updatePlan(id, patch, expectedRevision) {
+    return this.withTaskBookLock(id, () => {
+      const taskBook = this.load(id);
+      if (!taskBook) return null;
+      this.assertRevision(taskBook, expectedRevision);
+      const before = taskBook.plan ? { ...taskBook.plan } : null;
+      taskBook.plan = normalizeTaskBookPlan(taskBook.id, {
+        ...taskBook.plan ?? { planId: taskBook.id, version: 1 },
+        ...patch
+      }, taskBook.revision ?? 0) ?? taskBook.plan;
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId: null,
+        changeType: "modified",
+        reason: "\u66F4\u65B0 TaskBook \u8BA1\u5212\u5951\u7EA6",
+        before: before ?? void 0,
+        after: taskBook.plan
+      });
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
+    });
+  }
   /**
    * 添加任务
    */
@@ -599,6 +713,7 @@ ${lockInfo}` : "";
         dependencies: task.dependencies ?? [],
         acceptanceCriteria: task.acceptanceCriteria ?? [],
         scope: task.scope,
+        executionSpec: normalizeExecutionSpec(task.executionSpec),
         actualWork: task.actualWork,
         blockedReason: task.blockedReason,
         executedBy: task.executedBy,
@@ -641,6 +756,7 @@ ${lockInfo}` : "";
           dependencies: task.dependencies ?? [],
           acceptanceCriteria: task.acceptanceCriteria ?? [],
           scope: task.scope,
+          executionSpec: normalizeExecutionSpec(task.executionSpec),
           actualWork: task.actualWork,
           blockedReason: task.blockedReason,
           executedBy: task.executedBy,
@@ -666,11 +782,12 @@ ${lockInfo}` : "";
   /**
    * 应用 planner 输出（planId/dependencies 基于 planId），并一次性写入 TaskBook
    */
-  applyPlannerPlan(taskBookId, requestId, planTasks, expectedRevision) {
+  applyPlannerPlan(taskBookId, requestId, parsedPlan, expectedRevision) {
     return this.withTaskBookLock(taskBookId, () => {
       const taskBook = this.load(taskBookId);
       if (!taskBook) return null;
       this.assertRevision(taskBook, expectedRevision);
+      const planTasks = parsedPlan.tasks;
       if (!Array.isArray(planTasks) || planTasks.length === 0) {
         throw new Error("\u9519\u8BEF: planner planTasks \u4E0D\u80FD\u4E3A\u7A7A");
       }
@@ -713,6 +830,7 @@ ${lockInfo}` : "";
           dependencies: mappedDeps,
           acceptanceCriteria: t.acceptanceCriteria ?? [],
           scope: t.scope,
+          executionSpec: normalizeExecutionSpec(t.executionSpec),
           handoffs: t.handoffs
         };
         taskBook.tasks.push(newTask);
@@ -725,6 +843,11 @@ ${lockInfo}` : "";
           after: newTask
         });
       }
+      taskBook.plan = normalizeTaskBookPlan(taskBook.id, {
+        ...taskBook.plan,
+        ...parsedPlan.plan,
+        source: parsedPlan.plan.source ?? "planner"
+      }, taskBook.revision ?? 0) ?? taskBook.plan;
       this.touch(taskBook);
       this.save(taskBook);
       return { taskBook, taskIds, planIdToTaskId };
@@ -764,6 +887,7 @@ ${lockInfo}` : "";
         "dependencies",
         "acceptanceCriteria",
         "scope",
+        "executionSpec",
         "actualWork",
         "blockedReason",
         "executedBy",
@@ -774,7 +898,7 @@ ${lockInfo}` : "";
       for (const key of updatable) {
         const value = patch[key];
         if (typeof value !== "undefined") {
-          task[key] = value;
+          task[key] = key === "executionSpec" ? normalizeExecutionSpec(value) : value;
         }
       }
       this.addChangelogEntry(taskBook, {
@@ -1162,6 +1286,20 @@ ${text}` : text;
         `\u53D1\u73B0 ${missingScope.length} \u4E2A pending \u7684\u5B9E\u73B0\u76F8\u5173\u4EFB\u52A1\u7F3A\u5C11 scope.files/modules\uFF1B\u6279\u91CF\u9884\u7B97\u4E0E\u5E76\u884C\u51B2\u7A81\u68C0\u6D4B\u5C06\u9000\u5316\u4E3A\u4E32\u884C\u3002\u5EFA\u8BAE\u5728\u89C4\u5212\u9636\u6BB5\u4E3A\u4EFB\u52A1\u8865\u9F50 scope\u3002`
       );
     }
+    const missingExecutionSpec = taskBook.tasks.filter(
+      (task) => (task.type === "design" || task.type === "test" || task.type === "implement" || task.type === "review") && (!task.executionSpec || !task.executionSpec.deliverables?.length && !task.executionSpec.verification?.length)
+    );
+    if (missingExecutionSpec.length > 0) {
+      report.recommendations.suggested.push(
+        `\u53D1\u73B0 ${missingExecutionSpec.length} \u4E2A\u4EFB\u52A1\u7F3A\u5C11 executionSpec deliverables/verification\uFF1B\u6267\u884C\u5668\u5C06\u53EA\u80FD\u4F9D\u8D56 acceptanceCriteria \u548C\u81EA\u7531\u6587\u672C\uFF0C\u5EFA\u8BAE\u8865\u9F50\u6700\u5C0F\u6267\u884C\u5951\u7EA6\u3002`
+      );
+    }
+    const missingBusinessAc = taskBook.tasks.filter((task) => task.acceptanceCriteria.length === 0);
+    if (missingBusinessAc.length > 0) {
+      report.recommendations.mustDo.push(
+        `\u53D1\u73B0 ${missingBusinessAc.length} \u4E2A\u4EFB\u52A1\u7F3A\u5C11 acceptanceCriteria\uFF1B\u8FD9\u4E9B\u4EFB\u52A1\u5F53\u524D\u6CA1\u6709\u660E\u786E\u7684\u4E1A\u52A1\u9A8C\u6536\u6807\u51C6\u3002`
+      );
+    }
     const executorCounts = {};
     for (const task of taskBook.tasks) {
       if (task.status === "done" && task.executedBy) {
@@ -1242,6 +1380,7 @@ ${text}` : text;
       `\u2551 \u{1F4CB} \u4EFB\u52A1\u8BA1\u5212\u4E66 - ${taskBook.title.padEnd(40)}\u2551`,
       "\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563",
       `\u2551 \u{1F4DD} \u9700\u6C42\u6982\u8FF0: ${taskBook.description.slice(0, 44).padEnd(44)}\u2551`,
+      `\u2551 \u{1F9ED} Workflow/Spec: ${`${taskBook.plan?.recommendedWorkflowId ?? "-"} / ${taskBook.plan?.specMode ?? "-"}`.slice(0, 40).padEnd(40)}\u2551`,
       `\u2551 \u{1F4C1} \u5F71\u54CD\u8303\u56F4: ${taskBook.context.relatedFiles.slice(0, 2).join(", ").slice(0, 44).padEnd(44)}\u2551`,
       `\u2551 \u{1F4CA} \u4EFB\u52A1\u603B\u6570: ${String(taskBook.tasks.length).padEnd(44)} \u4E2A\u2551`,
       "\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563",
@@ -1252,6 +1391,12 @@ ${text}` : text;
       const label = typeLabel[task.type];
       const taskLine = `${index + 1}. ${task.id} [${label}] [${task.status}] ${task.title}`;
       lines.push(`\u2551  ${emoji} ${taskLine.slice(0, 54).padEnd(54)}\u2551`);
+      if (task.executionSpec?.agentHint) {
+        lines.push(`\u2551     \u21B3 agent=${task.executionSpec.agentHint}`.slice(0, 62).padEnd(61) + "\u2551");
+      }
+      if (task.executionSpec?.summary) {
+        lines.push(`\u2551     \u21B3 spec=${task.executionSpec.summary}`.slice(0, 62).padEnd(61) + "\u2551");
+      }
     });
     lines.push("\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563");
     lines.push("\u2551 \u2753 \u8BF7\u786E\u8BA4\u662F\u5426\u5F00\u59CB\u6267\u884C\uFF1F                                        \u2551");
@@ -1294,6 +1439,7 @@ var MUTATING_COMMANDS_REQUIRING_IF_REV = /* @__PURE__ */ new Set([
   "unblock",
   "claim",
   "append-work",
+  "plan",
   "apply-plan"
 ]);
 function isTruthyEnv(name) {
@@ -1342,6 +1488,16 @@ create options:
   --title <text>               \u6807\u9898\uFF08\u5FC5\u586B\uFF09
   --description <text>         \u63CF\u8FF0\uFF08\u5FC5\u586B\uFF09
   --type <new-feature|refactoring|debugging|testing|code-review>  TaskBook \u7C7B\u578B\uFF08\u5FC5\u586B\uFF09
+  --workflow-hint <micro|sprint|default>   \uFF08\u53EF\u9009\uFF09\u8DEF\u7531\u5148\u51B3\u7B56\u7684 workflow \u7EA6\u675F
+  --spec-mode <inline-open-spec|linked-spec-kit>  \uFF08\u53EF\u9009\uFF09\u8DEF\u7531\u5148\u51B3\u7B56\u7684 spec \u7C92\u5EA6
+  --plan-summary <text>        \uFF08\u53EF\u9009\uFF09\u9876\u5C42\u8BA1\u5212\u6458\u8981
+  --goal <text>                \uFF08\u53EF\u91CD\u590D\uFF09\u76EE\u6807
+  --assumption <text>          \uFF08\u53EF\u91CD\u590D\uFF09\u524D\u63D0\u5047\u8BBE
+  --plan-constraint <text>     \uFF08\u53EF\u91CD\u590D\uFF09\u9876\u5C42\u7EA6\u675F
+  --clarification <text>       \uFF08\u53EF\u91CD\u590D\uFF09\u5F85\u6F84\u6E05\u9879
+  --out-of-scope <text>        \uFF08\u53EF\u91CD\u590D\uFF09\u975E\u76EE\u6807\u8303\u56F4
+  --risk <summary|level:summary> \uFF08\u53EF\u91CD\u590D\uFF09\u9876\u5C42\u98CE\u9669
+  --plan-spec-ref <path>       \uFF08\u53EF\u9009\uFF09Spec / Spec Kit \u8DEF\u5F84
   --json                       \u8F93\u51FA JSON
 
 add-task options:
@@ -1353,6 +1509,13 @@ add-task options:
   --priority <critical|high|medium|low>            \u4F18\u5148\u7EA7\uFF08\u9ED8\u8BA4 medium\uFF09
   --deps <id1,id2>             \u4F9D\u8D56\u4EFB\u52A1 ID\uFF08\u9017\u53F7\u5206\u9694\uFF09
   --ac <text>                  \u9A8C\u6536\u6807\u51C6\uFF08\u53EF\u91CD\u590D\uFF09
+  --agent-hint <coder|tester|reviewer|refactor|doc-writer|planner>
+  --spec-summary <text>        \uFF08\u53EF\u9009\uFF09\u4EFB\u52A1\u6267\u884C\u6458\u8981
+  --deliverable <text>         \uFF08\u53EF\u91CD\u590D\uFF09\u4EA4\u4ED8\u7269
+  --verify <text>              \uFF08\u53EF\u91CD\u590D\uFF09\u6280\u672F\u6821\u9A8C\u52A8\u4F5C
+  --constraint <text>          \uFF08\u53EF\u91CD\u590D\uFF09\u4EFB\u52A1\u6267\u884C\u7EA6\u675F
+  --deps-note <text>           \uFF08\u53EF\u9009\uFF09\u4F9D\u8D56\u8BF4\u660E
+  --spec-ref <path>            \uFF08\u53EF\u9009\uFF09Spec / Spec Kit \u5F15\u7528
   --json                       \u8F93\u51FA JSON
 
 update-task options:
@@ -1363,6 +1526,13 @@ update-task options:
   --priority <critical|high|medium|low>
   --deps <id1,id2>
   --ac <text>                  \u9A8C\u6536\u6807\u51C6\uFF08\u53EF\u91CD\u590D\uFF1B\u4F1A\u8986\u76D6\uFF09
+  --agent-hint <coder|tester|reviewer|refactor|doc-writer|planner>
+  --spec-summary <text>
+  --deliverable <text>         \uFF08\u53EF\u91CD\u590D\uFF1B\u4F1A\u8986\u76D6\uFF09
+  --verify <text>              \uFF08\u53EF\u91CD\u590D\uFF1B\u4F1A\u8986\u76D6\uFF09
+  --constraint <text>          \uFF08\u53EF\u91CD\u590D\uFF1B\u4F1A\u8986\u76D6\uFF09
+  --deps-note <text>
+  --spec-ref <path>
   --actual-work <text>
   --blocked-reason <text>
   --executed-by <name>
@@ -1380,6 +1550,8 @@ report options:
 
 plan options:
   --request-id <id>            \uFF08\u53EF\u9009\uFF09\u81EA\u5B9A\u4E49 requestId\uFF08\u9ED8\u8BA4\u81EA\u52A8\u751F\u6210\uFF09
+  --workflow-hint <micro|sprint|default>   \uFF08\u53EF\u9009\uFF09\u5F3A\u5236\u4F20\u7ED9 planner \u7684 workflow \u7EA6\u675F
+  --spec-mode <inline-open-spec|linked-spec-kit>  \uFF08\u53EF\u9009\uFF09\u5F3A\u5236\u4F20\u7ED9 planner \u7684 spec \u7C92\u5EA6
   --json
 
 apply-plan options:
@@ -1453,6 +1625,60 @@ function buildScope(files, modules, tags) {
   if (tags.length > 0) scope.tags = tags;
   return Object.keys(scope).length > 0 ? scope : void 0;
 }
+function buildExecutionSpecFromFlags(flags) {
+  const agentHintRaw = flagAsString(flags, "agent-hint");
+  const agentHint = agentHintRaw && ALLOWED_TASK_AGENT_HINTS.has(agentHintRaw) ? agentHintRaw : void 0;
+  return normalizeExecutionSpec({
+    summary: flagAsString(flags, "spec-summary"),
+    agentHint,
+    deliverables: flagAsStringArray(flags, "deliverable"),
+    verification: flagAsStringArray(flags, "verify"),
+    constraints: flagAsStringArray(flags, "constraint"),
+    dependenciesNote: flagAsString(flags, "deps-note"),
+    specRef: flagAsString(flags, "spec-ref")
+  });
+}
+function buildTaskBookPlanFromFlags(flags) {
+  const specModeRaw = flagAsString(flags, "spec-mode");
+  const recommendedWorkflowIdRaw = flagAsString(flags, "workflow-hint");
+  const planSummary = flagAsString(flags, "plan-summary");
+  const goals = flagAsStringArray(flags, "goal");
+  const outOfScope = flagAsStringArray(flags, "out-of-scope");
+  const assumptions = flagAsStringArray(flags, "assumption");
+  const constraints = flagAsStringArray(flags, "plan-constraint");
+  const clarifications = flagAsStringArray(flags, "clarification");
+  const specRef = flagAsString(flags, "plan-spec-ref");
+  const plan = {
+    summary: planSummary,
+    goals,
+    outOfScope,
+    assumptions,
+    constraints,
+    clarifications,
+    specRef
+  };
+  if (specModeRaw && ALLOWED_SPEC_MODES.has(specModeRaw)) {
+    plan.specMode = specModeRaw;
+  }
+  if (recommendedWorkflowIdRaw && ALLOWED_WORKFLOW_IDS.has(recommendedWorkflowIdRaw)) {
+    plan.recommendedWorkflowId = recommendedWorkflowIdRaw;
+  }
+  if (typeof flagAsString(flags, "risk") !== "undefined" || Array.isArray(flags.risk)) {
+    const risks = flagAsStringArray(flags, "risk").map((entry) => {
+      const [levelRaw, ...rest] = entry.split(":");
+      const summary = rest.length > 0 ? rest.join(":").trim() : levelRaw.trim();
+      const level = rest.length > 0 && (levelRaw === "low" || levelRaw === "medium" || levelRaw === "high") ? levelRaw : "medium";
+      return normalizePlanRisk({ level, summary });
+    }).filter((risk) => Boolean(risk));
+    if (risks.length > 0) plan.risks = risks;
+  }
+  const hasExplicitPlanFields = Boolean(planSummary) || goals.length > 0 || outOfScope.length > 0 || assumptions.length > 0 || constraints.length > 0 || clarifications.length > 0 || Boolean(specRef) || Boolean(specModeRaw) || Boolean(recommendedWorkflowIdRaw) || Array.isArray(plan.risks) && plan.risks.length > 0;
+  if (!hasExplicitPlanFields) {
+    return void 0;
+  }
+  plan.source = "manual";
+  return plan;
+}
 function expectedRevisionFromFlags(flags) {
   const raw = flagAsString(flags, "if-rev") ?? flagAsString(flags, "if-revision");
   if (typeof raw === "undefined") return void 0;
@@ -1507,6 +1733,8 @@ function buildPlannerPrompt(args) {
     taskBookId: args.taskBook.id,
     timestamp: now(),
     taskBookRevision: typeof args.taskBook.revision === "number" ? args.taskBook.revision : 0,
+    recommendedWorkflowId: args.taskBook.plan?.recommendedWorkflowId,
+    recommendedSpecMode: args.taskBook.plan?.specMode,
     promptPath: args.promptPath,
     resultPath: args.resultPath
   };
@@ -1522,20 +1750,44 @@ function buildPlannerPrompt(args) {
     kind: "planner",
     status: "success",
     output: {
+      planId: args.taskBook.id,
+      summary: "\u5C06\u9700\u6C42\u62C6\u6210\u53EF\u6267\u884C\u4EFB\u52A1\uFF0C\u5E76\u8865\u9F50\u5B9E\u73B0\u7EA6\u675F\u4E0E\u9A8C\u6536\u8FB9\u754C\u3002",
+      recommendedWorkflowId: args.taskBook.plan?.recommendedWorkflowId ?? "default",
+      specMode: args.taskBook.plan?.specMode ?? "inline-open-spec",
+      goals: ["\u62C6\u6210\u53EF\u6267\u884C\u4EFB\u52A1", "\u660E\u786E\u4EA4\u4ED8\u7269\u4E0E\u9A8C\u8BC1\u65B9\u5F0F"],
+      outOfScope: ["\u4E0D\u5904\u7406\u65E0\u5173\u6A21\u5757"],
+      assumptions: ["\u73B0\u6709\u63A5\u53E3\u5951\u7EA6\u53EF\u590D\u7528"],
+      constraints: ["\u4E0D\u5F15\u5165\u65B0\u4F9D\u8D56", "\u6CBF\u7528\u73B0\u6709\u6A21\u5757\u8FB9\u754C"],
+      risks: [
+        { level: "medium", summary: "\u5386\u53F2\u6A21\u5757\u8026\u5408\u53EF\u80FD\u6269\u5927\u5F71\u54CD\u9762", mitigation: "\u5148\u505A\u5206\u6790\u4EFB\u52A1\u660E\u786E\u8FB9\u754C" }
+      ],
+      epics: [
+        { id: "EPIC-1", title: "\u8303\u56F4\u6F84\u6E05\u4E0E\u5B9E\u73B0\u65B9\u6848" }
+      ],
       tasks: [
         {
           planId: "T1",
           title: "\u7406\u89E3\u9700\u6C42 & \u68B3\u7406\u5F71\u54CD\u8303\u56F4",
           type: "analysis",
           priority: "high",
-          acceptanceCriteria: ["\u8F93\u51FA\u5F71\u54CD\u8303\u56F4\u6E05\u5355", "\u660E\u786E\u975E\u76EE\u6807/\u7EA6\u675F"]
+          acceptanceCriteria: ["\u8F93\u51FA\u5F71\u54CD\u8303\u56F4\u6E05\u5355", "\u660E\u786E\u975E\u76EE\u6807/\u7EA6\u675F"],
+          executionSpec: {
+            agentHint: "planner",
+            deliverables: ["\u5F71\u54CD\u8303\u56F4\u8BF4\u660E"],
+            verification: ["\u786E\u8BA4\u6D89\u53CA\u6587\u4EF6\u4E0E\u6A21\u5757\u5217\u8868\u5B8C\u6574"]
+          }
         },
         {
           planId: "T2",
           title: "\u5236\u5B9A\u5B9E\u73B0\u65B9\u6848\uFF08\u542B\u63A5\u53E3/\u6570\u636E\u7ED3\u6784\uFF09",
           type: "design",
           dependencies: ["T1"],
-          acceptanceCriteria: ["\u7ED9\u51FA\u65B9\u6848\u4E0E\u53D6\u820D", "\u660E\u786E\u4EFB\u52A1\u62C6\u5206\u4E0E\u5173\u952E\u8DEF\u5F84"]
+          acceptanceCriteria: ["\u7ED9\u51FA\u65B9\u6848\u4E0E\u53D6\u820D", "\u660E\u786E\u4EFB\u52A1\u62C6\u5206\u4E0E\u5173\u952E\u8DEF\u5F84"],
+          executionSpec: {
+            agentHint: "reviewer",
+            deliverables: ["\u8BBE\u8BA1\u8BF4\u660E", "\u4EFB\u52A1\u62C6\u5206\u6E05\u5355"],
+            verification: ["\u8BC4\u5BA1\u8BBE\u8BA1\u662F\u5426\u6EE1\u8DB3\u7EA6\u675F\u6761\u4EF6"]
+          }
         }
       ],
       notes: "tasks \u5FC5\u987B\u6309\u4F9D\u8D56\u987A\u5E8F\u6392\u5E8F\uFF08dependencies \u53EA\u80FD\u6307\u5411\u66F4\u65E9\u7684 planId\uFF09\u3002"
@@ -1568,11 +1820,17 @@ function buildPlannerPrompt(args) {
     "",
     "\u8981\u6C42\uFF1A",
     "- \u8F93\u51FA\u5FC5\u987B\u53EF\u88AB\u811A\u672C\u81EA\u52A8\u6D88\u8D39\uFF1A\u4E0D\u8981\u8F93\u51FA Markdown\uFF0C\u4E0D\u8981\u8F93\u51FA\u89E3\u91CA\u6027\u6587\u672C\u3002",
+    "- \u4E0D\u8981\u8F93\u51FA\u8FC7\u7A0B\u6027\u63A8\u7406\u3001\u81EA\u6211\u63D0\u9192\u6216\u201C\u6211\u5E94\u8BE5/\u6839\u636E\u89C4\u5219\u201D\u4E4B\u7C7B\u7684\u53E5\u5B50\u3002",
     "- \u53EA\u751F\u6210 task \u7EA7\u522B\u7684\u539F\u5B50\u4EFB\u52A1\uFF08INVEST\uFF09\uFF0C\u786E\u4FDD\u6BCF\u4E2A\u4EFB\u52A1 1-3 \u5929\u5185\u53EF\u5B8C\u6210\u3002",
+    "- \u9876\u5C42 output.planId \u5FC5\u987B\u7B49\u4E8E\u5F53\u524D TaskBook.id\u3002",
     "- \u4EFB\u52A1\u7C7B\u578B\u5FC5\u987B\u662F\u4EE5\u4E0B\u4E4B\u4E00\uFF1Aanalysis | design | test | implement | review\u3002",
     "- dependencies \u53EA\u80FD\u5F15\u7528\u672C\u6B21\u8BA1\u5212\u4E2D\u66F4\u65E9\u7684 planId\uFF08\u786E\u4FDD tasks \u5DF2\u6309\u4F9D\u8D56\u62D3\u6251\u987A\u5E8F\u6392\u5E8F\uFF09\u3002",
-    "- acceptanceCriteria \u5EFA\u8BAE\u7ED9 2-5 \u6761\u53EF\u9A8C\u8BC1\u8981\u70B9\u3002",
+    "- acceptanceCriteria \u5FC5\u586B\uFF0C\u8868\u793A\u4E1A\u52A1/\u7ED3\u679C\u5C42\u9A8C\u6536\u6807\u51C6\u3002",
+    "- executionSpec.verification \u8868\u793A\u6280\u672F/\u5DE5\u7A0B\u5C42\u6821\u9A8C\u52A8\u4F5C\uFF1B\u4E0D\u8981\u4E0E acceptanceCriteria \u6DF7\u6DC6\u3002",
+    `- \u5982 prompt header \u5DF2\u7ED9\u51FA recommendedWorkflowId/specMode\uFF0C\u5FC5\u987B\u4E25\u683C\u9075\u5B88\uFF1Aworkflow=${args.taskBook.plan?.recommendedWorkflowId ?? "\u672A\u6307\u5B9A"}\uFF0CspecMode=${args.taskBook.plan?.specMode ?? "\u672A\u6307\u5B9A"}\u3002`,
     "- scope \u53EF\u9009\uFF1Afiles/modules/tags\uFF08\u6570\u7EC4\uFF09\u3002",
+    "- executionSpec \u63A8\u8350\u5305\u542B agentHint\u3001deliverables\u3001verification\u3001constraints\u3001specRef\u3002",
+    "- \u5982\u9700\u5F15\u7528\u5916\u90E8 Spec Kit\uFF0CspecRef \u8BF7\u4F7F\u7528\u7248\u672C\u5316\u8DEF\u5F84\uFF08\u4F8B\u5982 .codebuddy/specs/<taskBookId>-v1/00-overview.md\uFF09\u3002",
     "",
     `\u5199\u5165\u76EE\u6807\uFF1A\u8BF7\u628A\u7ED3\u679C\u5199\u5165 ${args.resultPath}`,
     "",
@@ -1580,6 +1838,13 @@ function buildPlannerPrompt(args) {
     "- requestId: string\uFF08\u5FC5\u987B\u4E0E header.requestId \u4E00\u81F4\uFF09",
     "- kind?: 'planner' | 'manual-task'\uFF08\u63A8\u8350\uFF0C\u7528\u4E8E\u66F4\u5F3A\u6821\u9A8C/\u8BCA\u65AD\uFF09",
     "- status: 'success' | 'failed' | 'blocked'",
+    "- output.planId: string\uFF08\u5FC5\u987B\u7B49\u4E8E TaskBook.id\uFF09",
+    "- output.recommendedWorkflowId?: 'micro' | 'sprint' | 'default'",
+    "- output.specMode?: 'inline-open-spec' | 'linked-spec-kit'",
+    "- output.summary?: string",
+    "- output.assumptions?: string[]",
+    "- output.constraints?: string[]",
+    "- output.risks?: { level?: low|medium|high; summary: string; mitigation?: string }[]",
     "- output.tasks: PlannerPlanTask[]",
     "",
     "PlannerPlanTask:",
@@ -1588,8 +1853,9 @@ function buildPlannerPrompt(args) {
     "- type: 'analysis' | 'design' | 'test' | 'implement' | 'review'",
     "- priority?: 'critical' | 'high' | 'medium' | 'low'",
     "- dependencies?: string[]\uFF08planId \u5217\u8868\uFF09",
-    "- acceptanceCriteria?: string[]",
+    "- acceptanceCriteria: string[]\uFF08\u5FC5\u586B\uFF0C\u4E1A\u52A1\u9A8C\u6536\uFF09",
     "- scope?: { files?: string[]; modules?: string[]; tags?: string[] }",
+    "- executionSpec?: { agentHint?: 'coder'|'tester'|'reviewer'|'refactor'|'doc-writer'|'planner'; deliverables?: string[]; verification?: string[]; constraints?: string[]; dependenciesNote?: string; specRef?: string }",
     "",
     "\u793A\u4F8B\uFF08\u5FC5\u987B\u662F JSON\uFF0C\u4E0D\u8981\u5305\u88F9 Markdown\uFF09\uFF1A",
     "```json",
@@ -1623,7 +1889,7 @@ function parseAgentCallResult(jsonText) {
     completedAt: typeof completedAt === "string" ? completedAt : void 0
   };
 }
-function parsePlannerTasksFromAgentResult(result) {
+function parsePlannerPlanFromAgentResult(result, taskBookId) {
   const output = result.output;
   if (!output || typeof output !== "object") {
     throw new Error("\u9519\u8BEF: result.output \u5FC5\u987B\u662F object\uFF0C\u4E14\u5305\u542B output.tasks[]");
@@ -1635,6 +1901,114 @@ function parsePlannerTasksFromAgentResult(result) {
   }
   const allowedTypes = /* @__PURE__ */ new Set(["analysis", "design", "test", "implement", "review"]);
   const allowedPriorities = /* @__PURE__ */ new Set(["critical", "high", "medium", "low"]);
+  const allowedWorkflowIds = /* @__PURE__ */ new Set(["micro", "sprint", "default"]);
+  const allowedSpecModes = /* @__PURE__ */ new Set(["inline-open-spec", "linked-spec-kit"]);
+  const allowedAgentHints = /* @__PURE__ */ new Set(["coder", "tester", "reviewer", "refactor", "doc-writer", "planner"]);
+  const plannerPlan = {
+    planId: taskBookId || (typeof outObj.planId === "string" ? outObj.planId : ""),
+    version: 1,
+    source: "planner"
+  };
+  if (typeof outObj.planId !== "undefined") {
+    if (typeof outObj.planId !== "string" || !outObj.planId.trim()) {
+      throw new Error("\u9519\u8BEF: result.output.planId \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32");
+    }
+    if (taskBookId && outObj.planId !== taskBookId) {
+      throw new Error(`\u9519\u8BEF: result.output.planId \u5FC5\u987B\u7B49\u4E8E TaskBook.id (${taskBookId})`);
+    }
+    plannerPlan.planId = outObj.planId.trim();
+  } else if (taskBookId) {
+    plannerPlan.planId = taskBookId;
+  }
+  const topLevelStringArrayKeys = [
+    "goals",
+    "outOfScope",
+    "assumptions",
+    "constraints",
+    "clarifications"
+  ];
+  for (const key of topLevelStringArrayKeys) {
+    const value = outObj[key];
+    if (typeof value === "undefined") continue;
+    if (!Array.isArray(value)) {
+      throw new Error(`\u9519\u8BEF: result.output.${key} \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u6570\u7EC4`);
+    }
+    const normalized = value.map((item, itemIndex) => {
+      if (typeof item !== "string" || !item.trim()) {
+        throw new Error(`\u9519\u8BEF: result.output.${key}[${itemIndex}] \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`);
+      }
+      return item.trim();
+    });
+    plannerPlan[key] = normalized;
+  }
+  if (typeof outObj.summary !== "undefined") {
+    if (typeof outObj.summary !== "string" || !outObj.summary.trim()) {
+      throw new Error("\u9519\u8BEF: result.output.summary \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32");
+    }
+    plannerPlan.summary = outObj.summary.trim();
+  }
+  if (typeof outObj.specRef !== "undefined") {
+    if (typeof outObj.specRef !== "string" || !outObj.specRef.trim()) {
+      throw new Error("\u9519\u8BEF: result.output.specRef \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32");
+    }
+    plannerPlan.specRef = outObj.specRef.trim();
+  }
+  if (typeof outObj.specMode !== "undefined") {
+    if (typeof outObj.specMode !== "string" || !allowedSpecModes.has(outObj.specMode)) {
+      throw new Error("\u9519\u8BEF: result.output.specMode \u65E0\u6548");
+    }
+    plannerPlan.specMode = outObj.specMode;
+  }
+  if (typeof outObj.recommendedWorkflowId !== "undefined") {
+    if (typeof outObj.recommendedWorkflowId !== "string" || !allowedWorkflowIds.has(outObj.recommendedWorkflowId)) {
+      throw new Error("\u9519\u8BEF: result.output.recommendedWorkflowId \u65E0\u6548");
+    }
+    plannerPlan.recommendedWorkflowId = outObj.recommendedWorkflowId;
+  }
+  if (typeof outObj.risks !== "undefined") {
+    if (!Array.isArray(outObj.risks)) {
+      throw new Error("\u9519\u8BEF: result.output.risks \u5FC5\u987B\u662F\u6570\u7EC4");
+    }
+    plannerPlan.risks = outObj.risks.map((rawRisk, index) => {
+      if (!rawRisk || typeof rawRisk !== "object") {
+        throw new Error(`\u9519\u8BEF: result.output.risks[${index}] \u5FC5\u987B\u662F object`);
+      }
+      const risk = rawRisk;
+      if (typeof risk.summary !== "string" || !risk.summary.trim()) {
+        throw new Error(`\u9519\u8BEF: result.output.risks[${index}].summary \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`);
+      }
+      if (typeof risk.level !== "undefined" && risk.level !== "low" && risk.level !== "medium" && risk.level !== "high") {
+        throw new Error(`\u9519\u8BEF: result.output.risks[${index}].level \u65E0\u6548`);
+      }
+      return {
+        level: risk.level === "low" || risk.level === "medium" || risk.level === "high" ? risk.level : "medium",
+        summary: risk.summary.trim(),
+        mitigation: typeof risk.mitigation === "string" && risk.mitigation.trim() ? risk.mitigation.trim() : void 0
+      };
+    });
+  }
+  if (typeof outObj.epics !== "undefined") {
+    if (!Array.isArray(outObj.epics)) {
+      throw new Error("\u9519\u8BEF: result.output.epics \u5FC5\u987B\u662F\u6570\u7EC4");
+    }
+    plannerPlan.epics = outObj.epics.map((rawEpic, index) => {
+      if (!rawEpic || typeof rawEpic !== "object") {
+        throw new Error(`\u9519\u8BEF: result.output.epics[${index}] \u5FC5\u987B\u662F object`);
+      }
+      const epic = rawEpic;
+      if (typeof epic.id !== "string" || !epic.id.trim()) {
+        throw new Error(`\u9519\u8BEF: result.output.epics[${index}].id \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`);
+      }
+      if (typeof epic.title !== "string" || !epic.title.trim()) {
+        throw new Error(`\u9519\u8BEF: result.output.epics[${index}].title \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`);
+      }
+      return {
+        id: epic.id.trim(),
+        title: epic.title.trim(),
+        summary: typeof epic.summary === "string" && epic.summary.trim() ? epic.summary.trim() : void 0
+      };
+    });
+  }
   const seenPlanIds = /* @__PURE__ */ new Set();
   const parsedTasks = [];
   for (const [index, raw] of tasks.entries()) {
@@ -1679,16 +2053,14 @@ function parsePlannerTasksFromAgentResult(result) {
       }
     }
     const acceptanceCriteria = [];
-    if (typeof t.acceptanceCriteria !== "undefined") {
-      if (!Array.isArray(t.acceptanceCriteria)) {
-        throw new Error(`\u9519\u8BEF: tasks[${index}].acceptanceCriteria \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u6570\u7EC4`);
+    if (!Array.isArray(t.acceptanceCriteria) || t.acceptanceCriteria.length === 0) {
+      throw new Error(`\u9519\u8BEF: tasks[${index}].acceptanceCriteria \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\u6570\u7EC4`);
+    }
+    for (const ac of t.acceptanceCriteria) {
+      if (typeof ac !== "string" || !ac.trim()) {
+        throw new Error(`\u9519\u8BEF: tasks[${index}].acceptanceCriteria \u5305\u542B\u65E0\u6548\u6761\u76EE`);
       }
-      for (const ac of t.acceptanceCriteria) {
-        if (typeof ac !== "string" || !ac.trim()) {
-          throw new Error(`\u9519\u8BEF: tasks[${index}].acceptanceCriteria \u5305\u542B\u65E0\u6548\u6761\u76EE`);
-        }
-        acceptanceCriteria.push(ac);
-      }
+      acceptanceCriteria.push(ac.trim());
     }
     let scope;
     if (typeof t.scope !== "undefined") {
@@ -1719,17 +2091,60 @@ function parsePlannerTasksFromAgentResult(result) {
         scope = void 0;
       }
     }
+    let executionSpec;
+    if (typeof t.executionSpec !== "undefined") {
+      if (!t.executionSpec || typeof t.executionSpec !== "object") {
+        throw new Error(`\u9519\u8BEF: tasks[${index}].executionSpec \u5FC5\u987B\u662F object`);
+      }
+      const spec = t.executionSpec;
+      const parseOptionalStringList = (key) => {
+        if (typeof spec[key] === "undefined") return void 0;
+        if (!Array.isArray(spec[key])) {
+          throw new Error(`\u9519\u8BEF: tasks[${index}].executionSpec.${key} \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u6570\u7EC4`);
+        }
+        const values = spec[key];
+        const normalized = values.map((item, itemIndex) => {
+          if (typeof item !== "string" || !item.trim()) {
+            throw new Error(`\u9519\u8BEF: tasks[${index}].executionSpec.${key}[${itemIndex}] \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`);
+          }
+          return item.trim();
+        });
+        return normalized.length > 0 ? normalized : void 0;
+      };
+      if (typeof spec.summary !== "undefined" && (typeof spec.summary !== "string" || !spec.summary.trim())) {
+        throw new Error(`\u9519\u8BEF: tasks[${index}].executionSpec.summary \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`);
+      }
+      if (typeof spec.agentHint !== "undefined" && (typeof spec.agentHint !== "string" || !allowedAgentHints.has(spec.agentHint))) {
+        throw new Error(`\u9519\u8BEF: tasks[${index}].executionSpec.agentHint \u65E0\u6548`);
+      }
+      if (typeof spec.dependenciesNote !== "undefined" && (typeof spec.dependenciesNote !== "string" || !spec.dependenciesNote.trim())) {
+        throw new Error(`\u9519\u8BEF: tasks[${index}].executionSpec.dependenciesNote \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`);
+      }
+      if (typeof spec.specRef !== "undefined" && (typeof spec.specRef !== "string" || !spec.specRef.trim())) {
+        throw new Error(`\u9519\u8BEF: tasks[${index}].executionSpec.specRef \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`);
+      }
+      executionSpec = normalizeExecutionSpec({
+        summary: typeof spec.summary === "string" ? spec.summary.trim() : void 0,
+        agentHint: typeof spec.agentHint === "string" ? spec.agentHint : void 0,
+        deliverables: parseOptionalStringList("deliverables"),
+        verification: parseOptionalStringList("verification"),
+        constraints: parseOptionalStringList("constraints"),
+        dependenciesNote: typeof spec.dependenciesNote === "string" ? spec.dependenciesNote.trim() : void 0,
+        specRef: typeof spec.specRef === "string" ? spec.specRef.trim() : void 0
+      });
+    }
     parsedTasks.push({
       planId,
       title: title.trim(),
       type,
       priority: parsedPriority,
       dependencies: dependencies.length > 0 ? dependencies : void 0,
-      acceptanceCriteria: acceptanceCriteria.length > 0 ? acceptanceCriteria : void 0,
-      scope
+      acceptanceCriteria,
+      scope,
+      executionSpec
     });
   }
-  return parsedTasks;
+  return { plan: plannerPlan, tasks: parsedTasks };
 }
 function main() {
   const args = process.argv.slice(2);
@@ -1764,7 +2179,12 @@ function main() {
           showHelp();
           process.exit(1);
         }
-        const taskBook = manager.create({ title, description, taskType: type });
+        const taskBook = manager.create({
+          title,
+          description,
+          taskType: type,
+          plan: buildTaskBookPlanFromFlags(parsed.flags)
+        });
         if (json) {
           printJson(taskBook);
         } else {
@@ -1863,9 +2283,15 @@ function main() {
           console.error("\u63D0\u793A: \u5148\u5728\u76EE\u6807\u9879\u76EE\u6267\u884C codebuddy-loader\uFF0C\u786E\u4FDD install.json \u6307\u5411\u7684 active agents root \u5DF2\u751F\u6210\u3002");
           process.exit(1);
         }
+        const planPatch = buildTaskBookPlanFromFlags(parsed.flags);
+        const planAwareTaskBook = planPatch ? manager.updatePlan(taskBookId, { ...planPatch, source: "task-intake-routing" }, tb.revision) : tb;
+        if (!planAwareTaskBook) {
+          console.error(`\u9519\u8BEF: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
+        }
         const prompt = buildPlannerPrompt({
           requestId,
-          taskBook: tb,
+          taskBook: planAwareTaskBook,
           projectRoot: process.cwd(),
           agentDefinitionPath: agentDef.path,
           agentDefinition: agentDef.content,
@@ -1877,7 +2303,7 @@ function main() {
           requestId,
           agentId: "planner",
           taskBookId,
-          taskBookRevision: tb.revision ?? 0,
+          taskBookRevision: planAwareTaskBook.revision ?? 0,
           promptPath,
           resultPath
         };
@@ -1888,7 +2314,7 @@ function main() {
           console.log(`[planner] \u8BF7\u6267\u884C prompt \u5E76\u5199\u56DE: ${resultPath}`);
           console.log("[planner] \u5199\u56DE\u540E\u6267\u884C:");
           console.log(`  node .codebuddy/scripts/taskbook-manager.js apply-plan ${taskBookId} ${requestId}`);
-          console.log(`  # \u82E5\u542F\u7528\u5E76\u53D1\u4FDD\u62A4\uFF1A\u52A0\u4E0A --if-rev ${tb.revision ?? 0}`);
+          console.log(`  # \u82E5\u542F\u7528\u5E76\u53D1\u4FDD\u62A4\uFF1A\u52A0\u4E0A --if-rev ${planAwareTaskBook.revision ?? 0}`);
         }
         break;
       }
@@ -1922,18 +2348,19 @@ function main() {
           console.error(`\u9519\u8BEF: planner result \u4E0D\u662F success: ${msg}`);
           process.exit(1);
         }
-        const planTasks = parsePlannerTasksFromAgentResult(result);
+        const parsedPlan = parsePlannerPlanFromAgentResult(result, taskBookId);
         if (dryRun) {
           const preview = {
             dryRun: true,
             requestId,
             taskBookId,
-            tasks: planTasks
+            plan: parsedPlan.plan,
+            tasks: parsedPlan.tasks
           };
           if (json) printJson(preview);
           else {
             console.log(`[planner] dry-run: ${taskBookId} <- ${requestId}`);
-            for (const t of planTasks) {
+            for (const t of parsedPlan.tasks) {
               const deps = t.dependencies && t.dependencies.length > 0 ? ` deps=${t.dependencies.join(",")}` : "";
               console.log(`- ${t.planId} [${t.type}] ${t.title}${deps}`);
             }
@@ -1941,24 +2368,24 @@ function main() {
           break;
         }
         const planIdToIndex = /* @__PURE__ */ new Map();
-        for (let i = 0; i < planTasks.length; i++) {
-          planIdToIndex.set(planTasks[i].planId, i);
+        for (let i = 0; i < parsedPlan.tasks.length; i++) {
+          planIdToIndex.set(parsedPlan.tasks[i].planId, i);
         }
-        for (let i = 0; i < planTasks.length; i++) {
-          const deps = planTasks[i].dependencies ?? [];
+        for (let i = 0; i < parsedPlan.tasks.length; i++) {
+          const deps = parsedPlan.tasks[i].dependencies ?? [];
           for (const dep of deps) {
             const depIndex = planIdToIndex.get(dep);
             if (typeof depIndex !== "number") {
-              console.error(`\u9519\u8BEF: \u4F9D\u8D56 planId \u4E0D\u5B58\u5728: ${dep} (from ${planTasks[i].planId})`);
+              console.error(`\u9519\u8BEF: \u4F9D\u8D56 planId \u4E0D\u5B58\u5728: ${dep} (from ${parsedPlan.tasks[i].planId})`);
               process.exit(1);
             }
             if (depIndex >= i) {
-              console.error(`\u9519\u8BEF: dependencies \u5FC5\u987B\u6307\u5411\u66F4\u65E9\u7684 planId\uFF08${planTasks[i].planId} \u4F9D\u8D56 ${dep}\uFF09`);
+              console.error(`\u9519\u8BEF: dependencies \u5FC5\u987B\u6307\u5411\u66F4\u65E9\u7684 planId\uFF08${parsedPlan.tasks[i].planId} \u4F9D\u8D56 ${dep}\uFF09`);
               process.exit(1);
             }
           }
         }
-        const applied = manager.applyPlannerPlan(taskBookId, requestId, planTasks, expectedRevision);
+        const applied = manager.applyPlannerPlan(taskBookId, requestId, parsedPlan, expectedRevision);
         if (!applied) {
           console.error(`\u9519\u8BEF: TaskBook not found: ${taskBookId}`);
           process.exit(1);
@@ -2050,7 +2477,8 @@ function main() {
           priority,
           dependencies: deps,
           acceptanceCriteria: ac,
-          scope: buildScope(files, modules, tags)
+          scope: buildScope(files, modules, tags),
+          executionSpec: buildExecutionSpecFromFlags(parsed.flags)
         }, expectedRevision);
         if (!tb) {
           console.error(`\u9519\u8BEF: TaskBook not found: ${taskBookId}`);
@@ -2085,6 +2513,8 @@ function main() {
         const tags = parseCsv(flagAsString(parsed.flags, "tags"));
         const scope = buildScope(files, modules, tags);
         if (scope) patch.scope = scope;
+        const executionSpec = buildExecutionSpecFromFlags(parsed.flags);
+        if (executionSpec) patch.executionSpec = executionSpec;
         const actualWork = flagAsString(parsed.flags, "actual-work");
         if (actualWork) patch.actualWork = actualWork;
         const blockedReason = flagAsString(parsed.flags, "blocked-reason");
@@ -4677,7 +5107,7 @@ var BUILTIN_WORKFLOW_RANK = {
 };
 var HOTFIX_SIGNAL = /(hotfix|quick fix|single[-\s]?file|单文件|快速修复|小\s*bug|小问题|补丁|patch)/i;
 var LARGE_SCOPE_SIGNAL = /(新功能|feature|需求|prd|架构|跨模块|跨项目|大规模|major|multi[-\s]?module|multi[-\s]?project)/i;
-function uniqStrings(values) {
+function uniqStrings2(values) {
   return Array.from(new Set(values.filter((value) => typeof value === "string" && value.trim().length > 0)));
 }
 function inferWorkflowIdFromPath(workflowPath) {
@@ -4718,7 +5148,7 @@ function createDecision(params) {
     canonicalWorkflowId: params.canonicalWorkflowId,
     selectedWorkflowPath: params.workflowPath,
     confidence: params.confidence,
-    reasons: uniqStrings(params.reasons),
+    reasons: uniqStrings2(params.reasons),
     signals: params.signals ?? [],
     reusedFromTaskBook: params.reusedFromTaskBook,
     fallbackReason: params.fallbackReason,
@@ -4771,7 +5201,7 @@ function collectRouteHints(taskBook) {
     values.push(...task.acceptanceCriteria);
     values.push(...task.scope?.tags ?? []);
   }
-  return uniqStrings(values);
+  return uniqStrings2(values);
 }
 function buildSignal(id, matched, detail, weight) {
   return { id, matched, detail, weight };
@@ -4928,7 +5358,7 @@ function buildWorkflowRoutingInput(taskBook, workspaceInfo) {
     scopedModuleCount: collectScopeCount(tasks, "modules"),
     workspaceProjectCount: workspaceInfo?.totalProjectCount || workspaceInfo?.projects?.length || 1,
     selectedProjectCount,
-    projectKinds: uniqStrings((workspaceInfo?.projects ?? []).map((project) => project.projectKind)),
+    projectKinds: uniqStrings2((workspaceInfo?.projects ?? []).map((project) => project.projectKind)),
     routeHints: collectRouteHints(taskBook)
   };
 }

@@ -26,6 +26,7 @@
     "confirmedAt": { "type": "string", "format": "date-time" },
     "completedAt": { "type": "string", "format": "date-time" },
     "status": { "$ref": "#/$defs/taskBookStatus" },
+    "plan": { "$ref": "#/$defs/taskBookPlan" },
     "context": { "$ref": "#/$defs/context" },
     "tasks": {
       "type": "array",
@@ -72,6 +73,15 @@
       "type": "string",
       "enum": ["critical", "high", "medium", "low"]
     },
+    "taskAgentHint": {
+      "type": "string",
+      "enum": ["coder", "tester", "reviewer", "refactor", "doc-writer", "planner"]
+    },
+    "taskSpecMode": {
+      "type": "string",
+      "enum": ["inline-open-spec", "linked-spec-kit"],
+      "description": "Spec 粒度由 routing/编排先决定，再作为 Planner 的输入约束。第一阶段不支持执行中动态升级。"
+    },
     "changeType": {
       "type": "string",
       "enum": ["added", "modified", "removed", "reordered"]
@@ -105,6 +115,115 @@
         "architectureNotes": { "type": "string" }
       }
     },
+    "taskBookPlanRisk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "summary"],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "summary": { "type": "string", "minLength": 1 },
+        "mitigation": { "type": "string" }
+      }
+    },
+    "taskBookPlanEpic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" }
+      }
+    },
+    "taskBookPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["planId", "version"],
+      "properties": {
+        "planId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "第一阶段强制 1 TaskBook = 1 Plan，planId 应与 taskBook.id 一致。"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "第一阶段固定为 1，暂不支持 re-planning 的版本分支。"
+        },
+        "specMode": { "$ref": "#/$defs/taskSpecMode" },
+        "recommendedWorkflowId": {
+          "type": "string",
+          "enum": ["micro", "sprint", "default"]
+        },
+        "summary": { "type": "string" },
+        "goals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "outOfScope": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "risks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/taskBookPlanRisk" }
+        },
+        "clarifications": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "epics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/taskBookPlanEpic" }
+        },
+        "specRef": {
+          "type": "string",
+          "description": "复杂任务可指向 .codebuddy/specs/<taskBookId>-v<version>/ 下的 Spec Kit。"
+        },
+        "linkedTaskBookRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "type": "string",
+          "enum": ["planner", "manual", "task-intake-routing"]
+        }
+      }
+    },
+    "taskExecutionSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "summary": { "type": "string" },
+        "agentHint": { "$ref": "#/$defs/taskAgentHint" },
+        "deliverables": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "verification": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "技术/工程层校验：lint、test、build、smoke、人工检查点等。不要与 acceptanceCriteria 的业务验收混淆。"
+        },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dependenciesNote": { "type": "string" },
+        "specRef": { "type": "string" }
+      }
+    },
     "taskItem": {
       "type": "object",
       "additionalProperties": false,
@@ -130,9 +249,11 @@
         },
         "acceptanceCriteria": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string" },
+          "description": "业务/结果层验收标准：完成后用户或业务应得到什么结果。"
         },
         "scope": { "$ref": "#/$defs/taskScope" },
+        "executionSpec": { "$ref": "#/$defs/taskExecutionSpec" },
         "actualWork": { "type": "string" },
         "blockedReason": { "type": "string" },
         "executedBy": { "type": "string" },

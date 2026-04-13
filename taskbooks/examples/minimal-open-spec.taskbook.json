@@ -1,0 +1,92 @@
+{
+  "id": "tb-demo-open-spec",
+  "title": "Demo planner contract",
+  "description": "最小示例：展示 plan 与 executionSpec 的配合方式。",
+  "taskType": "new-feature",
+  "status": "draft",
+  "createdAt": "2026-04-13T00:00:00.000Z",
+  "updatedAt": "2026-04-13T00:00:00.000Z",
+  "revision": 1,
+  "plan": {
+    "planId": "tb-demo-open-spec",
+    "version": 1,
+    "recommendedWorkflowId": "sprint",
+    "specMode": "inline-open-spec",
+    "summary": "先分析范围，再实现，再复核。",
+    "goals": [
+      "补齐执行契约"
+    ],
+    "constraints": [
+      "不引入新依赖"
+    ],
+    "assumptions": [
+      "现有模块边界可复用"
+    ],
+    "risks": [
+      {
+        "level": "medium",
+        "summary": "历史模块耦合可能扩大影响面",
+        "mitigation": "先做分析任务明确范围"
+      }
+    ],
+    "linkedTaskBookRevision": 1,
+    "source": "manual"
+  },
+  "context": {
+    "relatedFiles": [
+      "src/demo.ts"
+    ],
+    "dependencies": []
+  },
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "梳理影响范围",
+      "type": "analysis",
+      "status": "pending",
+      "priority": "high",
+      "dependencies": [],
+      "acceptanceCriteria": [
+        "列出受影响文件",
+        "明确非目标范围"
+      ],
+      "executionSpec": {
+        "agentHint": "planner",
+        "deliverables": [
+          "影响范围说明"
+        ],
+        "verification": [
+          "确认文件列表与模块列表完整"
+        ]
+      }
+    },
+    {
+      "id": "task-2",
+      "title": "实现变更",
+      "type": "implement",
+      "status": "pending",
+      "priority": "medium",
+      "dependencies": [
+        "task-1"
+      ],
+      "acceptanceCriteria": [
+        "目标能力可用"
+      ],
+      "executionSpec": {
+        "agentHint": "coder",
+        "deliverables": [
+          "代码变更"
+        ],
+        "verification": [
+          "npm run build",
+          "npm test"
+        ],
+        "constraints": [
+          "保持对外接口兼容"
+        ],
+        "specRef": ".codebuddy/specs/tb-demo-open-spec-v1/00-overview.md"
+      }
+    }
+  ],
+  "changelog": []
+}

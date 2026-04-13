@@ -87,6 +87,30 @@ function resolveSuggestedNextSteps(path, kind) {
         'Use quick gate plus focused E2E as the task scope expands.',
     ];
 }
+function resolveRecommendedWorkflowId(params) {
+    if (params.recommendedPath === 'direct') {
+        return 'micro';
+    }
+    const highComplexity = params.contractState === 'none'
+        || params.uncertainty === 'high'
+        || params.requiresHandoff
+        || params.requiresParallelWork
+        || params.requiresDurableTracking
+        || params.changesArchitecture
+        || params.changesStateModel
+        || params.changesRouting
+        || params.changesWorkflow
+        || (typeof params.estimatedDomainCount === 'number' && params.estimatedDomainCount > 1)
+        || (typeof params.estimatedModuleCount === 'number' && params.estimatedModuleCount > 2)
+        || (typeof params.estimatedFileCount === 'number' && params.estimatedFileCount > 12);
+    return highComplexity ? 'default' : 'sprint';
+}
+function resolveRecommendedSpecMode(workflowId) {
+    if (workflowId === 'default') {
+        return 'linked-spec-kit';
+    }
+    return 'inline-open-spec';
+}
 function normalizeTaskIntakeInput(input) {
     var _a, _b, _c, _d;
     return {
@@ -222,8 +246,26 @@ function routeTaskIntake(rawInput, options) {
             || input.uncertainty === 'high'
             ? 'high'
             : 'medium');
+    const recommendedWorkflowId = resolveRecommendedWorkflowId({
+        recommendedPath,
+        contractState: input.contractState,
+        uncertainty: input.uncertainty,
+        estimatedFileCount,
+        estimatedModuleCount,
+        estimatedDomainCount,
+        requiresHandoff: input.requiresHandoff,
+        requiresParallelWork: input.requiresParallelWork,
+        requiresDurableTracking: input.requiresDurableTracking,
+        changesArchitecture: input.changesArchitecture,
+        changesStateModel: input.changesStateModel,
+        changesRouting: input.changesRouting,
+        changesWorkflow: input.changesWorkflow,
+    });
+    const recommendedSpecMode = resolveRecommendedSpecMode(recommendedWorkflowId);
     return {
         recommendedPath,
+        recommendedWorkflowId,
+        recommendedSpecMode,
         confidence,
         inferredKind,
         reasons,

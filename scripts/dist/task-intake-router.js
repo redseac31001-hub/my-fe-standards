@@ -129,6 +129,7 @@ function buildInput(parsed) {
 }
 function printDecision(decision) {
     console.log(`[task-intake-router] recommendation: ${decision.recommendedPath} (confidence=${decision.confidence}, kind=${decision.inferredKind})`);
+    console.log(`[task-intake-router] planner contract: workflow=${decision.recommendedWorkflowId}, specMode=${decision.recommendedSpecMode}`);
     for (const reason of decision.reasons) {
         console.log(`- ${reason}`);
     }

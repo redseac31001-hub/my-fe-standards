@@ -5,6 +5,7 @@
 ## 你会用到的文件
 
 - `taskbooks/schema/taskbook.schema.json`：TaskBook JSON Schema（可用于校验/CI/MCP/多工具适配）
+- `taskbooks/examples/minimal-open-spec.taskbook.json`：最小可运行示例，演示 `plan + executionSpec`
 
 ## 业务项目中的落地位置
 
@@ -24,3 +25,10 @@
 - **可验证**：任何写入 TaskBook 的动作都能在本地/CI 校验结构合法性
 - **可演进**：通过 schema 版本与扩展字段（如 `meta`）支持后续能力扩展
 
+## 契约约定
+
+- 第一阶段强制 `1 TaskBook = 1 Plan`，`plan.planId === taskBook.id`
+- `acceptanceCriteria` 表示业务/结果层验收
+- `executionSpec.verification` 表示技术/工程层校验
+- 如需外部 Spec Kit，建议使用版本化路径：
+  `.codebuddy/specs/<taskBookId>-v1/00-overview.md`

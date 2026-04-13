@@ -31,6 +31,7 @@ const repoStateValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'repo-
 const validatorGateDistPath = path.join(repoRoot, 'scripts', 'dist', 'validator-gate.js');
 const reportManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'report-manager.js');
 const taskIntakeRouterDistPath = path.join(repoRoot, 'scripts', 'dist', 'task-intake-router.js');
+const taskbookManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'taskbook-manager.js');
 const structureAnalyzerDistPath = path.join(repoRoot, 'scripts', 'dist', 'structure-analyzer.js');
 const moduleMapperDistPath = path.join(repoRoot, 'scripts', 'dist', 'module-mapper.js');
 const runTestsPath = path.join(repoRoot, 'test', 'run-tests.js');
@@ -38,6 +39,18 @@ const runTestsPath = path.join(repoRoot, 'test', 'run-tests.js');
 function assertBuiltArtifactExists(filePath, hintCommand) {
   if (!fs.existsSync(filePath)) {
     throw new Error(`missing built artifact: ${filePath}\nrun: ${hintCommand}`);
+  }
+}
+
+async function cleanupTempDir(dirPath) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fsp.rm(dirPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === 4) return;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
   }
 }
 
@@ -633,7 +646,7 @@ async function testStructureAnalyzerBuildsEngineeringScorecard() {
     const typeSafety = result.scores.scorecard.dimensions.find(dimension => dimension.id === 'type-safety');
     assert.equal((typeSafety?.score || 0) >= 10, true);
   } finally {
-    await fsp.rm(tempDir, { recursive: true, force: true });
+    await cleanupTempDir(tempDir);
   }
 }
 
@@ -698,7 +711,7 @@ async function testStructureAnalyzerCountsVueTypeScriptSignals() {
     const tsCoverageCriterion = typeSafety?.criteria.find(criterion => criterion.label === 'TypeScript 覆盖率');
     assert.match(tsCoverageCriterion?.note || '', /\.vue lang="ts" 1/);
   } finally {
-    await fsp.rm(tempDir, { recursive: true, force: true });
+    await cleanupTempDir(tempDir);
   }
 }
 
@@ -727,7 +740,7 @@ async function testModuleMapperExposesIsolatedModuleNames() {
     assert.equal(componentsModule?.business.category, '通用组件');
     assert.equal(utilsModule?.business.category, '工具函数');
   } finally {
-    await fsp.rm(tempDir, { recursive: true, force: true });
+    await cleanupTempDir(tempDir);
   }
 }
 
@@ -1691,9 +1704,23 @@ async function testTaskIntakeRoutingLibrary() {
     estimatedEndpointCount: 2,
   }));
   assert.equal(directDecision.recommendedPath, 'direct');
+  assert.equal(directDecision.recommendedWorkflowId, 'micro');
+  assert.equal(directDecision.recommendedSpecMode, 'inline-open-spec');
   assert.equal(directDecision.inferredKind, 'api-adaptation');
   assert.equal(directDecision.hardEscalationTriggers.length, 0);
   assert.ok(directDecision.reasons.some(reason => reason.includes('small-change direct-execution boundary')));
+
+  const sprintDecision = routeTaskIntake(createDefaultTaskIntakeInput({
+    description: 'refactor checkout summary flow with clearer task boundaries',
+    contractState: 'partial',
+    uncertainty: 'medium',
+    estimatedFileCount: 8,
+    estimatedModuleCount: 1,
+    estimatedDomainCount: 1,
+  }));
+  assert.equal(sprintDecision.recommendedPath, 'orchestrated');
+  assert.equal(sprintDecision.recommendedWorkflowId, 'sprint');
+  assert.equal(sprintDecision.recommendedSpecMode, 'inline-open-spec');
 
   const orchestratedDecision = routeTaskIntake(createDefaultTaskIntakeInput({
     description: 'replace API layer across user and admin modules with staged review',
@@ -1706,6 +1733,8 @@ async function testTaskIntakeRoutingLibrary() {
     changesStateModel: true,
   }));
   assert.equal(orchestratedDecision.recommendedPath, 'orchestrated');
+  assert.equal(orchestratedDecision.recommendedWorkflowId, 'default');
+  assert.equal(orchestratedDecision.recommendedSpecMode, 'linked-spec-kit');
   assert.ok(orchestratedDecision.hardEscalationTriggers.some(trigger => trigger.includes('estimatedModuleCount=3')));
   assert.ok(orchestratedDecision.hardEscalationTriggers.some(trigger => trigger.includes('staged handoff')));
 
@@ -1717,6 +1746,7 @@ async function testTaskIntakeRoutingLibrary() {
   ]);
   const cliDirectDecision = routeTaskIntakeCli(parsedDirect);
   assert.equal(cliDirectDecision.recommendedPath, 'direct');
+  assert.equal(cliDirectDecision.recommendedWorkflowId, 'micro');
 
   const parsedEscalated = parseTaskIntakeCliArgs([
     '--description', 'feature redesign across checkout and account flows',
@@ -1725,7 +1755,101 @@ async function testTaskIntakeRoutingLibrary() {
   ]);
   const cliEscalatedDecision = routeTaskIntakeCli(parsedEscalated);
   assert.equal(cliEscalatedDecision.recommendedPath, 'orchestrated');
+  assert.equal(cliEscalatedDecision.recommendedWorkflowId, 'default');
   assert.ok(cliEscalatedDecision.hardEscalationTriggers.length >= 1);
+}
+
+async function testTaskBookPlannerContracts() {
+  assertBuiltArtifactExists(taskbookManagerDistPath, 'npm run build:scripts');
+  const { TaskBookManager } = require(taskbookManagerDistPath);
+
+  const tempBaseDir = path.join(repoRoot, 'temp');
+  await fsp.mkdir(tempBaseDir, { recursive: true });
+  const tempDir = await fsp.mkdtemp(path.join(tempBaseDir, 'taskbook-contracts-'));
+  try {
+    const manager = new TaskBookManager(tempDir);
+    const created = manager.create({
+      title: 'Planner contract demo',
+      description: 'Verify routed workflow/spec hints and executionSpec parsing',
+      taskType: 'new-feature',
+      plan: {
+        recommendedWorkflowId: 'default',
+        specMode: 'linked-spec-kit',
+        summary: 'Planner must inherit routing constraints before generating tasks',
+        goals: ['Carry workflow/spec hints into planner prompt'],
+        assumptions: ['Existing module boundaries remain stable'],
+      },
+    });
+
+    assert.equal(created.plan.planId, created.id);
+    assert.equal(created.plan.recommendedWorkflowId, 'default');
+    assert.equal(created.plan.specMode, 'linked-spec-kit');
+    const applied = manager.applyPlannerPlan(created.id, 'req-planner-contract', {
+      plan: {
+        planId: created.id,
+        version: 1,
+        source: 'planner',
+        summary: 'Deliver execution-ready tasks with explicit verification.',
+        recommendedWorkflowId: 'default',
+        specMode: 'linked-spec-kit',
+        goals: ['Preserve routing hints'],
+        constraints: ['Do not add dependencies'],
+        risks: [
+          { level: 'medium', summary: 'Legacy coupling can broaden scope' },
+        ],
+        epics: [
+          { id: 'EPIC-1', title: 'Core flow' },
+        ],
+      },
+      tasks: [
+        {
+          planId: 'T1',
+          title: 'Analyze current flow',
+          type: 'analysis',
+          priority: 'high',
+          acceptanceCriteria: ['Affected files are listed'],
+          executionSpec: {
+            agentHint: 'planner',
+            deliverables: ['Impact note'],
+            verification: ['Review file list completeness'],
+          },
+        },
+        {
+          planId: 'T2',
+          title: 'Implement change',
+          type: 'implement',
+          priority: 'medium',
+          dependencies: ['T1'],
+          acceptanceCriteria: ['Target flow works'],
+          scope: {
+            files: ['src/demo.ts'],
+          },
+          executionSpec: {
+            agentHint: 'coder',
+            summary: 'Edit the demo flow in place.',
+            deliverables: ['Code change'],
+            verification: ['npm run build'],
+            constraints: ['Keep public API stable'],
+            specRef: `.codebuddy/specs/${created.id}-v1/00-overview.md`,
+          },
+        },
+      ],
+    });
+
+    assert.ok(applied);
+
+    assert.equal(applied.taskBook.plan.planId, created.id);
+    assert.equal(applied.taskBook.plan.recommendedWorkflowId, 'default');
+    assert.equal(applied.taskBook.plan.specMode, 'linked-spec-kit');
+    assert.equal(applied.taskBook.plan.epics[0].id, 'EPIC-1');
+    assert.equal(applied.taskBook.tasks.length, 2);
+    assert.equal(applied.taskBook.tasks[1].dependencies[0], applied.taskBook.tasks[0].id);
+    assert.equal(applied.taskBook.tasks[1].executionSpec.agentHint, 'coder');
+    assert.deepEqual(applied.taskBook.tasks[1].executionSpec.verification, ['npm run build']);
+    assert.match(applied.taskBook.tasks[1].executionSpec.specRef, /\.codebuddy\/specs\/.+-v1\/00-overview\.md$/);
+  } finally {
+    await cleanupTempDir(tempDir);
+  }
 }
 
 async function testDoctorArchitectureWarnings() {
@@ -3324,6 +3448,7 @@ async function main() {
     ['module mapper exposes isolated module names and normalized categories', testModuleMapperExposesIsolatedModuleNames],
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
     ['task intake router recommends direct vs orchestrated execution deterministically', testTaskIntakeRoutingLibrary],
+    ['taskbook planner contracts preserve plan hints and execution specs', testTaskBookPlannerContracts],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],
     ['doctor surfaces latest validator gate summary when present', testDoctorValidatorGateWarnings],
     ['doctor ignores known optional static support files', testDoctorIgnoresKnownOptionalStaticSupportFiles],

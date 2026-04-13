@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-04-13T08:30:21.155Z",
+  "generatedAt": "2026-04-13T10:11:27.809Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -1124,8 +1124,8 @@
     {
       "path": "agents/planner/AGENT.md",
       "name": "AGENT",
-      "size": 5546,
-      "mtime": "2026-03-10T08:30:26.814Z",
+      "size": 6431,
+      "mtime": "2026-04-13T09:34:25.432Z",
       "encoding": "utf8"
     },
     {
@@ -1264,36 +1264,43 @@
     {
       "path": "workflows/templates/default.workflow.json",
       "name": "default.workflow",
-      "size": 7271,
-      "mtime": "2026-02-27T05:59:09.020Z",
+      "size": 7343,
+      "mtime": "2026-04-13T09:34:25.434Z",
       "encoding": "utf8"
     },
     {
       "path": "workflows/templates/micro.workflow.json",
       "name": "micro.workflow",
-      "size": 2616,
-      "mtime": "2026-03-13T05:38:54.587Z",
+      "size": 2663,
+      "mtime": "2026-04-13T09:34:25.432Z",
       "encoding": "utf8"
     },
     {
       "path": "workflows/templates/sprint.workflow.json",
       "name": "sprint.workflow",
-      "size": 4968,
-      "mtime": "2026-03-13T05:38:54.634Z",
+      "size": 5012,
+      "mtime": "2026-04-13T09:34:25.434Z",
+      "encoding": "utf8"
+    },
+    {
+      "path": "taskbooks/examples/minimal-open-spec.taskbook.json",
+      "name": "minimal-open-spec.taskbook",
+      "size": 2170,
+      "mtime": "2026-04-13T09:34:25.437Z",
       "encoding": "utf8"
     },
     {
       "path": "taskbooks/README.md",
       "name": "README",
-      "size": 986,
-      "mtime": "2026-01-30T19:05:24.634Z",
+      "size": 1410,
+      "mtime": "2026-04-13T09:34:25.436Z",
       "encoding": "utf8"
     },
     {
       "path": "taskbooks/schema/taskbook.schema.json",
       "name": "taskbook.schema",
-      "size": 5961,
-      "mtime": "2026-03-13T05:44:20.107Z",
+      "size": 9912,
+      "mtime": "2026-04-13T09:22:08.367Z",
       "encoding": "utf8"
     }
   ],
@@ -1302,54 +1309,54 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "f782463668244cd7501f6798a5cc6cfac383de100f3d2db3fbe6c0f5e2e76761",
-      "size": 890288,
+      "sha256": "67854b13197258e8f80442a58ef9844aa594ff3890b504a7b8e95ec81e27e9f2",
+      "size": 891181,
       "entryCount": 157,
-      "generatedAt": "2026-04-13T08:30:19.725Z"
+      "generatedAt": "2026-04-13T10:11:27.018Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "8010a166c6d9a565870cea049a9008bd90a86531b8c48bea365eff748274a468",
-      "size": 1407568,
+      "sha256": "6b5fd5915f482e8f7b483bf58285e14153b0edfc65bcd75c95b51fc29b26c4ad",
+      "size": 1410411,
       "entryCount": 169,
-      "generatedAt": "2026-04-13T08:30:19.958Z"
+      "generatedAt": "2026-04-13T10:11:27.171Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "ca0528c6626aa6da3efb7ab31e26600f5f91e82fc08f3cf366e42cf1d9f51658",
-      "size": 2128630,
+      "sha256": "95dcf4ee557e00c1219a84ee7a442952c4f83eac582700b7b123430616df1a45",
+      "size": 2215201,
       "entryCount": 188,
-      "generatedAt": "2026-04-13T08:30:20.325Z"
+      "generatedAt": "2026-04-13T10:11:27.385Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "3df1785888502e1819c95f7d29bbbd40b0b055f0538b101f665d1bba3f09b896",
-      "size": 2144564,
+      "sha256": "50f132206c8c799b8e9049044c78a49d5b3ce945cfd73926da072060b57ecf76",
+      "size": 2231135,
       "entryCount": 189,
-      "generatedAt": "2026-04-13T08:30:20.787Z"
+      "generatedAt": "2026-04-13T10:11:27.581Z"
     },
     "demo": {
       "profile": "demo",
       "file": "packs/content-pack-demo.json",
       "format": "content-pack-json-v1",
-      "sha256": "a9cbbb35c6dd9c440d5aa2c82ce88022cabc90357193d96b4d5a5a5316c30b82",
-      "size": 1066269,
+      "sha256": "487660bcc9e50071839d7047a1f85ce3bdc320a8962036e0be52e60153a1df48",
+      "size": 1067162,
       "entryCount": 160,
-      "generatedAt": "2026-04-13T08:30:21.105Z"
+      "generatedAt": "2026-04-13T10:11:27.789Z"
     }
   },
   "stats": {
-    "totalFiles": 155,
+    "totalFiles": 156,
     "ruleFiles": 23,
     "skillFiles": 97,
     "agentFiles": 28,
     "workflowFiles": 5,
-    "taskbookFiles": 2
+    "taskbookFiles": 3
   }
 }

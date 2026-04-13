@@ -2,7 +2,7 @@
   "id": "sprint",
   "version": "1.0.0",
   "name": "Sprint Workflow (5-step feature loop)",
-  "description": "Mid-weight 5-step workflow for feature sprints and moderate refactoring: analyze -> plan -> TDD implement (batched) -> review -> acceptance. Skips PRD generation and separate build-fix step.",
+  "description": "Mid-weight 5-step workflow for feature sprints and moderate refactoring: analyze -> plan -> TDD implement (batched) -> review -> acceptance. Uses richer inline Open Spec but does not require linked Spec Kit.",
   "steps": [
     {
       "id": "analyze",
@@ -26,7 +26,7 @@
       "id": "plan",
       "type": "create_taskbook",
       "title": "Create TaskBook (tasks + acceptance criteria)",
-      "description": "Break requirements into executable tasks with dependencies and acceptance criteria.",
+      "description": "Break requirements into executable tasks with dependencies, acceptance criteria, and inline execution contracts.",
       "toolHints": {
         "recommended": [
           "agent:planner",

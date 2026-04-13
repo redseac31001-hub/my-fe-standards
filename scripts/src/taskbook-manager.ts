@@ -13,7 +13,14 @@ import {
   TaskBookStatus,
   TaskBookType,
   TaskItem,
+  TaskBookPlan,
+  TaskBookPlanEpic,
+  TaskBookPlanRisk,
   TaskScope,
+  TaskExecutionSpec,
+  TaskAgentHint,
+  TaskSpecMode,
+  BuiltinWorkflowId,
   ChangeEntry,
   HandoffEntry,
   CreateTaskBookParams,
@@ -35,6 +42,9 @@ const TASKBOOK_FILE_DELETE_RETRY_MS = 80;
 const TASKBOOK_FILE_DELETE_MAX_RETRIES = 6;
 const TASKBOOK_FILE_DELETE_RETRY_CODES = new Set(['EBUSY', 'EMFILE', 'ENFILE', 'EPERM']);
 const IN_PROCESS_LOCK_DEPTHS = new Map<string, number>();
+const ALLOWED_TASK_AGENT_HINTS = new Set<TaskAgentHint>(['coder', 'tester', 'reviewer', 'refactor', 'doc-writer', 'planner']);
+const ALLOWED_SPEC_MODES = new Set<TaskSpecMode>(['inline-open-spec', 'linked-spec-kit']);
+const ALLOWED_WORKFLOW_IDS = new Set<BuiltinWorkflowId>(['micro', 'sprint', 'default']);
 
 type TaskBookManagerOptions = {
   lockTimeoutMs?: number;
@@ -78,6 +88,94 @@ function generateTaskBookId(title: string): string {
  */
 function now(): string {
   return new Date().toISOString();
+}
+
+function uniqStrings(values: string[] | undefined): string[] | undefined {
+  if (!values || values.length === 0) return undefined;
+  const normalized = values.map(value => value.trim()).filter(Boolean);
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
+}
+
+function normalizeExecutionSpec(spec: TaskExecutionSpec | undefined): TaskExecutionSpec | undefined {
+  if (!spec) return undefined;
+
+  const normalized: TaskExecutionSpec = {};
+  if (typeof spec.summary === 'string' && spec.summary.trim()) normalized.summary = spec.summary.trim();
+  if (typeof spec.agentHint === 'string' && ALLOWED_TASK_AGENT_HINTS.has(spec.agentHint)) normalized.agentHint = spec.agentHint;
+  if (typeof spec.specRef === 'string' && spec.specRef.trim()) normalized.specRef = spec.specRef.trim();
+  if (typeof spec.dependenciesNote === 'string' && spec.dependenciesNote.trim()) normalized.dependenciesNote = spec.dependenciesNote.trim();
+
+  const deliverables = uniqStrings(spec.deliverables);
+  if (deliverables) normalized.deliverables = deliverables;
+  const verification = uniqStrings(spec.verification);
+  if (verification) normalized.verification = verification;
+  const constraints = uniqStrings(spec.constraints);
+  if (constraints) normalized.constraints = constraints;
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizePlanRisk(risk: TaskBookPlanRisk | undefined): TaskBookPlanRisk | undefined {
+  if (!risk || typeof risk.summary !== 'string' || !risk.summary.trim()) return undefined;
+  return {
+    level: risk.level === 'low' || risk.level === 'medium' || risk.level === 'high' ? risk.level : 'medium',
+    summary: risk.summary.trim(),
+    mitigation: typeof risk.mitigation === 'string' && risk.mitigation.trim() ? risk.mitigation.trim() : undefined,
+  };
+}
+
+function normalizePlanEpic(epic: TaskBookPlanEpic | undefined): TaskBookPlanEpic | undefined {
+  if (!epic || typeof epic.id !== 'string' || !epic.id.trim() || typeof epic.title !== 'string' || !epic.title.trim()) {
+    return undefined;
+  }
+  return {
+    id: epic.id.trim(),
+    title: epic.title.trim(),
+    summary: typeof epic.summary === 'string' && epic.summary.trim() ? epic.summary.trim() : undefined,
+  };
+}
+
+function normalizeTaskBookPlan(taskBookId: string, plan: Partial<TaskBookPlan> | undefined, revision: number): TaskBookPlan | undefined {
+  if (!plan) return undefined;
+
+  const normalized: TaskBookPlan = {
+    planId: taskBookId,
+    version: typeof plan.version === 'number' && Number.isInteger(plan.version) && plan.version > 0 ? plan.version : 1,
+    linkedTaskBookRevision: revision,
+  };
+
+  if (typeof plan.specMode === 'string' && ALLOWED_SPEC_MODES.has(plan.specMode)) normalized.specMode = plan.specMode;
+  if (typeof plan.recommendedWorkflowId === 'string' && ALLOWED_WORKFLOW_IDS.has(plan.recommendedWorkflowId)) {
+    normalized.recommendedWorkflowId = plan.recommendedWorkflowId;
+  }
+  if (typeof plan.summary === 'string' && plan.summary.trim()) normalized.summary = plan.summary.trim();
+  if (typeof plan.specRef === 'string' && plan.specRef.trim()) normalized.specRef = plan.specRef.trim();
+  if (typeof plan.source === 'string' && ['planner', 'manual', 'task-intake-routing'].includes(plan.source)) {
+    normalized.source = plan.source as TaskBookPlan['source'];
+  }
+
+  const goals = uniqStrings(plan.goals);
+  if (goals) normalized.goals = goals;
+  const outOfScope = uniqStrings(plan.outOfScope);
+  if (outOfScope) normalized.outOfScope = outOfScope;
+  const assumptions = uniqStrings(plan.assumptions);
+  if (assumptions) normalized.assumptions = assumptions;
+  const constraints = uniqStrings(plan.constraints);
+  if (constraints) normalized.constraints = constraints;
+  const clarifications = uniqStrings(plan.clarifications);
+  if (clarifications) normalized.clarifications = clarifications;
+
+  if (Array.isArray(plan.risks)) {
+    const risks = plan.risks.map(normalizePlanRisk).filter((risk): risk is TaskBookPlanRisk => Boolean(risk));
+    if (risks.length > 0) normalized.risks = risks;
+  }
+
+  if (Array.isArray(plan.epics)) {
+    const epics = plan.epics.map(normalizePlanEpic).filter((epic): epic is TaskBookPlanEpic => Boolean(epic));
+    if (epics.length > 0) normalized.epics = epics;
+  }
+
+  return normalized;
 }
 
 /**
@@ -331,6 +429,11 @@ export class TaskBookManager {
     if (!taskBook.updatedAt) {
       taskBook.updatedAt = taskBook.createdAt;
     }
+    taskBook.plan = normalizeTaskBookPlan(taskBook.id, taskBook.plan, taskBook.revision) ?? taskBook.plan;
+    taskBook.tasks = (taskBook.tasks ?? []).map(task => ({
+      ...task,
+      executionSpec: normalizeExecutionSpec(task.executionSpec),
+    }));
     return taskBook;
   }
 
@@ -340,6 +443,9 @@ export class TaskBookManager {
     }
     taskBook.revision += 1;
     taskBook.updatedAt = now();
+    if (taskBook.plan) {
+      taskBook.plan = normalizeTaskBookPlan(taskBook.id, taskBook.plan, taskBook.revision);
+    }
   }
 
   private assertRevision(taskBook: TaskBook, expectedRevision: number | undefined): void {
@@ -448,6 +554,12 @@ export class TaskBookManager {
       taskType: params.taskType,
       createdAt: now(),
       status: 'draft',
+      plan: normalizeTaskBookPlan(id, params.plan, 0) ?? {
+        planId: id,
+        version: 1,
+        linkedTaskBookRevision: 0,
+        source: 'manual',
+      },
       context: {
         relatedFiles: [],
         dependencies: [],
@@ -561,6 +673,34 @@ export class TaskBookManager {
     });
   }
 
+  updatePlan(id: string, patch: Partial<TaskBookPlan>, expectedRevision?: number): TaskBook | null {
+    return this.withTaskBookLock(id, () => {
+      const taskBook = this.load(id);
+      if (!taskBook) return null;
+
+      this.assertRevision(taskBook, expectedRevision);
+
+      const before = taskBook.plan ? { ...taskBook.plan } : null;
+      taskBook.plan = normalizeTaskBookPlan(taskBook.id, {
+        ...(taskBook.plan ?? { planId: taskBook.id, version: 1 }),
+        ...patch,
+      }, taskBook.revision ?? 0) ?? taskBook.plan;
+
+      this.addChangelogEntry(taskBook, {
+        timestamp: now(),
+        taskId: null,
+        changeType: 'modified',
+        reason: '更新 TaskBook 计划契约',
+        before: before ?? undefined,
+        after: taskBook.plan as unknown as Record<string, unknown>,
+      });
+
+      this.touch(taskBook);
+      this.save(taskBook);
+      return taskBook;
+    });
+  }
+
   /**
    * 添加任务
    */
@@ -586,6 +726,7 @@ export class TaskBookManager {
         dependencies: task.dependencies ?? [],
         acceptanceCriteria: task.acceptanceCriteria ?? [],
         scope: task.scope,
+        executionSpec: normalizeExecutionSpec(task.executionSpec),
         actualWork: task.actualWork,
         blockedReason: task.blockedReason,
         executedBy: task.executedBy,
@@ -639,6 +780,7 @@ export class TaskBookManager {
           dependencies: task.dependencies ?? [],
           acceptanceCriteria: task.acceptanceCriteria ?? [],
           scope: task.scope,
+          executionSpec: normalizeExecutionSpec(task.executionSpec),
           actualWork: task.actualWork,
           blockedReason: task.blockedReason,
           executedBy: task.executedBy,
@@ -671,7 +813,7 @@ export class TaskBookManager {
   applyPlannerPlan(
     taskBookId: string,
     requestId: string,
-    planTasks: PlannerPlanTask[],
+    parsedPlan: ParsedPlannerPlan,
     expectedRevision?: number
   ): { taskBook: TaskBook; taskIds: string[]; planIdToTaskId: Record<string, string> } | null {
     return this.withTaskBookLock(taskBookId, () => {
@@ -679,6 +821,8 @@ export class TaskBookManager {
       if (!taskBook) return null;
 
       this.assertRevision(taskBook, expectedRevision);
+
+      const planTasks = parsedPlan.tasks;
 
       if (!Array.isArray(planTasks) || planTasks.length === 0) {
         throw new Error('错误: planner planTasks 不能为空');
@@ -728,6 +872,7 @@ export class TaskBookManager {
           dependencies: mappedDeps,
           acceptanceCriteria: t.acceptanceCriteria ?? [],
           scope: t.scope,
+          executionSpec: normalizeExecutionSpec(t.executionSpec),
           handoffs: t.handoffs,
         };
 
@@ -742,6 +887,12 @@ export class TaskBookManager {
           after: newTask as unknown as Record<string, unknown>,
         });
       }
+
+      taskBook.plan = normalizeTaskBookPlan(taskBook.id, {
+        ...taskBook.plan,
+        ...parsedPlan.plan,
+        source: parsedPlan.plan.source ?? 'planner',
+      }, taskBook.revision ?? 0) ?? taskBook.plan;
 
       this.touch(taskBook);
       this.save(taskBook);
@@ -796,6 +947,7 @@ export class TaskBookManager {
         'dependencies',
         'acceptanceCriteria',
         'scope',
+        'executionSpec',
         'actualWork',
         'blockedReason',
         'executedBy',
@@ -808,7 +960,7 @@ export class TaskBookManager {
         const value = patch[key];
         if (typeof value !== 'undefined') {
           // @ts-expect-error - dynamic update
-          task[key] = value;
+          task[key] = key === 'executionSpec' ? normalizeExecutionSpec(value as TaskExecutionSpec | undefined) : value;
         }
       }
 
@@ -1301,6 +1453,23 @@ export class TaskBookManager {
       );
     }
 
+    const missingExecutionSpec = taskBook.tasks.filter(task =>
+      (task.type === 'design' || task.type === 'test' || task.type === 'implement' || task.type === 'review')
+      && (!task.executionSpec || (!task.executionSpec.deliverables?.length && !task.executionSpec.verification?.length))
+    );
+    if (missingExecutionSpec.length > 0) {
+      report.recommendations.suggested.push(
+        `发现 ${missingExecutionSpec.length} 个任务缺少 executionSpec deliverables/verification；执行器将只能依赖 acceptanceCriteria 和自由文本，建议补齐最小执行契约。`
+      );
+    }
+
+    const missingBusinessAc = taskBook.tasks.filter(task => task.acceptanceCriteria.length === 0);
+    if (missingBusinessAc.length > 0) {
+      report.recommendations.mustDo.push(
+        `发现 ${missingBusinessAc.length} 个任务缺少 acceptanceCriteria；这些任务当前没有明确的业务验收标准。`
+      );
+    }
+
     // T3.4: 汇总执行者分布（从任务的 executedBy 字段）
     const executorCounts: Record<string, number> = {};
     for (const task of taskBook.tasks) {
@@ -1398,6 +1567,7 @@ export class TaskBookManager {
       `║ 📋 任务计划书 - ${taskBook.title.padEnd(40)}║`,
       '╠══════════════════════════════════════════════════════════════╣',
       `║ 📝 需求概述: ${taskBook.description.slice(0, 44).padEnd(44)}║`,
+      `║ 🧭 Workflow/Spec: ${`${taskBook.plan?.recommendedWorkflowId ?? '-'} / ${taskBook.plan?.specMode ?? '-'}`.slice(0, 40).padEnd(40)}║`,
       `║ 📁 影响范围: ${taskBook.context.relatedFiles.slice(0, 2).join(', ').slice(0, 44).padEnd(44)}║`,
       `║ 📊 任务总数: ${String(taskBook.tasks.length).padEnd(44)} 个║`,
       '╠══════════════════════════════════════════════════════════════╣',
@@ -1409,6 +1579,12 @@ export class TaskBookManager {
       const label = typeLabel[task.type];
       const taskLine = `${index + 1}. ${task.id} [${label}] [${task.status}] ${task.title}`;
       lines.push(`║  ${emoji} ${taskLine.slice(0, 54).padEnd(54)}║`);
+      if (task.executionSpec?.agentHint) {
+        lines.push(`║     ↳ agent=${task.executionSpec.agentHint}`.slice(0, 62).padEnd(61) + '║');
+      }
+      if (task.executionSpec?.summary) {
+        lines.push(`║     ↳ spec=${task.executionSpec.summary}`.slice(0, 62).padEnd(61) + '║');
+      }
     });
 
     lines.push('╠══════════════════════════════════════════════════════════════╣');
@@ -1464,7 +1640,13 @@ type PlannerPlanTask = {
   dependencies?: string[];
   acceptanceCriteria?: string[];
   scope?: TaskScope;
+  executionSpec?: TaskExecutionSpec;
   handoffs?: HandoffEntry[];
+};
+
+type ParsedPlannerPlan = {
+  plan: Partial<TaskBookPlan>;
+  tasks: PlannerPlanTask[];
 };
 
 type AgentCallStatus = 'success' | 'failed' | 'blocked';
@@ -1487,6 +1669,7 @@ const MUTATING_COMMANDS_REQUIRING_IF_REV = new Set([
   'unblock',
   'claim',
   'append-work',
+  'plan',
   'apply-plan',
 ]);
 
@@ -1537,6 +1720,16 @@ create options:
   --title <text>               标题（必填）
   --description <text>         描述（必填）
   --type <new-feature|refactoring|debugging|testing|code-review>  TaskBook 类型（必填）
+  --workflow-hint <micro|sprint|default>   （可选）路由先决策的 workflow 约束
+  --spec-mode <inline-open-spec|linked-spec-kit>  （可选）路由先决策的 spec 粒度
+  --plan-summary <text>        （可选）顶层计划摘要
+  --goal <text>                （可重复）目标
+  --assumption <text>          （可重复）前提假设
+  --plan-constraint <text>     （可重复）顶层约束
+  --clarification <text>       （可重复）待澄清项
+  --out-of-scope <text>        （可重复）非目标范围
+  --risk <summary|level:summary> （可重复）顶层风险
+  --plan-spec-ref <path>       （可选）Spec / Spec Kit 路径
   --json                       输出 JSON
 
 add-task options:
@@ -1548,6 +1741,13 @@ add-task options:
   --priority <critical|high|medium|low>            优先级（默认 medium）
   --deps <id1,id2>             依赖任务 ID（逗号分隔）
   --ac <text>                  验收标准（可重复）
+  --agent-hint <coder|tester|reviewer|refactor|doc-writer|planner>
+  --spec-summary <text>        （可选）任务执行摘要
+  --deliverable <text>         （可重复）交付物
+  --verify <text>              （可重复）技术校验动作
+  --constraint <text>          （可重复）任务执行约束
+  --deps-note <text>           （可选）依赖说明
+  --spec-ref <path>            （可选）Spec / Spec Kit 引用
   --json                       输出 JSON
 
 update-task options:
@@ -1558,6 +1758,13 @@ update-task options:
   --priority <critical|high|medium|low>
   --deps <id1,id2>
   --ac <text>                  验收标准（可重复；会覆盖）
+  --agent-hint <coder|tester|reviewer|refactor|doc-writer|planner>
+  --spec-summary <text>
+  --deliverable <text>         （可重复；会覆盖）
+  --verify <text>              （可重复；会覆盖）
+  --constraint <text>          （可重复；会覆盖）
+  --deps-note <text>
+  --spec-ref <path>
   --actual-work <text>
   --blocked-reason <text>
   --executed-by <name>
@@ -1575,6 +1782,8 @@ report options:
 
 plan options:
   --request-id <id>            （可选）自定义 requestId（默认自动生成）
+  --workflow-hint <micro|sprint|default>   （可选）强制传给 planner 的 workflow 约束
+  --spec-mode <inline-open-spec|linked-spec-kit>  （可选）强制传给 planner 的 spec 粒度
   --json
 
 apply-plan options:
@@ -1662,6 +1871,83 @@ function buildScope(files: string[], modules: string[], tags: string[]): TaskSco
   return Object.keys(scope).length > 0 ? scope : undefined;
 }
 
+function buildExecutionSpecFromFlags(flags: ParsedCli['flags']): TaskExecutionSpec | undefined {
+  const agentHintRaw = flagAsString(flags, 'agent-hint');
+  const agentHint = agentHintRaw && ALLOWED_TASK_AGENT_HINTS.has(agentHintRaw as TaskAgentHint)
+    ? agentHintRaw as TaskAgentHint
+    : undefined;
+
+  return normalizeExecutionSpec({
+    summary: flagAsString(flags, 'spec-summary'),
+    agentHint,
+    deliverables: flagAsStringArray(flags, 'deliverable'),
+    verification: flagAsStringArray(flags, 'verify'),
+    constraints: flagAsStringArray(flags, 'constraint'),
+    dependenciesNote: flagAsString(flags, 'deps-note'),
+    specRef: flagAsString(flags, 'spec-ref'),
+  });
+}
+
+function buildTaskBookPlanFromFlags(flags: ParsedCli['flags']): Partial<TaskBookPlan> | undefined {
+  const specModeRaw = flagAsString(flags, 'spec-mode');
+  const recommendedWorkflowIdRaw = flagAsString(flags, 'workflow-hint');
+  const planSummary = flagAsString(flags, 'plan-summary');
+  const goals = flagAsStringArray(flags, 'goal');
+  const outOfScope = flagAsStringArray(flags, 'out-of-scope');
+  const assumptions = flagAsStringArray(flags, 'assumption');
+  const constraints = flagAsStringArray(flags, 'plan-constraint');
+  const clarifications = flagAsStringArray(flags, 'clarification');
+  const specRef = flagAsString(flags, 'plan-spec-ref');
+
+  const plan: Partial<TaskBookPlan> = {
+    summary: planSummary,
+    goals,
+    outOfScope,
+    assumptions,
+    constraints,
+    clarifications,
+    specRef,
+  };
+
+  if (specModeRaw && ALLOWED_SPEC_MODES.has(specModeRaw as TaskSpecMode)) {
+    plan.specMode = specModeRaw as TaskSpecMode;
+  }
+  if (recommendedWorkflowIdRaw && ALLOWED_WORKFLOW_IDS.has(recommendedWorkflowIdRaw as BuiltinWorkflowId)) {
+    plan.recommendedWorkflowId = recommendedWorkflowIdRaw as BuiltinWorkflowId;
+  }
+
+  if (typeof flagAsString(flags, 'risk') !== 'undefined' || Array.isArray(flags.risk)) {
+    const risks = flagAsStringArray(flags, 'risk').map((entry) => {
+      const [levelRaw, ...rest] = entry.split(':');
+      const summary = rest.length > 0 ? rest.join(':').trim() : levelRaw.trim();
+      const level = rest.length > 0 && (levelRaw === 'low' || levelRaw === 'medium' || levelRaw === 'high')
+        ? levelRaw
+        : 'medium';
+      return normalizePlanRisk({ level, summary });
+    }).filter((risk): risk is TaskBookPlanRisk => Boolean(risk));
+    if (risks.length > 0) plan.risks = risks;
+  }
+
+  const hasExplicitPlanFields =
+    Boolean(planSummary)
+    || goals.length > 0
+    || outOfScope.length > 0
+    || assumptions.length > 0
+    || constraints.length > 0
+    || clarifications.length > 0
+    || Boolean(specRef)
+    || Boolean(specModeRaw)
+    || Boolean(recommendedWorkflowIdRaw)
+    || (Array.isArray(plan.risks) && plan.risks.length > 0);
+
+  if (!hasExplicitPlanFields) {
+    return undefined;
+  }
+
+  plan.source = 'manual';
+  return plan;
+}
+
 function expectedRevisionFromFlags(flags: ParsedCli['flags']): number | undefined {
   const raw = flagAsString(flags, 'if-rev') ?? flagAsString(flags, 'if-revision');
   if (typeof raw === 'undefined') return undefined;
@@ -1733,6 +2019,8 @@ function buildPlannerPrompt(args: {
     taskBookId: args.taskBook.id,
     timestamp: now(),
     taskBookRevision: typeof args.taskBook.revision === 'number' ? args.taskBook.revision : 0,
+    recommendedWorkflowId: args.taskBook.plan?.recommendedWorkflowId,
+    recommendedSpecMode: args.taskBook.plan?.specMode,
     promptPath: args.promptPath,
     resultPath: args.resultPath,
   };
@@ -1751,6 +2039,20 @@ function buildPlannerPrompt(args: {
     kind: 'planner',
     status: 'success',
     output: {
+      planId: args.taskBook.id,
+      summary: '将需求拆成可执行任务，并补齐实现约束与验收边界。',
+      recommendedWorkflowId: args.taskBook.plan?.recommendedWorkflowId ?? 'default',
+      specMode: args.taskBook.plan?.specMode ?? 'inline-open-spec',
+      goals: ['拆成可执行任务', '明确交付物与验证方式'],
+      outOfScope: ['不处理无关模块'],
+      assumptions: ['现有接口契约可复用'],
+      constraints: ['不引入新依赖', '沿用现有模块边界'],
+      risks: [
+        { level: 'medium', summary: '历史模块耦合可能扩大影响面', mitigation: '先做分析任务明确边界' },
+      ],
+      epics: [
+        { id: 'EPIC-1', title: '范围澄清与实现方案' },
+      ],
       tasks: [
         {
           planId: 'T1',
@@ -1758,6 +2060,11 @@ function buildPlannerPrompt(args: {
           type: 'analysis',
           priority: 'high',
           acceptanceCriteria: ['输出影响范围清单', '明确非目标/约束'],
+          executionSpec: {
+            agentHint: 'planner',
+            deliverables: ['影响范围说明'],
+            verification: ['确认涉及文件与模块列表完整'],
+          },
         },
         {
           planId: 'T2',
@@ -1765,6 +2072,11 @@ function buildPlannerPrompt(args: {
           type: 'design',
           dependencies: ['T1'],
           acceptanceCriteria: ['给出方案与取舍', '明确任务拆分与关键路径'],
+          executionSpec: {
+            agentHint: 'reviewer',
+            deliverables: ['设计说明', '任务拆分清单'],
+            verification: ['评审设计是否满足约束条件'],
+          },
         },
       ],
       notes: 'tasks 必须按依赖顺序排序（dependencies 只能指向更早的 planId）。',
@@ -1798,11 +2110,17 @@ function buildPlannerPrompt(args: {
     '',
     '要求：',
     '- 输出必须可被脚本自动消费：不要输出 Markdown，不要输出解释性文本。',
+    '- 不要输出过程性推理、自我提醒或“我应该/根据规则”之类的句子。',
     '- 只生成 task 级别的原子任务（INVEST），确保每个任务 1-3 天内可完成。',
+    '- 顶层 output.planId 必须等于当前 TaskBook.id。',
     '- 任务类型必须是以下之一：analysis | design | test | implement | review。',
     '- dependencies 只能引用本次计划中更早的 planId（确保 tasks 已按依赖拓扑顺序排序）。',
-    '- acceptanceCriteria 建议给 2-5 条可验证要点。',
+    '- acceptanceCriteria 必填，表示业务/结果层验收标准。',
+    '- executionSpec.verification 表示技术/工程层校验动作；不要与 acceptanceCriteria 混淆。',
+    `- 如 prompt header 已给出 recommendedWorkflowId/specMode，必须严格遵守：workflow=${args.taskBook.plan?.recommendedWorkflowId ?? '未指定'}，specMode=${args.taskBook.plan?.specMode ?? '未指定'}。`,
     '- scope 可选：files/modules/tags（数组）。',
+    '- executionSpec 推荐包含 agentHint、deliverables、verification、constraints、specRef。',
+    '- 如需引用外部 Spec Kit，specRef 请使用版本化路径（例如 .codebuddy/specs/<taskBookId>-v1/00-overview.md）。',
     '',
     `写入目标：请把结果写入 ${args.resultPath}`,
     '',
@@ -1810,6 +2128,13 @@ function buildPlannerPrompt(args: {
     '- requestId: string（必须与 header.requestId 一致）',
     "- kind?: 'planner' | 'manual-task'（推荐，用于更强校验/诊断）",
     "- status: 'success' | 'failed' | 'blocked'",
+    '- output.planId: string（必须等于 TaskBook.id）',
+    "- output.recommendedWorkflowId?: 'micro' | 'sprint' | 'default'",
+    "- output.specMode?: 'inline-open-spec' | 'linked-spec-kit'",
+    '- output.summary?: string',
+    '- output.assumptions?: string[]',
+    '- output.constraints?: string[]',
+    '- output.risks?: { level?: low|medium|high; summary: string; mitigation?: string }[]',
     '- output.tasks: PlannerPlanTask[]',
     '',
     'PlannerPlanTask:',
@@ -1818,8 +2143,9 @@ function buildPlannerPrompt(args: {
     "- type: 'analysis' | 'design' | 'test' | 'implement' | 'review'",
     "- priority?: 'critical' | 'high' | 'medium' | 'low'",
     '- dependencies?: string[]（planId 列表）',
-    '- acceptanceCriteria?: string[]',
+    '- acceptanceCriteria: string[]（必填，业务验收）',
     '- scope?: { files?: string[]; modules?: string[]; tags?: string[] }',
+    "- executionSpec?: { agentHint?: 'coder'|'tester'|'reviewer'|'refactor'|'doc-writer'|'planner'; deliverables?: string[]; verification?: string[]; constraints?: string[]; dependenciesNote?: string; specRef?: string }",
     '',
     '示例（必须是 JSON，不要包裹 Markdown）：',
     '```json',
@@ -1858,7 +2184,7 @@ function parseAgentCallResult(jsonText: string): AgentCallResult {
   };
 }
 
-function parsePlannerTasksFromAgentResult(result: AgentCallResult): PlannerPlanTask[] {
+function parsePlannerPlanFromAgentResult(result: AgentCallResult, taskBookId?: string): ParsedPlannerPlan {
   const output = result.output;
   if (!output || typeof output !== 'object') {
     throw new Error('错误: result.output 必须是 object，且包含 output.tasks[]');
@@ -1871,6 +2197,118 @@ function parsePlannerTasksFromAgentResult(result: AgentCallResult): PlannerPlanT
 
   const allowedTypes = new Set(['analysis', 'design', 'test', 'implement', 'review']);
   const allowedPriorities = new Set(['critical', 'high', 'medium', 'low']);
+  const allowedWorkflowIds = new Set<BuiltinWorkflowId>(['micro', 'sprint', 'default']);
+  const allowedSpecModes = new Set<TaskSpecMode>(['inline-open-spec', 'linked-spec-kit']);
+  const allowedAgentHints = new Set<TaskAgentHint>(['coder', 'tester', 'reviewer', 'refactor', 'doc-writer', 'planner']);
+
+  const plannerPlan: Partial<TaskBookPlan> = {
+    planId: taskBookId || (typeof outObj.planId === 'string' ? outObj.planId : ''),
+    version: 1,
+    source: 'planner',
+  };
+
+  if (typeof outObj.planId !== 'undefined') {
+    if (typeof outObj.planId !== 'string' || !outObj.planId.trim()) {
+      throw new Error('错误: result.output.planId 必须是非空字符串');
+    }
+    if (taskBookId && outObj.planId !== taskBookId) {
+      throw new Error(`错误: result.output.planId 必须等于 TaskBook.id (${taskBookId})`);
+    }
+    plannerPlan.planId = outObj.planId.trim();
+  } else if (taskBookId) {
+    plannerPlan.planId = taskBookId;
+  }
+
+  const topLevelStringArrayKeys: Array<keyof Pick<TaskBookPlan, 'goals' | 'outOfScope' | 'assumptions' | 'constraints' | 'clarifications'>> = [
+    'goals',
+    'outOfScope',
+    'assumptions',
+    'constraints',
+    'clarifications',
+  ];
+  for (const key of topLevelStringArrayKeys) {
+    const value = outObj[key];
+    if (typeof value === 'undefined') continue;
+    if (!Array.isArray(value)) {
+      throw new Error(`错误: result.output.${key} 必须是字符串数组`);
+    }
+    const normalized = value.map((item, itemIndex) => {
+      if (typeof item !== 'string' || !item.trim()) {
+        throw new Error(`错误: result.output.${key}[${itemIndex}] 必须是非空字符串`);
+      }
+      return item.trim();
+    });
+    plannerPlan[key] = normalized;
+  }
+
+  if (typeof outObj.summary !== 'undefined') {
+    if (typeof outObj.summary !== 'string' || !outObj.summary.trim()) {
+      throw new Error('错误: result.output.summary 必须是非空字符串');
+    }
+    plannerPlan.summary = outObj.summary.trim();
+  }
+  if (typeof outObj.specRef !== 'undefined') {
+    if (typeof outObj.specRef !== 'string' || !outObj.specRef.trim()) {
+      throw new Error('错误: result.output.specRef 必须是非空字符串');
+    }
+    plannerPlan.specRef = outObj.specRef.trim();
+  }
+  if (typeof outObj.specMode !== 'undefined') {
+    if (typeof outObj.specMode !== 'string' || !allowedSpecModes.has(outObj.specMode as TaskSpecMode)) {
+      throw new Error('错误: result.output.specMode 无效');
+    }
+    plannerPlan.specMode = outObj.specMode as TaskSpecMode;
+  }
+  if (typeof outObj.recommendedWorkflowId !== 'undefined') {
+    if (typeof outObj.recommendedWorkflowId !== 'string' || !allowedWorkflowIds.has(outObj.recommendedWorkflowId as BuiltinWorkflowId)) {
+      throw new Error('错误: result.output.recommendedWorkflowId 无效');
+    }
+    plannerPlan.recommendedWorkflowId = outObj.recommendedWorkflowId as BuiltinWorkflowId;
+  }
+  if (typeof outObj.risks !== 'undefined') {
+    if (!Array.isArray(outObj.risks)) {
+      throw new Error('错误: result.output.risks 必须是数组');
+    }
+    plannerPlan.risks = outObj.risks.map((rawRisk, index) => {
+      if (!rawRisk || typeof rawRisk !== 'object') {
+        throw new Error(`错误: result.output.risks[${index}] 必须是 object`);
+      }
+      const risk = rawRisk as Record<string, unknown>;
+      if (typeof risk.summary !== 'string' || !risk.summary.trim()) {
+        throw new Error(`错误: result.output.risks[${index}].summary 必须是非空字符串`);
+      }
+      if (typeof risk.level !== 'undefined' && risk.level !== 'low' && risk.level !== 'medium' && risk.level !== 'high') {
+        throw new Error(`错误: result.output.risks[${index}].level 无效`);
+      }
+      return {
+        level: (risk.level === 'low' || risk.level === 'medium' || risk.level === 'high') ? risk.level : 'medium',
+        summary: risk.summary.trim(),
+        mitigation: typeof risk.mitigation === 'string' && risk.mitigation.trim() ? risk.mitigation.trim() : undefined,
+      } as TaskBookPlanRisk;
+    });
+  }
+  if (typeof outObj.epics !== 'undefined') {
+    if (!Array.isArray(outObj.epics)) {
+      throw new Error('错误: result.output.epics 必须是数组');
+    }
+    plannerPlan.epics = outObj.epics.map((rawEpic, index) => {
+      if (!rawEpic || typeof rawEpic !== 'object') {
+        throw new Error(`错误: result.output.epics[${index}] 必须是 object`);
+      }
+      const epic = rawEpic as Record<string, unknown>;
+      if (typeof epic.id !== 'string' || !epic.id.trim()) {
+        throw new Error(`错误: result.output.epics[${index}].id 必须是非空字符串`);
+      }
+      if (typeof epic.title !== 'string' || !epic.title.trim()) {
+        throw new Error(`错误: result.output.epics[${index}].title 必须是非空字符串`);
+      }
+      return {
+        id: epic.id.trim(),
+        title: epic.title.trim(),
+        summary: typeof epic.summary === 'string' && epic.summary.trim() ? epic.summary.trim() : undefined,
+      } as TaskBookPlanEpic;
+    });
+  }
 
   const seenPlanIds = new Set<string>();
   const parsedTasks: PlannerPlanTask[] = [];
@@ -1923,16 +2361,14 @@ function parsePlannerTasksFromAgentResult(result: AgentCallResult): PlannerPlanT
     }
 
     const acceptanceCriteria: string[] = [];
-    if (typeof t.acceptanceCriteria !== 'undefined') {
-      if (!Array.isArray(t.acceptanceCriteria)) {
-        throw new Error(`错误: tasks[${index}].acceptanceCriteria 必须是字符串数组`);
+    if (!Array.isArray(t.acceptanceCriteria) || t.acceptanceCriteria.length === 0) {
+      throw new Error(`错误: tasks[${index}].acceptanceCriteria 必须是非空字符串数组`);
+    }
+    for (const ac of t.acceptanceCriteria) {
+      if (typeof ac !== 'string' || !ac.trim()) {
+        throw new Error(`错误: tasks[${index}].acceptanceCriteria 包含无效条目`);
       }
-      for (const ac of t.acceptanceCriteria) {
-        if (typeof ac !== 'string' || !ac.trim()) {
-          throw new Error(`错误: tasks[${index}].acceptanceCriteria 包含无效条目`);
-        }
-        acceptanceCriteria.push(ac);
-      }
+      acceptanceCriteria.push(ac.trim());
     }
 
     let scope: TaskScope | undefined;
@@ -1968,18 +2404,65 @@ function parsePlannerTasksFromAgentResult(result: AgentCallResult): PlannerPlanT
       }
     }
 
+    let executionSpec: TaskExecutionSpec | undefined;
+    if (typeof t.executionSpec !== 'undefined') {
+      if (!t.executionSpec || typeof t.executionSpec !== 'object') {
+        throw new Error(`错误: tasks[${index}].executionSpec 必须是 object`);
+      }
+      const spec = t.executionSpec as Record<string, unknown>;
+
+      const parseOptionalStringList = (key: 'deliverables' | 'verification' | 'constraints'): string[] | undefined => {
+        if (typeof spec[key] === 'undefined') return undefined;
+        if (!Array.isArray(spec[key])) {
+          throw new Error(`错误: tasks[${index}].executionSpec.${key} 必须是字符串数组`);
+        }
+        const values = spec[key] as unknown[];
+        const normalized = values.map((item, itemIndex) => {
+          if (typeof item !== 'string' || !item.trim()) {
+            throw new Error(`错误: tasks[${index}].executionSpec.${key}[${itemIndex}] 必须是非空字符串`);
+          }
+          return item.trim();
+        });
+        return normalized.length > 0 ? normalized : undefined;
+      };
+
+      if (typeof spec.summary !== 'undefined' && (typeof spec.summary !== 'string' || !spec.summary.trim())) {
+        throw new Error(`错误: tasks[${index}].executionSpec.summary 必须是非空字符串`);
+      }
+      if (typeof spec.agentHint !== 'undefined' && (typeof spec.agentHint !== 'string' || !allowedAgentHints.has(spec.agentHint as TaskAgentHint))) {
+        throw new Error(`错误: tasks[${index}].executionSpec.agentHint 无效`);
+      }
+      if (typeof spec.dependenciesNote !== 'undefined' && (typeof spec.dependenciesNote !== 'string' || !spec.dependenciesNote.trim())) {
+        throw new Error(`错误: tasks[${index}].executionSpec.dependenciesNote 必须是非空字符串`);
+      }
+      if (typeof spec.specRef !== 'undefined' && (typeof spec.specRef !== 'string' || !spec.specRef.trim())) {
+        throw new Error(`错误: tasks[${index}].executionSpec.specRef 必须是非空字符串`);
+      }
+
+      executionSpec = normalizeExecutionSpec({
+        summary: typeof spec.summary === 'string' ? spec.summary.trim() : undefined,
+        agentHint: typeof spec.agentHint === 'string' ? spec.agentHint as TaskAgentHint : undefined,
+        deliverables: parseOptionalStringList('deliverables'),
+        verification: parseOptionalStringList('verification'),
+        constraints: parseOptionalStringList('constraints'),
+        dependenciesNote: typeof spec.dependenciesNote === 'string' ? spec.dependenciesNote.trim() : undefined,
+        specRef: typeof spec.specRef === 'string' ? spec.specRef.trim() : undefined,
+      });
+    }
+
     parsedTasks.push({
       planId,
       title: title.trim(),
       type: type as TaskItem['type'],
       priority: parsedPriority,
       dependencies: dependencies.length > 0 ? dependencies : undefined,
-      acceptanceCriteria: acceptanceCriteria.length > 0 ? acceptanceCriteria : undefined,
+      acceptanceCriteria,
       scope,
+      executionSpec,
     });
   }
 
-  return parsedTasks;
+  return { plan: plannerPlan, tasks: parsedTasks };
 }
 
 function main(): void {
@@ -2022,7 +2505,12 @@ function main(): void {
           process.exit(1);
         }
 
-        const taskBook = manager.create({ title, description, taskType: type });
+        const taskBook = manager.create({
+          title,
+          description,
+          taskType: type,
+          plan: buildTaskBookPlanFromFlags(parsed.flags),
+        });
         if (json) {
           printJson(taskBook);
         } else {
@@ -2134,9 +2622,18 @@ function main(): void {
           console.error('提示: 先在目标项目执行 codebuddy-loader，确保 install.json 指向的 active agents root 已生成。');
           process.exit(1);
         }
+        const planPatch = buildTaskBookPlanFromFlags(parsed.flags);
+        const planAwareTaskBook = planPatch
+          ? manager.updatePlan(taskBookId, { ...planPatch, source: 'task-intake-routing' }, tb.revision)
+          : tb;
+        if (!planAwareTaskBook) {
+          console.error(`错误: TaskBook not found: ${taskBookId}`);
+          process.exit(1);
+        }
+
         const prompt = buildPlannerPrompt({
           requestId,
-          taskBook: tb,
+          taskBook: planAwareTaskBook,
           projectRoot: process.cwd(),
           agentDefinitionPath: agentDef.path,
           agentDefinition: agentDef.content,
@@ -2150,7 +2647,7 @@ function main(): void {
           requestId,
           agentId: 'planner',
           taskBookId,
-          taskBookRevision: tb.revision ?? 0,
+          taskBookRevision: planAwareTaskBook.revision ?? 0,
           promptPath,
           resultPath,
         };
@@ -2162,7 +2659,7 @@ function main(): void {
           console.log(`[planner] 请执行 prompt 并写回: ${resultPath}`);
           console.log('[planner] 写回后执行:');
           console.log(`  node .codebuddy/scripts/taskbook-manager.js apply-plan ${taskBookId} ${requestId}`);
-          console.log(`  # 若启用并发保护：加上 --if-rev ${tb.revision ?? 0}`);
+          console.log(`  # 若启用并发保护：加上 --if-rev ${planAwareTaskBook.revision ?? 0}`);
         }
         break;
       }
@@ -2204,19 +2701,20 @@ function main(): void {
           process.exit(1);
         }
 
-        const planTasks = parsePlannerTasksFromAgentResult(result);
+        const parsedPlan = parsePlannerPlanFromAgentResult(result, taskBookId);
 
         if (dryRun) {
           const preview = {
             dryRun: true,
             requestId,
             taskBookId,
-            tasks: planTasks,
+            plan: parsedPlan.plan,
+            tasks: parsedPlan.tasks,
           };
           if (json) printJson(preview);
           else {
             console.log(`[planner] dry-run: ${taskBookId} <- ${requestId}`);
-            for (const t of planTasks) {
+            for (const t of parsedPlan.tasks) {
               const deps = t.dependencies && t.dependencies.length > 0 ? ` deps=${t.dependencies.join(',')}` : '';
               console.log(`- ${t.planId} [${t.type}] ${t.title}${deps}`);
             }
@@ -2225,26 +2723,26 @@ function main(): void {
         }
 
         const planIdToIndex = new Map<string, number>();
-        for (let i = 0; i < planTasks.length; i++) {
-          planIdToIndex.set(planTasks[i].planId, i);
+        for (let i = 0; i < parsedPlan.tasks.length; i++) {
+          planIdToIndex.set(parsedPlan.tasks[i].planId, i);
         }
 
-        for (let i = 0; i < planTasks.length; i++) {
-          const deps = planTasks[i].dependencies ?? [];
+        for (let i = 0; i < parsedPlan.tasks.length; i++) {
+          const deps = parsedPlan.tasks[i].dependencies ?? [];
           for (const dep of deps) {
             const depIndex = planIdToIndex.get(dep);
             if (typeof depIndex !== 'number') {
-              console.error(`错误: 依赖 planId 不存在: ${dep} (from ${planTasks[i].planId})`);
+              console.error(`错误: 依赖 planId 不存在: ${dep} (from ${parsedPlan.tasks[i].planId})`);
               process.exit(1);
             }
             if (depIndex >= i) {
-              console.error(`错误: dependencies 必须指向更早的 planId（${planTasks[i].planId} 依赖 ${dep}）`);
+              console.error(`错误: dependencies 必须指向更早的 planId（${parsedPlan.tasks[i].planId} 依赖 ${dep}）`);
               process.exit(1);
             }
           }
         }
 
-        const applied = manager.applyPlannerPlan(taskBookId, requestId, planTasks, expectedRevision);
+        const applied = manager.applyPlannerPlan(taskBookId, requestId, parsedPlan, expectedRevision);
 
         if (!applied) {
           console.error(`错误: TaskBook not found: ${taskBookId}`);
@@ -2350,6 +2848,7 @@ function main(): void {
           dependencies: deps,
           acceptanceCriteria: ac,
           scope: buildScope(files, modules, tags),
+          executionSpec: buildExecutionSpecFromFlags(parsed.flags),
         }, expectedRevision);
 
         if (!tb) {
@@ -2395,6 +2894,8 @@ function main(): void {
         const tags = parseCsv(flagAsString(parsed.flags, 'tags'));
         const scope = buildScope(files, modules, tags);
         if (scope) patch.scope = scope;
+        const executionSpec = buildExecutionSpecFromFlags(parsed.flags);
+        if (executionSpec) patch.executionSpec = executionSpec;
 
         const actualWork = flagAsString(parsed.flags, 'actual-work');
         if (actualWork) patch.actualWork = actualWork;

@@ -84,13 +84,141 @@ function inferKind(promptMarkdown, header) {
   if (firstLine === "# Agent Call: manual-task" || isNonEmptyString(header?.taskId)) return "manual-task";
   return "unknown";
 }
-function validatePlannerOutput(output) {
+function hasNonEmptyStringArray(value) {
+  return Array.isArray(value) && value.every((v) => typeof v === "string" && v.trim().length > 0);
+}
+function detectDependencyCycle(tasks) {
+  const graph = /* @__PURE__ */ new Map();
+  for (const task of tasks) {
+    graph.set(task.planId, task.dependencies);
+  }
+  const visiting = /* @__PURE__ */ new Set();
+  const visited = /* @__PURE__ */ new Set();
+  const path3 = [];
+  const dfs = (node) => {
+    if (visiting.has(node)) {
+      const idx = path3.indexOf(node);
+      return idx >= 0 ? [...path3.slice(idx), node] : [node, node];
+    }
+    if (visited.has(node)) return [];
+    visiting.add(node);
+    path3.push(node);
+    for (const dep of graph.get(node) ?? []) {
+      const cycle = dfs(dep);
+      if (cycle.length > 0) return cycle;
+    }
+    path3.pop();
+    visiting.delete(node);
+    visited.add(node);
+    return [];
+  };
+  for (const node of graph.keys()) {
+    const cycle = dfs(node);
+    if (cycle.length > 0) return cycle;
+  }
+  return [];
+}
+function validatePlannerOutput(output, header) {
   const issues = [];
   const error = (message) => issues.push({ level: "error", message });
   const warn = (message) => issues.push({ level: "warning", message });
   if (!isPlainObject(output)) {
     error("output must be an object for planner");
     return issues;
+  }
+  const allowedTypes = /* @__PURE__ */ new Set(["analysis", "design", "test", "implement", "review"]);
+  const allowedPriorities = /* @__PURE__ */ new Set(["critical", "high", "medium", "low"]);
+  const allowedWorkflowIds = /* @__PURE__ */ new Set(["micro", "sprint", "default"]);
+  const allowedSpecModes = /* @__PURE__ */ new Set(["inline-open-spec", "linked-spec-kit"]);
+  const allowedAgentHints = /* @__PURE__ */ new Set(["coder", "tester", "reviewer", "refactor", "doc-writer", "planner"]);
+  const outputPlanId = output.planId;
+  if (!isNonEmptyString(outputPlanId)) {
+    error("planner output.planId must be a non-empty string");
+  } else if (isNonEmptyString(header?.taskBookId) && outputPlanId !== header?.taskBookId) {
+    error(`planner output.planId must equal prompt header taskBookId (${header?.taskBookId})`);
+  }
+  if (!isNonEmptyString(output.summary)) {
+    warn("planner output.summary should be a non-empty string");
+  }
+  if (typeof output.recommendedWorkflowId !== "undefined") {
+    if (!isNonEmptyString(output.recommendedWorkflowId) || !allowedWorkflowIds.has(output.recommendedWorkflowId)) {
+      error(`planner output.recommendedWorkflowId must be one of: ${Array.from(allowedWorkflowIds).join(", ")}`);
+    } else if (isNonEmptyString(header?.recommendedWorkflowId) && output.recommendedWorkflowId !== header.recommendedWorkflowId) {
+      error(`planner output.recommendedWorkflowId must match prompt header recommendation (${header.recommendedWorkflowId})`);
+    }
+  } else {
+    warn("planner output.recommendedWorkflowId is recommended");
+  }
+  if (typeof output.specMode !== "undefined") {
+    if (!isNonEmptyString(output.specMode) || !allowedSpecModes.has(output.specMode)) {
+      error(`planner output.specMode must be one of: ${Array.from(allowedSpecModes).join(", ")}`);
+    } else if (isNonEmptyString(header?.recommendedSpecMode) && output.specMode !== header.recommendedSpecMode) {
+      error(`planner output.specMode must match prompt header recommendation (${header.recommendedSpecMode})`);
+    }
+  } else {
+    warn("planner output.specMode is recommended");
+  }
+  const topLevelStringArrays = [
+    { key: "goals" },
+    { key: "outOfScope" },
+    { key: "assumptions" },
+    { key: "constraints" },
+    { key: "clarifications" }
+  ];
+  for (const item of topLevelStringArrays) {
+    const value = output[item.key];
+    if (typeof value === "undefined") {
+      warn(`planner output.${item.key} is recommended`);
+      continue;
+    }
+    if (!isStringArray(value)) {
+      error(`planner output.${item.key} must be an array of strings`);
+    }
+  }
+  if (typeof output.risks === "undefined") {
+    warn("planner output.risks is recommended");
+  } else if (!Array.isArray(output.risks)) {
+    error("planner output.risks must be an array");
+  } else {
+    for (const [index, rawRisk] of output.risks.entries()) {
+      if (!isPlainObject(rawRisk)) {
+        error(`planner output.risks[${index}] must be an object`);
+        continue;
+      }
+      if (!isNonEmptyString(rawRisk.summary)) {
+        error(`planner output.risks[${index}].summary must be a non-empty string`);
+      }
+      if (typeof rawRisk.level !== "undefined" && (!isNonEmptyString(rawRisk.level) || !["low", "medium", "high"].includes(rawRisk.level))) {
+        error(`planner output.risks[${index}].level must be one of: low, medium, high`);
+      }
+      if (typeof rawRisk.mitigation !== "undefined" && !isNonEmptyString(rawRisk.mitigation)) {
+        error(`planner output.risks[${index}].mitigation must be a non-empty string when provided`);
+      }
+    }
+  }
+  if (typeof output.specRef !== "undefined" && !isNonEmptyString(output.specRef)) {
+    error("planner output.specRef must be a non-empty string when provided");
+  }
+  if (typeof output.epics !== "undefined") {
+    if (!Array.isArray(output.epics)) {
+      error("planner output.epics must be an array");
+    } else {
+      for (const [index, rawEpic] of output.epics.entries()) {
+        if (!isPlainObject(rawEpic)) {
+          error(`planner output.epics[${index}] must be an object`);
+          continue;
+        }
+        if (!isNonEmptyString(rawEpic.id)) {
+          error(`planner output.epics[${index}].id must be a non-empty string`);
+        }
+        if (!isNonEmptyString(rawEpic.title)) {
+          error(`planner output.epics[${index}].title must be a non-empty string`);
+        }
+        if (typeof rawEpic.summary !== "undefined" && !isNonEmptyString(rawEpic.summary)) {
+          error(`planner output.epics[${index}].summary must be a non-empty string when provided`);
+        }
+      }
+    }
   }
   const tasks = output.tasks;
   if (!Array.isArray(tasks)) {
@@ -101,9 +229,8 @@ function validatePlannerOutput(output) {
     warn("planner output.tasks is empty");
     return issues;
   }
-  const allowedTypes = /* @__PURE__ */ new Set(["analysis", "design", "test", "implement", "review"]);
-  const allowedPriorities = /* @__PURE__ */ new Set(["critical", "high", "medium", "low"]);
   const seenPlanIds = /* @__PURE__ */ new Set();
+  const parsedTasks = [];
   for (const [index, raw] of tasks.entries()) {
     if (!isPlainObject(raw)) {
       error(`planner output.tasks[${index}] must be an object`);
@@ -140,6 +267,62 @@ function validatePlannerOutput(output) {
         }
       }
     }
+    if (!hasNonEmptyStringArray(raw.acceptanceCriteria)) {
+      error(`planner output.tasks[${index}].acceptanceCriteria must be a non-empty array of strings`);
+    }
+    if (typeof raw.scope !== "undefined") {
+      if (!isPlainObject(raw.scope)) {
+        error(`planner output.tasks[${index}].scope must be an object`);
+      } else {
+        for (const scopeKey of ["files", "modules", "tags"]) {
+          const scopeValue = raw.scope[scopeKey];
+          if (typeof scopeValue !== "undefined" && !isStringArray(scopeValue)) {
+            error(`planner output.tasks[${index}].scope.${scopeKey} must be an array of strings`);
+          }
+        }
+      }
+    }
+    if (typeof raw.executionSpec !== "undefined") {
+      if (!isPlainObject(raw.executionSpec)) {
+        error(`planner output.tasks[${index}].executionSpec must be an object`);
+      } else {
+        const executionSpec = raw.executionSpec;
+        if (typeof executionSpec.summary !== "undefined" && !isNonEmptyString(executionSpec.summary)) {
+          error(`planner output.tasks[${index}].executionSpec.summary must be a non-empty string when provided`);
+        }
+        if (typeof executionSpec.agentHint !== "undefined" && (!isNonEmptyString(executionSpec.agentHint) || !allowedAgentHints.has(executionSpec.agentHint))) {
+          error(`planner output.tasks[${index}].executionSpec.agentHint must be one of: ${Array.from(allowedAgentHints).join(", ")}`);
+        }
+        if (typeof executionSpec.specRef !== "undefined" && !isNonEmptyString(executionSpec.specRef)) {
+          error(`planner output.tasks[${index}].executionSpec.specRef must be a non-empty string when provided`);
+        }
+        if (typeof executionSpec.dependenciesNote !== "undefined" && !isNonEmptyString(executionSpec.dependenciesNote)) {
+          error(`planner output.tasks[${index}].executionSpec.dependenciesNote must be a non-empty string when provided`);
+        }
+        for (const listKey of ["deliverables", "verification", "constraints"]) {
+          const listValue = executionSpec[listKey];
+          if (typeof listValue !== "undefined" && !hasNonEmptyStringArray(listValue)) {
+            error(`planner output.tasks[${index}].executionSpec.${listKey} must be a non-empty array of strings when provided`);
+          }
+        }
+        if (typeof executionSpec.deliverables === "undefined") {
+          warn(`planner output.tasks[${index}].executionSpec.deliverables is recommended`);
+        }
+        if (typeof executionSpec.verification === "undefined") {
+          warn(`planner output.tasks[${index}].executionSpec.verification is recommended`);
+        }
+      }
+    } else {
+      warn(`planner output.tasks[${index}].executionSpec is recommended`);
+    }
+    parsedTasks.push({
+      planId: isNonEmptyString(planId) ? planId : `invalid-${index}`,
+      dependencies: isStringArray(raw.dependencies) ? raw.dependencies : []
+    });
+  }
+  const cycle = detectDependencyCycle(parsedTasks);
+  if (cycle.length > 0) {
+    error(`planner output.tasks contains a dependency cycle: ${cycle.join(" -> ")}`);
   }
   return issues;
 }
@@ -302,23 +485,24 @@ function parseAgentCallResult(raw) {
 }
 function validateAgentCallResultWithPrompt(requestId, promptPath, result) {
   const issues = [];
+  let promptHeader = null;
   if (typeof result.completedAt !== "undefined" && !isValidDateTime(result.completedAt)) {
     issues.push({ level: "error", message: "completedAt must be an ISO date-time string (when provided)" });
   }
   let kind = result.kind ?? "unknown";
   if (promptPath && fs.existsSync(promptPath)) {
     const promptRaw = fs.readFileSync(promptPath, "utf-8");
-    const header = parsePromptHeader(promptRaw);
-    if (!header.ok) {
-      issues.push({ level: "warning", message: `prompt header invalid: ${header.error}` });
+    promptHeader = parsePromptHeader(promptRaw);
+    if (!promptHeader.ok) {
+      issues.push({ level: "warning", message: `prompt header invalid: ${promptHeader.error}` });
     } else {
-      const inferred = inferKind(promptRaw, header.header);
+      const inferred = inferKind(promptRaw, promptHeader.header);
       if (kind !== "unknown" && inferred !== "unknown" && kind !== inferred) {
         issues.push({ level: "error", message: `kind mismatch: result=${kind} prompt=${inferred}` });
       }
       if (inferred !== "unknown") kind = inferred;
-      if (header.header.requestId !== requestId) {
-        issues.push({ level: "error", message: `prompt header requestId mismatch: ${header.header.requestId}` });
+      if (promptHeader.header.requestId !== requestId) {
+        issues.push({ level: "error", message: `prompt header requestId mismatch: ${promptHeader.header.requestId}` });
       }
     }
   } else {
@@ -331,7 +515,7 @@ function validateAgentCallResultWithPrompt(requestId, promptPath, result) {
     if (typeof result.completedAt === "undefined") {
       issues.push({ level: "warning", message: "completedAt is recommended when status=success" });
     }
-    if (kind === "planner") issues.push(...validatePlannerOutput(result.output));
+    if (kind === "planner") issues.push(...validatePlannerOutput(result.output, promptHeader && promptHeader.ok ? promptHeader.header : null));
     else if (kind === "manual-task") issues.push(...validateManualTaskOutput(result.output));
   }
   const ok = issues.every((i) => i.level !== "error");

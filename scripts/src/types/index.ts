@@ -432,6 +432,7 @@ export interface WorkflowRoutingDecision {
 export type TaskIntakeExecutionPath = 'direct' | 'orchestrated';
 export type TaskIntakeContractState = 'explicit' | 'partial' | 'none';
 export type TaskIntakeUncertainty = 'low' | 'medium' | 'high';
+export type TaskSpecMode = 'inline-open-spec' | 'linked-spec-kit';
 export type TaskIntakeKind =
   | 'api-adaptation'
   | 'bugfix'
@@ -471,6 +472,8 @@ export interface TaskIntakeRoutingSignal {
 
 export interface TaskIntakeRoutingDecision {
   recommendedPath: TaskIntakeExecutionPath;
+  recommendedWorkflowId: BuiltinWorkflowId;
+  recommendedSpecMode: TaskSpecMode;
   confidence: 'high' | 'medium' | 'low';
   inferredKind: TaskIntakeKind;
   reasons: string[];
@@ -535,6 +538,19 @@ export type ChangeType = 'added' | 'modified' | 'removed' | 'reordered';
 export type TaskBookType = 'new-feature' | 'refactoring' | 'debugging' | 'testing' | 'code-review';
 
 /**
+ * 执行 Agent 提示。
+ *
+ * 第一阶段固定为枚举，避免 executor 再次猜测角色。
+ */
+export type TaskAgentHint =
+  | 'coder'
+  | 'tester'
+  | 'reviewer'
+  | 'refactor'
+  | 'doc-writer'
+  | 'planner';
+
+/**
  * 任务作用域（用于并发冲突检测、批量策略、审计）
  */
 export interface TaskScope {
@@ -555,6 +571,66 @@ export interface HandoffEntry {
 }
 
 /**
+ * Task 的最小执行契约（Open Spec）。
+ *
+ * - acceptanceCriteria: 业务/结果层验收，“用户最终能做什么”
+ * - verification: 技术/工程层校验，“如何证明这件事真的完成了”
+ */
+export interface TaskExecutionSpec {
+  /** 简要执行说明 */
+  summary?: string;
+  /** 建议交给哪个执行角色 */
+  agentHint?: TaskAgentHint;
+  /** 预期交付物（文件、报告、截图、脚本输出等） */
+  deliverables?: string[];
+  /** 技术层校验动作（lint/test/build/smoke/人工检查点） */
+  verification?: string[];
+  /** 对执行 Agent 的硬约束 */
+  constraints?: string[];
+  /** 对依赖关系的补充说明 */
+  dependenciesNote?: string;
+  /** 外部 Spec / Spec Kit 引用 */
+  specRef?: string;
+}
+
+export interface TaskBookPlanRisk {
+  level: 'low' | 'medium' | 'high';
+  summary: string;
+  mitigation?: string;
+}
+
+export interface TaskBookPlanEpic {
+  id: string;
+  title: string;
+  summary?: string;
+}
+
+/**
+ * Planner 产出的顶层计划契约。
+ *
+ * 第一阶段强制 1 TaskBook = 1 Plan：
+ * - planId 应与 taskBook.id 一致
+ * - 暂不支持 re-planning / plan version branching
+ */
+export interface TaskBookPlan {
+  planId: string;
+  version: number;
+  specMode?: TaskSpecMode;
+  recommendedWorkflowId?: BuiltinWorkflowId;
+  summary?: string;
+  goals?: string[];
+  outOfScope?: string[];
+  assumptions?: string[];
+  constraints?: string[];
+  risks?: TaskBookPlanRisk[];
+  clarifications?: string[];
+  epics?: TaskBookPlanEpic[];
+  specRef?: string;
+  linkedTaskBookRevision?: number;
+  source?: 'planner' | 'manual' | 'task-intake-routing';
+}
+
+/**
  * 单个任务定义
  */
 export interface TaskItem {
@@ -565,8 +641,15 @@ export interface TaskItem {
   status: TaskStatus;
   priority: TaskPriority;
   dependencies: string[];
+  /**
+   * 业务/结果层验收标准。
+   *
+   * 示例：用户可以完成提交、列表正确展示、接口行为符合预期。
+   */
   acceptanceCriteria: string[];
   scope?: TaskScope;
+  /** 执行契约（Open Spec） */
+  executionSpec?: TaskExecutionSpec;
   actualWork?: string;
   blockedReason?: string;
   executedBy?: string;
@@ -653,6 +736,8 @@ export interface TaskBook {
   confirmedAt?: string;
   completedAt?: string;
   status: TaskBookStatus;
+  /** 计划契约（1 TaskBook = 1 Plan） */
+  plan?: TaskBookPlan;
   context: TaskBookContext;
   tasks: TaskItem[];
   changelog: ChangeEntry[];
@@ -668,6 +753,7 @@ export interface CreateTaskBookParams {
   title: string;
   description: string;
   taskType: TaskBookType;
+  plan?: Partial<TaskBookPlan>;
 }
 
 /**

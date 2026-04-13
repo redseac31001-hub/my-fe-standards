@@ -20,11 +20,19 @@ import { createHash } from 'crypto';
 import { isDirectCliEntry } from './lib/cli-entry';
 import { recordWorkflowRoutingMetric } from './lib/execution-metrics';
 import {
+  createDefaultTaskIntakeInput,
+  normalizeTaskIntakeKind,
+  routeTaskIntake,
+} from './lib/task-intake-routing';
+import {
   WorkflowRouteDetails,
   selectWorkflowForTaskBook,
 } from './lib/workflow-routing-selection';
 import {
+  BuiltinWorkflowId,
   TaskBook,
+  TaskIntakeKind,
+  TaskIntakeRoutingDecision,
 } from './types';
 export { workflowRoutingReportPath } from './lib/workflow-routing-selection';
 
@@ -115,6 +123,79 @@ function toPosixPath(value: string): string {
 function computePlannerRequestId(taskBookId: string): string {
   const hash = createHash('sha1').update(taskBookId).digest('hex').slice(0, 10);
   return `req-planner-${hash}`;
+}
+
+function inferBuiltinWorkflowIdFromPath(workflowPath?: string): BuiltinWorkflowId | null {
+  if (!workflowPath || !workflowPath.trim()) return null;
+  const normalized = workflowPath.trim().toLowerCase();
+  if (normalized === 'micro' || normalized.endsWith('/micro.workflow.json') || normalized.endsWith('\\micro.workflow.json')) {
+    return 'micro';
+  }
+  if (normalized === 'sprint' || normalized.endsWith('/sprint.workflow.json') || normalized.endsWith('\\sprint.workflow.json')) {
+    return 'sprint';
+  }
+  if (normalized === 'default' || normalized.endsWith('/default.workflow.json') || normalized.endsWith('\\default.workflow.json')) {
+    return 'default';
+  }
+  return null;
+}
+
+function specModeForWorkflow(workflowId: BuiltinWorkflowId): 'inline-open-spec' | 'linked-spec-kit' {
+  return workflowId === 'default' ? 'linked-spec-kit' : 'inline-open-spec';
+}
+
+function mapTaskTypeToTaskIntakeKind(taskType: string | undefined): TaskIntakeKind | null {
+  switch (taskType) {
+    case 'debugging':
+      return 'bugfix';
+    case 'refactoring':
+      return 'refactor';
+    case 'code-review':
+      return 'review';
+    case 'new-feature':
+      return 'feature';
+    case 'testing':
+      return 'analysis';
+    default:
+      return null;
+  }
+}
+
+function buildTaskIntakeDecision(params: {
+  title?: string | null;
+  description?: string | null;
+  type?: string;
+  explicitWorkflowPath?: string;
+}): TaskIntakeRoutingDecision {
+  const explicitWorkflowId = inferBuiltinWorkflowIdFromPath(params.explicitWorkflowPath);
+  const decision = routeTaskIntake(createDefaultTaskIntakeInput({
+    title: params.title ?? null,
+    description: params.description ?? null,
+    kind: normalizeTaskIntakeKind(mapTaskTypeToTaskIntakeKind(params.type)),
+  }));
+
+  if (!explicitWorkflowId) {
+    return decision;
+  }
+
+  return {
+    ...decision,
+    recommendedWorkflowId: explicitWorkflowId,
+    recommendedSpecMode: specModeForWorkflow(explicitWorkflowId),
+    reasons: [
+      `Workflow explicitly requested by caller: ${explicitWorkflowId}.`,
+      ...decision.reasons,
+    ],
+  };
+}
+
+function buildPlannerHintArgs(taskBook: TaskBookLike | null, routingDecision: TaskIntakeRoutingDecision | null): string[] {
+  const workflowId = taskBook?.plan?.recommendedWorkflowId ?? routingDecision?.recommendedWorkflowId;
+  const specMode = taskBook?.plan?.specMode ?? routingDecision?.recommendedSpecMode;
+  const args: string[] = [];
+  if (workflowId) args.push('--workflow-hint', workflowId);
+  if (specMode) args.push('--spec-mode', specMode);
+  return args;
 }
 
 function shouldPreserveWorkflowPath(workflowPath?: string): boolean {
@@ -426,6 +507,7 @@ function runOnce(params: RunOnceParams, emit: boolean): RunOnceResult {
   let outcome: OrchestratorOutcome | null = null;
   let waitForFiles: string[] = [];
   let workflowRouteDetails: WorkflowRouteDetails | undefined;
+  let intakeDecision: TaskIntakeRoutingDecision | null = null;
 
   try {
     // Ensure required scripts exist (for a better error message early).
@@ -445,11 +527,18 @@ function runOnce(params: RunOnceParams, emit: boolean): RunOnceResult {
         throw new Error('错误: 缺少输入。请提供 "<需求描述>" 或 --title/--description，或使用 --taskbook 继续。');
       }
 
+      intakeDecision = buildTaskIntakeDecision({
+        title: params.title,
+        description: params.description,
+        type: params.type,
+        explicitWorkflowPath: workflowPath,
+      });
       const created = runTaskbookManagerJson(projectRoot, [
         'create',
         '--title', params.title,
         '--description', params.description,
         '--type', params.type,
+        ...buildPlannerHintArgs(null, intakeDecision),
       ], true) as TaskBookLike;
 
       taskBookId = created.id;
@@ -481,10 +570,19 @@ function runOnce(params: RunOnceParams, emit: boolean): RunOnceResult {
       }
 
       const requestId = computePlannerRequestId(taskBookId);
+      if (!tb0.plan?.recommendedWorkflowId || !tb0.plan?.specMode) {
+        intakeDecision = buildTaskIntakeDecision({
+          title: tb0.title,
+          description: tb0.description,
+          type: tb0.taskType,
+          explicitWorkflowPath: workflowPath,
+        });
+      }
       const plan = runTaskbookManagerJson(projectRoot, [
         'plan',
         taskBookId,
         '--request-id', requestId,
+        ...buildPlannerHintArgs(tb0, intakeDecision),
       ], true) as PlannerPlanEnvelope;
 
       const resultAbsPath = path.isAbsolute(plan.resultPath) ? plan.resultPath : path.join(projectRoot, plan.resultPath);

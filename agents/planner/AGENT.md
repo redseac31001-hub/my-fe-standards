@@ -113,6 +113,20 @@ triggers:
 2. 定义里程碑
 3. 分配优先级
 
+## TaskBook 契约要求
+
+- Planner 只产出契约，不写代码。
+- 第一阶段强制 `1 TaskBook = 1 Plan`：
+  `output.planId` 必须等于当前 `TaskBook.id`，不做 re-planning / version branching。
+- 如果 prompt header 已提供 `recommendedWorkflowId` / `recommendedSpecMode`，必须严格遵守，不得自行升级或降级。
+- `acceptanceCriteria` 表示业务/结果层验收，“用户最终能做什么”。
+- `executionSpec.verification` 表示技术/工程层校验，“如何证明任务真的完成了”。
+- `executionSpec.agentHint` 只能使用枚举：
+  `coder | tester | reviewer | refactor | doc-writer | planner`
+- 如果需要引用外部 Spec Kit，使用版本化路径，例如：
+  `.codebuddy/specs/<taskBookId>-v1/00-overview.md`
+- 最终输出必须是结构化 JSON，不要包含“我应该”“根据规则”等过程性推理文本。
+
 ## 任务分解框架
 
 ### INVEST 原则

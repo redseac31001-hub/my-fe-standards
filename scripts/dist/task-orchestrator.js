@@ -293,6 +293,323 @@ function ensureAggregate(map, key) {
   return map[key];
 }
 
+// scripts/src/lib/task-intake-routing.ts
+var API_ADAPTATION_SIGNAL = /(api|mock|request|response|field mapping|parameter mapping|adapter|adapt|replace mock|接口|参数映射|返回映射|真实接口)/i;
+var BUGFIX_SIGNAL = /(bug|fix|hotfix|repair|debug|修复|报错|错误|异常|故障|白屏)/i;
+var REFACTOR_SIGNAL = /(refactor|cleanup|extract|split|重构|整理|提取|拆分)/i;
+var REVIEW_SIGNAL = /(review|audit|审查|审阅|检查)/i;
+var FEATURE_SIGNAL = /(feature|需求|新功能|新增|prd|方案)/i;
+function uniqStrings(values) {
+  return Array.from(new Set(values.filter((value) => typeof value === "string" && value.trim().length > 0)));
+}
+function buildSignal(id, matched, detail, weight, hardEscalation = false) {
+  return { id, matched, detail, weight, hardEscalation };
+}
+function normalizeNullableCount(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const normalized = Math.max(0, Math.floor(value));
+  return Number.isFinite(normalized) ? normalized : null;
+}
+function getGeneratedAt(value) {
+  return value || (/* @__PURE__ */ new Date()).toISOString();
+}
+function collectRouteText(input) {
+  return uniqStrings([
+    input.title ?? "",
+    input.description ?? "",
+    ...input.routeHints
+  ]).join(" ");
+}
+function inferKindFromText(routeText) {
+  if (!routeText.trim()) return "unknown";
+  if (API_ADAPTATION_SIGNAL.test(routeText)) return "api-adaptation";
+  if (BUGFIX_SIGNAL.test(routeText)) return "bugfix";
+  if (REFACTOR_SIGNAL.test(routeText)) return "refactor";
+  if (REVIEW_SIGNAL.test(routeText)) return "review";
+  if (FEATURE_SIGNAL.test(routeText)) return "feature";
+  return "unknown";
+}
+function resolveKind(input) {
+  if (input.kind && input.kind !== "unknown") return input.kind;
+  return inferKindFromText(collectRouteText(input));
+}
+function normalizeReason(detail, fallback) {
+  return detail?.trim() || fallback;
+}
+function resolveDirectValidation(kind) {
+  const steps = ["npm run build", "npm test"];
+  if (kind === "api-adaptation") {
+    steps.push("Run one narrow API/request smoke for the affected module");
+  } else if (kind === "bugfix") {
+    steps.push("Run one focused smoke or regression for the affected interaction");
+  } else if (kind === "refactor") {
+    steps.push("Run one focused before/after behavior check for the touched module");
+  } else {
+    steps.push("Add the narrowest domain-specific verification that proves the change");
+  }
+  return steps;
+}
+function resolveSuggestedNextSteps(path7, kind) {
+  if (path7 === "direct") {
+    return [
+      "Read the explicit contract and the smallest relevant file set first.",
+      "Change code directly without starting task-orchestrator by default.",
+      `Keep the task focused on one pass${kind !== "unknown" ? ` (${kind})` : ""} and only escalate if complexity grows.`
+    ];
+  }
+  return [
+    "Escalate to task-orchestrator or TaskBook-based execution for durable tracking.",
+    "Keep staged review, handoff, and validation evidence inside the orchestrated path.",
+    "Use quick gate plus focused E2E as the task scope expands."
+  ];
+}
+function resolveRecommendedWorkflowId(params) {
+  if (params.recommendedPath === "direct") {
+    return "micro";
+  }
+  const highComplexity = params.contractState === "none" || params.uncertainty === "high" || params.requiresHandoff || params.requiresParallelWork || params.requiresDurableTracking || params.changesArchitecture || params.changesStateModel || params.changesRouting || params.changesWorkflow || typeof params.estimatedDomainCount === "number" && params.estimatedDomainCount > 1 || typeof params.estimatedModuleCount === "number" && params.estimatedModuleCount > 2 || typeof params.estimatedFileCount === "number" && params.estimatedFileCount > 12;
+  return highComplexity ? "default" : "sprint";
+}
+function resolveRecommendedSpecMode(workflowId) {
+  if (workflowId === "default") {
+    return "linked-spec-kit";
+  }
+  return "inline-open-spec";
+}
+function normalizeTaskIntakeInput(input) {
+  return {
+    title: input.title?.trim() || null,
+    description: input.description?.trim() || null,
+    kind: input.kind ?? null,
+    contractState: input.contractState,
+    uncertainty: input.uncertainty,
+    estimatedFileCount: normalizeNullableCount(input.estimatedFileCount),
+    estimatedModuleCount: normalizeNullableCount(input.estimatedModuleCount),
+    estimatedDomainCount: normalizeNullableCount(input.estimatedDomainCount),
+    estimatedEndpointCount: normalizeNullableCount(input.estimatedEndpointCount),
+    requiresHandoff: Boolean(input.requiresHandoff),
+    requiresParallelWork: Boolean(input.requiresParallelWork),
+    requiresDurableTracking: Boolean(input.requiresDurableTracking),
+    changesArchitecture: Boolean(input.changesArchitecture),
+    changesStateModel: Boolean(input.changesStateModel),
+    changesRouting: Boolean(input.changesRouting),
+    changesWorkflow: Boolean(input.changesWorkflow),
+    routeHints: uniqStrings(input.routeHints ?? [])
+  };
+}
+function routeTaskIntake(rawInput, options) {
+  const input = normalizeTaskIntakeInput(rawInput);
+  const inferredKind = resolveKind(input);
+  const estimatedFileCount = input.estimatedFileCount;
+  const estimatedModuleCount = input.estimatedModuleCount;
+  const estimatedDomainCount = input.estimatedDomainCount;
+  const estimatedEndpointCount = input.estimatedEndpointCount;
+  const signals = [
+    buildSignal(
+      "explicit_contract",
+      input.contractState === "explicit",
+      input.contractState === "explicit" ? "The external contract is explicit." : void 0,
+      3
+    ),
+    buildSignal(
+      "partial_contract",
+      input.contractState === "partial",
+      input.contractState === "partial" ? "The external contract is only partially explicit." : void 0,
+      1
+    ),
+    buildSignal(
+      "missing_contract",
+      input.contractState === "none",
+      input.contractState === "none" ? "The external contract is incomplete or missing." : void 0,
+      4,
+      true
+    ),
+    buildSignal(
+      "low_uncertainty",
+      input.uncertainty === "low",
+      input.uncertainty === "low" ? "The task has low uncertainty." : void 0,
+      2
+    ),
+    buildSignal(
+      "medium_uncertainty",
+      input.uncertainty === "medium",
+      input.uncertainty === "medium" ? "The task has medium uncertainty." : void 0,
+      1
+    ),
+    buildSignal(
+      "high_uncertainty",
+      input.uncertainty === "high",
+      input.uncertainty === "high" ? "The task has high uncertainty." : void 0,
+      4,
+      true
+    ),
+    buildSignal(
+      "small_file_set",
+      typeof estimatedFileCount === "number" && estimatedFileCount <= 5,
+      typeof estimatedFileCount === "number" ? `estimatedFileCount=${estimatedFileCount}` : void 0,
+      2
+    ),
+    buildSignal(
+      "wide_file_set",
+      typeof estimatedFileCount === "number" && estimatedFileCount > 8,
+      typeof estimatedFileCount === "number" ? `estimatedFileCount=${estimatedFileCount}` : void 0,
+      2
+    ),
+    buildSignal(
+      "cross_module",
+      typeof estimatedModuleCount === "number" && estimatedModuleCount > 1,
+      typeof estimatedModuleCount === "number" ? `estimatedModuleCount=${estimatedModuleCount}` : void 0,
+      4,
+      true
+    ),
+    buildSignal(
+      "cross_domain",
+      typeof estimatedDomainCount === "number" && estimatedDomainCount > 1,
+      typeof estimatedDomainCount === "number" ? `estimatedDomainCount=${estimatedDomainCount}` : void 0,
+      4,
+      true
+    ),
+    buildSignal(
+      "small_endpoint_set",
+      typeof estimatedEndpointCount === "number" && estimatedEndpointCount > 0 && estimatedEndpointCount <= 3,
+      typeof estimatedEndpointCount === "number" ? `estimatedEndpointCount=${estimatedEndpointCount}` : void 0,
+      1
+    ),
+    buildSignal(
+      "wide_endpoint_set",
+      typeof estimatedEndpointCount === "number" && estimatedEndpointCount > 5,
+      typeof estimatedEndpointCount === "number" ? `estimatedEndpointCount=${estimatedEndpointCount}` : void 0,
+      1
+    ),
+    buildSignal("requires_handoff", input.requiresHandoff, "The task needs staged handoff.", 4, true),
+    buildSignal("requires_parallel_work", input.requiresParallelWork, "The task needs parallel ownership.", 4, true),
+    buildSignal("requires_durable_tracking", input.requiresDurableTracking, "The task needs durable tracking.", 4, true),
+    buildSignal("changes_architecture", input.changesArchitecture, "The task changes architecture boundaries.", 5, true),
+    buildSignal("changes_state_model", input.changesStateModel, "The task changes state flow or state-model behavior.", 5, true),
+    buildSignal("changes_routing", input.changesRouting, "The task changes routing or navigation behavior.", 4, true),
+    buildSignal("changes_workflow", input.changesWorkflow, "The task changes workflow or execution behavior.", 4, true),
+    buildSignal(
+      "kind_api_adaptation",
+      inferredKind === "api-adaptation",
+      inferredKind === "api-adaptation" ? "The task looks like API adaptation or mock replacement." : void 0,
+      2
+    ),
+    buildSignal(
+      "kind_localized_fix",
+      inferredKind === "bugfix" || inferredKind === "refactor",
+      inferredKind === "bugfix" || inferredKind === "refactor" ? `The task looks like a focused ${inferredKind}.` : void 0,
+      1
+    ),
+    buildSignal(
+      "kind_feature",
+      inferredKind === "feature",
+      inferredKind === "feature" ? "The task looks like a broader feature request." : void 0,
+      2
+    )
+  ];
+  const hardEscalationTriggers = signals.filter((signal) => signal.matched && signal.hardEscalation).map((signal) => normalizeReason(signal.detail, signal.id));
+  let directScore = 0;
+  let orchestratedScore = 0;
+  for (const signal of signals) {
+    if (!signal.matched) continue;
+    switch (signal.id) {
+      case "explicit_contract":
+      case "low_uncertainty":
+      case "small_file_set":
+      case "small_endpoint_set":
+      case "kind_api_adaptation":
+      case "kind_localized_fix":
+        directScore += signal.weight ?? 1;
+        break;
+      case "partial_contract":
+      case "medium_uncertainty":
+      case "wide_file_set":
+      case "wide_endpoint_set":
+      case "kind_feature":
+        orchestratedScore += signal.weight ?? 1;
+        break;
+      default:
+        if (signal.hardEscalation) {
+          orchestratedScore += signal.weight ?? 1;
+        }
+        break;
+    }
+  }
+  const recommendedPath = hardEscalationTriggers.length > 0 ? "orchestrated" : directScore >= orchestratedScore ? "direct" : "orchestrated";
+  const reasons = recommendedPath === "direct" ? uniqStrings([
+    "The task stays within the small-change direct-execution boundary.",
+    ...signals.find((signal) => signal.id === "explicit_contract" && signal.matched)?.detail ? [signals.find((signal) => signal.id === "explicit_contract" && signal.matched).detail] : [],
+    ...signals.find((signal) => signal.id === "low_uncertainty" && signal.matched)?.detail ? [signals.find((signal) => signal.id === "low_uncertainty" && signal.matched).detail] : [],
+    ...signals.find((signal) => signal.id === "small_file_set" && signal.matched)?.detail ? [signals.find((signal) => signal.id === "small_file_set" && signal.matched).detail] : [],
+    ...signals.find((signal) => signal.id === "kind_api_adaptation" && signal.matched)?.detail ? [signals.find((signal) => signal.id === "kind_api_adaptation" && signal.matched).detail] : [],
+    ...signals.find((signal) => signal.id === "kind_localized_fix" && signal.matched)?.detail ? [signals.find((signal) => signal.id === "kind_localized_fix" && signal.matched).detail] : []
+  ]) : uniqStrings([
+    hardEscalationTriggers.length > 0 ? "One or more orchestration escalation triggers are active." : "The task is broader or less certain than a one-pass direct execution.",
+    ...hardEscalationTriggers,
+    ...signals.find((signal) => signal.id === "wide_file_set" && signal.matched)?.detail ? [signals.find((signal) => signal.id === "wide_file_set" && signal.matched).detail] : [],
+    ...signals.find((signal) => signal.id === "wide_endpoint_set" && signal.matched)?.detail ? [signals.find((signal) => signal.id === "wide_endpoint_set" && signal.matched).detail] : [],
+    ...signals.find((signal) => signal.id === "kind_feature" && signal.matched)?.detail ? [signals.find((signal) => signal.id === "kind_feature" && signal.matched).detail] : []
+  ]);
+  const confidence = recommendedPath === "direct" ? input.contractState === "explicit" && input.uncertainty === "low" && typeof estimatedFileCount === "number" && estimatedFileCount <= 5 ? "high" : "medium" : hardEscalationTriggers.length > 0 || input.uncertainty === "high" ? "high" : "medium";
+  const recommendedWorkflowId = resolveRecommendedWorkflowId({
+    recommendedPath,
+    contractState: input.contractState,
+    uncertainty: input.uncertainty,
+    estimatedFileCount,
+    estimatedModuleCount,
+    estimatedDomainCount,
+    requiresHandoff: input.requiresHandoff,
+    requiresParallelWork: input.requiresParallelWork,
+    requiresDurableTracking: input.requiresDurableTracking,
+    changesArchitecture: input.changesArchitecture,
+    changesStateModel: input.changesStateModel,
+    changesRouting: input.changesRouting,
+    changesWorkflow: input.changesWorkflow
+  });
+  const recommendedSpecMode = resolveRecommendedSpecMode(recommendedWorkflowId);
+  return {
+    recommendedPath,
+    recommendedWorkflowId,
+    recommendedSpecMode,
+    confidence,
+    inferredKind,
+    reasons,
+    signals,
+    hardEscalationTriggers,
+    suggestedNextSteps: resolveSuggestedNextSteps(recommendedPath, inferredKind),
+    suggestedValidation: recommendedPath === "direct" ? resolveDirectValidation(inferredKind) : ["Use task-orchestrator / TaskBook-based execution.", "Run quick gate and the narrowest relevant E2E for the affected workflow."],
+    generatedAt: getGeneratedAt(options?.generatedAt)
+  };
+}
+function createDefaultTaskIntakeInput(overrides = {}) {
+  return normalizeTaskIntakeInput({
+    title: null,
+    description: null,
+    kind: null,
+    contractState: "partial",
+    uncertainty: "medium",
+    estimatedFileCount: null,
+    estimatedModuleCount: null,
+    estimatedDomainCount: null,
+    estimatedEndpointCount: null,
+    requiresHandoff: false,
+    requiresParallelWork: false,
+    requiresDurableTracking: false,
+    changesArchitecture: false,
+    changesStateModel: false,
+    changesRouting: false,
+    changesWorkflow: false,
+    routeHints: [],
+    ...overrides
+  });
+}
+function normalizeTaskIntakeKind(value) {
+  if (value === "api-adaptation" || value === "bugfix" || value === "refactor" || value === "feature" || value === "review" || value === "analysis" || value === "unknown") {
+    return value;
+  }
+  return null;
+}
+
 // scripts/src/lib/workflow-routing-selection.ts
 var fs3 = __toESM(require("fs"));
 var path5 = __toESM(require("path"));
@@ -776,7 +1093,7 @@ var BUILTIN_WORKFLOW_RANK = {
 };
 var HOTFIX_SIGNAL = /(hotfix|quick fix|single[-\s]?file|单文件|快速修复|小\s*bug|小问题|补丁|patch)/i;
 var LARGE_SCOPE_SIGNAL = /(新功能|feature|需求|prd|架构|跨模块|跨项目|大规模|major|multi[-\s]?module|multi[-\s]?project)/i;
-function uniqStrings(values) {
+function uniqStrings2(values) {
   return Array.from(new Set(values.filter((value) => typeof value === "string" && value.trim().length > 0)));
 }
 function inferWorkflowIdFromPath(workflowPath) {
@@ -789,7 +1106,7 @@ function asBuiltinWorkflowId(value) {
   }
   return null;
 }
-function getGeneratedAt(value) {
+function getGeneratedAt2(value) {
   return value || (/* @__PURE__ */ new Date()).toISOString();
 }
 function getWorkflowRank(workflowId) {
@@ -817,11 +1134,11 @@ function createDecision(params) {
     canonicalWorkflowId: params.canonicalWorkflowId,
     selectedWorkflowPath: params.workflowPath,
     confidence: params.confidence,
-    reasons: uniqStrings(params.reasons),
+    reasons: uniqStrings2(params.reasons),
     signals: params.signals ?? [],
     reusedFromTaskBook: params.reusedFromTaskBook,
     fallbackReason: params.fallbackReason,
-    generatedAt: getGeneratedAt(params.generatedAt)
+    generatedAt: getGeneratedAt2(params.generatedAt)
   };
 }
 function computeTaskDepth(taskId, tasksById, visiting, memo) {
@@ -870,9 +1187,9 @@ function collectRouteHints(taskBook) {
     values.push(...task.acceptanceCriteria);
     values.push(...task.scope?.tags ?? []);
   }
-  return uniqStrings(values);
+  return uniqStrings2(values);
 }
-function buildSignal(id, matched, detail, weight) {
+function buildSignal2(id, matched, detail, weight) {
   return { id, matched, detail, weight };
 }
 function decideAutomaticWorkflow(input, options) {
@@ -885,18 +1202,18 @@ function decideAutomaticWorkflow(input, options) {
   const smallScope = input.scopedModuleCount <= 1 && (input.scopedFileCount === 0 || input.scopedFileCount <= 5);
   const tinyScope = input.scopedModuleCount <= 1 && (input.scopedFileCount === 0 || input.scopedFileCount <= 2);
   const signals = [
-    buildSignal("has_requirement_or_prd", input.hasRequirementOrPrdTasks, input.hasRequirementOrPrdTasks ? "TaskBook \u5305\u542B requirement/prd \u4EFB\u52A1" : void 0, 5),
-    buildSignal("has_design_tasks", input.hasDesignTasks, input.hasDesignTasks ? "TaskBook \u5305\u542B design \u4EFB\u52A1" : void 0, 4),
-    buildSignal("has_build_fix_tasks", input.hasBuildFixTasks, input.hasBuildFixTasks ? "TaskBook \u5305\u542B\u72EC\u7ACB build-fix \u4EFB\u52A1" : void 0, 4),
-    buildSignal("large_task_count", input.taskCount > 8, `taskCount=${input.taskCount}`, 4),
-    buildSignal("deep_dependency_graph", input.maxDependencyDepth > 4, `maxDependencyDepth=${input.maxDependencyDepth}`, 3),
-    buildSignal("cross_project_scope", hasCrossProjectScope, `selectedProjectCount=${input.selectedProjectCount}`, 5),
-    buildSignal("wide_module_scope", input.scopedModuleCount > 2, `scopedModuleCount=${input.scopedModuleCount}`, 3),
-    buildSignal("hotfix_signal", hasHotfixSignal, hasHotfixSignal ? "routeHints \u547D\u4E2D hotfix/quick-fix \u4FE1\u53F7" : void 0, 2),
-    buildSignal("small_scope", smallScope, `scopedFileCount=${input.scopedFileCount}, scopedModuleCount=${input.scopedModuleCount}`, 2),
-    buildSignal("has_review_tasks", input.hasReviewTasks, input.hasReviewTasks ? "TaskBook \u5305\u542B review \u4EFB\u52A1" : void 0, 2),
-    buildSignal("has_high_priority_tasks", input.hasHighPriorityTasks, input.hasHighPriorityTasks ? "\u5B58\u5728 critical/high \u4EFB\u52A1" : void 0, 2),
-    buildSignal("large_scope_signal", hasLargeScopeSignal, hasLargeScopeSignal ? "routeHints \u547D\u4E2D feature/refactor/architecture \u4FE1\u53F7" : void 0, 2)
+    buildSignal2("has_requirement_or_prd", input.hasRequirementOrPrdTasks, input.hasRequirementOrPrdTasks ? "TaskBook \u5305\u542B requirement/prd \u4EFB\u52A1" : void 0, 5),
+    buildSignal2("has_design_tasks", input.hasDesignTasks, input.hasDesignTasks ? "TaskBook \u5305\u542B design \u4EFB\u52A1" : void 0, 4),
+    buildSignal2("has_build_fix_tasks", input.hasBuildFixTasks, input.hasBuildFixTasks ? "TaskBook \u5305\u542B\u72EC\u7ACB build-fix \u4EFB\u52A1" : void 0, 4),
+    buildSignal2("large_task_count", input.taskCount > 8, `taskCount=${input.taskCount}`, 4),
+    buildSignal2("deep_dependency_graph", input.maxDependencyDepth > 4, `maxDependencyDepth=${input.maxDependencyDepth}`, 3),
+    buildSignal2("cross_project_scope", hasCrossProjectScope, `selectedProjectCount=${input.selectedProjectCount}`, 5),
+    buildSignal2("wide_module_scope", input.scopedModuleCount > 2, `scopedModuleCount=${input.scopedModuleCount}`, 3),
+    buildSignal2("hotfix_signal", hasHotfixSignal, hasHotfixSignal ? "routeHints \u547D\u4E2D hotfix/quick-fix \u4FE1\u53F7" : void 0, 2),
+    buildSignal2("small_scope", smallScope, `scopedFileCount=${input.scopedFileCount}, scopedModuleCount=${input.scopedModuleCount}`, 2),
+    buildSignal2("has_review_tasks", input.hasReviewTasks, input.hasReviewTasks ? "TaskBook \u5305\u542B review \u4EFB\u52A1" : void 0, 2),
+    buildSignal2("has_high_priority_tasks", input.hasHighPriorityTasks, input.hasHighPriorityTasks ? "\u5B58\u5728 critical/high \u4EFB\u52A1" : void 0, 2),
+    buildSignal2("large_scope_signal", hasLargeScopeSignal, hasLargeScopeSignal ? "routeHints \u547D\u4E2D feature/refactor/architecture \u4FE1\u53F7" : void 0, 2)
   ];
   const defaultReasons = signals.filter((signal) => signal.matched && (signal.id === "has_requirement_or_prd" || signal.id === "has_design_tasks" || signal.id === "has_build_fix_tasks" || signal.id === "large_task_count" || signal.id === "deep_dependency_graph" || signal.id === "cross_project_scope" || signal.id === "wide_module_scope")).map((signal) => signal.detail || signal.id);
   if (defaultReasons.length > 0) {
@@ -1027,7 +1344,7 @@ function buildWorkflowRoutingInput(taskBook, workspaceInfo) {
     scopedModuleCount: collectScopeCount(tasks, "modules"),
     workspaceProjectCount: workspaceInfo?.totalProjectCount || workspaceInfo?.projects?.length || 1,
     selectedProjectCount,
-    projectKinds: uniqStrings((workspaceInfo?.projects ?? []).map((project) => project.projectKind)),
+    projectKinds: uniqStrings2((workspaceInfo?.projects ?? []).map((project) => project.projectKind)),
     routeHints: collectRouteHints(taskBook)
   };
 }
@@ -1273,6 +1590,67 @@ function computePlannerRequestId(taskBookId) {
   const hash = (0, import_crypto.createHash)("sha1").update(taskBookId).digest("hex").slice(0, 10);
   return `req-planner-${hash}`;
 }
+function inferBuiltinWorkflowIdFromPath(workflowPath) {
+  if (!workflowPath || !workflowPath.trim()) return null;
+  const normalized = workflowPath.trim().toLowerCase();
+  if (normalized === "micro" || normalized.endsWith("/micro.workflow.json") || normalized.endsWith("\\micro.workflow.json")) {
+    return "micro";
+  }
+  if (normalized === "sprint" || normalized.endsWith("/sprint.workflow.json") || normalized.endsWith("\\sprint.workflow.json")) {
+    return "sprint";
+  }
+  if (normalized === "default" || normalized.endsWith("/default.workflow.json") || normalized.endsWith("\\default.workflow.json")) {
+    return "default";
+  }
+  return null;
+}
+function specModeForWorkflow(workflowId) {
+  return workflowId === "default" ? "linked-spec-kit" : "inline-open-spec";
+}
+function mapTaskTypeToTaskIntakeKind(taskType) {
+  switch (taskType) {
+    case "debugging":
+      return "bugfix";
+    case "refactoring":
+      return "refactor";
+    case "code-review":
+      return "review";
+    case "new-feature":
+      return "feature";
+    case "testing":
+      return "analysis";
+    default:
+      return null;
+  }
+}
+function buildTaskIntakeDecision(params) {
+  const explicitWorkflowId = inferBuiltinWorkflowIdFromPath(params.explicitWorkflowPath);
+  const decision = routeTaskIntake(createDefaultTaskIntakeInput({
+    title: params.title ?? null,
+    description: params.description ?? null,
+    kind: normalizeTaskIntakeKind(mapTaskTypeToTaskIntakeKind(params.type))
+  }));
+  if (!explicitWorkflowId) {
+    return decision;
+  }
+  return {
+    ...decision,
+    recommendedWorkflowId: explicitWorkflowId,
+    recommendedSpecMode: specModeForWorkflow(explicitWorkflowId),
+    reasons: [
+      `Workflow explicitly requested by caller: ${explicitWorkflowId}.`,
+      ...decision.reasons
+    ]
+  };
+}
+function buildPlannerHintArgs(taskBook, routingDecision) {
+  const workflowId = taskBook?.plan?.recommendedWorkflowId ?? routingDecision?.recommendedWorkflowId;
+  const specMode = taskBook?.plan?.specMode ?? routingDecision?.recommendedSpecMode;
+  const args = [];
+  if (workflowId) args.push("--workflow-hint", workflowId);
+  if (specMode) args.push("--spec-mode", specMode);
+  return args;
+}
 function shouldPreserveWorkflowPath(workflowPath) {
   return Boolean(workflowPath && workflowPath.trim() && workflowPath.trim().toLowerCase() !== "auto");
 }
@@ -1504,6 +1882,7 @@ function runOnce(params, emit) {
   let outcome = null;
   let waitForFiles = [];
   let workflowRouteDetails;
+  let intakeDecision = null;
   try {
     const tmPath = taskbookManagerPath(projectRoot);
     if (!fs4.existsSync(tmPath)) {
@@ -1517,6 +1896,12 @@ function runOnce(params, emit) {
       if (!params.title || !params.description) {
         throw new Error('\u9519\u8BEF: \u7F3A\u5C11\u8F93\u5165\u3002\u8BF7\u63D0\u4F9B "<\u9700\u6C42\u63CF\u8FF0>" \u6216 --title/--description\uFF0C\u6216\u4F7F\u7528 --taskbook \u7EE7\u7EED\u3002');
       }
+      intakeDecision = buildTaskIntakeDecision({
+        title: params.title,
+        description: params.description,
+        type: params.type,
+        explicitWorkflowPath: workflowPath
+      });
       const created = runTaskbookManagerJson(projectRoot, [
         "create",
         "--title",
@@ -1524,7 +1909,8 @@ function runOnce(params, emit) {
         "--description",
         params.description,
         "--type",
-        params.type
+        params.type,
+        ...buildPlannerHintArgs(null, intakeDecision)
       ], true);
       taskBookId = created.id;
       if (!taskBookId) throw new Error("create \u672A\u8FD4\u56DE TaskBook.id");
@@ -1548,11 +1934,20 @@ function runOnce(params, emit) {
         }
       }
       const requestId = computePlannerRequestId(taskBookId);
+      if (!tb0.plan?.recommendedWorkflowId || !tb0.plan?.specMode) {
+        intakeDecision = buildTaskIntakeDecision({
+          title: tb0.title,
+          description: tb0.description,
+          type: tb0.taskType,
+          explicitWorkflowPath: workflowPath
+        });
+      }
       const plan = runTaskbookManagerJson(projectRoot, [
         "plan",
         taskBookId,
         "--request-id",
-        requestId
+        requestId,
+        ...buildPlannerHintArgs(tb0, intakeDecision)
       ], true);
       const resultAbsPath = path6.isAbsolute(plan.resultPath) ? plan.resultPath : path6.join(projectRoot, plan.resultPath);
       if (!fs4.existsSync(resultAbsPath)) {

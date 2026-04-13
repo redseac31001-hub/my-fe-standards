@@ -99,6 +99,49 @@ function resolveSuggestedNextSteps(path: TaskIntakeExecutionPath, kind: TaskInta
   ];
 }
 
+function resolveRecommendedWorkflowId(params: {
+  recommendedPath: TaskIntakeExecutionPath;
+  contractState: TaskIntakeContractState;
+  uncertainty: TaskIntakeUncertainty;
+  estimatedFileCount: number | null;
+  estimatedModuleCount: number | null;
+  estimatedDomainCount: number | null;
+  requiresHandoff: boolean;
+  requiresParallelWork: boolean;
+  requiresDurableTracking: boolean;
+  changesArchitecture: boolean;
+  changesStateModel: boolean;
+  changesRouting: boolean;
+  changesWorkflow: boolean;
+}): 'micro' | 'sprint' | 'default' {
+  if (params.recommendedPath === 'direct') {
+    return 'micro';
+  }
+
+  const highComplexity =
+    params.contractState === 'none'
+    || params.uncertainty === 'high'
+    || params.requiresHandoff
+    || params.requiresParallelWork
+    || params.requiresDurableTracking
+    || params.changesArchitecture
+    || params.changesStateModel
+    || params.changesRouting
+    || params.changesWorkflow
+    || (typeof params.estimatedDomainCount === 'number' && params.estimatedDomainCount > 1)
+    || (typeof params.estimatedModuleCount === 'number' && params.estimatedModuleCount > 2)
+    || (typeof params.estimatedFileCount === 'number' && params.estimatedFileCount > 12);
+
+  return highComplexity ? 'default' : 'sprint';
+}
+
+function resolveRecommendedSpecMode(workflowId: 'micro' | 'sprint' | 'default'): 'inline-open-spec' | 'linked-spec-kit' {
+  if (workflowId === 'default') {
+    return 'linked-spec-kit';
+  }
+  return 'inline-open-spec';
+}
+
 export function normalizeTaskIntakeInput(input: TaskIntakeRoutingInput): TaskIntakeRoutingInput {
   return {
     title: input.title?.trim() || null,
@@ -322,8 +365,27 @@ export function routeTaskIntake(
       ? 'high'
       : 'medium');
 
+  const recommendedWorkflowId = resolveRecommendedWorkflowId({
+    recommendedPath,
+    contractState: input.contractState,
+    uncertainty: input.uncertainty,
+    estimatedFileCount,
+    estimatedModuleCount,
+    estimatedDomainCount,
+    requiresHandoff: input.requiresHandoff,
+    requiresParallelWork: input.requiresParallelWork,
+    requiresDurableTracking: input.requiresDurableTracking,
+    changesArchitecture: input.changesArchitecture,
+    changesStateModel: input.changesStateModel,
+    changesRouting: input.changesRouting,
+    changesWorkflow: input.changesWorkflow,
+  });
+  const recommendedSpecMode = resolveRecommendedSpecMode(recommendedWorkflowId);
+
   return {
     recommendedPath,
+    recommendedWorkflowId,
+    recommendedSpecMode,
     confidence,
     inferredKind,
     reasons,

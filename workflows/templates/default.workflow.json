@@ -2,7 +2,7 @@
   "id": "default",
   "version": "2.0.0",
   "name": "Default Workflow (7-step closed loop)",
-  "description": "Tool/model-agnostic 7-step workflow: requirement+PRD -> analyze -> plan -> TDD implement (batched + smoke gates) -> review -> build+fix -> acceptance/archive.",
+  "description": "Tool/model-agnostic 7-step workflow: requirement+PRD -> analyze -> plan -> TDD implement (batched + smoke gates) -> review -> build+fix -> acceptance/archive. Supports linked Spec Kit for heavier cross-module work.",
   "steps": [
     {
       "id": "requirement_prd",
@@ -43,7 +43,7 @@
       "id": "plan",
       "type": "create_taskbook",
       "title": "Create TaskBook (tasks + acceptance criteria)",
-      "description": "Break requirements into executable tasks with dependencies and acceptance criteria. Technical design is embedded in task decomposition.",
+      "description": "Break requirements into executable tasks with dependencies, acceptance criteria, and execution contracts. Linked Spec Kit is allowed for heavier work.",
       "toolHints": {
         "recommended": [
           "agent:planner",
