@@ -17,6 +17,27 @@ type ParsedArgs = {
   passThroughArgs: string[];
 };
 
+type RemoteManifestSummary = {
+  version?: string;
+  generatedAt?: string;
+  aiTool?: string;
+  model?: string;
+  stats?: {
+    totalFiles?: number;
+    ruleFiles?: number;
+    skillFiles?: number;
+    agentFiles?: number;
+    workflowFiles?: number;
+    taskbookFiles?: number;
+  };
+  packs?: Record<string, {
+    file?: string;
+    sha256?: string;
+    entryCount?: number;
+    generatedAt?: string;
+  }>;
+};
+
 const DEFAULT_INSTALL_ARGS = ['--profile', 'analysis', '--rule-level', 'quick', '--pack-only'];
 const DEFAULT_LOADER_TIMEOUT_MS = 30000;
 const MAX_REDIRECTS = 5;
@@ -86,6 +107,29 @@ function hasFlag(args: string[], flag: string): boolean {
 function hasFlagValue(args: string[], flag: string): boolean {
   const index = args.indexOf(flag);
   return index !== -1 && typeof args[index + 1] === 'string' && !args[index + 1].startsWith('-');
+}
+
+function getFlagValue(args: string[], flag: string): string | null {
+  const index = args.indexOf(flag);
+  if (index === -1) return null;
+  const value = args[index + 1];
+  return typeof value === 'string' && !value.startsWith('-') ? value : null;
+}
+
+function formatBytes(size: number): string {
+  if (!Number.isFinite(size) || size < 0) {
+    return 'n/a';
+  }
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDurationMs(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 1000) {
+    return `${Math.max(0, Math.round(durationMs))} ms`;
+  }
+  return `${(durationMs / 1000).toFixed(2)} s`;
 }
 
 function dedupeUrls(urls: string[]): string[] {
@@ -367,6 +411,77 @@ async function downloadFile(url: string, outputPath: string, headers: Record<str
   });
 }
 
+async function fetchText(url: string, headers: Record<string, string>, timeoutMs: number): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const visit = (targetUrl: string, redirectsLeft: number): void => {
+      const client = targetUrl.startsWith('https://') ? https : http;
+      const request = client.get(targetUrl, { headers }, (response) => {
+        const statusCode = response.statusCode || 0;
+        if ([301, 302, 307, 308].includes(statusCode)) {
+          const location = response.headers.location;
+          response.resume();
+          if (!location) {
+            reject(new Error(`redirect response missing location: ${targetUrl}`));
+            return;
+          }
+          if (redirectsLeft <= 0) {
+            reject(new Error(`too many redirects while fetching ${url}`));
+            return;
+          }
+          visit(new URL(location, targetUrl).toString(), redirectsLeft - 1);
+          return;
+        }
+
+        if (statusCode !== 200) {
+          const chunks: Buffer[] = [];
+          response.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+          response.on('end', () => {
+            const detail = Buffer.concat(chunks).toString('utf-8').trim();
+            reject(new Error(`request failed (${statusCode}) for ${targetUrl}${detail ? `: ${detail}` : ''}`));
+          });
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        response.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        response.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+      });
+
+      request.setTimeout(timeoutMs, () => {
+        request.destroy(new Error(`request timeout after ${timeoutMs}ms: ${targetUrl}`));
+      });
+      request.on('error', reject);
+    };
+
+    visit(url, MAX_REDIRECTS);
+  });
+}
+
+async function fetchJsonWithFallbacks<T>(
+  url: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+  remoteBearerToken: string | null,
+): Promise<{ data: T; resolvedUrl: string }> {
+  const candidates = buildDownloadUrlCandidates(url, remoteBearerToken);
+  const failures: string[] = [];
+
+  for (const candidateUrl of candidates) {
+    try {
+      const text = await fetchText(candidateUrl, headers, timeoutMs);
+      return {
+        data: JSON.parse(text) as T,
+        resolvedUrl: candidateUrl,
+      };
+    } catch (error) {
+      failures.push(`${candidateUrl} -> ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const detail = failures.length > 0 ? `\n${failures.map(item => `  - ${item}`).join('\n')}` : '';
+  throw new Error(`failed to fetch json from all candidates:${detail}`);
+}
+
 async function downloadFileWithFallbacks(
   url: string,
   outputPath: string,
@@ -411,16 +526,62 @@ function createTempLoaderPath(): string {
 }
 
 async function main(): Promise<void> {
+  const installStartedAt = new Date();
   const parsed = parseArgs(process.argv.slice(2));
   const loaderPath = parsed.loaderOutPath || createTempLoaderPath();
   const shouldCleanup = !parsed.keepLoader && !parsed.loaderOutPath;
+  const requestedProfile = getFlagValue(parsed.passThroughArgs, '--profile') || 'analysis';
+  const requestedRuleLevel = getFlagValue(parsed.passThroughArgs, '--rule-level') || 'quick';
+  const requestedPackMode = parsed.passThroughArgs.includes('--strict-pack-only')
+    ? 'strict-pack-only'
+    : (parsed.passThroughArgs.includes('--pack-only') ? 'pack-only' : 'fallback-allowed');
 
   const headers: Record<string, string> = {};
   if (parsed.remoteBearerToken && isSameOrigin(parsed.loaderUrl!, parsed.remoteBaseUrl!)) {
     headers.Authorization = `Bearer ${parsed.remoteBearerToken}`;
   }
 
-  console.log(`[codebuddy-install] download loader: ${parsed.loaderUrl}`);
+  console.log('[codebuddy-install] CodeBuddy Remote Installer');
+  console.log(`[codebuddy-install] session: ${installStartedAt.toISOString()}`);
+  console.log(`[codebuddy-install] target: ${process.cwd()}`);
+  console.log(`[codebuddy-install] remote: ${parsed.remoteBaseUrl}`);
+  console.log(`[codebuddy-install] request: profile=${requestedProfile} | ruleLevel=${requestedRuleLevel} | packMode=${requestedPackMode}`);
+
+  try {
+    const manifestHeaders: Record<string, string> = {};
+    if (parsed.remoteBearerToken) {
+      manifestHeaders.Authorization = `Bearer ${parsed.remoteBearerToken}`;
+    }
+    const manifestUrl = `${parsed.remoteBaseUrl}/manifest.json`;
+    const { data: manifest, resolvedUrl } = await fetchJsonWithFallbacks<RemoteManifestSummary>(
+      manifestUrl,
+      manifestHeaders,
+      parsed.loaderTimeoutMs,
+      parsed.remoteBearerToken,
+    );
+    console.log(
+      `[codebuddy-install] release: ${manifest.version || 'n/a'}${manifest.generatedAt ? ` @ ${manifest.generatedAt}` : ''}${manifest.aiTool || manifest.model ? ` | ${[manifest.aiTool, manifest.model].filter(Boolean).join(' / ')}` : ''}`,
+    );
+    if (manifest.stats) {
+      console.log(
+        `[codebuddy-install] manifest: files=${manifest.stats.totalFiles || 0} | rules=${manifest.stats.ruleFiles || 0} | skills=${manifest.stats.skillFiles || 0} | agents=${manifest.stats.agentFiles || 0} | workflows=${manifest.stats.workflowFiles || 0} | taskbooks=${manifest.stats.taskbookFiles || 0}`,
+      );
+    }
+    const selectedPack = manifest.packs?.[requestedProfile];
+    if (selectedPack) {
+      console.log(
+        `[codebuddy-install] content-pack: ${selectedPack.file || requestedProfile} (${selectedPack.sha256?.slice(0, 12) || 'n/a'})${selectedPack.entryCount ? ` | files=${selectedPack.entryCount}` : ''}${selectedPack.generatedAt ? ` | generated=${selectedPack.generatedAt}` : ''}`,
+      );
+    }
+    if (resolvedUrl !== manifestUrl) {
+      console.log(`[codebuddy-install] manifest fallback: ${resolvedUrl}`);
+    }
+  } catch (error) {
+    console.warn(`[codebuddy-install] manifest preflight unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  console.log('[codebuddy-install] step 1/2 download loader bundle');
+  console.log(`[codebuddy-install] loader: ${parsed.loaderUrl}`);
   const resolvedLoaderUrl = await downloadFileWithFallbacks(
     parsed.loaderUrl!,
     loaderPath,
@@ -431,7 +592,10 @@ async function main(): Promise<void> {
   if (resolvedLoaderUrl !== parsed.loaderUrl) {
     console.log(`[codebuddy-install] loader downloaded via fallback: ${resolvedLoaderUrl}`);
   }
-  console.log(`[codebuddy-install] run loader: node ${path.basename(loaderPath)} ${parsed.passThroughArgs.join(' ')}`.trim());
+  const loaderSize = fs.existsSync(loaderPath) ? fs.statSync(loaderPath).size : 0;
+  console.log(`[codebuddy-install] loader saved: ${loaderPath} (${formatBytes(loaderSize)})`);
+  console.log('[codebuddy-install] step 2/2 launch loader');
+  console.log(`[codebuddy-install] run: node ${path.basename(loaderPath)} ${parsed.passThroughArgs.join(' ')}`.trim());
 
   const result = spawnSync(process.execPath, [loaderPath, ...parsed.passThroughArgs], {
     cwd: process.cwd(),
@@ -454,6 +618,7 @@ async function main(): Promise<void> {
     throw result.error;
   }
 
+  console.log(`[codebuddy-install] finished: exit=${result.status ?? 1} | duration=${formatDurationMs(Date.now() - installStartedAt.getTime())}`);
   process.exit(result.status ?? 1);
 }
 

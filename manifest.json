@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-04-13T15:22:09.571Z",
+  "generatedAt": "2026-04-13T15:38:05.897Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -1309,46 +1309,46 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "4e3c51f562c99ba479af5ec2cf77ace9b3bac1d807928432528ef5ddc537a9b6",
+      "sha256": "6d61a7612ad5f5fb06efafc5a25c3ab54cce71f09d7defb03d7e135edb92a17a",
       "size": 892562,
       "entryCount": 157,
-      "generatedAt": "2026-04-13T15:22:09.334Z"
+      "generatedAt": "2026-04-13T15:38:05.704Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "5754762765653885d7d42cffb7a52cdc8e64bcc38d43493f0797b2b11c3a5403",
+      "sha256": "72e425c72ec9620c30aef0a4bd114f7f420fb4d469ed607528635e9ab8f8e46c",
       "size": 1411792,
       "entryCount": 169,
-      "generatedAt": "2026-04-13T15:22:09.378Z"
+      "generatedAt": "2026-04-13T15:38:05.743Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "e624a7a6518c88b6a4d08ac88a8ee071ab8a3e29c02381c74dbefd7b1d72e13f",
+      "sha256": "30d1186f28605e0c3e3d1edfdd0fcb79bb5cdcb25e50fc03d2283f148e69950f",
       "size": 2231710,
       "entryCount": 188,
-      "generatedAt": "2026-04-13T15:22:09.434Z"
+      "generatedAt": "2026-04-13T15:38:05.789Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "fc261b87ff43b54f0862aa7693d569c6c5fc43fc486e2063bb0bcbd86f67f362",
+      "sha256": "fe9d1bee39ab7bff156e84e6feb94f0c393c469047800caa096c8b272490e9da",
       "size": 2247644,
       "entryCount": 189,
-      "generatedAt": "2026-04-13T15:22:09.501Z"
+      "generatedAt": "2026-04-13T15:38:05.839Z"
     },
     "demo": {
       "profile": "demo",
       "file": "packs/content-pack-demo.json",
       "format": "content-pack-json-v1",
-      "sha256": "128527b5b62daf3c67caee62d364fe6f815d5986468cdbea53cbdbf998d58ac2",
+      "sha256": "e4fc79dad407801ee4ee55d64c449805f388894abd5972f0081bc49f766a97b6",
       "size": 1068543,
       "entryCount": 160,
-      "generatedAt": "2026-04-13T15:22:09.559Z"
+      "generatedAt": "2026-04-13T15:38:05.886Z"
     }
   },
   "stats": {

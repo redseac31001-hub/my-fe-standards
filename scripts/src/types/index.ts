@@ -302,6 +302,9 @@ export interface InstallState {
     contentPackFile?: string | null;
     contentPackFormat?: string | null;
     contentPackSha256?: string | null;
+    contentPackGeneratedAt?: string | null;
+    contentPackEntryCount?: number | null;
+    contentPackSize?: number | null;
   };
   options: {
     taskType: string | null;

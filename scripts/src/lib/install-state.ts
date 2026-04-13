@@ -259,6 +259,9 @@ export function buildInstallState(params: BuildInstallStateParams): InstallState
       contentPackFile: ctx.remoteContentPack?.file || null,
       contentPackFormat: ctx.remoteContentPack?.format || null,
       contentPackSha256: ctx.remoteContentPack?.sha256 || null,
+      contentPackGeneratedAt: ctx.remoteContentPack?.generatedAt || null,
+      contentPackEntryCount: ctx.remoteContentPack?.entryCount || null,
+      contentPackSize: ctx.remoteContentPack?.size || null,
     },
     options: {
       taskType: ctx.taskType,
@@ -314,6 +317,9 @@ export function buildInstallState(params: BuildInstallStateParams): InstallState
       contentPackFile: ctx.remoteContentPack?.file || null,
       contentPackFormat: ctx.remoteContentPack?.format || null,
       contentPackSha256: ctx.remoteContentPack?.sha256 || null,
+      contentPackGeneratedAt: ctx.remoteContentPack?.generatedAt || null,
+      contentPackEntryCount: ctx.remoteContentPack?.entryCount || null,
+      contentPackSize: ctx.remoteContentPack?.size || null,
     },
     options: {
       taskType: ctx.taskType,

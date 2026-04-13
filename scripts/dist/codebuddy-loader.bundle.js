@@ -1588,6 +1588,27 @@ function isPlainObject(value) {
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
+function formatBytes(size) {
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) {
+    return "n/a";
+  }
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+function summarizeInstalledFiles(files, prefix, limit = 4) {
+  if (files.length === 0) {
+    return "n/a";
+  }
+  const normalized = files.slice().sort((left, right) => left.localeCompare(right)).map((file) => `${prefix}/${file}`.replace(/\\/g, "/"));
+  const preview = normalized.slice(0, limit);
+  const remaining = normalized.length - preview.length;
+  return remaining > 0 ? `${preview.join(", ")} (+${remaining} more)` : preview.join(", ");
+}
 function readJsonFile2(filePath) {
   try {
     return JSON.parse(fs7.readFileSync(filePath, "utf-8"));
@@ -1998,20 +2019,30 @@ function formatStatusReport(inspection) {
     ].join("\n");
   }
   const installState = inspection.installState;
+  const contentPackDetails = installState.source.contentPackFile ? `${installState.source.contentPackFile}${installState.source.contentPackSha256 ? ` (${installState.source.contentPackSha256.slice(0, 12)})` : ""}${installState.source.contentPackEntryCount ? ` | files=${installState.source.contentPackEntryCount}` : ""}${installState.source.contentPackSize ? ` | size=${formatBytes(installState.source.contentPackSize)}` : ""}${installState.source.contentPackGeneratedAt ? ` | generated=${installState.source.contentPackGeneratedAt}` : ""}` : "n/a";
+  const scriptHighlights = installState.stats.scripts > 0 ? summarizeInstalledFiles([
+    "README.md",
+    ...installState.enableOrchestrator ? ["task-orchestrator.js", "taskbook-manager.js", "task-executor.js"] : [],
+    ...installState.profile === "analysis" || installState.profile === "full" || installState.profile === "orchestrator" ? ["structure-analyzer.js", "report-manager.js"] : []
+  ], ".codebuddy/scripts") : "n/a";
+  const commandHighlights = installState.stats.commands > 0 ? summarizeInstalledFiles(["README.md", "task.md", "agent-call.md"], ".codebuddy/commands") : "n/a";
+  const workflowHighlights = installState.stats.workflows > 0 ? summarizeInstalledFiles(["README.md", "default.workflow.json", "workflow.schema.json"], ".codebuddy/workflows") : "n/a";
+  const taskbookHighlights = installState.stats.taskbooks > 0 ? summarizeInstalledFiles(["README.md", "taskbook.schema.json"], ".codebuddy/taskbooks") : "n/a";
+  const agentCallHighlights = installState.stats.agentCalls > 0 ? summarizeInstalledFiles(["README.md", "agent-call.schema.json"], ".codebuddy/agent-calls") : "n/a";
   return [
     "CodeBuddy Status",
     `Target: ${inspection.targetDir}`,
     `Install File: ${inspection.installStatePath}`,
     "Status: installed",
-    `Version: ${installState.version}`,
+    `Release: ${installState.version}`,
     `Installed At: ${installState.installedAt}`,
     `Mode: ${installState.mode}`,
     `Remote Base: ${installState.source.remoteBaseUrl || "n/a"}`,
     `Remote Manifest: ${installState.source.manifestVersion || "n/a"}${installState.source.manifestGeneratedAt ? ` @ ${installState.source.manifestGeneratedAt}` : ""}`,
     `Profile: ${installState.profile}`,
-    `Orchestrator: ${installState.enableOrchestrator}`,
+    `Orchestrator Runtime: ${installState.enableOrchestrator ? "enabled" : "disabled"}`,
     `Pack Mode: ${installState.options.strictRemotePack ? "strict" : "fallback-allowed"}`,
-    `Content Pack: ${installState.source.contentPackFile || "n/a"}${installState.source.contentPackSha256 ? ` (${installState.source.contentPackSha256.slice(0, 12)})` : ""}`,
+    `Content Pack: ${contentPackDetails}`,
     `Content Hash: ${installState.contentHash}`,
     `Rules File: ${installState.outputs.rulesFile} (${inspection.rulesFileExists ? "present" : "missing"})`,
     `Workspace Index: ${installState.outputs.workspaceIndexFile || "n/a"}${installState.outputs.workspaceIndexFile ? ` (${inspection.workspaceIndexExists ? "present" : "missing"})` : ""}`,
@@ -2020,7 +2051,13 @@ function formatStatusReport(inspection) {
     `Skills Root: ${resolveInstalledSkillsRootDir(installState) || "n/a"}${resolveInstalledSkillsRootDir(installState) ? ` (${inspection.skillsRootExists ? "present" : "missing"})` : ""}`,
     `Skills Snapshot Retention: ${resolveInstalledSkillsSnapshotRetention(installState) ?? "n/a"}`,
     `Managed Files: tracked=${inspection.trackedManagedFileCount}, present=${inspection.presentManagedFileCount}, missing=${inspection.missingManagedFiles.length}`,
-    `Stats: skills=${installState.stats.skills}, agents=${installState.stats.agents}, scripts=${installState.stats.scripts}, workflows=${installState.stats.workflows}, taskbooks=${installState.stats.taskbooks}, agentCalls=${installState.stats.agentCalls}, commands=${installState.stats.commands}`
+    `Stats: skills=${installState.stats.skills}, agents=${installState.stats.agents}, scripts=${installState.stats.scripts}, workflows=${installState.stats.workflows}, taskbooks=${installState.stats.taskbooks}, agentCalls=${installState.stats.agentCalls}, commands=${installState.stats.commands}`,
+    `Installed Scripts: ${scriptHighlights}`,
+    `Installed Commands: ${commandHighlights}`,
+    `Installed Workflows: ${workflowHighlights}`,
+    `Installed TaskBook Files: ${taskbookHighlights}`,
+    `Installed Agent Call Files: ${agentCallHighlights}`,
+    "Next Steps: node .codebuddy/scripts/codebuddy-loader.js status | node .codebuddy/scripts/codebuddy-loader.js doctor --json"
   ].join("\n");
 }
 function formatDoctorReport(inspection, checks, summary) {
@@ -2212,7 +2249,10 @@ function buildInstallState(params) {
       manifestGeneratedAt: ctx.remoteManifest?.generatedAt || null,
       contentPackFile: ctx.remoteContentPack?.file || null,
       contentPackFormat: ctx.remoteContentPack?.format || null,
-      contentPackSha256: ctx.remoteContentPack?.sha256 || null
+      contentPackSha256: ctx.remoteContentPack?.sha256 || null,
+      contentPackGeneratedAt: ctx.remoteContentPack?.generatedAt || null,
+      contentPackEntryCount: ctx.remoteContentPack?.entryCount || null,
+      contentPackSize: ctx.remoteContentPack?.size || null
     },
     options: {
       taskType: ctx.taskType,
@@ -2263,7 +2303,10 @@ function buildInstallState(params) {
       manifestGeneratedAt: ctx.remoteManifest?.generatedAt || null,
       contentPackFile: ctx.remoteContentPack?.file || null,
       contentPackFormat: ctx.remoteContentPack?.format || null,
-      contentPackSha256: ctx.remoteContentPack?.sha256 || null
+      contentPackSha256: ctx.remoteContentPack?.sha256 || null,
+      contentPackGeneratedAt: ctx.remoteContentPack?.generatedAt || null,
+      contentPackEntryCount: ctx.remoteContentPack?.entryCount || null,
+      contentPackSize: ctx.remoteContentPack?.size || null
     },
     options: {
       taskType: ctx.taskType,
@@ -4260,6 +4303,29 @@ function getLoaderPackageName(logger) {
     return "my-fe-standards";
   }
 }
+function formatBytes2(size) {
+  if (!Number.isFinite(size) || size < 0) {
+    return "n/a";
+  }
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+}
+function formatDurationMs(durationMs) {
+  if (!Number.isFinite(durationMs) || durationMs < 1e3) {
+    return `${Math.max(0, Math.round(durationMs))} ms`;
+  }
+  return `${(durationMs / 1e3).toFixed(2)} s`;
+}
+function formatInstalledPathPreview(prefix, files, limit = 4) {
+  if (files.length === 0) {
+    return "n/a";
+  }
+  const normalized = files.slice().sort((left, right) => left.localeCompare(right)).map((file) => `${prefix}/${file}`.replace(/\\/g, "/"));
+  const preview = normalized.slice(0, limit);
+  const remaining = normalized.length - preview.length;
+  return remaining > 0 ? `${preview.join(", ")} (+${remaining} more)` : preview.join(", ");
+}
 async function loadRuleFile(ctx, logger, layerId, filePath) {
   if (ctx.isRemote) {
     try {
@@ -5069,6 +5135,7 @@ async function main() {
   const parsedCtx = parsedCli.ctx;
   const logger = createLogger(parsedCtx);
   const targetDir = process.cwd();
+  const installStartedAt = /* @__PURE__ */ new Date();
   let depsFingerprint = null;
   if (parsedCli.command === "status") {
     process.exit(runStatusCommand(targetDir, logger, parsedCli.json));
@@ -5089,12 +5156,23 @@ async function main() {
       remoteContentPack: packResolution.pack
     };
   }
-  logger.log(`CodeBuddy \u89C4\u5219\u52A0\u8F7D\u5668 ${LOADER_DISPLAY_VERSION} (\u4E09\u5C42\u67B6\u6784 + \u6280\u80FD\u7CFB\u7EDF)`);
-  logger.log(ctx.isRemote ? `\u6A21\u5F0F: \u8FDC\u7A0B (${ctx.remoteBaseUrl})` : "\u6A21\u5F0F: \u672C\u5730");
-  logger.log(`\u5B89\u88C5\u6863\u4F4D: ${ctx.profile}`);
-  logger.log(`Workspace \u8303\u56F4: ${ctx.workspaceScope}`);
+  const loaderVersion = getLoaderVersion(ctx, logger);
+  const loaderPackageName = getLoaderPackageName(logger);
+  logger.log(`Install Session: ${loaderPackageName}@${loaderVersion}`);
+  logger.log(`Started At: ${installStartedAt.toISOString()}`);
+  logger.log(`Target: ${targetDir}`);
+  logger.log(ctx.isRemote ? `Source: remote ${ctx.remoteBaseUrl}` : "Source: local repository");
+  if (ctx.isRemote) {
+    logger.log(`Release: ${ctx.remoteManifest?.version || "n/a"}${ctx.remoteManifest?.generatedAt ? ` @ ${ctx.remoteManifest.generatedAt}` : ""}`);
+  }
+  logger.log(`Profile: ${ctx.profile} | Rule Level: ${ctx.ruleLevel} | Workspace: ${ctx.workspaceScope}`);
   if (ctx.targetProject) logger.log(`\u76EE\u6807\u9879\u76EE: ${ctx.targetProject}`);
   if (ctx.enableOrchestrator) logger.log("\u7F16\u6392\u6A21\u5F0F: \u5DF2\u542F\u7528\uFF08\u542B TaskBook / Agent Call / Workflow \u5951\u7EA6\uFF09");
+  if (ctx.remoteContentPack) {
+    logger.log(
+      `Content Pack: ${ctx.remoteContentPack.file} | sha=${ctx.remoteContentPack.sha256.slice(0, 12)} | files=${ctx.remoteContentPack.entryCount} | size=${formatBytes2(ctx.remoteContentPack.size)}${ctx.remoteContentPack.generatedAt ? ` | generated=${ctx.remoteContentPack.generatedAt}` : ""}`
+    );
+  }
   if (ctx.ruleLevel !== "full") {
     logger.log(`\u89C4\u5219\u88C1\u526A: ${ctx.ruleLevel}\uFF08Layer1 \u4E3B\u5165\u53E3\u4F7F\u7528 ${ctx.ruleLevel}\uFF1B\u5B8C\u6574\u539F\u6587\u5199\u5165 .codebuddy/rules_cache/layer1_reference/\uFF09`);
   }
@@ -5103,7 +5181,6 @@ async function main() {
   }
   const previousInstallState = readInstallState(targetDir, logger);
   const managedFileTracker = createManagedFileTracker(targetDir);
-  logger.log(`\u76EE\u6807\u9879\u76EE: ${targetDir}`);
   let workspaceInfo;
   try {
     workspaceInfo = resolveWorkspaceInfoForInstall(ctx, logger, targetDir);
@@ -5549,7 +5626,6 @@ ${rule.content}
       },
       logger
     );
-    const loaderVersion = getLoaderVersion(ctx, logger);
     const installState = buildInstallState({
       version: loaderVersion,
       ctx,
@@ -5597,18 +5673,39 @@ ${rule.content}
     if (removedSkillSnapshots.length > 0) {
       logger.log(`\u6280\u80FD\u5FEB\u7167\u56DE\u6536: ${removedSkillSnapshots.length} \u4E2A\uFF08\u4FDD\u7559\u6700\u8FD1 ${skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT} \u4E2A\uFF09`);
     }
+    const installDurationMs = Date.now() - installStartedAt.getTime();
+    const rulesFileRelativePath = toProjectRelativePath(targetDir, outputPath);
+    const installStateRelativePath = toProjectRelativePath(targetDir, installStatePath);
+    const scriptsReadmePath = distributedScripts.length > 0 ? ".codebuddy/scripts/README.md" : null;
+    const commandsReadmePath = distributedCommands.length > 0 ? ".codebuddy/commands/README.md" : null;
+    const workflowsPreview = distributedWorkflows.length > 0 ? formatInstalledPathPreview(".codebuddy/workflows", ["README.md", ...distributedWorkflows]) : "n/a";
+    const taskbookPreview = distributedTaskBooks.length > 0 ? formatInstalledPathPreview(".codebuddy/taskbooks", ["README.md", ...distributedTaskBooks]) : "n/a";
+    const agentCallPreview = distributedAgentCalls.length > 0 ? formatInstalledPathPreview(".codebuddy/agent-calls", ["README.md", ...distributedAgentCalls]) : "n/a";
+    const scriptsPreview = distributedScripts.length > 0 ? formatInstalledPathPreview(".codebuddy/scripts", [
+      "README.md",
+      ...distributedScripts
+    ]) : "n/a";
+    const commandsPreview = distributedCommands.length > 0 ? formatInstalledPathPreview(".codebuddy/commands", [
+      "README.md",
+      ...distributedCommands
+    ]) : "n/a";
     logger.log("");
     logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-    logger.log(`\u2705 \u6210\u529F! \u89C4\u5219\u6587\u4EF6\u5DF2\u5199\u5165: ${outputPath}`);
-    logger.log(`   Loader Version: ${loaderVersion}`);
+    logger.log(`\u2705 Install Complete: ${loaderPackageName}@${loaderVersion}`);
+    logger.log(`   Started At: ${installStartedAt.toISOString()}`);
+    logger.log(`   Completed At: ${installState.installedAt}`);
+    logger.log(`   Duration: ${formatDurationMs(installDurationMs)}`);
+    logger.log(`   Target: ${targetDir}`);
+    logger.log(`   Rules File: ${rulesFileRelativePath} (${formatBytes2(Buffer.byteLength(finalContent, "utf-8"))})`);
+    logger.log(`   Install State: ${installStateRelativePath}`);
     if (ctx.isRemote) {
       logger.log(`   Remote Manifest: ${ctx.remoteManifest?.version || "n/a"}${ctx.remoteManifest?.generatedAt ? ` @ ${ctx.remoteManifest.generatedAt}` : ""}`);
       logger.log(`   Remote Base: ${ctx.remoteBaseUrl}`);
     }
     if (ctx.remoteContentPack) {
-      logger.log(`   Content Pack: ${ctx.remoteContentPack.profile} (${ctx.remoteContentPack.sha256.slice(0, 12)})`);
+      logger.log(`   Content Pack: ${ctx.remoteContentPack.file} (${ctx.remoteContentPack.sha256.slice(0, 12)}) | files=${ctx.remoteContentPack.entryCount} | size=${formatBytes2(ctx.remoteContentPack.size)}`);
     }
-    logger.log(`   \u6587\u4EF6\u5927\u5C0F: ${(finalContent.length / 1024).toFixed(2)} KB`);
+    logger.log(`   Sync: written=${managedFileTracker.summary.written} | reused=${managedFileTracker.summary.unchanged} | cleaned=${removedManagedFiles.length}`);
     logger.log(`   Layer 1 \u89C4\u5219: ${layer1Rules.length} \u4E2A`);
     logger.log(`   Layer 2 \u7D22\u5F15: ${layer2Index.length} \u4E2A`);
     logger.log(`   Layer 3 \u7D22\u5F15: ${layer3Index.length} \u4E2A`);
@@ -5617,6 +5714,14 @@ ${rule.content}
     logger.log(`   TaskBook \u5951\u7EA6: ${distributedTaskBooks.length} \u4E2A`);
     logger.log(`   Agent Call \u5951\u7EA6: ${distributedAgentCalls.length} \u4E2A`);
     logger.log(`   Slash Commands: ${distributedCommands.length} \u4E2A`);
+    if (scriptsReadmePath) logger.log(`   Scripts: ${scriptsPreview}`);
+    if (commandsReadmePath) logger.log(`   Commands: ${commandsPreview}`);
+    if (distributedWorkflows.length > 0) logger.log(`   Workflows Files: ${workflowsPreview}`);
+    if (distributedTaskBooks.length > 0) logger.log(`   TaskBook Files: ${taskbookPreview}`);
+    if (distributedAgentCalls.length > 0) logger.log(`   Agent Call Files: ${agentCallPreview}`);
+    if (workspaceIndexPath) logger.log(`   Workspace Index: ${toProjectRelativePath(targetDir, workspaceIndexPath)}`);
+    if (agentsRootDir) logger.log(`   Agents Snapshot: ${agentsRootDir}`);
+    if (skillsRootDir) logger.log(`   Skills Snapshot: ${skillsRootDir}`);
     if (workspaceInfo.totalProjectCount > 1) {
       logger.log(`   Workspace \u5B50\u9879\u76EE: ${workspaceInfo.projects.length} \u4E2A`);
       for (const p of workspaceInfo.projects) {
@@ -5624,6 +5729,9 @@ ${rule.content}
         logger.log(`     - ${p.name} (${p.relativePath}): ${p.frameworkLabel || "\u65E0\u6846\u67B6"} | \u89C4\u5219: ${rules}`);
       }
     }
+    logger.log("   Next:");
+    logger.log("     node .codebuddy/scripts/codebuddy-loader.js status");
+    logger.log("     node .codebuddy/scripts/codebuddy-loader.js doctor --json");
     logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   } finally {
     releaseInstallLock(installLockHandle, logger);

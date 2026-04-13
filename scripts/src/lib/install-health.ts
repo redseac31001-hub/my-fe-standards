@@ -172,6 +172,36 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function formatBytes(size: number | null | undefined): string {
+  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
+    return 'n/a';
+  }
+
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function summarizeInstalledFiles(files: string[], prefix: string, limit = 4): string {
+  if (files.length === 0) {
+    return 'n/a';
+  }
+
+  const normalized = files
+    .slice()
+    .sort((left, right) => left.localeCompare(right))
+    .map(file => `${prefix}/${file}`.replace(/\\/g, '/'));
+  const preview = normalized.slice(0, limit);
+  const remaining = normalized.length - preview.length;
+  return remaining > 0 ? `${preview.join(', ')} (+${remaining} more)` : preview.join(', ');
+}
+
 function readJsonFile(filePath: string): unknown | null {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
@@ -722,20 +752,49 @@ export function formatStatusReport(inspection: InstallInspection): string {
   }
 
   const installState = inspection.installState;
+  const contentPackDetails = installState.source.contentPackFile
+    ? `${installState.source.contentPackFile}`
+      + `${installState.source.contentPackSha256 ? ` (${installState.source.contentPackSha256.slice(0, 12)})` : ''}`
+      + `${installState.source.contentPackEntryCount ? ` | files=${installState.source.contentPackEntryCount}` : ''}`
+      + `${installState.source.contentPackSize ? ` | size=${formatBytes(installState.source.contentPackSize)}` : ''}`
+      + `${installState.source.contentPackGeneratedAt ? ` | generated=${installState.source.contentPackGeneratedAt}` : ''}`
+    : 'n/a';
+  const scriptHighlights = installState.stats.scripts > 0
+    ? summarizeInstalledFiles([
+        'README.md',
+        ...(installState.enableOrchestrator ? ['task-orchestrator.js', 'taskbook-manager.js', 'task-executor.js'] : []),
+        ...(installState.profile === 'analysis' || installState.profile === 'full' || installState.profile === 'orchestrator'
+          ? ['structure-analyzer.js', 'report-manager.js']
+          : []),
+      ], '.codebuddy/scripts')
+    : 'n/a';
+  const commandHighlights = installState.stats.commands > 0
+    ? summarizeInstalledFiles(['README.md', 'task.md', 'agent-call.md'], '.codebuddy/commands')
+    : 'n/a';
+  const workflowHighlights = installState.stats.workflows > 0
+    ? summarizeInstalledFiles(['README.md', 'default.workflow.json', 'workflow.schema.json'], '.codebuddy/workflows')
+    : 'n/a';
+  const taskbookHighlights = installState.stats.taskbooks > 0
+    ? summarizeInstalledFiles(['README.md', 'taskbook.schema.json'], '.codebuddy/taskbooks')
+    : 'n/a';
+  const agentCallHighlights = installState.stats.agentCalls > 0
+    ? summarizeInstalledFiles(['README.md', 'agent-call.schema.json'], '.codebuddy/agent-calls')
+    : 'n/a';
+
   return [
     'CodeBuddy Status',
     `Target: ${inspection.targetDir}`,
     `Install File: ${inspection.installStatePath}`,
     'Status: installed',
-    `Version: ${installState.version}`,
+    `Release: ${installState.version}`,
     `Installed At: ${installState.installedAt}`,
     `Mode: ${installState.mode}`,
     `Remote Base: ${installState.source.remoteBaseUrl || 'n/a'}`,
     `Remote Manifest: ${installState.source.manifestVersion || 'n/a'}${installState.source.manifestGeneratedAt ? ` @ ${installState.source.manifestGeneratedAt}` : ''}`,
     `Profile: ${installState.profile}`,
-    `Orchestrator: ${installState.enableOrchestrator}`,
+    `Orchestrator Runtime: ${installState.enableOrchestrator ? 'enabled' : 'disabled'}`,
     `Pack Mode: ${installState.options.strictRemotePack ? 'strict' : 'fallback-allowed'}`,
-    `Content Pack: ${installState.source.contentPackFile || 'n/a'}${installState.source.contentPackSha256 ? ` (${installState.source.contentPackSha256.slice(0, 12)})` : ''}`,
+    `Content Pack: ${contentPackDetails}`,
     `Content Hash: ${installState.contentHash}`,
     `Rules File: ${installState.outputs.rulesFile} (${inspection.rulesFileExists ? 'present' : 'missing'})`,
     `Workspace Index: ${installState.outputs.workspaceIndexFile || 'n/a'}${installState.outputs.workspaceIndexFile ? ` (${inspection.workspaceIndexExists ? 'present' : 'missing'})` : ''}`,
@@ -745,6 +804,12 @@ export function formatStatusReport(inspection: InstallInspection): string {
     `Skills Snapshot Retention: ${resolveInstalledSkillsSnapshotRetention(installState) ?? 'n/a'}`,
     `Managed Files: tracked=${inspection.trackedManagedFileCount}, present=${inspection.presentManagedFileCount}, missing=${inspection.missingManagedFiles.length}`,
     `Stats: skills=${installState.stats.skills}, agents=${installState.stats.agents}, scripts=${installState.stats.scripts}, workflows=${installState.stats.workflows}, taskbooks=${installState.stats.taskbooks}, agentCalls=${installState.stats.agentCalls}, commands=${installState.stats.commands}`,
+    `Installed Scripts: ${scriptHighlights}`,
+    `Installed Commands: ${commandHighlights}`,
+    `Installed Workflows: ${workflowHighlights}`,
+    `Installed TaskBook Files: ${taskbookHighlights}`,
+    `Installed Agent Call Files: ${agentCallHighlights}`,
+    'Next Steps: node .codebuddy/scripts/codebuddy-loader.js status | node .codebuddy/scripts/codebuddy-loader.js doctor --json',
   ].join('\n');
 }
 

@@ -286,6 +286,34 @@ function getLoaderPackageName(logger) {
         return 'my-fe-standards';
     }
 }
+function formatBytes(size) {
+    if (!Number.isFinite(size) || size < 0) {
+        return 'n/a';
+    }
+    if (size < 1024)
+        return `${size} B`;
+    if (size < 1024 * 1024)
+        return `${(size / 1024).toFixed(2)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+}
+function formatDurationMs(durationMs) {
+    if (!Number.isFinite(durationMs) || durationMs < 1000) {
+        return `${Math.max(0, Math.round(durationMs))} ms`;
+    }
+    return `${(durationMs / 1000).toFixed(2)} s`;
+}
+function formatInstalledPathPreview(prefix, files, limit = 4) {
+    if (files.length === 0) {
+        return 'n/a';
+    }
+    const normalized = files
+        .slice()
+        .sort((left, right) => left.localeCompare(right))
+        .map(file => `${prefix}/${file}`.replace(/\\/g, '/'));
+    const preview = normalized.slice(0, limit);
+    const remaining = normalized.length - preview.length;
+    return remaining > 0 ? `${preview.join(', ')} (+${remaining} more)` : preview.join(', ');
+}
 // ============ 规则加载 ============
 async function loadRuleFile(ctx, logger, layerId, filePath) {
     if (ctx.isRemote) {
@@ -1140,11 +1168,12 @@ function runInitCommand(targetDir, logger, options) {
 }
 // ============ 主函数 ============
 async function main() {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u;
     const parsedCli = parseCliArgs();
     const parsedCtx = parsedCli.ctx;
     const logger = (0, logger_1.createLogger)(parsedCtx);
     const targetDir = process.cwd();
+    const installStartedAt = new Date();
     let depsFingerprint = null;
     if (parsedCli.command === 'status') {
         process.exit(runStatusCommand(targetDir, logger, parsedCli.json));
@@ -1168,14 +1197,23 @@ async function main() {
             remoteContentPack: packResolution.pack,
         };
     }
-    logger.log(`CodeBuddy 规则加载器 ${LOADER_DISPLAY_VERSION} (三层架构 + 技能系统)`);
-    logger.log(ctx.isRemote ? `模式: 远程 (${ctx.remoteBaseUrl})` : '模式: 本地');
-    logger.log(`安装档位: ${ctx.profile}`);
-    logger.log(`Workspace 范围: ${ctx.workspaceScope}`);
+    const loaderVersion = getLoaderVersion(ctx, logger);
+    const loaderPackageName = getLoaderPackageName(logger);
+    logger.log(`Install Session: ${loaderPackageName}@${loaderVersion}`);
+    logger.log(`Started At: ${installStartedAt.toISOString()}`);
+    logger.log(`Target: ${targetDir}`);
+    logger.log(ctx.isRemote ? `Source: remote ${ctx.remoteBaseUrl}` : 'Source: local repository');
+    if (ctx.isRemote) {
+        logger.log(`Release: ${((_a = ctx.remoteManifest) === null || _a === void 0 ? void 0 : _a.version) || 'n/a'}${((_b = ctx.remoteManifest) === null || _b === void 0 ? void 0 : _b.generatedAt) ? ` @ ${ctx.remoteManifest.generatedAt}` : ''}`);
+    }
+    logger.log(`Profile: ${ctx.profile} | Rule Level: ${ctx.ruleLevel} | Workspace: ${ctx.workspaceScope}`);
     if (ctx.targetProject)
         logger.log(`目标项目: ${ctx.targetProject}`);
     if (ctx.enableOrchestrator)
         logger.log('编排模式: 已启用（含 TaskBook / Agent Call / Workflow 契约）');
+    if (ctx.remoteContentPack) {
+        logger.log(`Content Pack: ${ctx.remoteContentPack.file} | sha=${ctx.remoteContentPack.sha256.slice(0, 12)} | files=${ctx.remoteContentPack.entryCount} | size=${formatBytes(ctx.remoteContentPack.size)}${ctx.remoteContentPack.generatedAt ? ` | generated=${ctx.remoteContentPack.generatedAt}` : ''}`);
+    }
     if (ctx.ruleLevel !== 'full') {
         logger.log(`规则裁剪: ${ctx.ruleLevel}（Layer1 主入口使用 ${ctx.ruleLevel}；完整原文写入 .codebuddy/rules_cache/layer1_reference/）`);
     }
@@ -1184,7 +1222,6 @@ async function main() {
     }
     const previousInstallState = (0, install_sync_1.readInstallState)(targetDir, logger);
     const managedFileTracker = (0, install_sync_1.createManagedFileTracker)(targetDir);
-    logger.log(`目标项目: ${targetDir}`);
     // ============ Workspace 多项目发现 ============
     let workspaceInfo;
     try {
@@ -1237,7 +1274,7 @@ async function main() {
             primaryProject =
                 workspaceInfo.projects.find(p => p.vueProfile !== null) ||
                     workspaceInfo.projects[0];
-            pkg = (_a = primaryProject.packageJson) !== null && _a !== void 0 ? _a : {};
+            pkg = (_c = primaryProject.packageJson) !== null && _c !== void 0 ? _c : {};
             dependencies = primaryProject.dependencies;
             vueProfile = primaryProject.vueProfile;
             logger.verbose(`主项目（Layer1 基准）: ${primaryProject.name} (${primaryProject.relativePath})`);
@@ -1281,7 +1318,7 @@ updatedAt: ${updatedAt}
         }
         // ============ Layer 1: Base (Eager Load) ============
         logger.log('处理 Layer 1: 基础规范 (Eager Load)...');
-        const layer1Folders = [...(((_b = layers.base) === null || _b === void 0 ? void 0 : _b.staticDeps) || [])];
+        const layer1Folders = [...(((_d = layers.base) === null || _d === void 0 ? void 0 : _d.staticDeps) || [])];
         // 根据 Vue 版本添加规则
         if (vueProfile) {
             if (vueProfile.version === 3) {
@@ -1296,10 +1333,10 @@ updatedAt: ${updatedAt}
                 }
             }
         }
-        const layer1Rules = await loadLayerRules(ctx, logger, ((_c = layers.base) === null || _c === void 0 ? void 0 : _c.id) || 'layer1_base', layer1Folders);
+        const layer1Rules = await loadLayerRules(ctx, logger, ((_e = layers.base) === null || _e === void 0 ? void 0 : _e.id) || 'layer1_base', layer1Folders);
         const layer1ReferenceIndex = [];
         if (ctx.ruleLevel !== 'full') {
-            const layer1FullRules = await loadLayerRules({ ...ctx, ruleLevel: 'full' }, logger, ((_d = layers.base) === null || _d === void 0 ? void 0 : _d.id) || 'layer1_base', layer1Folders);
+            const layer1FullRules = await loadLayerRules({ ...ctx, ruleLevel: 'full' }, logger, ((_f = layers.base) === null || _f === void 0 ? void 0 : _f.id) || 'layer1_base', layer1Folders);
             for (const rule of layer1FullRules) {
                 const referencePath = `.codebuddy/rules_cache/layer1_reference/${rule.path}`.replace(/\\/g, '/');
                 (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(targetDir, referencePath), rule.content);
@@ -1312,7 +1349,7 @@ updatedAt: ${updatedAt}
                 logger.log(`已生成 ${layer1ReferenceIndex.length} 个 Layer 1 完整参考缓存`);
             }
         }
-        finalContent += `## ${((_e = layers.base) === null || _e === void 0 ? void 0 : _e.title) || 'Layer 1: 基础规范'}\n\n`;
+        finalContent += `## ${((_g = layers.base) === null || _g === void 0 ? void 0 : _g.title) || 'Layer 1: 基础规范'}\n\n`;
         finalContent += `> 这些是本项目必须遵守的核心规范\n\n`;
         for (const rule of layer1Rules) {
             finalContent += `<!-- Source: ${rule.path} -->\n${rule.content}\n\n---\n\n`;
@@ -1320,7 +1357,7 @@ updatedAt: ${updatedAt}
         // ============ Layer 2: Business (Lazy Load - Index Only) ============
         logger.log('处理 Layer 2: 业务规范 (Lazy Load)...');
         const layer2Index = [];
-        const businessDeps = ((_f = layers.business) === null || _f === void 0 ? void 0 : _f.dependencies) || {};
+        const businessDeps = ((_h = layers.business) === null || _h === void 0 ? void 0 : _h.dependencies) || {};
         const standaloneLang = primaryProject ? primaryProject.lang : (0, project_detection_1.detectProjectLangFromDir)(targetDir);
         const standalonePackageJson = !primaryProject && fs.existsSync(path.join(targetDir, 'package.json')) ? pkg : undefined;
         const standaloneMetadata = primaryProject
@@ -1344,7 +1381,7 @@ updatedAt: ${updatedAt}
             if (!fs.existsSync(cacheDir)) {
                 fs.mkdirSync(cacheDir, { recursive: true });
             }
-            const content = await loadRuleFile(ctx, logger, ((_g = layers.business) === null || _g === void 0 ? void 0 : _g.id) || 'layer2_business', `${match.rule}.md`);
+            const content = await loadRuleFile(ctx, logger, ((_j = layers.business) === null || _j === void 0 ? void 0 : _j.id) || 'layer2_business', `${match.rule}.md`);
             if (content) {
                 (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(cacheDir, `${match.rule}.md`), content);
             }
@@ -1368,7 +1405,7 @@ updatedAt: ${updatedAt}
                     if (!fs.existsSync(projectCacheDir)) {
                         fs.mkdirSync(projectCacheDir, { recursive: true });
                     }
-                    const content = await loadRuleFile(ctx, logger, ((_h = layers.business) === null || _h === void 0 ? void 0 : _h.id) || 'layer2_business', `${match.rule}.md`);
+                    const content = await loadRuleFile(ctx, logger, ((_k = layers.business) === null || _k === void 0 ? void 0 : _k.id) || 'layer2_business', `${match.rule}.md`);
                     if (content) {
                         (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(projectCacheDir, `${match.rule}.md`), content);
                     }
@@ -1383,7 +1420,7 @@ updatedAt: ${updatedAt}
         // ============ Layer 3: Action (Lazy Load - Index Only) ============
         logger.log('处理 Layer 3: 任务检查清单 (Lazy Load)...');
         const layer3Index = [];
-        const actionDefaults = ((_j = layers.action) === null || _j === void 0 ? void 0 : _j.defaults) || [];
+        const actionDefaults = ((_l = layers.action) === null || _l === void 0 ? void 0 : _l.defaults) || [];
         for (const item of actionDefaults) {
             layer3Index.push({
                 rule: item,
@@ -1394,7 +1431,7 @@ updatedAt: ${updatedAt}
             if (!fs.existsSync(cacheDir)) {
                 fs.mkdirSync(cacheDir, { recursive: true });
             }
-            const content = await loadRuleFile(ctx, logger, ((_k = layers.action) === null || _k === void 0 ? void 0 : _k.id) || 'layer3_action', item + '.md');
+            const content = await loadRuleFile(ctx, logger, ((_m = layers.action) === null || _m === void 0 ? void 0 : _m.id) || 'layer3_action', item + '.md');
             if (content) {
                 (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(cacheDir, item + '.md'), content);
             }
@@ -1515,11 +1552,11 @@ updatedAt: ${updatedAt}
             logger.log('生成统一路由表（demo 模式）...');
             // 在 Layer 1 规则之前插入欢迎 Banner
             const bannerContent = (0, prompt_builder_1.generateDemoWelcomeBanner)({
-                vueVersion: (_l = vueProfile === null || vueProfile === void 0 ? void 0 : vueProfile.version) !== null && _l !== void 0 ? _l : null,
-                vueType: (_m = vueProfile === null || vueProfile === void 0 ? void 0 : vueProfile.type) !== null && _m !== void 0 ? _m : null,
-                uiLibs: (_o = primaryProject === null || primaryProject === void 0 ? void 0 : primaryProject.uiLibLabels) !== null && _o !== void 0 ? _o : [],
-                lang: (_p = primaryProject === null || primaryProject === void 0 ? void 0 : primaryProject.lang) !== null && _p !== void 0 ? _p : (standaloneLang || 'unknown'),
-                framework: (_q = primaryProject === null || primaryProject === void 0 ? void 0 : primaryProject.frameworkLabel) !== null && _q !== void 0 ? _q : null,
+                vueVersion: (_o = vueProfile === null || vueProfile === void 0 ? void 0 : vueProfile.version) !== null && _o !== void 0 ? _o : null,
+                vueType: (_p = vueProfile === null || vueProfile === void 0 ? void 0 : vueProfile.type) !== null && _p !== void 0 ? _p : null,
+                uiLibs: (_q = primaryProject === null || primaryProject === void 0 ? void 0 : primaryProject.uiLibLabels) !== null && _q !== void 0 ? _q : [],
+                lang: (_r = primaryProject === null || primaryProject === void 0 ? void 0 : primaryProject.lang) !== null && _r !== void 0 ? _r : (standaloneLang || 'unknown'),
+                framework: (_s = primaryProject === null || primaryProject === void 0 ? void 0 : primaryProject.frameworkLabel) !== null && _s !== void 0 ? _s : null,
                 layer1RulesCount: layer1Rules.length,
                 agentsCount: agents.length,
                 skillsCount: skills.length,
@@ -1623,7 +1660,6 @@ updatedAt: ${updatedAt}
                 '.codebuddy/skills/',
             ],
         }, logger);
-        const loaderVersion = getLoaderVersion(ctx, logger);
         const installState = (0, install_state_1.buildInstallState)({
             version: loaderVersion,
             ctx,
@@ -1659,18 +1695,49 @@ updatedAt: ${updatedAt}
         if (removedSkillSnapshots.length > 0) {
             logger.log(`技能快照回收: ${removedSkillSnapshots.length} 个（保留最近 ${skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT} 个）`);
         }
+        const installDurationMs = Date.now() - installStartedAt.getTime();
+        const rulesFileRelativePath = (0, install_sync_1.toProjectRelativePath)(targetDir, outputPath);
+        const installStateRelativePath = (0, install_sync_1.toProjectRelativePath)(targetDir, installStatePath);
+        const scriptsReadmePath = distributedScripts.length > 0 ? '.codebuddy/scripts/README.md' : null;
+        const commandsReadmePath = distributedCommands.length > 0 ? '.codebuddy/commands/README.md' : null;
+        const workflowsPreview = distributedWorkflows.length > 0
+            ? formatInstalledPathPreview('.codebuddy/workflows', ['README.md', ...distributedWorkflows])
+            : 'n/a';
+        const taskbookPreview = distributedTaskBooks.length > 0
+            ? formatInstalledPathPreview('.codebuddy/taskbooks', ['README.md', ...distributedTaskBooks])
+            : 'n/a';
+        const agentCallPreview = distributedAgentCalls.length > 0
+            ? formatInstalledPathPreview('.codebuddy/agent-calls', ['README.md', ...distributedAgentCalls])
+            : 'n/a';
+        const scriptsPreview = distributedScripts.length > 0
+            ? formatInstalledPathPreview('.codebuddy/scripts', [
+                'README.md',
+                ...distributedScripts,
+            ])
+            : 'n/a';
+        const commandsPreview = distributedCommands.length > 0
+            ? formatInstalledPathPreview('.codebuddy/commands', [
+                'README.md',
+                ...distributedCommands,
+            ])
+            : 'n/a';
         logger.log('');
         logger.log('═══════════════════════════════════════════════════════════════════');
-        logger.log(`✅ 成功! 规则文件已写入: ${outputPath}`);
-        logger.log(`   Loader Version: ${loaderVersion}`);
+        logger.log(`✅ Install Complete: ${loaderPackageName}@${loaderVersion}`);
+        logger.log(`   Started At: ${installStartedAt.toISOString()}`);
+        logger.log(`   Completed At: ${installState.installedAt}`);
+        logger.log(`   Duration: ${formatDurationMs(installDurationMs)}`);
+        logger.log(`   Target: ${targetDir}`);
+        logger.log(`   Rules File: ${rulesFileRelativePath} (${formatBytes(Buffer.byteLength(finalContent, 'utf-8'))})`);
+        logger.log(`   Install State: ${installStateRelativePath}`);
         if (ctx.isRemote) {
-            logger.log(`   Remote Manifest: ${((_r = ctx.remoteManifest) === null || _r === void 0 ? void 0 : _r.version) || 'n/a'}${((_s = ctx.remoteManifest) === null || _s === void 0 ? void 0 : _s.generatedAt) ? ` @ ${ctx.remoteManifest.generatedAt}` : ''}`);
+            logger.log(`   Remote Manifest: ${((_t = ctx.remoteManifest) === null || _t === void 0 ? void 0 : _t.version) || 'n/a'}${((_u = ctx.remoteManifest) === null || _u === void 0 ? void 0 : _u.generatedAt) ? ` @ ${ctx.remoteManifest.generatedAt}` : ''}`);
             logger.log(`   Remote Base: ${ctx.remoteBaseUrl}`);
         }
         if (ctx.remoteContentPack) {
-            logger.log(`   Content Pack: ${ctx.remoteContentPack.profile} (${ctx.remoteContentPack.sha256.slice(0, 12)})`);
+            logger.log(`   Content Pack: ${ctx.remoteContentPack.file} (${ctx.remoteContentPack.sha256.slice(0, 12)}) | files=${ctx.remoteContentPack.entryCount} | size=${formatBytes(ctx.remoteContentPack.size)}`);
         }
-        logger.log(`   文件大小: ${(finalContent.length / 1024).toFixed(2)} KB`);
+        logger.log(`   Sync: written=${managedFileTracker.summary.written} | reused=${managedFileTracker.summary.unchanged} | cleaned=${removedManagedFiles.length}`);
         logger.log(`   Layer 1 规则: ${layer1Rules.length} 个`);
         logger.log(`   Layer 2 索引: ${layer2Index.length} 个`);
         logger.log(`   Layer 3 索引: ${layer3Index.length} 个`);
@@ -1679,6 +1746,22 @@ updatedAt: ${updatedAt}
         logger.log(`   TaskBook 契约: ${distributedTaskBooks.length} 个`);
         logger.log(`   Agent Call 契约: ${distributedAgentCalls.length} 个`);
         logger.log(`   Slash Commands: ${distributedCommands.length} 个`);
+        if (scriptsReadmePath)
+            logger.log(`   Scripts: ${scriptsPreview}`);
+        if (commandsReadmePath)
+            logger.log(`   Commands: ${commandsPreview}`);
+        if (distributedWorkflows.length > 0)
+            logger.log(`   Workflows Files: ${workflowsPreview}`);
+        if (distributedTaskBooks.length > 0)
+            logger.log(`   TaskBook Files: ${taskbookPreview}`);
+        if (distributedAgentCalls.length > 0)
+            logger.log(`   Agent Call Files: ${agentCallPreview}`);
+        if (workspaceIndexPath)
+            logger.log(`   Workspace Index: ${(0, install_sync_1.toProjectRelativePath)(targetDir, workspaceIndexPath)}`);
+        if (agentsRootDir)
+            logger.log(`   Agents Snapshot: ${agentsRootDir}`);
+        if (skillsRootDir)
+            logger.log(`   Skills Snapshot: ${skillsRootDir}`);
         if (workspaceInfo.totalProjectCount > 1) {
             logger.log(`   Workspace 子项目: ${workspaceInfo.projects.length} 个`);
             for (const p of workspaceInfo.projects) {
@@ -1686,6 +1769,9 @@ updatedAt: ${updatedAt}
                 logger.log(`     - ${p.name} (${p.relativePath}): ${p.frameworkLabel || '无框架'} | 规则: ${rules}`);
             }
         }
+        logger.log('   Next:');
+        logger.log('     node .codebuddy/scripts/codebuddy-loader.js status');
+        logger.log('     node .codebuddy/scripts/codebuddy-loader.js doctor --json');
         logger.log('═══════════════════════════════════════════════════════════════════');
     }
     finally {

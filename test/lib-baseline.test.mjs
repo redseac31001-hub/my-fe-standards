@@ -2045,6 +2045,78 @@ async function testDoctorArchitectureWarnings() {
   }
 }
 
+async function testStatusReportShowsReleaseMetadataAndInstalledFiles() {
+  assertBuiltArtifactExists(installHealthDistPath, 'npm run build:scripts');
+  const { inspectInstallState, formatStatusReport } = require(installHealthDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-status-report-'));
+  try {
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'rules'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'scripts'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'commands'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'workflows'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'taskbooks'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'agent-calls'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'agent-snapshots', '20260413T072142Z-demo'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.codebuddy', 'skill-snapshots', '20260413T072142Z-demo'), { recursive: true });
+
+    await fsp.writeFile(path.join(tempDir, '.codebuddy', 'rules', 'project-rules.md'), '# rules\n', 'utf-8');
+    await fsp.writeFile(path.join(tempDir, '.codebuddy', 'install.json'), JSON.stringify(createInstallState({
+      version: '3.3.0',
+      installedAt: '2026-04-13T07:21:42.366Z',
+      mode: 'remote',
+      profile: 'full',
+      enableOrchestrator: true,
+      source: {
+        remoteBaseUrl: 'https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize',
+        manifestVersion: '3.3.0',
+        manifestGeneratedAt: '2026-04-13T07:21:42.366Z',
+        contentPackFile: 'content-pack-full.json',
+        contentPackFormat: 'content-pack-json-v1',
+        contentPackSha256: '3e6367555dbc1234567890abcdef',
+        contentPackGeneratedAt: '2026-04-13T07:21:42.366Z',
+        contentPackEntryCount: 156,
+        contentPackSize: 231600,
+      },
+      outputs: {
+        rulesFile: '.codebuddy/rules/project-rules.md',
+        workspaceIndexFile: '.codebuddy/workspace-index.json',
+        skillsRootDir: '.codebuddy/skill-snapshots/20260413T072142Z-demo',
+        skillsSnapshotRetention: 5,
+        agentsRootDir: '.codebuddy/agent-snapshots/20260413T072142Z-demo',
+        agentsSnapshotRetention: 4,
+      },
+      stats: {
+        layer1Rules: 5,
+        layer2Indexes: 1,
+        layer3Indexes: 6,
+        skills: 18,
+        agents: 10,
+        scripts: 15,
+        workflows: 4,
+        taskbooks: 1,
+        agentCalls: 1,
+        commands: 2,
+        workspaceProjects: 1,
+      },
+    }), null, 2), 'utf-8');
+
+    const inspection = inspectInstallState(tempDir, JSON.parse(await fsp.readFile(path.join(tempDir, '.codebuddy', 'install.json'), 'utf-8')), true);
+    const report = formatStatusReport(inspection);
+
+    assert.match(report, /Release: 3.3.0/);
+    assert.match(report, /Content Pack: content-pack-full\.json \(3e6367555dbc\) \| files=156 \| size=226\.2 KB \| generated=2026-04-13T07:21:42\.366Z/);
+    assert.match(report, /Installed Scripts: \.codebuddy\/scripts\/README\.md/);
+    assert.match(report, /Installed Commands: .*\.codebuddy\/commands\/README\.md/);
+    assert.match(report, /Installed Workflows: .*\.codebuddy\/workflows\/README\.md/);
+    assert.match(report, /Installed TaskBook Files: \.codebuddy\/taskbooks\/README\.md/);
+    assert.match(report, /Installed Agent Call Files: .*\.codebuddy\/agent-calls\/README\.md/);
+    assert.match(report, /Next Steps: node \.codebuddy\/scripts\/codebuddy-loader\.js status \| node \.codebuddy\/scripts\/codebuddy-loader\.js doctor --json/);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function testDoctorValidatorGateWarnings() {
   assertBuiltArtifactExists(installHealthDistPath, 'npm run build:scripts');
   const { inspectInstallState, buildDoctorChecks } = require(installHealthDistPath);
@@ -3700,6 +3772,7 @@ async function main() {
     ['task intake router recommends direct vs orchestrated execution deterministically', testTaskIntakeRoutingLibrary],
     ['taskbook planner contracts preserve plan hints and execution specs', testTaskBookPlannerContracts],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],
+    ['status report shows release metadata and installed file highlights', testStatusReportShowsReleaseMetadataAndInstalledFiles],
     ['doctor surfaces latest validator gate summary when present', testDoctorValidatorGateWarnings],
     ['doctor ignores known optional static support files', testDoctorIgnoresKnownOptionalStaticSupportFiles],
     ['doctor warns when validator gate regresses relative to previous run', testDoctorWarnsOnValidatorGateRegressionEvenWhenLatestPasses],

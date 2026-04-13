@@ -185,7 +185,7 @@ function computeDepsFingerprint(targetDir, workspaceInfo) {
         .digest('hex');
 }
 function buildInstallState(params) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
     const { version, installedAt = new Date().toISOString(), ctx, targetDir, depsFingerprint = null, outputPath, workspaceIndexPath, skillsRootDir, skillsSnapshotRetention, agentsRootDir, agentsSnapshotRetention, layer1RulesCount, layer2IndexCount, layer3IndexCount, skillsCount, agentsCount, distributedScripts, distributedWorkflows, distributedTaskBooks, distributedAgentCalls, distributedCommands, managedFiles, workspaceInfo, } = params;
     const profile = ctx.profile;
     const mode = ctx.isRemote ? 'remote' : 'local';
@@ -210,6 +210,9 @@ function buildInstallState(params) {
             contentPackFile: ((_c = ctx.remoteContentPack) === null || _c === void 0 ? void 0 : _c.file) || null,
             contentPackFormat: ((_d = ctx.remoteContentPack) === null || _d === void 0 ? void 0 : _d.format) || null,
             contentPackSha256: ((_e = ctx.remoteContentPack) === null || _e === void 0 ? void 0 : _e.sha256) || null,
+            contentPackGeneratedAt: ((_f = ctx.remoteContentPack) === null || _f === void 0 ? void 0 : _f.generatedAt) || null,
+            contentPackEntryCount: ((_g = ctx.remoteContentPack) === null || _g === void 0 ? void 0 : _g.entryCount) || null,
+            contentPackSize: ((_h = ctx.remoteContentPack) === null || _h === void 0 ? void 0 : _h.size) || null,
         },
         options: {
             taskType: ctx.taskType,
@@ -258,11 +261,14 @@ function buildInstallState(params) {
         depsFingerprint,
         source: {
             remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
-            manifestVersion: ((_f = ctx.remoteManifest) === null || _f === void 0 ? void 0 : _f.version) || null,
-            manifestGeneratedAt: ((_g = ctx.remoteManifest) === null || _g === void 0 ? void 0 : _g.generatedAt) || null,
-            contentPackFile: ((_h = ctx.remoteContentPack) === null || _h === void 0 ? void 0 : _h.file) || null,
-            contentPackFormat: ((_j = ctx.remoteContentPack) === null || _j === void 0 ? void 0 : _j.format) || null,
-            contentPackSha256: ((_k = ctx.remoteContentPack) === null || _k === void 0 ? void 0 : _k.sha256) || null,
+            manifestVersion: ((_j = ctx.remoteManifest) === null || _j === void 0 ? void 0 : _j.version) || null,
+            manifestGeneratedAt: ((_k = ctx.remoteManifest) === null || _k === void 0 ? void 0 : _k.generatedAt) || null,
+            contentPackFile: ((_l = ctx.remoteContentPack) === null || _l === void 0 ? void 0 : _l.file) || null,
+            contentPackFormat: ((_m = ctx.remoteContentPack) === null || _m === void 0 ? void 0 : _m.format) || null,
+            contentPackSha256: ((_o = ctx.remoteContentPack) === null || _o === void 0 ? void 0 : _o.sha256) || null,
+            contentPackGeneratedAt: ((_p = ctx.remoteContentPack) === null || _p === void 0 ? void 0 : _p.generatedAt) || null,
+            contentPackEntryCount: ((_q = ctx.remoteContentPack) === null || _q === void 0 ? void 0 : _q.entryCount) || null,
+            contentPackSize: ((_r = ctx.remoteContentPack) === null || _r === void 0 ? void 0 : _r.size) || null,
         },
         options: {
             taskType: ctx.taskType,

@@ -64,6 +64,7 @@ import {
   removeManagedPath,
   readInstallState,
   writeManagedFile,
+  toProjectRelativePath,
 } from './lib/install-sync';
 import {
   buildDoctorChecks,
@@ -363,6 +364,36 @@ function getLoaderPackageName(logger: Logger): string {
     logger.warn(`读取 loader package.json 失败: ${(error as Error).message}`);
     return 'my-fe-standards';
   }
+}
+
+function formatBytes(size: number): string {
+  if (!Number.isFinite(size) || size < 0) {
+    return 'n/a';
+  }
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatDurationMs(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 1000) {
+    return `${Math.max(0, Math.round(durationMs))} ms`;
+  }
+  return `${(durationMs / 1000).toFixed(2)} s`;
+}
+
+function formatInstalledPathPreview(prefix: string, files: string[], limit = 4): string {
+  if (files.length === 0) {
+    return 'n/a';
+  }
+
+  const normalized = files
+    .slice()
+    .sort((left, right) => left.localeCompare(right))
+    .map(file => `${prefix}/${file}`.replace(/\\/g, '/'));
+  const preview = normalized.slice(0, limit);
+  const remaining = normalized.length - preview.length;
+  return remaining > 0 ? `${preview.join(', ')} (+${remaining} more)` : preview.join(', ');
 }
 
 // ============ 规则加载 ============
@@ -1401,6 +1432,7 @@ async function main(): Promise<void> {
   const parsedCtx = parsedCli.ctx;
   const logger = createLogger(parsedCtx);
   const targetDir = process.cwd();
+  const installStartedAt = new Date();
   let depsFingerprint: string | null = null;
 
   if (parsedCli.command === 'status') {
@@ -1430,12 +1462,24 @@ async function main(): Promise<void> {
     };
   }
 
-  logger.log(`CodeBuddy 规则加载器 ${LOADER_DISPLAY_VERSION} (三层架构 + 技能系统)`);
-  logger.log(ctx.isRemote ? `模式: 远程 (${ctx.remoteBaseUrl})` : '模式: 本地');
-  logger.log(`安装档位: ${ctx.profile}`);
-  logger.log(`Workspace 范围: ${ctx.workspaceScope}`);
+  const loaderVersion = getLoaderVersion(ctx, logger);
+  const loaderPackageName = getLoaderPackageName(logger);
+
+  logger.log(`Install Session: ${loaderPackageName}@${loaderVersion}`);
+  logger.log(`Started At: ${installStartedAt.toISOString()}`);
+  logger.log(`Target: ${targetDir}`);
+  logger.log(ctx.isRemote ? `Source: remote ${ctx.remoteBaseUrl}` : 'Source: local repository');
+  if (ctx.isRemote) {
+    logger.log(`Release: ${ctx.remoteManifest?.version || 'n/a'}${ctx.remoteManifest?.generatedAt ? ` @ ${ctx.remoteManifest.generatedAt}` : ''}`);
+  }
+  logger.log(`Profile: ${ctx.profile} | Rule Level: ${ctx.ruleLevel} | Workspace: ${ctx.workspaceScope}`);
   if (ctx.targetProject) logger.log(`目标项目: ${ctx.targetProject}`);
   if (ctx.enableOrchestrator) logger.log('编排模式: 已启用（含 TaskBook / Agent Call / Workflow 契约）');
+  if (ctx.remoteContentPack) {
+    logger.log(
+      `Content Pack: ${ctx.remoteContentPack.file} | sha=${ctx.remoteContentPack.sha256.slice(0, 12)} | files=${ctx.remoteContentPack.entryCount} | size=${formatBytes(ctx.remoteContentPack.size)}${ctx.remoteContentPack.generatedAt ? ` | generated=${ctx.remoteContentPack.generatedAt}` : ''}`,
+    );
+  }
   if (ctx.ruleLevel !== 'full') {
     logger.log(`规则裁剪: ${ctx.ruleLevel}（Layer1 主入口使用 ${ctx.ruleLevel}；完整原文写入 .codebuddy/rules_cache/layer1_reference/）`);
   }
@@ -1446,7 +1490,6 @@ async function main(): Promise<void> {
 
   const previousInstallState = readInstallState(targetDir, logger);
   const managedFileTracker = createManagedFileTracker(targetDir);
-  logger.log(`目标项目: ${targetDir}`);
 
   // ============ Workspace 多项目发现 ============
   let workspaceInfo: WorkspaceInfo;
@@ -1963,7 +2006,6 @@ updatedAt: ${updatedAt}
     },
     logger,
   );
-  const loaderVersion = getLoaderVersion(ctx, logger);
   const installState = buildInstallState({
     version: loaderVersion,
     ctx,
@@ -2012,18 +2054,50 @@ updatedAt: ${updatedAt}
     logger.log(`技能快照回收: ${removedSkillSnapshots.length} 个（保留最近 ${skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT} 个）`);
   }
 
+  const installDurationMs = Date.now() - installStartedAt.getTime();
+  const rulesFileRelativePath = toProjectRelativePath(targetDir, outputPath);
+  const installStateRelativePath = toProjectRelativePath(targetDir, installStatePath);
+  const scriptsReadmePath = distributedScripts.length > 0 ? '.codebuddy/scripts/README.md' : null;
+  const commandsReadmePath = distributedCommands.length > 0 ? '.codebuddy/commands/README.md' : null;
+  const workflowsPreview = distributedWorkflows.length > 0
+    ? formatInstalledPathPreview('.codebuddy/workflows', ['README.md', ...distributedWorkflows])
+    : 'n/a';
+  const taskbookPreview = distributedTaskBooks.length > 0
+    ? formatInstalledPathPreview('.codebuddy/taskbooks', ['README.md', ...distributedTaskBooks])
+    : 'n/a';
+  const agentCallPreview = distributedAgentCalls.length > 0
+    ? formatInstalledPathPreview('.codebuddy/agent-calls', ['README.md', ...distributedAgentCalls])
+    : 'n/a';
+  const scriptsPreview = distributedScripts.length > 0
+    ? formatInstalledPathPreview('.codebuddy/scripts', [
+        'README.md',
+        ...distributedScripts,
+      ])
+    : 'n/a';
+  const commandsPreview = distributedCommands.length > 0
+    ? formatInstalledPathPreview('.codebuddy/commands', [
+        'README.md',
+        ...distributedCommands,
+      ])
+    : 'n/a';
+
   logger.log('');
   logger.log('═══════════════════════════════════════════════════════════════════');
-  logger.log(`✅ 成功! 规则文件已写入: ${outputPath}`);
-  logger.log(`   Loader Version: ${loaderVersion}`);
+  logger.log(`✅ Install Complete: ${loaderPackageName}@${loaderVersion}`);
+  logger.log(`   Started At: ${installStartedAt.toISOString()}`);
+  logger.log(`   Completed At: ${installState.installedAt}`);
+  logger.log(`   Duration: ${formatDurationMs(installDurationMs)}`);
+  logger.log(`   Target: ${targetDir}`);
+  logger.log(`   Rules File: ${rulesFileRelativePath} (${formatBytes(Buffer.byteLength(finalContent, 'utf-8'))})`);
+  logger.log(`   Install State: ${installStateRelativePath}`);
   if (ctx.isRemote) {
     logger.log(`   Remote Manifest: ${ctx.remoteManifest?.version || 'n/a'}${ctx.remoteManifest?.generatedAt ? ` @ ${ctx.remoteManifest.generatedAt}` : ''}`);
     logger.log(`   Remote Base: ${ctx.remoteBaseUrl}`);
   }
   if (ctx.remoteContentPack) {
-    logger.log(`   Content Pack: ${ctx.remoteContentPack.profile} (${ctx.remoteContentPack.sha256.slice(0, 12)})`);
+    logger.log(`   Content Pack: ${ctx.remoteContentPack.file} (${ctx.remoteContentPack.sha256.slice(0, 12)}) | files=${ctx.remoteContentPack.entryCount} | size=${formatBytes(ctx.remoteContentPack.size)}`);
   }
-  logger.log(`   文件大小: ${(finalContent.length / 1024).toFixed(2)} KB`);
+  logger.log(`   Sync: written=${managedFileTracker.summary.written} | reused=${managedFileTracker.summary.unchanged} | cleaned=${removedManagedFiles.length}`);
   logger.log(`   Layer 1 规则: ${layer1Rules.length} 个`);
   logger.log(`   Layer 2 索引: ${layer2Index.length} 个`);
   logger.log(`   Layer 3 索引: ${layer3Index.length} 个`);
@@ -2032,6 +2106,14 @@ updatedAt: ${updatedAt}
   logger.log(`   TaskBook 契约: ${distributedTaskBooks.length} 个`);
   logger.log(`   Agent Call 契约: ${distributedAgentCalls.length} 个`);
   logger.log(`   Slash Commands: ${distributedCommands.length} 个`);
+  if (scriptsReadmePath) logger.log(`   Scripts: ${scriptsPreview}`);
+  if (commandsReadmePath) logger.log(`   Commands: ${commandsPreview}`);
+  if (distributedWorkflows.length > 0) logger.log(`   Workflows Files: ${workflowsPreview}`);
+  if (distributedTaskBooks.length > 0) logger.log(`   TaskBook Files: ${taskbookPreview}`);
+  if (distributedAgentCalls.length > 0) logger.log(`   Agent Call Files: ${agentCallPreview}`);
+  if (workspaceIndexPath) logger.log(`   Workspace Index: ${toProjectRelativePath(targetDir, workspaceIndexPath)}`);
+  if (agentsRootDir) logger.log(`   Agents Snapshot: ${agentsRootDir}`);
+  if (skillsRootDir) logger.log(`   Skills Snapshot: ${skillsRootDir}`);
   if (workspaceInfo.totalProjectCount > 1) {
     logger.log(`   Workspace 子项目: ${workspaceInfo.projects.length} 个`);
     for (const p of workspaceInfo.projects) {
@@ -2039,6 +2121,9 @@ updatedAt: ${updatedAt}
       logger.log(`     - ${p.name} (${p.relativePath}): ${p.frameworkLabel || '无框架'} | 规则: ${rules}`);
     }
   }
+  logger.log('   Next:');
+  logger.log('     node .codebuddy/scripts/codebuddy-loader.js status');
+  logger.log('     node .codebuddy/scripts/codebuddy-loader.js doctor --json');
   logger.log('═══════════════════════════════════════════════════════════════════');
   } finally {
     releaseInstallLock(installLockHandle, logger);
