@@ -1959,6 +1959,8 @@ function formatStatusReport(inspection) {
     `Version: ${installState.version}`,
     `Installed At: ${installState.installedAt}`,
     `Mode: ${installState.mode}`,
+    `Remote Base: ${installState.source.remoteBaseUrl || "n/a"}`,
+    `Remote Manifest: ${installState.source.manifestVersion || "n/a"}${installState.source.manifestGeneratedAt ? ` @ ${installState.source.manifestGeneratedAt}` : ""}`,
     `Profile: ${installState.profile}`,
     `Orchestrator: ${installState.enableOrchestrator}`,
     `Pack Mode: ${installState.options.strictRemotePack ? "strict" : "fallback-allowed"}`,
@@ -2160,6 +2162,7 @@ function buildInstallState(params) {
     source: {
       remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
       manifestVersion: ctx.remoteManifest?.version || null,
+      manifestGeneratedAt: ctx.remoteManifest?.generatedAt || null,
       contentPackFile: ctx.remoteContentPack?.file || null,
       contentPackFormat: ctx.remoteContentPack?.format || null,
       contentPackSha256: ctx.remoteContentPack?.sha256 || null
@@ -2210,6 +2213,7 @@ function buildInstallState(params) {
     source: {
       remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
       manifestVersion: ctx.remoteManifest?.version || null,
+      manifestGeneratedAt: ctx.remoteManifest?.generatedAt || null,
       contentPackFile: ctx.remoteContentPack?.file || null,
       contentPackFormat: ctx.remoteContentPack?.format || null,
       contentPackSha256: ctx.remoteContentPack?.sha256 || null
@@ -5542,6 +5546,14 @@ ${rule.content}
     logger.log("");
     logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
     logger.log(`\u2705 \u6210\u529F! \u89C4\u5219\u6587\u4EF6\u5DF2\u5199\u5165: ${outputPath}`);
+    logger.log(`   Loader Version: ${loaderVersion}`);
+    if (ctx.isRemote) {
+      logger.log(`   Remote Manifest: ${ctx.remoteManifest?.version || "n/a"}${ctx.remoteManifest?.generatedAt ? ` @ ${ctx.remoteManifest.generatedAt}` : ""}`);
+      logger.log(`   Remote Base: ${ctx.remoteBaseUrl}`);
+    }
+    if (ctx.remoteContentPack) {
+      logger.log(`   Content Pack: ${ctx.remoteContentPack.profile} (${ctx.remoteContentPack.sha256.slice(0, 12)})`);
+    }
     logger.log(`   \u6587\u4EF6\u5927\u5C0F: ${(finalContent.length / 1024).toFixed(2)} KB`);
     logger.log(`   Layer 1 \u89C4\u5219: ${layer1Rules.length} \u4E2A`);
     logger.log(`   Layer 2 \u7D22\u5F15: ${layer2Index.length} \u4E2A`);

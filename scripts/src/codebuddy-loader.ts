@@ -2015,6 +2015,14 @@ updatedAt: ${updatedAt}
   logger.log('');
   logger.log('═══════════════════════════════════════════════════════════════════');
   logger.log(`✅ 成功! 规则文件已写入: ${outputPath}`);
+  logger.log(`   Loader Version: ${loaderVersion}`);
+  if (ctx.isRemote) {
+    logger.log(`   Remote Manifest: ${ctx.remoteManifest?.version || 'n/a'}${ctx.remoteManifest?.generatedAt ? ` @ ${ctx.remoteManifest.generatedAt}` : ''}`);
+    logger.log(`   Remote Base: ${ctx.remoteBaseUrl}`);
+  }
+  if (ctx.remoteContentPack) {
+    logger.log(`   Content Pack: ${ctx.remoteContentPack.profile} (${ctx.remoteContentPack.sha256.slice(0, 12)})`);
+  }
   logger.log(`   文件大小: ${(finalContent.length / 1024).toFixed(2)} KB`);
   logger.log(`   Layer 1 规则: ${layer1Rules.length} 个`);
   logger.log(`   Layer 2 索引: ${layer2Index.length} 个`);

@@ -298,6 +298,7 @@ export interface InstallState {
   source: {
     remoteBaseUrl: string | null;
     manifestVersion: string | null;
+    manifestGeneratedAt?: string | null;
     contentPackFile?: string | null;
     contentPackFormat?: string | null;
     contentPackSha256?: string | null;

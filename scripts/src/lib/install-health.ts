@@ -730,6 +730,8 @@ export function formatStatusReport(inspection: InstallInspection): string {
     `Version: ${installState.version}`,
     `Installed At: ${installState.installedAt}`,
     `Mode: ${installState.mode}`,
+    `Remote Base: ${installState.source.remoteBaseUrl || 'n/a'}`,
+    `Remote Manifest: ${installState.source.manifestVersion || 'n/a'}${installState.source.manifestGeneratedAt ? ` @ ${installState.source.manifestGeneratedAt}` : ''}`,
     `Profile: ${installState.profile}`,
     `Orchestrator: ${installState.enableOrchestrator}`,
     `Pack Mode: ${installState.options.strictRemotePack ? 'strict' : 'fallback-allowed'}`,

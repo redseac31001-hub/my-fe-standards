@@ -255,6 +255,7 @@ export function buildInstallState(params: BuildInstallStateParams): InstallState
     source: {
       remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
       manifestVersion: ctx.remoteManifest?.version || null,
+      manifestGeneratedAt: ctx.remoteManifest?.generatedAt || null,
       contentPackFile: ctx.remoteContentPack?.file || null,
       contentPackFormat: ctx.remoteContentPack?.format || null,
       contentPackSha256: ctx.remoteContentPack?.sha256 || null,
@@ -309,6 +310,7 @@ export function buildInstallState(params: BuildInstallStateParams): InstallState
     source: {
       remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
       manifestVersion: ctx.remoteManifest?.version || null,
+      manifestGeneratedAt: ctx.remoteManifest?.generatedAt || null,
       contentPackFile: ctx.remoteContentPack?.file || null,
       contentPackFormat: ctx.remoteContentPack?.format || null,
       contentPackSha256: ctx.remoteContentPack?.sha256 || null,
