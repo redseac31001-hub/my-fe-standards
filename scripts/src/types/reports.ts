@@ -477,6 +477,8 @@ export interface ModuleMapSnapshot {
     circularDeps: number;
     /** 孤立模块数 */
     isolatedModules: number;
+    /** 孤立模块列表 */
+    isolatedModuleNames?: string[];
   };
 
   /** 按分类统计 */

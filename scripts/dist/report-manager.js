@@ -836,6 +836,9 @@ function exportMarkdown(targetDir) {
     lines.push(`- **\u6A21\u5757\u6570**: ${modules.summary.totalModules}`);
     lines.push(`- **\u5E73\u5747\u5065\u5EB7\u5EA6**: ${modules.summary.avgHealthScore}/100`);
     lines.push(`- **\u5FAA\u73AF\u4F9D\u8D56**: ${modules.summary.circularDeps}`);
+    if ((modules.summary.isolatedModuleNames?.length || 0) > 0) {
+      lines.push(`- **\u5B64\u7ACB\u6A21\u5757**: ${modules.summary.isolatedModules} \u4E2A\uFF08${modules.summary.isolatedModuleNames.slice(0, 8).join(", ")}${modules.summary.isolatedModuleNames.length > 8 ? " ..." : ""}\uFF09`);
+    }
     lines.push("");
     lines.push("### \u6A21\u5757\u5217\u8868");
     lines.push("");

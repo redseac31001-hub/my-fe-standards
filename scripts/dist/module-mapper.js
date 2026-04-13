@@ -830,6 +830,9 @@ function exportMarkdown(targetDir) {
     lines.push(`- **\u6A21\u5757\u6570**: ${modules.summary.totalModules}`);
     lines.push(`- **\u5E73\u5747\u5065\u5EB7\u5EA6**: ${modules.summary.avgHealthScore}/100`);
     lines.push(`- **\u5FAA\u73AF\u4F9D\u8D56**: ${modules.summary.circularDeps}`);
+    if ((modules.summary.isolatedModuleNames?.length || 0) > 0) {
+      lines.push(`- **\u5B64\u7ACB\u6A21\u5757**: ${modules.summary.isolatedModules} \u4E2A\uFF08${modules.summary.isolatedModuleNames.slice(0, 8).join(", ")}${modules.summary.isolatedModuleNames.length > 8 ? " ..." : ""}\uFF09`);
+    }
     lines.push("");
     lines.push("### \u6A21\u5757\u5217\u8868");
     lines.push("");
@@ -2077,6 +2080,18 @@ function identifyBusiness(dirName) {
   }
   return { chineseName: dirName, category: "\u5176\u4ED6" };
 }
+function normalizeBusinessCategory(moduleType, category) {
+  if (category !== "\u5176\u4ED6") {
+    return category;
+  }
+  if (moduleType === "shared" || moduleType === "layout") {
+    return "\u901A\u7528\u7EC4\u4EF6";
+  }
+  if (moduleType === "util" || moduleType === "api" || moduleType === "store") {
+    return "\u5DE5\u5177\u51FD\u6570";
+  }
+  return category;
+}
 function parseRouterConfig(srcPath) {
   const routeMap = /* @__PURE__ */ new Map();
   const routerPaths = [
@@ -2217,6 +2232,7 @@ function analyzeModule(modulePath, moduleName, moduleType, config, maxDepth, rou
   const healthScore = calculateHealthScore(stats, issues, internalDeps.length, config);
   const dirName = path6.basename(modulePath);
   const businessInfo = identifyBusiness(dirName);
+  businessInfo.category = normalizeBusinessCategory(moduleType, businessInfo.category);
   let routePath;
   if (routeMap) {
     const routeInfo = routeMap.get(moduleName) || routeMap.get(dirName);
@@ -2331,6 +2347,7 @@ function findSubModulesDetailed(modulePath, parentModuleName, config, maxDepth) 
         const subStats = collectModuleStats(entryPath, config, maxDepth, 0);
         if (subStats.files > 0) {
           const businessInfo = identifyBusiness(entry);
+          businessInfo.category = normalizeBusinessCategory("feature", businessInfo.category);
           const healthScore = Math.max(0, 100 - (subStats.maxFileLines > 500 ? 30 : 0) - (subStats.files > 20 ? 20 : 0));
           subModules.push({
             name: entry,
@@ -2508,6 +2525,11 @@ function detectCircularDeps(graph) {
   }
   return cycles;
 }
+function collectIsolatedModuleNames(modules, graph) {
+  return modules.filter(
+    (module2) => module2.relatedModules.length === 0 && !graph.edges.some((edge) => edge.to === module2.name)
+  ).sort((a, b) => b.stats.lines - a.stats.lines).map((module2) => module2.name);
+}
 function generateMermaidGraph(graph, modules) {
   const lines = ["graph LR"];
   const typeStyles = {
@@ -2559,6 +2581,9 @@ function formatMarkdown(result) {
   lines.push(`- **\u5E73\u5747\u5065\u5EB7\u5EA6**: ${result.summary.avgHealthScore}/100`);
   if (result.summary.circularDeps > 0) {
     lines.push(`- **\u26A0\uFE0F \u5FAA\u73AF\u4F9D\u8D56**: ${result.summary.circularDeps} \u5904`);
+  }
+  if ((result.summary.isolatedModuleNames?.length || 0) > 0) {
+    lines.push(`- **\u5B64\u7ACB\u6A21\u5757**: ${result.summary.isolatedModules} \u4E2A\uFF08${result.summary.isolatedModuleNames.slice(0, 8).join(", ")}${result.summary.isolatedModuleNames.length > 8 ? " ..." : ""}\uFF09`);
   }
   lines.push("");
   lines.push("## \u{1F4E6} \u4E1A\u52A1\u6A21\u5757\u56FE\u8C31");
@@ -2684,9 +2709,8 @@ function analyzeModules(options) {
     totalLines += module2.stats.lines;
     totalHealth += module2.healthScore;
   }
-  const isolatedModules = modules.filter(
-    (m) => m.relatedModules.length === 0 && !dependencyGraph.edges.some((e) => e.to === m.name)
-  ).length;
+  const isolatedModuleNames = collectIsolatedModuleNames(modules, dependencyGraph);
+  const isolatedModules = isolatedModuleNames.length;
   const summary = {
     totalModules: modules.length,
     modulesByType,
@@ -2694,7 +2718,8 @@ function analyzeModules(options) {
     totalLines,
     avgHealthScore: modules.length > 0 ? Math.round(totalHealth / modules.length) : 0,
     circularDeps: circularDeps.length,
-    isolatedModules
+    isolatedModules,
+    isolatedModuleNames
   };
   return {
     projectName: path6.basename(fullPath),
@@ -2797,7 +2822,8 @@ function toModuleMapSnapshot(result) {
       totalModules: result.summary.totalModules,
       avgHealthScore: result.summary.avgHealthScore,
       circularDeps: result.summary.circularDeps,
-      isolatedModules: result.summary.isolatedModules
+      isolatedModules: result.summary.isolatedModules,
+      isolatedModuleNames: result.summary.isolatedModuleNames
     },
     categories,
     modules,

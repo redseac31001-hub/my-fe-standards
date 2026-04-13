@@ -821,6 +821,9 @@ function exportMarkdown(targetDir) {
     lines.push(`- **\u6A21\u5757\u6570**: ${modules.summary.totalModules}`);
     lines.push(`- **\u5E73\u5747\u5065\u5EB7\u5EA6**: ${modules.summary.avgHealthScore}/100`);
     lines.push(`- **\u5FAA\u73AF\u4F9D\u8D56**: ${modules.summary.circularDeps}`);
+    if ((modules.summary.isolatedModuleNames?.length || 0) > 0) {
+      lines.push(`- **\u5B64\u7ACB\u6A21\u5757**: ${modules.summary.isolatedModules} \u4E2A\uFF08${modules.summary.isolatedModuleNames.slice(0, 8).join(", ")}${modules.summary.isolatedModuleNames.length > 8 ? " ..." : ""}\uFF09`);
+    }
     lines.push("");
     lines.push("### \u6A21\u5757\u5217\u8868");
     lines.push("");
@@ -2504,6 +2507,9 @@ function countMatches(text, pattern) {
   const matches = text.match(regex);
   return matches ? matches.length : 0;
 }
+function isVueTypeScriptSfc(filePath, content) {
+  return path6.extname(filePath).toLowerCase() === ".vue" && /<script\b[^>]*\blang\s*=\s*["']ts["'][^>]*>/i.test(content);
+}
 function detectFileNamingStyle(filePath) {
   const name = path6.basename(filePath, path6.extname(filePath));
   if (name === "index") {
@@ -2522,6 +2528,35 @@ function detectFileNamingStyle(filePath) {
     return "snake";
   }
   return "other";
+}
+function formatNamingStyle(style) {
+  switch (style) {
+    case "kebab":
+      return "kebab-case";
+    case "camel":
+      return "camelCase";
+    case "pascal":
+      return "PascalCase";
+    case "snake":
+      return "snake_case";
+    case "other":
+      return "other";
+    default:
+      return "unknown";
+  }
+}
+function formatNamingDistribution(counts, sampleCount) {
+  if (sampleCount <= 0) {
+    return "\u65E0\u53EF\u7EDF\u8BA1\u6837\u672C";
+  }
+  return Object.entries(counts).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1]).map(([style, count]) => `${formatNamingStyle(style)} ${Math.round(count / sampleCount * 100)}% (${count})`).join(", ");
+}
+function calculateLargeFileDisciplineScore(largeFileCount) {
+  if (largeFileCount <= 0) {
+    return 25;
+  }
+  const penalty = Math.min(25, Math.ceil(6 * Math.log2(largeFileCount + 1)));
+  return Math.max(0, 25 - penalty);
 }
 function extractRulesCountFromEslintConfig(packageJson, targetPath) {
   if (packageJson?.eslintConfig && typeof packageJson.eslintConfig === "object") {
@@ -2590,6 +2625,7 @@ function collectProjectSignals(targetPath, allFiles) {
   const packageJson = safeReadJsonFile(path6.join(targetPath, "package.json"));
   const sourceFiles = allFiles.filter((file) => isSourceCodeFile(file.path));
   const tsSourceFiles = sourceFiles.filter((file) => isTypeScriptFile(file.path));
+  const vueTsSourceFiles = [];
   const sourceFileContents = /* @__PURE__ */ new Map();
   let dynamicImportCount = 0;
   let anyCount = 0;
@@ -2600,6 +2636,9 @@ function collectProjectSignals(targetPath, allFiles) {
       continue;
     }
     sourceFileContents.set(file.path, content);
+    if (isVueTypeScriptSfc(file.path, content)) {
+      vueTsSourceFiles.push(file);
+    }
     dynamicImportCount += countMatches(content, /\bimport\s*\(/g);
     anyCount += countMatches(content, /\bas\s+any\b|:\s*any\b|<any>/g);
     if (content.includes("/**")) {
@@ -2624,6 +2663,9 @@ function collectProjectSignals(targetPath, allFiles) {
   }, { kebab: 0, camel: 0, pascal: 0, snake: 0, other: 0 });
   const namingEntries = Object.entries(namingCounts);
   const [namingDominantStyle, namingDominantCount] = namingEntries.sort((a, b) => b[1] - a[1])[0] || [null, 0];
+  const tsconfig = safeReadJsonFile(path6.join(targetPath, "tsconfig.json"));
+  const compilerOptions = tsconfig?.compilerOptions && typeof tsconfig.compilerOptions === "object" ? tsconfig.compilerOptions : null;
+  const effectiveTsSourceCount = tsSourceFiles.length + vueTsSourceFiles.length;
   const configFiles = [
     ...BUILD_CONFIG_FILES,
     ...TEST_CONFIG_FILES,
@@ -2645,6 +2687,7 @@ function collectProjectSignals(targetPath, allFiles) {
   return {
     sourceFiles,
     tsSourceFiles,
+    vueTsSourceFiles,
     sourceFileContents,
     sourceFileCount,
     testFilesCount: testFiles.size,
@@ -2678,9 +2721,12 @@ function collectProjectSignals(targetPath, allFiles) {
     namingDominantStyle,
     namingDominantRatio: namingStyles.length > 0 ? namingDominantCount / namingStyles.length : 0,
     namingSampleCount: namingStyles.length,
-    hasTsConfig: fs5.existsSync(path6.join(targetPath, "tsconfig.json")),
-    tsconfigStrict: Boolean(safeReadJsonFile(path6.join(targetPath, "tsconfig.json"))?.compilerOptions && typeof (safeReadJsonFile(path6.join(targetPath, "tsconfig.json"))?.compilerOptions).strict === "boolean" && (safeReadJsonFile(path6.join(targetPath, "tsconfig.json"))?.compilerOptions).strict),
-    hasJsOrTsSource: sourceFileCount > 0
+    namingStyleCounts: namingCounts,
+    hasTsConfig: Boolean(tsconfig),
+    tsconfigStrict: Boolean(compilerOptions && typeof compilerOptions.strict === "boolean" && compilerOptions.strict),
+    hasJsOrTsSource: sourceFileCount > 0,
+    effectiveTsSourceCount,
+    hasTypeScriptSignal: effectiveTsSourceCount > 0 || Boolean(tsconfig)
   };
 }
 function createCriterion(label, maxScore, score, measured, met, note) {
@@ -2733,6 +2779,7 @@ function createDimension(id, label, weight, criteria, measuredSummary, unmeasure
   };
 }
 function buildEngineeringScorecard(counts, breakdown, signals, hasFeatureDir) {
+  const namingDistribution = formatNamingDistribution(signals.namingStyleCounts, signals.namingSampleCount);
   const architecture = createDimension(
     "architecture-structure",
     "\u67B6\u6784\u4E0E\u76EE\u5F55\u7ED3\u6784",
@@ -2788,7 +2835,7 @@ function buildEngineeringScorecard(counts, breakdown, signals, hasFeatureDir) {
     signals.lintViolationCount === null ? "\u57FA\u4E8E\u9759\u6001\u914D\u7F6E\u4E0E\u6587\u4EF6\u89C4\u6A21\u4F30\u7B97\uFF0Clint \u8FDD\u89C4\u6570\u5C1A\u672A\u63A5\u5165\u3002" : "\u7ED3\u5408\u914D\u7F6E\u4E0E lint \u7ED3\u679C\u8BC4\u4F30\u4EE3\u7801\u8D28\u91CF\u3002",
     "\u672A\u68C0\u6D4B\u5230\u53EF\u7528\u4E8E\u5224\u65AD\u4EE3\u7801\u8D28\u91CF\u7684\u6E90\u7801\u4E0E\u5DE5\u7A0B\u914D\u7F6E\u3002"
   );
-  const tsCoverageRatio = signals.sourceFileCount === 0 ? 0 : signals.tsSourceFiles.length / signals.sourceFileCount;
+  const tsCoverageRatio = signals.sourceFileCount === 0 ? 0 : signals.effectiveTsSourceCount / signals.sourceFileCount;
   const typeSafety = createDimension(
     "type-safety",
     "\u7C7B\u578B\u5B89\u5168",
@@ -2797,10 +2844,10 @@ function buildEngineeringScorecard(counts, breakdown, signals, hasFeatureDir) {
       createCriterion(
         "strict \u6A21\u5F0F",
         6,
-        signals.tsconfigStrict ? 6 : signals.hasTsConfig ? 2 : 0,
-        signals.hasJsOrTsSource || signals.hasTsConfig,
+        signals.tsconfigStrict ? 6 : signals.hasTsConfig ? 2 : signals.effectiveTsSourceCount > 0 ? 1 : 0,
+        signals.hasTypeScriptSignal,
         signals.tsconfigStrict,
-        signals.hasTsConfig ? signals.tsconfigStrict ? "tsconfig \u5DF2\u5F00\u542F strict" : "tsconfig \u5B58\u5728\u4F46 strict \u672A\u5F00\u542F" : "\u672A\u68C0\u6D4B\u5230 tsconfig"
+        signals.hasTsConfig ? signals.tsconfigStrict ? "tsconfig \u5DF2\u5F00\u542F strict" : "tsconfig \u5B58\u5728\u4F46 strict \u672A\u5F00\u542F" : signals.vueTsSourceFiles.length > 0 ? '\u68C0\u6D4B\u5230 .vue \u4E2D\u7684 lang="ts"\uFF0C\u4F46\u672A\u53D1\u73B0 tsconfig' : "\u672A\u68C0\u6D4B\u5230 tsconfig"
       ),
       createCriterion(
         "TypeScript \u8986\u76D6\u7387",
@@ -2808,18 +2855,18 @@ function buildEngineeringScorecard(counts, breakdown, signals, hasFeatureDir) {
         tsCoverageRatio >= 0.8 ? 5 : tsCoverageRatio >= 0.5 ? 3 : tsCoverageRatio > 0 ? 1 : 0,
         signals.hasJsOrTsSource,
         tsCoverageRatio >= 0.5,
-        `TS \u6587\u4EF6\u5360\u6BD4 ${(tsCoverageRatio * 100).toFixed(0)}%`
+        `TS \u4FE1\u53F7\u5360\u6BD4 ${(tsCoverageRatio * 100).toFixed(0)}%\uFF08.ts/.tsx ${signals.tsSourceFiles.length}\uFF0C.vue lang="ts" ${signals.vueTsSourceFiles.length}\uFF09`
       ),
       createCriterion(
         "any \u4F7F\u7528\u63A7\u5236",
         4,
-        signals.tsSourceFiles.length === 0 ? 0 : signals.anyCount === 0 ? 4 : signals.anyCount <= Math.max(2, signals.tsSourceFiles.length) ? 2 : 0,
-        signals.tsSourceFiles.length > 0,
-        signals.anyCount <= Math.max(2, signals.tsSourceFiles.length),
-        signals.tsSourceFiles.length > 0 ? `\u68C0\u6D4B\u5230 ${signals.anyCount} \u5904 any` : "\u65E0 TypeScript \u6587\u4EF6"
+        signals.effectiveTsSourceCount === 0 ? 0 : signals.anyCount === 0 ? 4 : signals.anyCount <= Math.max(2, signals.effectiveTsSourceCount) ? 2 : 0,
+        signals.effectiveTsSourceCount > 0,
+        signals.anyCount <= Math.max(2, signals.effectiveTsSourceCount),
+        signals.effectiveTsSourceCount > 0 ? `\u68C0\u6D4B\u5230 ${signals.anyCount} \u5904 any` : "\u65E0 TypeScript \u4FE1\u53F7"
       )
     ],
-    signals.tsSourceFiles.length === 0 ? "\u672A\u53D1\u73B0\u660E\u663E\u7684 TypeScript \u8986\u76D6\uFF0C\u7C7B\u578B\u5B89\u5168\u80FD\u529B\u8F83\u5F31\u3002" : "\u5DF2\u6309 strict\u3001TS \u8986\u76D6\u7387\u4E0E any \u4F7F\u7528\u60C5\u51B5\u8BC4\u4F30\u7C7B\u578B\u5B89\u5168\u3002",
+    signals.effectiveTsSourceCount === 0 ? "\u672A\u53D1\u73B0\u660E\u663E\u7684 TypeScript \u8986\u76D6\uFF0C\u7C7B\u578B\u5B89\u5168\u80FD\u529B\u8F83\u5F31\u3002" : `\u5DF2\u6309 strict\u3001TS \u8986\u76D6\u7387\u4E0E any \u4F7F\u7528\u60C5\u51B5\u8BC4\u4F30\u7C7B\u578B\u5B89\u5168\uFF08.ts/.tsx ${signals.tsSourceFiles.length}\uFF0C.vue lang="ts" ${signals.vueTsSourceFiles.length}\uFF09\u3002`,
     "\u672A\u68C0\u6D4B\u5230 JS/TS \u6E90\u7801\uFF0C\u6682\u65E0\u6CD5\u5224\u65AD\u7C7B\u578B\u5B89\u5168\u3002"
   );
   const testCoverage = createDimension(
@@ -2908,10 +2955,10 @@ function buildEngineeringScorecard(counts, breakdown, signals, hasFeatureDir) {
       createCriterion(
         "\u6587\u4EF6\u547D\u540D\u4E00\u81F4\u6027",
         6,
-        signals.namingDominantRatio >= 0.8 ? 6 : signals.namingDominantRatio >= 0.65 ? 4 : signals.namingDominantRatio >= 0.5 ? 2 : 0,
+        signals.namingDominantRatio >= 0.8 ? 6 : signals.namingDominantRatio >= 0.65 ? 5 : signals.namingDominantRatio >= 0.5 ? 3 : signals.namingDominantRatio >= 0.35 ? 1 : 0,
         signals.namingSampleCount > 0,
-        signals.namingDominantRatio >= 0.65,
-        signals.namingSampleCount > 0 ? `\u4E3B\u6D41\u98CE\u683C ${signals.namingDominantStyle ?? "unknown"}\uFF0C\u5360\u6BD4 ${(signals.namingDominantRatio * 100).toFixed(0)}%` : "\u65E0\u53EF\u7EDF\u8BA1\u6587\u4EF6\u540D\u6837\u672C"
+        signals.namingDominantRatio >= 0.5,
+        signals.namingSampleCount > 0 ? `\u4E3B\u6D41\u98CE\u683C ${formatNamingStyle(signals.namingDominantStyle)}\uFF0C\u5360\u6BD4 ${(signals.namingDominantRatio * 100).toFixed(0)}%\uFF1B\u5206\u5E03\uFF1A${namingDistribution}` : "\u65E0\u53EF\u7EDF\u8BA1\u6587\u4EF6\u540D\u6837\u672C"
       ),
       createCriterion(
         "\u76F8\u4F3C\u547D\u540D\u8FDD\u89C4",
@@ -2922,7 +2969,7 @@ function buildEngineeringScorecard(counts, breakdown, signals, hasFeatureDir) {
         `SA004 \u547D\u4E2D ${counts.SA004} \u6B21`
       )
     ],
-    counts.SA004 > 0 ? "\u5B58\u5728\u76F8\u4F3C\u547D\u540D\u4FE1\u53F7\uFF0C\u547D\u540D\u89C4\u8303\u4ECD\u9700\u6536\u655B\u3002" : "\u547D\u540D\u98CE\u683C\u57FA\u672C\u4E00\u81F4\uFF0C\u672A\u53D1\u73B0\u660E\u663E\u76F8\u4F3C\u547D\u540D\u51B2\u7A81\u3002",
+    counts.SA004 > 0 ? `\u5B58\u5728 ${counts.SA004} \u5904\u76F8\u4F3C\u547D\u540D\u4FE1\u53F7\uFF1B\u5F53\u524D\u6587\u4EF6\u547D\u540D\u5206\u5E03\u4E3A ${namingDistribution}\u3002` : `\u547D\u540D\u98CE\u683C\u57FA\u672C\u4E00\u81F4\uFF0C\u5F53\u524D\u6587\u4EF6\u547D\u540D\u5206\u5E03\u4E3A ${namingDistribution}\u3002`,
     "\u672A\u68C0\u6D4B\u5230\u8DB3\u591F\u7684\u6E90\u7801\u6587\u4EF6\u540D\u6837\u672C\u3002"
   );
   const documentation = createDimension(
@@ -2981,7 +3028,7 @@ function calculateScores(violations, context, targetPath) {
   }
   const featureStructure = Math.max(0, 25 - counts.SA001 * 5);
   const depth = Math.max(0, 25 - counts.SA002 * 5);
-  const fileSize = Math.max(0, 25 - counts.SA003 * 10);
+  const fileSize = calculateLargeFileDisciplineScore(counts.SA003);
   const naming = Math.max(0, 25 - counts.SA004 * 5 - counts.SA005 * 1);
   const structureTotal = featureStructure + depth + fileSize + naming;
   const scorecard = buildEngineeringScorecard(
@@ -3023,6 +3070,55 @@ function formatDimensionStatus(status) {
 function formatDimensionScore(score, maxScore) {
   return score === null ? "N/A" : `${score}/${maxScore}`;
 }
+function formatCriterionStatus(criterion) {
+  if (!criterion.measured) {
+    return "\u2796";
+  }
+  return criterion.met ? "\u2705" : "\u26A0\uFE0F";
+}
+function collectQuickWins(scorecard) {
+  return scorecard.dimensions.flatMap((dimension) => dimension.criteria.filter((criterion) => criterion.measured && criterion.met === false).map((criterion) => ({ dimension, criterion }))).sort((a, b) => {
+    const deficitA = a.criterion.maxScore - a.criterion.score;
+    const deficitB = b.criterion.maxScore - b.criterion.score;
+    return deficitB - deficitA;
+  }).slice(0, 3);
+}
+function describeQuickWin(dimension, criterion) {
+  const prefix = `${dimension.label} / ${criterion.label}`;
+  switch (dimension.id) {
+    case "code-quality":
+      if (criterion.label === "Lint \u8FDD\u89C4\u6570\u91CF") {
+        return `${prefix}: \u5148\u6E05\u96F6\u9AD8\u9891 lint \u8FDD\u89C4\uFF0C\u518D\u91CD\u8DD1 lint \u62A5\u544A\u3002`;
+      }
+      if (criterion.label === "pre-commit \u94A9\u5B50") {
+        return `${prefix}: \u63A5\u5165 pre-commit\uFF0C\u81F3\u5C11\u963B\u65AD lint/test \u660E\u663E\u56DE\u9000\u3002`;
+      }
+      break;
+    case "type-safety":
+      if (criterion.label === "strict \u6A21\u5F0F") {
+        return `${prefix}: \u8865\u9F50 tsconfig \u5E76\u8BC4\u4F30\u5F00\u542F strict\u3002`;
+      }
+      break;
+    case "test-coverage":
+      if (criterion.label === "\u6D4B\u8BD5\u6587\u4EF6\u5B58\u5728\u6027") {
+        return `${prefix}: \u5148\u4E3A\u6838\u5FC3\u4E1A\u52A1\u6D41\u8865 1-3 \u4E2A\u6D4B\u8BD5\u5165\u53E3\u3002`;
+      }
+      if (criterion.label === "\u8986\u76D6\u7387\u4FE1\u53F7") {
+        return `${prefix}: \u8F93\u51FA coverage \u62A5\u544A\uFF0C\u907F\u514D\u6D4B\u8BD5\u7EF4\u5EA6\u957F\u671F\u53EA\u9760\u9759\u6001\u4FE1\u53F7\u3002`;
+      }
+      break;
+    case "build-performance":
+      if (criterion.label === "\u6587\u4EF6\u4F53\u79EF\u7EAA\u5F8B") {
+        return `${prefix}: \u4F18\u5148\u62C6\u5206\u8D85\u5927\u6587\u4EF6\uFF0C\u5148\u5904\u7406 Top 3 \u5927\u6587\u4EF6\u3002`;
+      }
+      break;
+    case "naming-convention":
+      return `${prefix}: \u7EDF\u4E00\u4E3B\u6D41\u547D\u540D\u98CE\u683C\uFF0C\u5E76\u6E05\u7406\u76F8\u4F3C\u547D\u540D\u76EE\u5F55\u3002`;
+    default:
+      break;
+  }
+  return `${prefix}: ${criterion.note || "\u5EFA\u8BAE\u4F18\u5148\u6536\u655B\u8BE5\u9879"}\u3002`;
+}
 function formatJson(result, mode) {
   const output = {
     projectName: result.projectName,
@@ -3062,9 +3158,22 @@ function formatMarkdown(result) {
     lines.push(`| ${dimension.label} | ${formatDimensionScore(dimension.score, dimension.maxScore)} | ${formatDimensionStatus(dimension.status)} | ${dimension.summary} |`);
   }
   lines.push("");
+  lines.push("### \u7EF4\u5EA6\u7EC6\u9879");
+  lines.push("");
+  for (const dimension of result.scores.scorecard.dimensions) {
+    lines.push(`#### ${dimension.label}`);
+    lines.push("");
+    lines.push(`- \u5F97\u5206: ${formatDimensionScore(dimension.score, dimension.maxScore)} (${formatDimensionStatus(dimension.status)})`);
+    for (const criterion of dimension.criteria) {
+      const note = criterion.note ? ` - ${criterion.note}` : "";
+      lines.push(`- ${formatCriterionStatus(criterion)} ${criterion.label}: ${criterion.measured ? `${criterion.score}/${criterion.maxScore}` : "N/A"}${note}`);
+    }
+    lines.push("");
+  }
   lines.push("## \u{1F9F1} \u7ED3\u6784\u5065\u5EB7\u5EA6");
   lines.push("");
   lines.push(`**\u7ED3\u6784\u5F97\u5206: ${result.scores.structureTotal}/100**`);
+  lines.push(`> SA003 \u5927\u6587\u4EF6\u6263\u5206\u91C7\u7528\u5BF9\u6570\u8870\u51CF\uFF0C\u907F\u514D\u5C11\u91CF\u5927\u6587\u4EF6\u4E0E\u5927\u91CF\u5927\u6587\u4EF6\u88AB\u538B\u6210\u540C\u4E00\u5206\u6570`);
   lines.push("");
   lines.push("| \u7EF4\u5EA6 | \u5F97\u5206 |");
   lines.push("|------|------|");
@@ -3122,6 +3231,15 @@ function formatMarkdown(result) {
   lines.push("");
   const needsAttention = result.scores.scorecard.dimensions.filter((dimension) => dimension.status === "needs-improvement");
   const unmeasured = result.scores.scorecard.dimensions.filter((dimension) => !dimension.measured);
+  const quickWins = collectQuickWins(result.scores.scorecard);
+  if (quickWins.length > 0) {
+    lines.push("### \u5FEB\u901F\u6536\u76CA\u9879");
+    lines.push("");
+    quickWins.forEach((item, index) => {
+      lines.push(`${index + 1}. ${describeQuickWin(item.dimension, item.criterion)}`);
+    });
+    lines.push("");
+  }
   if (result.scores.total >= 90) {
     lines.push("\u2705 \u5DE5\u7A0B\u5065\u5EB7\u5EA6\u826F\u597D\uFF0C\u7EE7\u7EED\u4FDD\u6301\u3002");
   } else if (result.scores.total >= 70) {

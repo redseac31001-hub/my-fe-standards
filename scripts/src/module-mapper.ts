@@ -70,6 +70,22 @@ function identifyBusiness(dirName: string): { chineseName: string; category: Bus
   return { chineseName: dirName, category: '其他' };
 }
 
+function normalizeBusinessCategory(moduleType: ModuleType, category: BusinessCategory): BusinessCategory {
+  if (category !== '其他') {
+    return category;
+  }
+
+  if (moduleType === 'shared' || moduleType === 'layout') {
+    return '通用组件';
+  }
+
+  if (moduleType === 'util' || moduleType === 'api' || moduleType === 'store') {
+    return '工具函数';
+  }
+
+  return category;
+}
+
 /**
  * 解析路由配置文件
  */
@@ -311,6 +327,7 @@ function analyzeModule(
   // 识别业务信息
   const dirName = path.basename(modulePath);
   const businessInfo = identifyBusiness(dirName);
+  businessInfo.category = normalizeBusinessCategory(moduleType, businessInfo.category);
 
   // 尝试从路由配置获取路由路径
   let routePath: string | undefined;
@@ -471,6 +488,7 @@ function findSubModulesDetailed(
         if (subStats.files > 0) {
           // 识别子模块业务信息
           const businessInfo = identifyBusiness(entry);
+          businessInfo.category = normalizeBusinessCategory('feature', businessInfo.category);
 
           // 计算子模块健康度
           const healthScore = Math.max(0, 100 - (subStats.maxFileLines > 500 ? 30 : 0) - (subStats.files > 20 ? 20 : 0));
@@ -764,6 +782,16 @@ function detectCircularDeps(graph: DependencyGraph): string[][] {
   return cycles;
 }
 
+function collectIsolatedModuleNames(modules: ModuleInfo[], graph: DependencyGraph): string[] {
+  return modules
+    .filter(module =>
+      module.relatedModules.length === 0
+      && !graph.edges.some(edge => edge.to === module.name)
+    )
+    .sort((a, b) => b.stats.lines - a.stats.lines)
+    .map(module => module.name);
+}
+
 // ============ 输出格式化 ============
 
 /**
@@ -838,6 +866,9 @@ function formatMarkdown(result: MapperResult): string {
   lines.push(`- **平均健康度**: ${result.summary.avgHealthScore}/100`);
   if (result.summary.circularDeps > 0) {
     lines.push(`- **⚠️ 循环依赖**: ${result.summary.circularDeps} 处`);
+  }
+  if ((result.summary.isolatedModuleNames?.length || 0) > 0) {
+    lines.push(`- **孤立模块**: ${result.summary.isolatedModules} 个（${result.summary.isolatedModuleNames!.slice(0, 8).join(', ')}${result.summary.isolatedModuleNames!.length > 8 ? ' ...' : ''}）`);
   }
   lines.push('');
 
@@ -1014,10 +1045,8 @@ export function analyzeModules(options: MapperOptions): MapperResult {
     totalHealth += module.healthScore;
   }
 
-  const isolatedModules = modules.filter(m =>
-    m.relatedModules.length === 0 &&
-    !dependencyGraph.edges.some(e => e.to === m.name)
-  ).length;
+  const isolatedModuleNames = collectIsolatedModuleNames(modules, dependencyGraph);
+  const isolatedModules = isolatedModuleNames.length;
 
   const summary: MapperSummary = {
     totalModules: modules.length,
@@ -1027,6 +1056,7 @@ export function analyzeModules(options: MapperOptions): MapperResult {
     avgHealthScore: modules.length > 0 ? Math.round(totalHealth / modules.length) : 0,
     circularDeps: circularDeps.length,
     isolatedModules,
+    isolatedModuleNames,
   };
 
   return {
@@ -1152,6 +1182,7 @@ function toModuleMapSnapshot(result: MapperResult): ModuleMapSnapshot {
       avgHealthScore: result.summary.avgHealthScore,
       circularDeps: result.summary.circularDeps,
       isolatedModules: result.summary.isolatedModules,
+      isolatedModuleNames: result.summary.isolatedModuleNames,
     },
     categories,
     modules,

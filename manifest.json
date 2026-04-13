@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-04-13T07:48:07.828Z",
+  "generatedAt": "2026-04-13T08:30:21.155Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -963,8 +963,8 @@
     {
       "path": "custom-skills/structure-review/references/scoring-and-reporting.md",
       "name": "scoring-and-reporting",
-      "size": 2475,
-      "mtime": "2026-04-13T07:45:38.180Z",
+      "size": 2730,
+      "mtime": "2026-04-13T08:18:24.472Z",
       "encoding": "utf8"
     },
     {
@@ -1159,8 +1159,8 @@
     {
       "path": "agents/structure-analyzer/AGENT.md",
       "name": "AGENT",
-      "size": 10758,
-      "mtime": "2026-04-13T07:46:01.563Z",
+      "size": 10995,
+      "mtime": "2026-04-13T08:18:24.470Z",
       "encoding": "utf8"
     },
     {
@@ -1173,8 +1173,8 @@
     {
       "path": "agents/structure-analyzer/templates/structure-report.md",
       "name": "structure-report",
-      "size": 3215,
-      "mtime": "2026-04-13T07:46:34.390Z",
+      "size": 3855,
+      "mtime": "2026-04-13T08:18:24.471Z",
       "encoding": "utf8"
     },
     {
@@ -1302,46 +1302,46 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "c5bf5f39daecbb6759cd50ca4aef89a9cbd1344e21fd10a167d9bcdcc30721b6",
-      "size": 889138,
+      "sha256": "f782463668244cd7501f6798a5cc6cfac383de100f3d2db3fbe6c0f5e2e76761",
+      "size": 890288,
       "entryCount": 157,
-      "generatedAt": "2026-04-13T07:48:07.605Z"
+      "generatedAt": "2026-04-13T08:30:19.725Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "cd678e1eb4091f86339159fea69041c1a714fa928e46124016db24d0ad0c32c9",
-      "size": 1398165,
+      "sha256": "8010a166c6d9a565870cea049a9008bd90a86531b8c48bea365eff748274a468",
+      "size": 1407568,
       "entryCount": 169,
-      "generatedAt": "2026-04-13T07:48:07.644Z"
+      "generatedAt": "2026-04-13T08:30:19.958Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "b91666f4c771d78ced9b9d2082b9e8ab6c20403135e6e0f7f9667f14c827edb2",
-      "size": 2119227,
+      "sha256": "ca0528c6626aa6da3efb7ab31e26600f5f91e82fc08f3cf366e42cf1d9f51658",
+      "size": 2128630,
       "entryCount": 188,
-      "generatedAt": "2026-04-13T07:48:07.691Z"
+      "generatedAt": "2026-04-13T08:30:20.325Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "40013daed64965abab40fac38150158a7dc7e3893729a0b6ed7f49e1914f6a7e",
-      "size": 2135161,
+      "sha256": "3df1785888502e1819c95f7d29bbbd40b0b055f0538b101f665d1bba3f09b896",
+      "size": 2144564,
       "entryCount": 189,
-      "generatedAt": "2026-04-13T07:48:07.744Z"
+      "generatedAt": "2026-04-13T08:30:20.787Z"
     },
     "demo": {
       "profile": "demo",
       "file": "packs/content-pack-demo.json",
       "format": "content-pack-json-v1",
-      "sha256": "423da0ec76035555a1adfa27ac3a5bb39f5ef993d5aace5146f267ac9ee571f1",
-      "size": 1058762,
+      "sha256": "a9cbbb35c6dd9c440d5aa2c82ce88022cabc90357193d96b4d5a5a5316c30b82",
+      "size": 1066269,
       "entryCount": 160,
-      "generatedAt": "2026-04-13T07:48:07.811Z"
+      "generatedAt": "2026-04-13T08:30:21.105Z"
     }
   },
   "stats": {

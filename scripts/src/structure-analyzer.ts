@@ -553,6 +553,7 @@ interface PackageJsonLike {
 interface ProjectSignals {
   sourceFiles: FileInfo[];
   tsSourceFiles: FileInfo[];
+  vueTsSourceFiles: FileInfo[];
   sourceFileContents: Map<string, string>;
   sourceFileCount: number;
   testFilesCount: number;
@@ -580,9 +581,12 @@ interface ProjectSignals {
   namingDominantStyle: FileNamingStyle | null;
   namingDominantRatio: number;
   namingSampleCount: number;
+  namingStyleCounts: Record<FileNamingStyle, number>;
   hasTsConfig: boolean;
   tsconfigStrict: boolean;
   hasJsOrTsSource: boolean;
+  effectiveTsSourceCount: number;
+  hasTypeScriptSignal: boolean;
 }
 
 const SOURCE_FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue']);
@@ -729,6 +733,11 @@ function countMatches(text: string, pattern: RegExp): number {
   return matches ? matches.length : 0;
 }
 
+function isVueTypeScriptSfc(filePath: string, content: string): boolean {
+  return path.extname(filePath).toLowerCase() === '.vue'
+    && /<script\b[^>]*\blang\s*=\s*["']ts["'][^>]*>/i.test(content);
+}
+
 function detectFileNamingStyle(filePath: string): FileNamingStyle | null {
   const name = path.basename(filePath, path.extname(filePath));
   if (name === 'index') {
@@ -747,6 +756,44 @@ function detectFileNamingStyle(filePath: string): FileNamingStyle | null {
     return 'snake';
   }
   return 'other';
+}
+
+function formatNamingStyle(style: FileNamingStyle | null): string {
+  switch (style) {
+    case 'kebab':
+      return 'kebab-case';
+    case 'camel':
+      return 'camelCase';
+    case 'pascal':
+      return 'PascalCase';
+    case 'snake':
+      return 'snake_case';
+    case 'other':
+      return 'other';
+    default:
+      return 'unknown';
+  }
+}
+
+function formatNamingDistribution(counts: Record<FileNamingStyle, number>, sampleCount: number): string {
+  if (sampleCount <= 0) {
+    return '无可统计样本';
+  }
+
+  return (Object.entries(counts) as Array<[FileNamingStyle, number]>)
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([style, count]) => `${formatNamingStyle(style)} ${Math.round((count / sampleCount) * 100)}% (${count})`)
+    .join(', ');
+}
+
+function calculateLargeFileDisciplineScore(largeFileCount: number): number {
+  if (largeFileCount <= 0) {
+    return 25;
+  }
+
+  const penalty = Math.min(25, Math.ceil(6 * Math.log2(largeFileCount + 1)));
+  return Math.max(0, 25 - penalty);
 }
 
 function extractRulesCountFromEslintConfig(packageJson: PackageJsonLike | null, targetPath: string): number | null {
@@ -826,6 +873,7 @@ function collectProjectSignals(targetPath: string, allFiles: FileInfo[]): Projec
   const packageJson = safeReadJsonFile<PackageJsonLike>(path.join(targetPath, 'package.json'));
   const sourceFiles = allFiles.filter(file => isSourceCodeFile(file.path));
   const tsSourceFiles = sourceFiles.filter(file => isTypeScriptFile(file.path));
+  const vueTsSourceFiles: FileInfo[] = [];
   const sourceFileContents = new Map<string, string>();
   let dynamicImportCount = 0;
   let anyCount = 0;
@@ -837,6 +885,9 @@ function collectProjectSignals(targetPath: string, allFiles: FileInfo[]): Projec
       continue;
     }
     sourceFileContents.set(file.path, content);
+    if (isVueTypeScriptSfc(file.path, content)) {
+      vueTsSourceFiles.push(file);
+    }
     dynamicImportCount += countMatches(content, /\bimport\s*\(/g);
     anyCount += countMatches(content, /\bas\s+any\b|:\s*any\b|<any>/g);
     if (content.includes('/**')) {
@@ -865,6 +916,11 @@ function collectProjectSignals(targetPath: string, allFiles: FileInfo[]): Projec
   }, { kebab: 0, camel: 0, pascal: 0, snake: 0, other: 0 });
   const namingEntries = Object.entries(namingCounts) as Array<[FileNamingStyle, number]>;
   const [namingDominantStyle, namingDominantCount] = namingEntries.sort((a, b) => b[1] - a[1])[0] || [null, 0];
+  const tsconfig = safeReadJsonFile<Record<string, unknown>>(path.join(targetPath, 'tsconfig.json'));
+  const compilerOptions = (tsconfig?.compilerOptions && typeof tsconfig.compilerOptions === 'object')
+    ? tsconfig.compilerOptions as Record<string, unknown>
+    : null;
+  const effectiveTsSourceCount = tsSourceFiles.length + vueTsSourceFiles.length;
 
   const configFiles = [
     ...BUILD_CONFIG_FILES,
@@ -900,6 +956,7 @@ function collectProjectSignals(targetPath: string, allFiles: FileInfo[]): Projec
   return {
     sourceFiles,
     tsSourceFiles,
+    vueTsSourceFiles,
     sourceFileContents,
     sourceFileCount,
     testFilesCount: testFiles.size,
@@ -943,11 +1000,12 @@ function collectProjectSignals(targetPath: string, allFiles: FileInfo[]): Projec
     namingDominantStyle,
     namingDominantRatio: namingStyles.length > 0 ? namingDominantCount / namingStyles.length : 0,
     namingSampleCount: namingStyles.length,
-    hasTsConfig: fs.existsSync(path.join(targetPath, 'tsconfig.json')),
-    tsconfigStrict: Boolean(safeReadJsonFile<Record<string, unknown>>(path.join(targetPath, 'tsconfig.json'))?.compilerOptions
-      && typeof (safeReadJsonFile<Record<string, unknown>>(path.join(targetPath, 'tsconfig.json'))?.compilerOptions as Record<string, unknown>).strict === 'boolean'
-      && ((safeReadJsonFile<Record<string, unknown>>(path.join(targetPath, 'tsconfig.json'))?.compilerOptions as Record<string, unknown>).strict as boolean)),
+    namingStyleCounts: namingCounts,
+    hasTsConfig: Boolean(tsconfig),
+    tsconfigStrict: Boolean(compilerOptions && typeof compilerOptions.strict === 'boolean' && compilerOptions.strict),
     hasJsOrTsSource: sourceFileCount > 0,
+    effectiveTsSourceCount,
+    hasTypeScriptSignal: effectiveTsSourceCount > 0 || Boolean(tsconfig),
   };
 }
 
@@ -1027,6 +1085,7 @@ function buildEngineeringScorecard(
   signals: ProjectSignals,
   hasFeatureDir: boolean
 ): EngineeringScorecard {
+  const namingDistribution = formatNamingDistribution(signals.namingStyleCounts, signals.namingSampleCount);
   const architecture = createDimension(
     'architecture-structure',
     '架构与目录结构',
@@ -1092,7 +1151,7 @@ function buildEngineeringScorecard(
     '未检测到可用于判断代码质量的源码与工程配置。'
   );
 
-  const tsCoverageRatio = signals.sourceFileCount === 0 ? 0 : signals.tsSourceFiles.length / signals.sourceFileCount;
+  const tsCoverageRatio = signals.sourceFileCount === 0 ? 0 : signals.effectiveTsSourceCount / signals.sourceFileCount;
   const typeSafety = createDimension(
     'type-safety',
     '类型安全',
@@ -1101,12 +1160,12 @@ function buildEngineeringScorecard(
       createCriterion(
         'strict 模式',
         6,
-        signals.tsconfigStrict ? 6 : (signals.hasTsConfig ? 2 : 0),
-        signals.hasJsOrTsSource || signals.hasTsConfig,
+        signals.tsconfigStrict ? 6 : (signals.hasTsConfig ? 2 : (signals.effectiveTsSourceCount > 0 ? 1 : 0)),
+        signals.hasTypeScriptSignal,
         signals.tsconfigStrict,
         signals.hasTsConfig
           ? (signals.tsconfigStrict ? 'tsconfig 已开启 strict' : 'tsconfig 存在但 strict 未开启')
-          : '未检测到 tsconfig'
+          : (signals.vueTsSourceFiles.length > 0 ? '检测到 .vue 中的 lang="ts"，但未发现 tsconfig' : '未检测到 tsconfig')
       ),
       createCriterion(
         'TypeScript 覆盖率',
@@ -1114,20 +1173,20 @@ function buildEngineeringScorecard(
         tsCoverageRatio >= 0.8 ? 5 : tsCoverageRatio >= 0.5 ? 3 : tsCoverageRatio > 0 ? 1 : 0,
         signals.hasJsOrTsSource,
         tsCoverageRatio >= 0.5,
-        `TS 文件占比 ${(tsCoverageRatio * 100).toFixed(0)}%`
+        `TS 信号占比 ${(tsCoverageRatio * 100).toFixed(0)}%（.ts/.tsx ${signals.tsSourceFiles.length}，.vue lang="ts" ${signals.vueTsSourceFiles.length}）`
       ),
       createCriterion(
         'any 使用控制',
         4,
-        signals.tsSourceFiles.length === 0 ? 0 : (signals.anyCount === 0 ? 4 : (signals.anyCount <= Math.max(2, signals.tsSourceFiles.length) ? 2 : 0)),
-        signals.tsSourceFiles.length > 0,
-        signals.anyCount <= Math.max(2, signals.tsSourceFiles.length),
-        signals.tsSourceFiles.length > 0 ? `检测到 ${signals.anyCount} 处 any` : '无 TypeScript 文件'
+        signals.effectiveTsSourceCount === 0 ? 0 : (signals.anyCount === 0 ? 4 : (signals.anyCount <= Math.max(2, signals.effectiveTsSourceCount) ? 2 : 0)),
+        signals.effectiveTsSourceCount > 0,
+        signals.anyCount <= Math.max(2, signals.effectiveTsSourceCount),
+        signals.effectiveTsSourceCount > 0 ? `检测到 ${signals.anyCount} 处 any` : '无 TypeScript 信号'
       ),
     ],
-    signals.tsSourceFiles.length === 0
+    signals.effectiveTsSourceCount === 0
       ? '未发现明显的 TypeScript 覆盖，类型安全能力较弱。'
-      : '已按 strict、TS 覆盖率与 any 使用情况评估类型安全。',
+      : `已按 strict、TS 覆盖率与 any 使用情况评估类型安全（.ts/.tsx ${signals.tsSourceFiles.length}，.vue lang="ts" ${signals.vueTsSourceFiles.length}）。`,
     '未检测到 JS/TS 源码，暂无法判断类型安全。'
   );
 
@@ -1226,11 +1285,11 @@ function buildEngineeringScorecard(
       createCriterion(
         '文件命名一致性',
         6,
-        signals.namingDominantRatio >= 0.8 ? 6 : (signals.namingDominantRatio >= 0.65 ? 4 : (signals.namingDominantRatio >= 0.5 ? 2 : 0)),
+        signals.namingDominantRatio >= 0.8 ? 6 : (signals.namingDominantRatio >= 0.65 ? 5 : (signals.namingDominantRatio >= 0.5 ? 3 : (signals.namingDominantRatio >= 0.35 ? 1 : 0))),
         signals.namingSampleCount > 0,
-        signals.namingDominantRatio >= 0.65,
+        signals.namingDominantRatio >= 0.5,
         signals.namingSampleCount > 0
-          ? `主流风格 ${signals.namingDominantStyle ?? 'unknown'}，占比 ${(signals.namingDominantRatio * 100).toFixed(0)}%`
+          ? `主流风格 ${formatNamingStyle(signals.namingDominantStyle)}，占比 ${(signals.namingDominantRatio * 100).toFixed(0)}%；分布：${namingDistribution}`
           : '无可统计文件名样本'
       ),
       createCriterion(
@@ -1243,8 +1302,8 @@ function buildEngineeringScorecard(
       ),
     ],
     counts.SA004 > 0
-      ? '存在相似命名信号，命名规范仍需收敛。'
-      : '命名风格基本一致，未发现明显相似命名冲突。',
+      ? `存在 ${counts.SA004} 处相似命名信号；当前文件命名分布为 ${namingDistribution}。`
+      : `命名风格基本一致，当前文件命名分布为 ${namingDistribution}。`,
     '未检测到足够的源码文件名样本。'
   );
 
@@ -1321,7 +1380,7 @@ function calculateScores(
   // 计算各项得分
   const featureStructure = Math.max(0, 25 - counts.SA001 * 5);
   const depth = Math.max(0, 25 - counts.SA002 * 5);
-  const fileSize = Math.max(0, 25 - counts.SA003 * 10);
+  const fileSize = calculateLargeFileDisciplineScore(counts.SA003);
   const naming = Math.max(0, 25 - counts.SA004 * 5 - counts.SA005 * 1);
 
   const structureTotal = featureStructure + depth + fileSize + naming;
@@ -1366,6 +1425,64 @@ function formatDimensionStatus(status: HealthDimensionStatus): string {
 
 function formatDimensionScore(score: number | null, maxScore: number): string {
   return score === null ? 'N/A' : `${score}/${maxScore}`;
+}
+
+function formatCriterionStatus(criterion: HealthDimensionCriterion): string {
+  if (!criterion.measured) {
+    return '➖';
+  }
+  return criterion.met ? '✅' : '⚠️';
+}
+
+function collectQuickWins(scorecard: EngineeringScorecard): Array<{ dimension: HealthDimensionScore; criterion: HealthDimensionCriterion }> {
+  return scorecard.dimensions
+    .flatMap(dimension => dimension.criteria
+      .filter(criterion => criterion.measured && criterion.met === false)
+      .map(criterion => ({ dimension, criterion })))
+    .sort((a, b) => {
+      const deficitA = a.criterion.maxScore - a.criterion.score;
+      const deficitB = b.criterion.maxScore - b.criterion.score;
+      return deficitB - deficitA;
+    })
+    .slice(0, 3);
+}
+
+function describeQuickWin(dimension: HealthDimensionScore, criterion: HealthDimensionCriterion): string {
+  const prefix = `${dimension.label} / ${criterion.label}`;
+  switch (dimension.id) {
+    case 'code-quality':
+      if (criterion.label === 'Lint 违规数量') {
+        return `${prefix}: 先清零高频 lint 违规，再重跑 lint 报告。`;
+      }
+      if (criterion.label === 'pre-commit 钩子') {
+        return `${prefix}: 接入 pre-commit，至少阻断 lint/test 明显回退。`;
+      }
+      break;
+    case 'type-safety':
+      if (criterion.label === 'strict 模式') {
+        return `${prefix}: 补齐 tsconfig 并评估开启 strict。`;
+      }
+      break;
+    case 'test-coverage':
+      if (criterion.label === '测试文件存在性') {
+        return `${prefix}: 先为核心业务流补 1-3 个测试入口。`;
+      }
+      if (criterion.label === '覆盖率信号') {
+        return `${prefix}: 输出 coverage 报告，避免测试维度长期只靠静态信号。`;
+      }
+      break;
+    case 'build-performance':
+      if (criterion.label === '文件体积纪律') {
+        return `${prefix}: 优先拆分超大文件，先处理 Top 3 大文件。`;
+      }
+      break;
+    case 'naming-convention':
+      return `${prefix}: 统一主流命名风格，并清理相似命名目录。`;
+    default:
+      break;
+  }
+
+  return `${prefix}: ${criterion.note || '建议优先收敛该项'}。`;
 }
 
 // ============ 输出格式化 ============
@@ -1424,10 +1541,24 @@ function formatMarkdown(result: AnalysisResult): string {
   }
   lines.push('');
 
+  lines.push('### 维度细项');
+  lines.push('');
+  for (const dimension of result.scores.scorecard.dimensions) {
+    lines.push(`#### ${dimension.label}`);
+    lines.push('');
+    lines.push(`- 得分: ${formatDimensionScore(dimension.score, dimension.maxScore)} (${formatDimensionStatus(dimension.status)})`);
+    for (const criterion of dimension.criteria) {
+      const note = criterion.note ? ` - ${criterion.note}` : '';
+      lines.push(`- ${formatCriterionStatus(criterion)} ${criterion.label}: ${criterion.measured ? `${criterion.score}/${criterion.maxScore}` : 'N/A'}${note}`);
+    }
+    lines.push('');
+  }
+
   // 结构健康度
   lines.push('## 🧱 结构健康度');
   lines.push('');
   lines.push(`**结构得分: ${result.scores.structureTotal}/100**`);
+  lines.push(`> SA003 大文件扣分采用对数衰减，避免少量大文件与大量大文件被压成同一分数`);
   lines.push('');
   lines.push('| 维度 | 得分 |');
   lines.push('|------|------|');
@@ -1503,6 +1634,16 @@ function formatMarkdown(result: AnalysisResult): string {
 
   const needsAttention = result.scores.scorecard.dimensions.filter(dimension => dimension.status === 'needs-improvement');
   const unmeasured = result.scores.scorecard.dimensions.filter(dimension => !dimension.measured);
+  const quickWins = collectQuickWins(result.scores.scorecard);
+
+  if (quickWins.length > 0) {
+    lines.push('### 快速收益项');
+    lines.push('');
+    quickWins.forEach((item, index) => {
+      lines.push(`${index + 1}. ${describeQuickWin(item.dimension, item.criterion)}`);
+    });
+    lines.push('');
+  }
 
   if (result.scores.total >= 90) {
     lines.push('✅ 工程健康度良好，继续保持。');

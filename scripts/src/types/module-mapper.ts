@@ -263,6 +263,8 @@ export interface MapperSummary {
   circularDeps: number;
   /** 孤立模块数 */
   isolatedModules: number;
+  /** 孤立模块列表 */
+  isolatedModuleNames?: string[];
 }
 
 // ============ 配置类型 ============

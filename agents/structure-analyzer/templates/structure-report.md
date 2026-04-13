@@ -19,6 +19,7 @@
 **工程健康度总分: {{scores.total}}/100**
 
 > 若脚本返回 `scores.scorecard.dimensions`，本节必须作为项目级总评输出。
+> 最终报告禁止出现内部推理或过程性话术，只保留结论、证据、建议。
 
 | 维度 | 得分 | 状态 | 说明 |
 |------|------|------|------|
@@ -30,6 +31,13 @@
 | 构建与性能 | {{scorecard.buildPerformance}}/10 | {{scorecard.buildPerformanceStatus}} | 构建配置 / 分包懒加载 |
 | 命名规范 | {{scorecard.namingConvention}}/10 | {{scorecard.namingConventionStatus}} | 命名一致性 / 相似命名冲突 |
 | 文档完整性 | {{scorecard.documentation}}/5 | {{scorecard.documentationStatus}} | README / docs / 注释信号 |
+
+### 2.1 评分细项
+
+- 每个维度至少展开 2-5 条子项得分
+- 低分项必须说明扣分原因
+- 命名规范必须展示主流命名风格占比或风格分布
+- 代码质量必须展示 ESLint / Prettier / Lint 违规 / 大文件占比 / pre-commit 等细项
 
 ### 3. 结构健康度（4 维）
 
@@ -58,6 +66,11 @@
 | {{this.severity}} | {{this.code}} | {{this.path}} | {{this.message}} | {{this.suggestion}} |
 {{/each}}
 
+### 5.1 孤立模块与低分模块
+
+- 如果 module-mapper 返回孤立模块，必须列出具体模块名
+- 如果报告引用“低分模块”，必须列出模块名、行数、健康度和主要原因
+
 ### 6. 结论
 
 - **项目级判断**: 工程健康度优先反映项目整体状态
@@ -84,3 +97,4 @@
 
 *报告由 Structure Analyzer Agent 生成*
 *禁止将 4 维结构分直接表述为“项目总健康度”*
+*禁止在最终报告中输出内部推理或过程性话术*

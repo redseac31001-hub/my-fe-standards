@@ -714,6 +714,9 @@ function exportMarkdown(targetDir: string): string {
     lines.push(`- **模块数**: ${modules.summary.totalModules}`);
     lines.push(`- **平均健康度**: ${modules.summary.avgHealthScore}/100`);
     lines.push(`- **循环依赖**: ${modules.summary.circularDeps}`);
+    if ((modules.summary.isolatedModuleNames?.length || 0) > 0) {
+      lines.push(`- **孤立模块**: ${modules.summary.isolatedModules} 个（${modules.summary.isolatedModuleNames!.slice(0, 8).join(', ')}${modules.summary.isolatedModuleNames!.length > 8 ? ' ...' : ''}）`);
+    }
     lines.push('');
 
     lines.push('### 模块列表');

@@ -32,6 +32,7 @@ const validatorGateDistPath = path.join(repoRoot, 'scripts', 'dist', 'validator-
 const reportManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'report-manager.js');
 const taskIntakeRouterDistPath = path.join(repoRoot, 'scripts', 'dist', 'task-intake-router.js');
 const structureAnalyzerDistPath = path.join(repoRoot, 'scripts', 'dist', 'structure-analyzer.js');
+const moduleMapperDistPath = path.join(repoRoot, 'scripts', 'dist', 'module-mapper.js');
 const runTestsPath = path.join(repoRoot, 'test', 'run-tests.js');
 
 function assertBuiltArtifactExists(filePath, hintCommand) {
@@ -649,8 +650,85 @@ async function testStructureAnalyzerGuidanceRequiresEightDimensionProjectAnalysi
   assert.match(scoringGuide, /不得冒充“项目总健康度”/);
   assert.match(structureAgent, /scores\.scorecard\.dimensions/);
   assert.match(structureAgent, /禁止把旧 4 维结构分直接称为“项目总健康度”/);
+  assert.match(structureAgent, /最终报告禁止出现/);
   assert.match(structureTemplate, /工程健康度评分卡（8 维）/);
   assert.match(structureTemplate, /结构健康度（4 维）/);
+  assert.match(structureTemplate, /禁止出现内部推理或过程性话术/);
+  assert.match(scoringGuide, /禁止包含“根据规则”/);
+}
+
+async function testStructureAnalyzerCountsVueTypeScriptSignals() {
+  assertBuiltArtifactExists(structureAnalyzerDistPath, 'npm run build:scripts');
+  const { analyze } = require(structureAnalyzerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-structure-vue-ts-'));
+  try {
+    await fsp.mkdir(path.join(tempDir, 'src', 'views'), { recursive: true });
+
+    await fsp.writeFile(path.join(tempDir, 'package.json'), JSON.stringify({
+      name: 'vue-ts-signals-project',
+      scripts: {
+        build: 'vite build',
+      },
+    }, null, 2), 'utf-8');
+
+    await fsp.writeFile(path.join(tempDir, 'src', 'views', 'Dashboard.vue'), [
+      '<template><div>{{ value }}</div></template>',
+      '<script lang="ts">',
+      'export default {',
+      '  setup() {',
+      '    const value: string = "ok";',
+      '    return { value };',
+      '  },',
+      '};',
+      '</script>',
+      '',
+    ].join('\n'), 'utf-8');
+
+    const result = analyze({
+      targetPath: tempDir,
+      mode: 'summary',
+      outputFormat: 'json',
+    });
+
+    const typeSafety = result.scores.scorecard.dimensions.find(dimension => dimension.id === 'type-safety');
+    assert.equal(typeSafety?.measured, true);
+    assert.equal((typeSafety?.score || 0) > 0, true);
+    assert.match(typeSafety?.summary || '', /\.vue lang="ts"/);
+    const tsCoverageCriterion = typeSafety?.criteria.find(criterion => criterion.label === 'TypeScript 覆盖率');
+    assert.match(tsCoverageCriterion?.note || '', /\.vue lang="ts" 1/);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testModuleMapperExposesIsolatedModuleNames() {
+  assertBuiltArtifactExists(moduleMapperDistPath, 'npm run build:scripts');
+  const { analyzeModules } = require(moduleMapperDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-module-isolated-'));
+  try {
+    await fsp.mkdir(path.join(tempDir, 'src', 'components'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, 'src', 'utils'), { recursive: true });
+
+    await fsp.writeFile(path.join(tempDir, 'src', 'components', 'Widget.vue'), '<template><div /></template>\n', 'utf-8');
+    await fsp.writeFile(path.join(tempDir, 'src', 'utils', 'helpers.ts'), 'export const helpers = true;\n', 'utf-8');
+
+    const result = analyzeModules({
+      targetPath: tempDir,
+      mode: 'summary',
+      analyzeDeps: true,
+    });
+
+    assert.equal(result.summary.isolatedModules, 2);
+    assert.deepEqual([...(result.summary.isolatedModuleNames || [])].sort(), ['components', 'utils']);
+    const componentsModule = result.modules.find(module => module.name === 'components');
+    const utilsModule = result.modules.find(module => module.name === 'utils');
+    assert.equal(componentsModule?.business.category, '通用组件');
+    assert.equal(utilsModule?.business.category, '工具函数');
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 async function testInstallRoots() {
@@ -3242,6 +3320,8 @@ async function main() {
     ['distribution profiles keep profile boundaries and runtime artifacts stable', testDistributionProfiles],
     ['structure analyzer emits 8-dimension engineering scorecards without inflating structure-only health', testStructureAnalyzerBuildsEngineeringScorecard],
     ['structure analyzer guidance requires 8-dimension project analysis output', testStructureAnalyzerGuidanceRequiresEightDimensionProjectAnalysis],
+    ['structure analyzer counts Vue SFC TypeScript signals in type safety scoring', testStructureAnalyzerCountsVueTypeScriptSignals],
+    ['module mapper exposes isolated module names and normalized categories', testModuleMapperExposesIsolatedModuleNames],
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
     ['task intake router recommends direct vs orchestrated execution deterministically', testTaskIntakeRoutingLibrary],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],
