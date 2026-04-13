@@ -16,11 +16,11 @@
 
 | Agent | 名称 | 职责 | 触发场景 |
 |-------|------|------|----------|
-| `task-orchestrator` | 任务编排 | 端到端计划任务执行与验收 | "规划任务"、"帮我实现"、"/task" |
+| `task-orchestrator` | 任务编排 | 端到端计划任务执行与验收 | "帮我实现"、"帮我改造"、"帮我接入"、"开始做"、"/task" |
 | `structure-analyzer` | 结构分析 | 目录反模式检测、8 维工程健康度评分卡 | "结构分析"、"目录审查"、"架构检查"、"分析当前项目" |
 | `security-reviewer` | 安全审查 | XSS/CSRF/OWASP 检测 | "安全审查"、"security"、"xss" |
 | `performance-profiler` | 性能分析 | Lighthouse/Web Vitals 诊断 | "性能分析"、"performance"、"lighthouse" |
-| `planner` | 任务规划 | 复杂任务分解与风险评估（仅规划，不编码） | "帮我规划"、"规划"、"plan"、"任务分解"、"方案对比" |
+| `planner` | 任务规划 | 复杂任务分解与风险评估（仅规划，不编码） | "帮我规划"、"先别写代码"、"只做规划"、"任务分解"、"技术方案" |
 | `tdd-driver` | TDD 驱动 | RED→GREEN→REFACTOR 循环驱动实现 | "TDD"、"测试驱动"、"test first" |
 | `build-fix` | 构建修复 | 自动诊断修复构建/类型/Lint 错误 | "构建失败"、"build failed"、"类型错误" |
 | `code-reviewer` | 代码审查 | 按 clean-code 规则结构化审查 | "代码审查"、"code review"、"CR" |

@@ -3,11 +3,16 @@ name: task-orchestrator
 version: 2.0.0
 description: 端到端计划任务编排器，支持需求分解→执行→验收全流程
 triggers:
-  - "规划任务"
-  - "创建计划"
   - "帮我实现"
-  - "plan task"
-  - "create plan"
+  - "帮我做"
+  - "帮我改"
+  - "帮我改造"
+  - "帮我接入"
+  - "帮我落地"
+  - "开始做"
+  - "开始推进"
+  - "执行这个需求"
+  - "完成这个需求"
   - "/task"
 permissions:
   tools:
@@ -29,21 +34,30 @@ description: 端到端计划任务编排器，支持需求分解→执行→验�
 version: 2.0.0
 triggers:
   explicit:
-    - "规划任务"
-    - "创建计划"
     - "帮我实现"
-    - "plan task"
-    - "create plan"
+    - "帮我做"
+    - "帮我改"
+    - "帮我改造"
+    - "帮我接入"
+    - "帮我落地"
+    - "开始做"
+    - "开始推进"
+    - "执行这个需求"
+    - "完成这个需求"
     - "/task"
   implicit:
-    - pattern: "帮我实现.*功能"
+    - pattern: "(帮我|请).*(实现|完成|落地|推进|改造|接入).*(功能|需求|模块|流程|页面|接口)"
       confidence: 0.9
-    - pattern: "开发.*模块"
-      confidence: 0.8
-    - pattern: "重构.*"
-      confidence: 0.7
-    - pattern: "添加.*特性"
-      confidence: 0.85
+    - pattern: "把.*(mock|旧接口).*(切到|改成|迁移到).*(真实接口|新接口)"
+      confidence: 0.94
+    - pattern: "(补|加上).*(测试|review|审查)"
+      confidence: 0.9
+    - pattern: "(开始|继续).*(做|执行|推进)"
+      confidence: 0.86
+    - pattern: "重构.*(并|同时).*(测试|review)"
+      confidence: 0.88
+    - pattern: "(联调|对接|接入).*(接口|后端|API)"
+      confidence: 0.9
 permissions:
   - Read
   - Write
@@ -70,9 +84,9 @@ model: opus
 5. **追踪变更** - 记录所有偏离原计划的改动
 6. **交付验收** - 确保所有任务完成并请求用户验收
 
-> ⚠️ **职责边界**：如果用户只想要规划方案（不需要执行编码），应由 `planner` Agent 处理。`task-orchestrator` 在 Phase 4 收到用户"确认执行"后才进入编码阶段。涉及运行时 bug 排查时，Phase 5 应编排 `bug-investigator` Agent 进行根因定位。
+> ⚠️ **职责边界**：如果用户只想要规划方案（例如“先别写代码”“先出实施计划”“只做风险/工作量评估”），应由 `planner` Agent 处理。只要请求里已经出现“帮我改造”“帮我接入”“帮我落地”“开始做”“补上测试和 review”这类执行闭环意图，就应由 `task-orchestrator` 接管。`task-orchestrator` 在 Phase 4 收到用户"确认执行"后才进入编码阶段。涉及运行时 bug 排查时，Phase 5 应编排 `bug-investigator` Agent 进行根因定位。
 > 
-> ⚠️ **入口等价性**：显式 `/task` 与等价的自然语言任务请求（例如“帮我实现…”、“规划这个需求”）是同一产品入口的两种表面形式。只要命中任务编排意图，都必须先经过同一条 `task-intake-routing -> TaskBook.plan -> planner 校验 -> executor` 链路，不得退化成自由对话规划。
+> ⚠️ **入口等价性**：显式 `/task` 与等价的自然语言任务请求（例如“帮我改造…”、“把 mock 切到真实接口…”、“补上测试和 review…”）是同一产品入口的两种表面形式。只要命中任务编排意图，都必须先经过同一条 `task-intake-routing -> TaskBook.plan -> planner 校验 -> executor` 链路，不得退化成自由对话规划。
 
 ---
 

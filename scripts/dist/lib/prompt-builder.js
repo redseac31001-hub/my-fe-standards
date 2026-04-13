@@ -309,7 +309,7 @@ function generateCommandsPrompt(commands) {
 # 📋 Slash Commands 索引
 
 本规则库只保留少量高频命令作为短入口；详细参数和完整说明已外迁到 \`.codebuddy/commands/README.md\`。
-\`/task\` 是显式短命令；等价的自然语言任务请求（例如“帮我实现…”、“规划这个需求”）也必须归一化到同一条 TaskBook / Planner / Validator 闭环，而不是当作自由聊天处理。
+\`/task\` 是显式短命令；等价的自然语言任务请求（例如“帮我改造…”、“把 mock 切到真实接口…”、“补上测试和 review…”）也必须归一化到同一条 TaskBook / Planner / Validator 闭环，而不是当作自由聊天处理。只做方案时（例如“先别写代码，先给我实施计划”）应优先路由到 \`planner\`。
 
 ## 快速入口
 
@@ -334,7 +334,7 @@ function generateCommandsReadme(commands) {
         '优先按下面四条路径理解当前安装，而不是先扫完整命令表：',
         '',
         '1. 安装 / 同步 / 诊断：先看 `.codebuddy/scripts/README.md` 里的 `codebuddy-loader.js` 入口。',
-        '2. 启动闭环：需求、缺陷、重构优先走 `/task`；直接说“帮我实现…”“帮我规划…”也应进入同一路由。',
+        '2. 启动闭环：需求、缺陷、重构优先走 `/task`；直接说“帮我改造…”“接入真实接口…”“补上测试和 review…”也应进入同一路由。只做方案时说“先别写代码，先规划/先出方案”应路由到 `planner`。',
         '3. 接管 / 写回：需要处理 `.codebuddy/agent-calls/*.prompt.md` 时，使用 `/agent-call`。',
         '4. 观察 / 汇报：报告与趋势优先走 `.codebuddy/scripts/report-manager.js`。',
         '',
@@ -344,7 +344,8 @@ function generateCommandsReadme(commands) {
         '',
         '## 快速入口',
         '',
-        '- 业务需求、重构、缺陷修复：优先使用 `/task`；等价自然语言任务请求也必须归一化到同一条 TaskBook / Planner / Validator 链路，详细说明见 `task.md`。',
+        '- 业务需求、重构、缺陷修复：优先使用 `/task`；等价自然语言任务请求（如“帮我改造…”“接入真实接口…”“补上测试和 review…”）也必须归一化到同一条 TaskBook / Planner / Validator 链路，详细说明见 `task.md`。',
+        '- 如果用户明确说“先别写代码”“只做规划”“先给我实施计划/技术方案”，优先读取 `planner`，不要直接进入执行闭环。',
         '- 需要执行 `.codebuddy/agent-calls/*.prompt.md`：使用 `/agent-call`，详细说明见 `agent-call.md`。',
         '',
         '## 推荐阅读顺序',
@@ -374,7 +375,7 @@ function generateScriptsReadme(scripts) {
         '',
         '### 2. 启动闭环',
         '',
-        '显式 `/task` 与等价的自然语言任务请求，都应先经过 `task-intake-routing -> TaskBook.plan -> planner validator` 同一条执行链路。',
+        '显式 `/task` 与等价的自然语言任务请求（如“帮我改造…”“接入真实接口…”“补上测试和 review…”）都应先经过 `task-intake-routing -> TaskBook.plan -> planner validator` 同一条执行链路。',
         '',
         '```bash',
         'node .codebuddy/scripts/task-intake-router.js --description "replace mock login API" --files 4 --contract explicit',
@@ -453,7 +454,8 @@ function generateQuickActionGuide() {
 
 | 场景 | 优先动作 | 入口 |
 |------|----------|------|
-| 新功能 / 重构 / 缺陷修复 | 走任务闭环；用户直接说“帮我实现…”时也要按 \`/task\` 同路由处理 | \`/task <需求>\` 或等价自然语言任务请求 |
+| 只做规划 / 先别写代码 / 方案评估 | 优先走规划，不直接进入编码阶段 | 读取 \`planner\`，再输出结构化计划 |
+| 新功能 / 改造 / 接口接入 / 补测试和 review | 走任务闭环；用户直接说“帮我改造…”“接入真实接口…”时也要按 \`/task\` 同路由处理 | \`/task <需求>\` 或等价自然语言任务请求 |
 | 需要理解项目结构 | 先做结构分析，再读相关规则/代码 | \`node .codebuddy/scripts/structure-analyzer.js .\` |
 | 需要查看已有分析结果 | 先查报告状态，避免重复扫描 | \`node .codebuddy/scripts/report-manager.js status\` |
 | 需要生成系统概要设计 / 设计文档 | 优先路由到专用设计文档 Agent，再按需加载 skill 和模板 | \`system-overview-writer\` |
@@ -492,10 +494,15 @@ const AGENT_ACTIVATION_CATEGORY_OVERRIDES = {
 const ORCHESTRATION_ROUTE_KEYWORDS = [
     'orchestrator',
     'planner',
+    'task',
     'tdd',
     '\u7f16\u6392',
     '\u89c4\u5212',
     '\u4ea4\u4ed8',
+    '\u843d\u5730',
+    '\u63a8\u8fdb',
+    '\u6539\u9020',
+    '\u95ed\u73af',
 ];
 const DOCUMENTATION_ROUTE_KEYWORDS = [
     'overview',
@@ -1155,7 +1162,8 @@ function generateDemoWelcomeBanner(options) {
 已加载: ${options.layer1RulesCount} 条核心规范 | ${options.agentsCount} 个 Agent | ${options.skillsCount} 个 Skill
 
 快速上手:
-- 输入 \`/task 实现用户登录\`，或直接说“帮我实现用户登录”；两者都应进入同一任务编排链路
+- 输入 \`/task 实现用户登录\`，或直接说“帮我改造地址模块并补测试”；两者都应进入同一任务编排链路
+- 只做方案时直接说“先别写代码，先给我实施计划”或“先做任务分解”
 - 输入 "审查这段代码" 触发代码审查
 - 输入 "帮我排查这个 bug" 启动 Bug 调查
 - 输入 "分析项目结构" 执行架构分析
@@ -1217,7 +1225,8 @@ function generateDemoQuickActionGuide() {
 
 | 场景 | 入口 |
 |------|------|
-| 新功能 / 重构 / 缺陷修复 | \`/task <需求描述>\` 或直接说“帮我实现…”；两者必须归一化到同一闭环 |
+| 只做规划 / 先别写代码 | 说 "先别写代码，先给我实施计划" 或 "先做任务分解" |
+| 新功能 / 改造 / 接口接入 / 补测试和 review | \`/task <需求描述>\` 或直接说“帮我改造…”“接入真实接口…”；两者必须归一化到同一闭环 |
 | 代码审查 | 说 "审查这段代码" 或 "code review" |
 | Bug 排查 | 说 "帮我排查" 或 "修复 bug" |
 | 项目结构分析 | 说 "分析项目结构" |

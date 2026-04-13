@@ -524,6 +524,8 @@ async function testPromptBuilderDemoProfileHelpers() {
   const commandsReadme = generateCommandsReadme(['task.md', 'agent-call.md']);
   assert.match(commandsReadme, /也应进入同一路由/);
   assert.match(commandsReadme, /TaskBook \/ Planner \/ Validator 链路/);
+  assert.match(commandsReadme, /先别写代码/);
+  assert.match(commandsReadme, /帮我改造/);
 
   const scriptsReadme = generateScriptsReadme([
     'task-intake-router.js',
@@ -536,10 +538,14 @@ async function testPromptBuilderDemoProfileHelpers() {
   const quickAction = generateQuickActionGuide();
   assert.match(quickAction, /等价自然语言任务请求/);
   assert.match(quickAction, /TaskBook \/ Planner \/ Validator 闭环/);
+  assert.match(quickAction, /先别写代码/);
+  assert.match(quickAction, /接入真实接口/);
 
   const demoQuickAction = generateDemoQuickActionGuide();
   assert.match(demoQuickAction, /两者必须归一化到同一闭环/);
   assert.match(demoQuickAction, /不要把对话式请求当作自由聊天/);
+  assert.match(demoQuickAction, /先别写代码/);
+  assert.match(demoQuickAction, /帮我改造/);
 }
 
 async function testDistributionProfiles() {
@@ -1849,6 +1855,15 @@ async function testTaskIntakeRoutingLibrary() {
   assert.equal(cliEscalatedDecision.recommendedPath, 'orchestrated');
   assert.equal(cliEscalatedDecision.recommendedWorkflowId, 'default');
   assert.ok(cliEscalatedDecision.hardEscalationTriggers.length >= 1);
+
+  const naturalLanguageDecision = routeTaskIntake(createDefaultTaskIntakeInput({
+    description: '帮我改造会员中心和结算页的地址管理，把 mock 切到真实接口，统一状态模型，并补上测试和 review 闭环',
+  }));
+  assert.equal(naturalLanguageDecision.recommendedPath, 'orchestrated');
+  assert.equal(naturalLanguageDecision.recommendedWorkflowId, 'default');
+  assert.equal(naturalLanguageDecision.recommendedSpecMode, 'linked-spec-kit');
+  assert.ok(naturalLanguageDecision.hardEscalationTriggers.some(trigger => trigger.includes('state-model behavior')));
+  assert.ok(naturalLanguageDecision.hardEscalationTriggers.some(trigger => trigger.includes('durable tracking')));
 }
 
 async function testTaskBookPlannerContracts() {

@@ -6,11 +6,19 @@ exports.createDefaultTaskIntakeInput = createDefaultTaskIntakeInput;
 exports.normalizeContractState = normalizeContractState;
 exports.normalizeUncertainty = normalizeUncertainty;
 exports.normalizeTaskIntakeKind = normalizeTaskIntakeKind;
-const API_ADAPTATION_SIGNAL = /(api|mock|request|response|field mapping|parameter mapping|adapter|adapt|replace mock|接口|参数映射|返回映射|真实接口)/i;
+const API_ADAPTATION_SIGNAL = /(api|mock|request|response|field mapping|parameter mapping|adapter|adapt|replace mock|switch api|wire up|integration|联调|对接|接入接口|切接口|接口|参数映射|返回映射|真实接口)/i;
 const BUGFIX_SIGNAL = /(bug|fix|hotfix|repair|debug|修复|报错|错误|异常|故障|白屏)/i;
-const REFACTOR_SIGNAL = /(refactor|cleanup|extract|split|重构|整理|提取|拆分)/i;
+const REFACTOR_SIGNAL = /(refactor|cleanup|extract|split|migration|upgrade|modernize|revamp|重构|改造|升级|迁移|治理|整理|提取|拆分)/i;
 const REVIEW_SIGNAL = /(review|audit|审查|审阅|检查)/i;
-const FEATURE_SIGNAL = /(feature|需求|新功能|新增|prd|方案)/i;
+const FEATURE_SIGNAL = /(feature|需求|新功能|新增|prd|方案|落地|推进|交付|接入|集成)/i;
+const CROSS_MODULE_SIGNAL = /(cross[- ]module|cross[- ]domain|multi[- ]module|across .* (module|page|flow)|跨模块|多模块|多个模块|跨页面|跨流程|联动改造)/i;
+const HANDOFF_SIGNAL = /(handoff|staged review|交接|多人协作|多 agent|multi[- ]agent|分阶段|阶段性交付)/i;
+const PARALLEL_WORK_SIGNAL = /(parallel|并行|多人协作|多 agent|协同开发)/i;
+const DURABLE_TRACKING_SIGNAL = /(closed loop|durable tracking|trackable|milestone|验收闭环|测试闭环|review 闭环|测试和 review|review 和测试|里程碑|可追踪|可审计|阶段性验收)/i;
+const ARCHITECTURE_CHANGE_SIGNAL = /(architecture|module boundary|layering|架构调整|架构边界|模块边界|分层调整|目录结构调整)/i;
+const STATE_MODEL_CHANGE_SIGNAL = /(state model|state management|shared state|store|vuex|pinia|状态模型|状态管理|统一状态|共享状态)/i;
+const ROUTING_CHANGE_SIGNAL = /(route change|router|navigation|redirect|路由|跳转|导航)/i;
+const WORKFLOW_CHANGE_SIGNAL = /(workflow|execution flow|提交流程|审批流程|业务流程|执行流|编排|闭环)/i;
 function uniqStrings(values) {
     return Array.from(new Set(values.filter(value => typeof value === 'string' && value.trim().length > 0)));
 }
@@ -112,25 +120,34 @@ function resolveRecommendedSpecMode(workflowId) {
     return 'inline-open-spec';
 }
 function normalizeTaskIntakeInput(input) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
+    const title = ((_a = input.title) === null || _a === void 0 ? void 0 : _a.trim()) || null;
+    const description = ((_b = input.description) === null || _b === void 0 ? void 0 : _b.trim()) || null;
+    const routeHints = uniqStrings((_c = input.routeHints) !== null && _c !== void 0 ? _c : []);
+    const routeText = uniqStrings([
+        title !== null && title !== void 0 ? title : '',
+        description !== null && description !== void 0 ? description : '',
+        ...routeHints,
+    ]).join(' ');
+    const estimatedModuleCount = (_d = normalizeNullableCount(input.estimatedModuleCount)) !== null && _d !== void 0 ? _d : (CROSS_MODULE_SIGNAL.test(routeText) ? 2 : null);
     return {
-        title: ((_a = input.title) === null || _a === void 0 ? void 0 : _a.trim()) || null,
-        description: ((_b = input.description) === null || _b === void 0 ? void 0 : _b.trim()) || null,
-        kind: (_c = input.kind) !== null && _c !== void 0 ? _c : null,
+        title,
+        description,
+        kind: (_e = input.kind) !== null && _e !== void 0 ? _e : null,
         contractState: input.contractState,
         uncertainty: input.uncertainty,
         estimatedFileCount: normalizeNullableCount(input.estimatedFileCount),
-        estimatedModuleCount: normalizeNullableCount(input.estimatedModuleCount),
+        estimatedModuleCount,
         estimatedDomainCount: normalizeNullableCount(input.estimatedDomainCount),
         estimatedEndpointCount: normalizeNullableCount(input.estimatedEndpointCount),
-        requiresHandoff: Boolean(input.requiresHandoff),
-        requiresParallelWork: Boolean(input.requiresParallelWork),
-        requiresDurableTracking: Boolean(input.requiresDurableTracking),
-        changesArchitecture: Boolean(input.changesArchitecture),
-        changesStateModel: Boolean(input.changesStateModel),
-        changesRouting: Boolean(input.changesRouting),
-        changesWorkflow: Boolean(input.changesWorkflow),
-        routeHints: uniqStrings((_d = input.routeHints) !== null && _d !== void 0 ? _d : []),
+        requiresHandoff: Boolean(input.requiresHandoff) || HANDOFF_SIGNAL.test(routeText),
+        requiresParallelWork: Boolean(input.requiresParallelWork) || PARALLEL_WORK_SIGNAL.test(routeText),
+        requiresDurableTracking: Boolean(input.requiresDurableTracking) || DURABLE_TRACKING_SIGNAL.test(routeText),
+        changesArchitecture: Boolean(input.changesArchitecture) || ARCHITECTURE_CHANGE_SIGNAL.test(routeText),
+        changesStateModel: Boolean(input.changesStateModel) || STATE_MODEL_CHANGE_SIGNAL.test(routeText),
+        changesRouting: Boolean(input.changesRouting) || ROUTING_CHANGE_SIGNAL.test(routeText),
+        changesWorkflow: Boolean(input.changesWorkflow) || WORKFLOW_CHANGE_SIGNAL.test(routeText),
+        routeHints,
     };
 }
 function routeTaskIntake(rawInput, options) {

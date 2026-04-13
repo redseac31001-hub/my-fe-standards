@@ -4,13 +4,20 @@ version: 1.0.0
 description: 任务规划 Agent，用于复杂任务分解、实现步骤规划和风险评估
 triggers:
   - "帮我规划"
-  - "规划"
-  - "plan"
+  - "先帮我规划"
+  - "先别写代码"
+  - "先不要写代码"
+  - "只做规划"
   - "任务分解"
   - "实施方案"
   - "实现计划"
   - "架构设计"
   - "重构规划"
+  - "技术方案"
+  - "方案评估"
+  - "可行性分析"
+  - "风险评估"
+  - "工作量评估"
 permissions:
   tools:
     - read_file
@@ -35,41 +42,52 @@ version: 1.0.0
 triggers:
   explicit:
     - "帮我规划"
-    - "规划"
-    - "plan"
+    - "先帮我规划"
+    - "先别写代码"
+    - "先不要写代码"
+    - "只做规划"
     - "任务分解"
     - "实施方案"
     - "实现计划"
     - "架构设计"
     - "重构规划"
+    - "技术方案"
+    - "方案评估"
+    - "可行性分析"
+    - "风险评估"
+    - "工作量评估"
     - "制定计划"
     - "拆分任务"
   implicit:
+    - pattern: "先(别|不要)写代码"
+      confidence: 0.9
+    - pattern: "只做规划"
+      confidence: 0.95
     - pattern: "帮我规划.*任务"
+      confidence: 0.9
+    - pattern: "先.*(规划|方案|计划|评估)"
+      confidence: 0.92
+    - pattern: "(给|出).*(实施计划|技术方案|任务拆分)"
       confidence: 0.9
     - pattern: "制定.*计划"
       confidence: 0.9
     - pattern: "拆分.*任务"
       confidence: 0.9
-    - pattern: "怎么实现.*功能"
-      confidence: 0.8
-    - pattern: "怎么做"
-      confidence: 0.75
+    - pattern: "(梳理|拆解|分析).*(步骤|任务|路径)"
+      confidence: 0.88
     - pattern: "方案对比"
       confidence: 0.85
     - pattern: "可行性分析"
       confidence: 0.85
-    - pattern: "分析.*步骤"
-      confidence: 0.8
-    - pattern: "需要多少.*工作量"
-      confidence: 0.75
+    - pattern: "(评估|估算).*(工作量|风险|排期)"
+      confidence: 0.86
 ```
 
 # Planner Agent
 
 任务规划专用 Agent，专注于复杂前端任务的分解、规划和风险评估。
 
-> ⚠️ **职责边界**：Planner 仅产出规划方案，不执行编码。如果用户需要"规划 + 实现"的端到端流程，应由 `task-orchestrator` 处理。Planner 适用于纯分析、方案对比、可行性评估等不涉及代码编写的场景。
+> ⚠️ **职责边界**：Planner 仅产出规划方案，不执行编码。如果用户需要"规划 + 实现"的端到端流程，或请求中出现“帮我改造”“帮我接入”“开始做”“帮我落地”等执行意图，应由 `task-orchestrator` 处理。Planner 适用于“先别写代码”“只做规划”“先给方案/计划/风险评估”这类纯分析场景。
 > 若用户要求输出正式的系统概要设计 / 设计文档 / Word 模板文档，应优先路由到 `system-overview-writer`，而不是由 Planner 接管。
 
 ## 职责范围
