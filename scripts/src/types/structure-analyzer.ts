@@ -86,10 +86,14 @@ export interface FileInfo {
  * 评分结构
  */
 export interface AnalysisScores {
-  /** 总分（0-100） */
+  /** 工程健康度总分（0-100） */
   total: number;
+  /** 结构健康度总分（0-100） */
+  structureTotal: number;
   /** 分项得分 */
   breakdown: ScoreBreakdown;
+  /** 工程健康度评分卡 */
+  scorecard: EngineeringScorecard;
 }
 
 /**
@@ -104,6 +108,73 @@ export interface ScoreBreakdown {
   fileSize: number;
   /** 命名得分（0-25） */
   naming: number;
+}
+
+export type HealthDimensionId =
+  | 'architecture-structure'
+  | 'code-quality'
+  | 'type-safety'
+  | 'test-coverage'
+  | 'dependency-health'
+  | 'build-performance'
+  | 'naming-convention'
+  | 'documentation';
+
+export type HealthDimensionStatus = 'excellent' | 'good' | 'needs-improvement' | 'unmeasured';
+
+export interface HealthDimensionCriterion {
+  /** 子规则名称 */
+  label: string;
+  /** 当前子规则得分 */
+  score: number;
+  /** 子规则满分 */
+  maxScore: number;
+  /** 是否真正完成检测 */
+  measured: boolean;
+  /** 子规则是否命中 */
+  met: boolean | null;
+  /** 附加说明 */
+  note?: string;
+}
+
+export interface HealthDimensionScore {
+  /** 维度 ID */
+  id: HealthDimensionId;
+  /** 维度名称 */
+  label: string;
+  /** 维度权重 */
+  weight: number;
+  /** 当前得分；未检测时为 null */
+  score: number | null;
+  /** 满分 */
+  maxScore: number;
+  /** 是否已检测 */
+  measured: boolean;
+  /** 维度状态 */
+  status: HealthDimensionStatus;
+  /** 当前维度摘要 */
+  summary: string;
+  /** 子规则 */
+  criteria: HealthDimensionCriterion[];
+}
+
+export interface EngineeringScorecard {
+  /** 评分卡版本 */
+  version: '2.0.0';
+  /** 已测维度的原始累计得分 */
+  measuredScore: number;
+  /** 已测维度累计权重 */
+  measuredWeight: number;
+  /** 总权重 */
+  totalWeight: number;
+  /** 归一化后的工程健康度 */
+  normalizedScore: number | null;
+  /** 已测维度数量 */
+  measuredDimensions: number;
+  /** 未测维度数量 */
+  unmeasuredDimensions: number;
+  /** 各维度详情 */
+  dimensions: HealthDimensionScore[];
 }
 
 // ============ 违规项 ============

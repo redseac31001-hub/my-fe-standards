@@ -690,7 +690,16 @@ function exportMarkdown(targetDir: string): string {
   if (arch) {
     lines.push('## 架构分析');
     lines.push('');
-    lines.push(`- **健康度**: ${arch.summary.healthScore}/100`);
+    lines.push(`- **工程健康度**: ${arch.summary.healthScore}/100`);
+    if (typeof arch.summary.structureHealthScore === 'number') {
+      lines.push(`- **结构健康度**: ${arch.summary.structureHealthScore}/100`);
+    }
+    if (arch.scorecard) {
+      lines.push(`- **评分卡**: 已测 ${arch.scorecard.measuredDimensions} / ${arch.scorecard.dimensions.length} 个维度`);
+      if (arch.scorecard.measuredWeight < arch.scorecard.totalWeight) {
+        lines.push(`- **评分范围**: 已测权重 ${arch.scorecard.measuredWeight}/${arch.scorecard.totalWeight}，总分按已测维度归一化`);
+      }
+    }
     lines.push(`- **文件数**: ${arch.summary.totalFiles}`);
     lines.push(`- **代码行数**: ${arch.summary.totalLines.toLocaleString()}`);
     lines.push(`- **问题数**: ${arch.summary.issueCount.error} 错误, ${arch.summary.issueCount.warning} 警告`);

@@ -4,6 +4,8 @@
  * 项目记忆系统（Project Memory）的接口和类型
  */
 
+import type { EngineeringScorecard } from './structure-analyzer';
+
 // ============ 基础类型 ============
 
 /**
@@ -374,6 +376,8 @@ export interface ArchitectureSnapshot {
   summary: {
     /** 健康度评分 0-100 */
     healthScore: number;
+    /** 结构健康度评分 0-100 */
+    structureHealthScore?: number;
     /** 总文件数 */
     totalFiles: number;
     /** 总行数 */
@@ -409,6 +413,9 @@ export interface ArchitectureSnapshot {
     /** 命名规范 0-25 */
     namingConvention: number;
   };
+
+  /** 工程健康度评分卡 */
+  scorecard?: EngineeringScorecard;
 }
 
 // ============ 模块图谱 ============

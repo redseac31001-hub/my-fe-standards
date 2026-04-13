@@ -19,6 +19,7 @@ import {
   AnalysisResult,
   AnalysisSummary,
   AnalysisScores,
+  ScoreBreakdown,
   Violation,
   ViolationCode,
   DirectoryNode,
@@ -26,7 +27,12 @@ import {
   StructureAnalyzerConfig,
   SA001Context,
   ScanContext,
+  EngineeringScorecard,
   DEFAULT_CONFIG,
+  HealthDimensionCriterion,
+  HealthDimensionId,
+  HealthDimensionScore,
+  HealthDimensionStatus,
 } from './types/structure-analyzer';
 import {
   ArchitectureSnapshot,
@@ -531,10 +537,774 @@ function checkSA005(node: DirectoryNode, config: StructureAnalyzerConfig): Viola
 
 // ============ 评分算法 ============
 
+type FileNamingStyle = 'kebab' | 'camel' | 'pascal' | 'snake' | 'other';
+
+interface PackageJsonLike {
+  scripts?: Record<string, string>;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  eslintConfig?: Record<string, unknown>;
+  prettier?: unknown;
+  packageManager?: string;
+  'lint-staged'?: unknown;
+  'simple-git-hooks'?: unknown;
+}
+
+interface ProjectSignals {
+  sourceFiles: FileInfo[];
+  tsSourceFiles: FileInfo[];
+  sourceFileContents: Map<string, string>;
+  sourceFileCount: number;
+  testFilesCount: number;
+  readmeExists: boolean;
+  docsDirExists: boolean;
+  projectDocsExists: boolean;
+  eslintConfigured: boolean;
+  eslintRulesCount: number | null;
+  prettierConfigured: boolean;
+  preCommitConfigured: boolean;
+  buildConfigured: boolean;
+  testFrameworkConfigured: boolean;
+  coverageConfigured: boolean;
+  coverageReportExists: boolean;
+  lintViolationCount: number | null;
+  lockfileExists: boolean;
+  packageManagerPinned: boolean;
+  dependencyCount: number;
+  wildcardDependencyCount: number;
+  dynamicImportCount: number;
+  splitConfigHints: boolean;
+  anyCount: number;
+  docCommentFileCount: number;
+  lineBelow300Ratio: number;
+  namingDominantStyle: FileNamingStyle | null;
+  namingDominantRatio: number;
+  namingSampleCount: number;
+  hasTsConfig: boolean;
+  tsconfigStrict: boolean;
+  hasJsOrTsSource: boolean;
+}
+
+const SOURCE_FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue']);
+const TYPESCRIPT_EXTENSIONS = new Set(['.ts', '.tsx']);
+const ESLINT_CONFIG_FILES = [
+  'eslint.config.js',
+  'eslint.config.cjs',
+  'eslint.config.mjs',
+  'eslint.config.ts',
+  '.eslintrc',
+  '.eslintrc.json',
+  '.eslintrc.js',
+  '.eslintrc.cjs',
+  '.eslintrc.yaml',
+  '.eslintrc.yml',
+];
+const PRETTIER_CONFIG_FILES = [
+  '.prettierrc',
+  '.prettierrc.json',
+  '.prettierrc.js',
+  '.prettierrc.cjs',
+  '.prettierrc.mjs',
+  'prettier.config.js',
+  'prettier.config.cjs',
+  'prettier.config.mjs',
+];
+const BUILD_CONFIG_FILES = [
+  'vite.config.ts',
+  'vite.config.js',
+  'webpack.config.js',
+  'webpack.config.ts',
+  'rollup.config.js',
+  'rollup.config.ts',
+  'rspack.config.js',
+  'rspack.config.ts',
+  'next.config.js',
+  'next.config.mjs',
+];
+const TEST_CONFIG_FILES = [
+  'vitest.config.ts',
+  'vitest.config.js',
+  'jest.config.js',
+  'jest.config.ts',
+  'playwright.config.ts',
+  'playwright.config.js',
+  'cypress.config.ts',
+  'cypress.config.js',
+];
+const COVERAGE_REPORT_FILES = [
+  path.join('coverage', 'coverage-summary.json'),
+  path.join('coverage', 'lcov.info'),
+];
+const LINT_REPORT_FILES = [
+  'eslint-report.json',
+  path.join('reports', 'eslint-report.json'),
+  path.join('.codebuddy', 'reports', 'eslint-report.json'),
+];
+
+function isSourceCodeFile(filePath: string): boolean {
+  return SOURCE_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+function isTypeScriptFile(filePath: string): boolean {
+  return TYPESCRIPT_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+function isLikelyTestFile(filePath: string): boolean {
+  return /(?:^|[\\/])(?:test|tests|__tests__)(?:[\\/]|$)|\.(?:spec|test)\.[^.]+$/i.test(filePath);
+}
+
+function safeReadJsonFile<T>(filePath: string): T | null {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
+  } catch {
+    return null;
+  }
+}
+
+function safeReadTextFile(filePath: string): string | null {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+function findFirstExistingFile(targetPath: string, candidates: string[]): string | null {
+  for (const relativePath of candidates) {
+    const fullPath = path.join(targetPath, relativePath);
+    if (fs.existsSync(fullPath)) {
+      return fullPath;
+    }
+  }
+  return null;
+}
+
+function hasAnyScriptMatch(scripts: Record<string, string> | undefined, pattern: RegExp): boolean {
+  if (!scripts) {
+    return false;
+  }
+  return Object.values(scripts).some(script => pattern.test(script));
+}
+
+function collectFilesRecursively(dirPath: string, depth: number = 0, maxDepth: number = 4): string[] {
+  if (!fs.existsSync(dirPath) || depth > maxDepth) {
+    return [];
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(dirPath);
+  } catch {
+    return [];
+  }
+
+  if (stat.isFile()) {
+    return [dirPath];
+  }
+
+  if (!stat.isDirectory()) {
+    return [];
+  }
+
+  const ignored = new Set(['node_modules', 'dist', '.git', '.codebuddy', 'coverage']);
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(dirPath)) {
+    if (ignored.has(entry)) {
+      continue;
+    }
+    files.push(...collectFilesRecursively(path.join(dirPath, entry), depth + 1, maxDepth));
+  }
+  return files;
+}
+
+function countMatches(text: string, pattern: RegExp): number {
+  const regex = new RegExp(pattern.source, pattern.flags);
+  const matches = text.match(regex);
+  return matches ? matches.length : 0;
+}
+
+function detectFileNamingStyle(filePath: string): FileNamingStyle | null {
+  const name = path.basename(filePath, path.extname(filePath));
+  if (name === 'index') {
+    return null;
+  }
+  if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+    return 'kebab';
+  }
+  if (/^[a-z][a-zA-Z0-9]*$/.test(name) && /[A-Z]/.test(name)) {
+    return 'camel';
+  }
+  if (/^[A-Z][a-zA-Z0-9]*$/.test(name)) {
+    return 'pascal';
+  }
+  if (/^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(name)) {
+    return 'snake';
+  }
+  return 'other';
+}
+
+function extractRulesCountFromEslintConfig(packageJson: PackageJsonLike | null, targetPath: string): number | null {
+  if (packageJson?.eslintConfig && typeof packageJson.eslintConfig === 'object') {
+    const rules = packageJson.eslintConfig.rules;
+    if (rules && typeof rules === 'object') {
+      return Object.keys(rules).length;
+    }
+  }
+
+  const eslintConfigPath = findFirstExistingFile(targetPath, ESLINT_CONFIG_FILES);
+  if (!eslintConfigPath) {
+    return null;
+  }
+
+  if (eslintConfigPath.endsWith('.json') || eslintConfigPath.endsWith('.eslintrc')) {
+    const parsed = safeReadJsonFile<Record<string, unknown>>(eslintConfigPath);
+    const rules = parsed?.rules;
+    if (rules && typeof rules === 'object') {
+      return Object.keys(rules as Record<string, unknown>).length;
+    }
+  }
+
+  const content = safeReadTextFile(eslintConfigPath);
+  if (!content) {
+    return null;
+  }
+
+  const match = content.match(/rules\s*:\s*{([\s\S]*?)}/m);
+  if (!match) {
+    return null;
+  }
+
+  const ruleMatches = match[1].match(/(?:['"])?[@\w/-]+(?:['"])?\s*:/g);
+  return ruleMatches ? ruleMatches.length : null;
+}
+
+function readLintViolationCount(targetPath: string): number | null {
+  for (const relativePath of LINT_REPORT_FILES) {
+    const fullPath = path.join(targetPath, relativePath);
+    if (!fs.existsSync(fullPath)) {
+      continue;
+    }
+
+    const parsed = safeReadJsonFile<unknown>(fullPath);
+    if (!parsed) {
+      continue;
+    }
+
+    if (Array.isArray(parsed)) {
+      return parsed.length;
+    }
+
+    if (typeof parsed === 'object' && parsed !== null) {
+      const record = parsed as Record<string, unknown>;
+      if (typeof record.errorCount === 'number' && typeof record.warningCount === 'number') {
+        return record.errorCount + record.warningCount;
+      }
+      if (Array.isArray(record.results)) {
+        return record.results.reduce((sum, result) => {
+          if (typeof result !== 'object' || result === null) {
+            return sum;
+          }
+          const resultRecord = result as Record<string, unknown>;
+          if (Array.isArray(resultRecord.messages)) {
+            return sum + resultRecord.messages.length;
+          }
+          return sum;
+        }, 0);
+      }
+    }
+  }
+  return null;
+}
+
+function collectProjectSignals(targetPath: string, allFiles: FileInfo[]): ProjectSignals {
+  const packageJson = safeReadJsonFile<PackageJsonLike>(path.join(targetPath, 'package.json'));
+  const sourceFiles = allFiles.filter(file => isSourceCodeFile(file.path));
+  const tsSourceFiles = sourceFiles.filter(file => isTypeScriptFile(file.path));
+  const sourceFileContents = new Map<string, string>();
+  let dynamicImportCount = 0;
+  let anyCount = 0;
+  let docCommentFileCount = 0;
+
+  for (const file of sourceFiles) {
+    const content = safeReadTextFile(file.path);
+    if (!content) {
+      continue;
+    }
+    sourceFileContents.set(file.path, content);
+    dynamicImportCount += countMatches(content, /\bimport\s*\(/g);
+    anyCount += countMatches(content, /\bas\s+any\b|:\s*any\b|<any>/g);
+    if (content.includes('/**')) {
+      docCommentFileCount++;
+    }
+  }
+
+  const additionalTestFiles = [
+    ...collectFilesRecursively(path.join(targetPath, 'test')),
+    ...collectFilesRecursively(path.join(targetPath, 'tests')),
+    ...collectFilesRecursively(path.join(targetPath, '__tests__')),
+    ...collectFilesRecursively(path.join(targetPath, 'cypress')),
+    ...collectFilesRecursively(path.join(targetPath, 'playwright')),
+  ];
+  const testFiles = new Set<string>([
+    ...sourceFiles.filter(file => isLikelyTestFile(file.path)).map(file => file.path),
+    ...additionalTestFiles.filter(filePath => isLikelyTestFile(filePath) || /\.(?:js|ts|tsx|jsx)$/.test(filePath)),
+  ]);
+
+  const namingStyles = sourceFiles
+    .map(file => detectFileNamingStyle(file.path))
+    .filter((style): style is FileNamingStyle => style !== null);
+  const namingCounts = namingStyles.reduce<Record<FileNamingStyle, number>>((acc, style) => {
+    acc[style] = (acc[style] || 0) + 1;
+    return acc;
+  }, { kebab: 0, camel: 0, pascal: 0, snake: 0, other: 0 });
+  const namingEntries = Object.entries(namingCounts) as Array<[FileNamingStyle, number]>;
+  const [namingDominantStyle, namingDominantCount] = namingEntries.sort((a, b) => b[1] - a[1])[0] || [null, 0];
+
+  const configFiles = [
+    ...BUILD_CONFIG_FILES,
+    ...TEST_CONFIG_FILES,
+    ...ESLINT_CONFIG_FILES,
+    ...PRETTIER_CONFIG_FILES,
+  ]
+    .map(relativePath => path.join(targetPath, relativePath))
+    .filter(fullPath => fs.existsSync(fullPath));
+  const configTexts = configFiles
+    .map(fullPath => safeReadTextFile(fullPath))
+    .filter((content): content is string => Boolean(content));
+
+  const dependencyVersions = {
+    ...(packageJson?.dependencies || {}),
+    ...(packageJson?.devDependencies || {}),
+  };
+  const dependencyVersionValues = Object.values(dependencyVersions);
+
+  const sourceFileCount = sourceFiles.length;
+  const lineBelow300Ratio = sourceFileCount === 0
+    ? 0
+    : sourceFiles.filter(file => file.lines < 300).length / sourceFileCount;
+
+  const readmeExists = ['README.md', 'README.MD'].some(fileName => fs.existsSync(path.join(targetPath, fileName)));
+  const docsDirExists = fs.existsSync(path.join(targetPath, 'docs'));
+  const projectDocsExists = docsDirExists
+    || fs.existsSync(path.join(targetPath, 'PROJECT.md'))
+    || fs.existsSync(path.join(targetPath, 'ROADMAP.md'));
+
+  const eslintRulesCount = extractRulesCountFromEslintConfig(packageJson, targetPath);
+
+  return {
+    sourceFiles,
+    tsSourceFiles,
+    sourceFileContents,
+    sourceFileCount,
+    testFilesCount: testFiles.size,
+    readmeExists,
+    docsDirExists,
+    projectDocsExists,
+    eslintConfigured: Boolean(packageJson?.eslintConfig) || Boolean(findFirstExistingFile(targetPath, ESLINT_CONFIG_FILES)),
+    eslintRulesCount,
+    prettierConfigured: packageJson?.prettier !== undefined || Boolean(findFirstExistingFile(targetPath, PRETTIER_CONFIG_FILES)),
+    preCommitConfigured:
+      fs.existsSync(path.join(targetPath, '.husky', 'pre-commit'))
+      || packageJson?.['lint-staged'] !== undefined
+      || packageJson?.['simple-git-hooks'] !== undefined,
+    buildConfigured:
+      Boolean(packageJson?.scripts?.build)
+      || Boolean(findFirstExistingFile(targetPath, BUILD_CONFIG_FILES)),
+    testFrameworkConfigured:
+      Boolean(packageJson?.scripts?.test)
+      || Boolean(findFirstExistingFile(targetPath, TEST_CONFIG_FILES))
+      || testFiles.size > 0,
+    coverageConfigured:
+      hasAnyScriptMatch(packageJson?.scripts, /coverage/i)
+      || COVERAGE_REPORT_FILES.some(relativePath => fs.existsSync(path.join(targetPath, relativePath))),
+    coverageReportExists: COVERAGE_REPORT_FILES.some(relativePath => fs.existsSync(path.join(targetPath, relativePath))),
+    lintViolationCount: readLintViolationCount(targetPath),
+    lockfileExists: [
+      'package-lock.json',
+      'pnpm-lock.yaml',
+      'yarn.lock',
+      'bun.lock',
+      'bun.lockb',
+    ].some(fileName => fs.existsSync(path.join(targetPath, fileName))),
+    packageManagerPinned: typeof packageJson?.packageManager === 'string' && packageJson.packageManager.length > 0,
+    dependencyCount: dependencyVersionValues.length,
+    wildcardDependencyCount: dependencyVersionValues.filter(version => /^(\*|latest|next)$/i.test(version.trim()) || /\bx\b/i.test(version)).length,
+    dynamicImportCount,
+    splitConfigHints: configTexts.some(content => /manualChunks|splitChunks|dynamicImportVars|lazy/i.test(content)),
+    anyCount,
+    docCommentFileCount,
+    lineBelow300Ratio,
+    namingDominantStyle,
+    namingDominantRatio: namingStyles.length > 0 ? namingDominantCount / namingStyles.length : 0,
+    namingSampleCount: namingStyles.length,
+    hasTsConfig: fs.existsSync(path.join(targetPath, 'tsconfig.json')),
+    tsconfigStrict: Boolean(safeReadJsonFile<Record<string, unknown>>(path.join(targetPath, 'tsconfig.json'))?.compilerOptions
+      && typeof (safeReadJsonFile<Record<string, unknown>>(path.join(targetPath, 'tsconfig.json'))?.compilerOptions as Record<string, unknown>).strict === 'boolean'
+      && ((safeReadJsonFile<Record<string, unknown>>(path.join(targetPath, 'tsconfig.json'))?.compilerOptions as Record<string, unknown>).strict as boolean)),
+    hasJsOrTsSource: sourceFileCount > 0,
+  };
+}
+
+function createCriterion(
+  label: string,
+  maxScore: number,
+  score: number,
+  measured: boolean,
+  met: boolean | null,
+  note?: string
+): HealthDimensionCriterion {
+  return {
+    label,
+    score: Math.max(0, Math.min(maxScore, score)),
+    maxScore,
+    measured,
+    met,
+    note,
+  };
+}
+
+function getDimensionStatus(score: number, weight: number): HealthDimensionStatus {
+  if (score >= Math.ceil(weight * 0.8)) {
+    return 'excellent';
+  }
+  if (score >= Math.ceil(weight * 0.6)) {
+    return 'good';
+  }
+  return 'needs-improvement';
+}
+
+function createDimension(
+  id: HealthDimensionId,
+  label: string,
+  weight: number,
+  criteria: HealthDimensionCriterion[],
+  measuredSummary: string,
+  unmeasuredSummary: string
+): HealthDimensionScore {
+  const measuredCriteria = criteria.filter(item => item.measured);
+  if (measuredCriteria.length === 0) {
+    return {
+      id,
+      label,
+      weight,
+      score: null,
+      maxScore: weight,
+      measured: false,
+      status: 'unmeasured',
+      summary: unmeasuredSummary,
+      criteria,
+    };
+  }
+
+  const rawScore = measuredCriteria.reduce((sum, item) => sum + item.score, 0);
+  const rawMaxScore = measuredCriteria.reduce((sum, item) => sum + item.maxScore, 0);
+  const normalizedScore = rawMaxScore === 0
+    ? 0
+    : Math.max(0, Math.min(weight, Math.round((rawScore / rawMaxScore) * weight)));
+
+  return {
+    id,
+    label,
+    weight,
+    score: normalizedScore,
+    maxScore: weight,
+    measured: true,
+    status: getDimensionStatus(normalizedScore, weight),
+    summary: measuredSummary,
+    criteria,
+  };
+}
+
+function buildEngineeringScorecard(
+  counts: Record<ViolationCode, number>,
+  breakdown: ScoreBreakdown,
+  signals: ProjectSignals,
+  hasFeatureDir: boolean
+): EngineeringScorecard {
+  const architecture = createDimension(
+    'architecture-structure',
+    '架构与目录结构',
+    15,
+    [
+      createCriterion('目录结构规则', 8, Math.round((breakdown.featureStructure / 25) * 8), true, breakdown.featureStructure >= 20, `当前 ${breakdown.featureStructure}/25`),
+      createCriterion('目录深度控制', 4, Math.round((breakdown.depth / 25) * 4), true, breakdown.depth >= 20, `当前 ${breakdown.depth}/25`),
+      createCriterion(
+        'Feature 分层信号',
+        3,
+        hasFeatureDir ? 3 : (counts.SA001 === 0 ? 2 : 0),
+        true,
+        hasFeatureDir || counts.SA001 === 0,
+        hasFeatureDir ? '检测到 features 目录' : '未检测到明确的 feature 目录'
+      ),
+    ],
+    counts.SA001 > 0
+      ? '存在类型分组/结构混用信号，目录仍需收敛。'
+      : '结构规则整体稳定，目录深度保持在可控范围内。',
+    '未检测到可用于判断架构结构的源码。'
+  );
+
+  const lintCriterion = signals.lintViolationCount === null
+    ? createCriterion('Lint 违规数量', 7, 0, false, null, '未发现 lint 结果报告，未纳入扣分')
+    : createCriterion(
+      'Lint 违规数量',
+      7,
+      signals.lintViolationCount === 0 ? 7 : (signals.lintViolationCount <= 20 ? 4 : 0),
+      true,
+      signals.lintViolationCount <= 20,
+      `当前 ${signals.lintViolationCount} 条`
+    );
+  const codeQuality = createDimension(
+    'code-quality',
+    '代码质量',
+    20,
+    [
+      createCriterion(
+        'ESLint 配置质量',
+        5,
+        !signals.eslintConfigured ? 0 : (signals.eslintRulesCount !== null && signals.eslintRulesCount > 10 ? 5 : 3),
+        true,
+        signals.eslintConfigured,
+        signals.eslintConfigured
+          ? `规则数 ${signals.eslintRulesCount ?? '未解析'}`
+          : '未检测到 ESLint 配置'
+      ),
+      createCriterion('Prettier 配置', 3, signals.prettierConfigured ? 3 : 0, true, signals.prettierConfigured, signals.prettierConfigured ? '已配置格式化' : '未检测到 Prettier 配置'),
+      lintCriterion,
+      createCriterion(
+        '单文件规模控制',
+        3,
+        signals.lineBelow300Ratio >= 0.9 ? 3 : signals.lineBelow300Ratio >= 0.75 ? 2 : signals.lineBelow300Ratio >= 0.5 ? 1 : 0,
+        signals.sourceFileCount > 0,
+        signals.lineBelow300Ratio >= 0.75,
+        `小于 300 行占比 ${(signals.lineBelow300Ratio * 100).toFixed(0)}%`
+      ),
+      createCriterion('pre-commit 钩子', 2, signals.preCommitConfigured ? 2 : 0, true, signals.preCommitConfigured, signals.preCommitConfigured ? '已检测到提交前校验' : '未检测到提交前校验'),
+    ],
+    signals.lintViolationCount === null
+      ? '基于静态配置与文件规模估算，lint 违规数尚未接入。'
+      : '结合配置与 lint 结果评估代码质量。',
+    '未检测到可用于判断代码质量的源码与工程配置。'
+  );
+
+  const tsCoverageRatio = signals.sourceFileCount === 0 ? 0 : signals.tsSourceFiles.length / signals.sourceFileCount;
+  const typeSafety = createDimension(
+    'type-safety',
+    '类型安全',
+    15,
+    [
+      createCriterion(
+        'strict 模式',
+        6,
+        signals.tsconfigStrict ? 6 : (signals.hasTsConfig ? 2 : 0),
+        signals.hasJsOrTsSource || signals.hasTsConfig,
+        signals.tsconfigStrict,
+        signals.hasTsConfig
+          ? (signals.tsconfigStrict ? 'tsconfig 已开启 strict' : 'tsconfig 存在但 strict 未开启')
+          : '未检测到 tsconfig'
+      ),
+      createCriterion(
+        'TypeScript 覆盖率',
+        5,
+        tsCoverageRatio >= 0.8 ? 5 : tsCoverageRatio >= 0.5 ? 3 : tsCoverageRatio > 0 ? 1 : 0,
+        signals.hasJsOrTsSource,
+        tsCoverageRatio >= 0.5,
+        `TS 文件占比 ${(tsCoverageRatio * 100).toFixed(0)}%`
+      ),
+      createCriterion(
+        'any 使用控制',
+        4,
+        signals.tsSourceFiles.length === 0 ? 0 : (signals.anyCount === 0 ? 4 : (signals.anyCount <= Math.max(2, signals.tsSourceFiles.length) ? 2 : 0)),
+        signals.tsSourceFiles.length > 0,
+        signals.anyCount <= Math.max(2, signals.tsSourceFiles.length),
+        signals.tsSourceFiles.length > 0 ? `检测到 ${signals.anyCount} 处 any` : '无 TypeScript 文件'
+      ),
+    ],
+    signals.tsSourceFiles.length === 0
+      ? '未发现明显的 TypeScript 覆盖，类型安全能力较弱。'
+      : '已按 strict、TS 覆盖率与 any 使用情况评估类型安全。',
+    '未检测到 JS/TS 源码，暂无法判断类型安全。'
+  );
+
+  const testCoverage = createDimension(
+    'test-coverage',
+    '测试覆盖',
+    15,
+    [
+      createCriterion(
+        '测试文件存在性',
+        6,
+        signals.testFilesCount === 0 ? 0 : (signals.testFilesCount >= Math.max(3, Math.ceil(signals.sourceFileCount * 0.1)) ? 6 : 4),
+        signals.hasJsOrTsSource,
+        signals.testFilesCount > 0,
+        `检测到 ${signals.testFilesCount} 个测试文件`
+      ),
+      createCriterion(
+        '测试工具链',
+        4,
+        signals.testFrameworkConfigured ? 4 : 0,
+        true,
+        signals.testFrameworkConfigured,
+        signals.testFrameworkConfigured ? '已检测到 test 脚本或测试配置' : '未检测到测试脚本/配置'
+      ),
+      createCriterion(
+        '覆盖率信号',
+        5,
+        signals.coverageReportExists ? 5 : (signals.coverageConfigured ? 3 : 0),
+        true,
+        signals.coverageConfigured,
+        signals.coverageReportExists ? '存在 coverage 报告' : (signals.coverageConfigured ? '存在 coverage 配置/脚本' : '未检测到 coverage 信号')
+      ),
+    ],
+    signals.testFilesCount > 0
+      ? '已检测到测试文件与工具链信号，可继续接入真实覆盖率数据。'
+      : '测试资产较弱，当前主要依赖配置级信号。',
+    '未检测到源码或测试资产，暂无法判断测试覆盖。'
+  );
+
+  const dependencyHealth = createDimension(
+    'dependency-health',
+    '依赖健康度',
+    10,
+    [
+      createCriterion('锁文件', 3, signals.lockfileExists ? 3 : 0, signals.dependencyCount > 0 || signals.lockfileExists, signals.lockfileExists, signals.lockfileExists ? '已锁定依赖版本' : '未检测到锁文件'),
+      createCriterion('包管理器声明', 2, signals.packageManagerPinned ? 2 : 0, signals.dependencyCount > 0 || signals.packageManagerPinned, signals.packageManagerPinned, signals.packageManagerPinned ? 'packageManager 已声明' : '未声明 packageManager'),
+      createCriterion(
+        '版本声明健康度',
+        5,
+        signals.dependencyCount === 0
+          ? 0
+          : (signals.wildcardDependencyCount === 0 ? 5 : (signals.wildcardDependencyCount / signals.dependencyCount <= 0.1 ? 3 : 0)),
+        signals.dependencyCount > 0,
+        signals.dependencyCount > 0 && signals.wildcardDependencyCount === 0,
+        signals.dependencyCount > 0
+          ? `宽松版本声明 ${signals.wildcardDependencyCount}/${signals.dependencyCount}`
+          : '未检测到依赖声明'
+      ),
+    ],
+    '当前基于锁文件、包管理器声明与版本约束做本地健康评估，未包含线上漏洞/过期检查。',
+    '未检测到依赖清单，暂无法判断依赖健康度。'
+  );
+
+  const buildPerformance = createDimension(
+    'build-performance',
+    '构建与性能',
+    10,
+    [
+      createCriterion('构建流水线', 3, signals.buildConfigured ? 3 : 0, signals.hasJsOrTsSource || signals.buildConfigured, signals.buildConfigured, signals.buildConfigured ? '已检测到构建脚本或配置' : '未检测到构建脚本/配置'),
+      createCriterion(
+        '懒加载/分包信号',
+        4,
+        signals.dynamicImportCount > 0 && signals.splitConfigHints ? 4 : (signals.dynamicImportCount > 0 || signals.splitConfigHints ? 2 : 0),
+        signals.hasJsOrTsSource || signals.buildConfigured,
+        signals.dynamicImportCount > 0 || signals.splitConfigHints,
+        `dynamic import ${signals.dynamicImportCount} 次`
+      ),
+      createCriterion(
+        '文件体积纪律',
+        3,
+        signals.lineBelow300Ratio >= 0.9 ? 3 : signals.lineBelow300Ratio >= 0.75 ? 2 : signals.lineBelow300Ratio >= 0.5 ? 1 : 0,
+        signals.sourceFileCount > 0,
+        signals.lineBelow300Ratio >= 0.75,
+        `小于 300 行占比 ${(signals.lineBelow300Ratio * 100).toFixed(0)}%`
+      ),
+    ],
+    '结合构建配置、懒加载信号与文件规模评估构建与性能基础。',
+    '未检测到构建配置或源码，暂无法判断构建与性能。'
+  );
+
+  const namingConvention = createDimension(
+    'naming-convention',
+    '命名规范',
+    10,
+    [
+      createCriterion(
+        '文件命名一致性',
+        6,
+        signals.namingDominantRatio >= 0.8 ? 6 : (signals.namingDominantRatio >= 0.65 ? 4 : (signals.namingDominantRatio >= 0.5 ? 2 : 0)),
+        signals.namingSampleCount > 0,
+        signals.namingDominantRatio >= 0.65,
+        signals.namingSampleCount > 0
+          ? `主流风格 ${signals.namingDominantStyle ?? 'unknown'}，占比 ${(signals.namingDominantRatio * 100).toFixed(0)}%`
+          : '无可统计文件名样本'
+      ),
+      createCriterion(
+        '相似命名违规',
+        4,
+        counts.SA004 === 0 ? 4 : (counts.SA004 <= 2 ? 2 : 0),
+        true,
+        counts.SA004 === 0,
+        `SA004 命中 ${counts.SA004} 次`
+      ),
+    ],
+    counts.SA004 > 0
+      ? '存在相似命名信号，命名规范仍需收敛。'
+      : '命名风格基本一致，未发现明显相似命名冲突。',
+    '未检测到足够的源码文件名样本。'
+  );
+
+  const documentation = createDimension(
+    'documentation',
+    '文档完整性',
+    5,
+    [
+      createCriterion('README', 2, signals.readmeExists ? 2 : 0, true, signals.readmeExists, signals.readmeExists ? 'README 已存在' : 'README 缺失'),
+      createCriterion('项目文档', 2, signals.projectDocsExists ? 2 : 0, true, signals.projectDocsExists, signals.projectDocsExists ? '检测到 docs/ 或项目说明文档' : '未检测到项目文档目录'),
+      createCriterion(
+        '内联说明',
+        1,
+        signals.sourceFileCount > 0 && (signals.docCommentFileCount / signals.sourceFileCount >= 0.2) ? 1 : 0,
+        signals.sourceFileCount > 0,
+        signals.sourceFileCount > 0 && (signals.docCommentFileCount / signals.sourceFileCount >= 0.2),
+        signals.sourceFileCount > 0
+          ? `含注释块文件 ${signals.docCommentFileCount}/${signals.sourceFileCount}`
+          : '无源码文件'
+      ),
+    ],
+    '文档完整性基于 README、项目文档和源码注释信号估算。',
+    '未检测到文档与源码，暂无法判断文档完整性。'
+  );
+
+  const dimensions = [
+    architecture,
+    codeQuality,
+    typeSafety,
+    testCoverage,
+    dependencyHealth,
+    buildPerformance,
+    namingConvention,
+    documentation,
+  ];
+
+  const measuredDimensions = dimensions.filter(dimension => dimension.measured);
+  const measuredScore = measuredDimensions.reduce((sum, dimension) => sum + (dimension.score ?? 0), 0);
+  const measuredWeight = measuredDimensions.reduce((sum, dimension) => sum + dimension.weight, 0);
+
+  return {
+    version: '2.0.0',
+    measuredScore,
+    measuredWeight,
+    totalWeight: 100,
+    normalizedScore: measuredWeight > 0 ? Math.round((measuredScore / measuredWeight) * 100) : null,
+    measuredDimensions: measuredDimensions.length,
+    unmeasuredDimensions: dimensions.length - measuredDimensions.length,
+    dimensions,
+  };
+}
+
 /**
  * 计算评分
  */
-function calculateScores(violations: Violation[]): AnalysisScores {
+function calculateScores(
+  violations: Violation[],
+  context: ScanContext,
+  targetPath: string
+): AnalysisScores {
   // 按规则统计违规数量
   const counts: Record<ViolationCode, number> = {
     SA001: 0,
@@ -554,17 +1324,48 @@ function calculateScores(violations: Violation[]): AnalysisScores {
   const fileSize = Math.max(0, 25 - counts.SA003 * 10);
   const naming = Math.max(0, 25 - counts.SA004 * 5 - counts.SA005 * 1);
 
-  const total = featureStructure + depth + fileSize + naming;
+  const structureTotal = featureStructure + depth + fileSize + naming;
+  const scorecard = buildEngineeringScorecard(
+    counts,
+    {
+      featureStructure,
+      depth,
+      fileSize,
+      naming,
+    },
+    collectProjectSignals(targetPath, context.allFiles),
+    context.hasFeatureDir
+  );
 
   return {
-    total,
+    total: scorecard.normalizedScore ?? structureTotal,
+    structureTotal,
     breakdown: {
       featureStructure,
       depth,
       fileSize,
       naming,
     },
+    scorecard,
   };
+}
+
+function formatDimensionStatus(status: HealthDimensionStatus): string {
+  switch (status) {
+    case 'excellent':
+      return '✅ 优秀';
+    case 'good':
+      return '🟢 良好';
+    case 'needs-improvement':
+      return '⚠️ 需改进';
+    case 'unmeasured':
+    default:
+      return '➖ 待检测';
+  }
+}
+
+function formatDimensionScore(score: number | null, maxScore: number): string {
+  return score === null ? 'N/A' : `${score}/${maxScore}`;
 }
 
 // ============ 输出格式化 ============
@@ -604,12 +1405,29 @@ function formatMarkdown(result: AnalysisResult): string {
   lines.push(`> 项目: ${result.projectName}`);
   lines.push(`> 分析时间: ${result.analyzedAt}`);
   lines.push(`> 配置来源: ${result.configSource}`);
+  lines.push(`> 评分说明: 工程健康度为 8 维评分卡；结构健康度单独展示`);
   lines.push('');
 
-  // 健康度评分
-  lines.push('## 📊 健康度评分');
+  // 工程健康度评分
+  lines.push('## 📊 工程健康度评分卡');
   lines.push('');
   lines.push(`**总分: ${result.scores.total}/100**`);
+  if (result.scores.scorecard.measuredWeight < result.scores.scorecard.totalWeight) {
+    lines.push(`> 已测权重: ${result.scores.scorecard.measuredWeight}/${result.scores.scorecard.totalWeight}，总分按已测维度归一化`);
+    lines.push('');
+  }
+  lines.push('');
+  lines.push('| 维度 | 得分 | 状态 | 说明 |');
+  lines.push('|------|------|------|------|');
+  for (const dimension of result.scores.scorecard.dimensions) {
+    lines.push(`| ${dimension.label} | ${formatDimensionScore(dimension.score, dimension.maxScore)} | ${formatDimensionStatus(dimension.status)} | ${dimension.summary} |`);
+  }
+  lines.push('');
+
+  // 结构健康度
+  lines.push('## 🧱 结构健康度');
+  lines.push('');
+  lines.push(`**结构得分: ${result.scores.structureTotal}/100**`);
   lines.push('');
   lines.push('| 维度 | 得分 |');
   lines.push('|------|------|');
@@ -683,10 +1501,13 @@ function formatMarkdown(result: AnalysisResult): string {
   lines.push('## 🚀 下一步建议');
   lines.push('');
 
+  const needsAttention = result.scores.scorecard.dimensions.filter(dimension => dimension.status === 'needs-improvement');
+  const unmeasured = result.scores.scorecard.dimensions.filter(dimension => !dimension.measured);
+
   if (result.scores.total >= 90) {
-    lines.push('✅ 项目结构健康度良好，继续保持！');
+    lines.push('✅ 工程健康度良好，继续保持。');
   } else if (result.scores.total >= 70) {
-    lines.push('⚠️ 项目结构存在一些问题，建议逐步改进：');
+    lines.push('⚠️ 工程健康度存在短板，建议优先收敛以下事项：');
     if (result.scores.breakdown.featureStructure < 20) {
       lines.push('1. 考虑将按类型分组的目录重构为 Feature-Based 结构');
     }
@@ -696,11 +1517,23 @@ function formatMarkdown(result: AnalysisResult): string {
     if (result.scores.breakdown.depth < 20) {
       lines.push('3. 扁平化过深的目录结构');
     }
+    if (needsAttention.some(dimension => dimension.id === 'type-safety')) {
+      lines.push('4. 补齐 TypeScript strict 与 any 收敛策略');
+    }
+    if (needsAttention.some(dimension => dimension.id === 'test-coverage')) {
+      lines.push('5. 补充测试文件与 coverage 采集');
+    }
   } else {
-    lines.push('🔴 项目结构需要较大改进：');
+    lines.push('🔴 工程健康度需要较大改进：');
     lines.push('1. 建议制定重构计划，分阶段改进');
     lines.push('2. 优先处理 error 级别的问题');
-    lines.push('3. 考虑引入架构规范和代码审查流程');
+    lines.push('3. 补齐 lint / test / build / docs 的基础工程能力');
+  }
+
+  if (unmeasured.length > 0) {
+    lines.push('');
+    lines.push('补充检测建议:');
+    lines.push('1. 接入 lint、coverage、dependency audit 等结果文件，避免评分只依赖静态信号');
   }
   lines.push('');
 
@@ -753,7 +1586,7 @@ export function analyze(options: AnalyzeOptions): AnalysisResult {
   const violations = runRules(structure, config, context);
 
   // 计算评分
-  const scores = calculateScores(violations);
+  const scores = calculateScores(violations, context, fullPath);
 
   // 生成摘要
   const topLargestFiles = [...context.allFiles]
@@ -835,6 +1668,7 @@ function toArchitectureSnapshot(result: AnalysisResult): ArchitectureSnapshot {
     },
     summary: {
       healthScore: result.scores.total,
+      structureHealthScore: result.scores.structureTotal,
       totalFiles: result.summary.totalFiles,
       totalLines: result.summary.topLargestFiles.reduce((sum, f) => sum + f.lines, 0),
       issueCount,
@@ -857,6 +1691,7 @@ function toArchitectureSnapshot(result: AnalysisResult): ArchitectureSnapshot {
       fileSize: result.scores.breakdown.fileSize,
       namingConvention: result.scores.breakdown.naming,
     },
+    scorecard: result.scores.scorecard,
   };
 }
 

@@ -31,6 +31,7 @@ const repoStateValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'repo-
 const validatorGateDistPath = path.join(repoRoot, 'scripts', 'dist', 'validator-gate.js');
 const reportManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'report-manager.js');
 const taskIntakeRouterDistPath = path.join(repoRoot, 'scripts', 'dist', 'task-intake-router.js');
+const structureAnalyzerDistPath = path.join(repoRoot, 'scripts', 'dist', 'structure-analyzer.js');
 const runTestsPath = path.join(repoRoot, 'test', 'run-tests.js');
 
 function assertBuiltArtifactExists(filePath, hintCommand) {
@@ -547,6 +548,92 @@ async function testDistributionProfiles() {
   assert.equal(fullArtifacts.includes('types/module-mapper.js'), true);
   assert.equal(fullArtifacts.includes('types/structure-analyzer.js'), true);
   assert.equal(fullArtifacts.length, new Set(fullArtifacts).size, 'artifacts should be deduplicated');
+}
+
+async function testStructureAnalyzerBuildsEngineeringScorecard() {
+  assertBuiltArtifactExists(structureAnalyzerDistPath, 'npm run build:scripts');
+  const { analyze } = require(structureAnalyzerDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-structure-scorecard-'));
+  try {
+    await fsp.mkdir(path.join(tempDir, 'src', 'features', 'user'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.husky'), { recursive: true });
+
+    await fsp.writeFile(path.join(tempDir, 'package.json'), JSON.stringify({
+      name: 'demo-scorecard-project',
+      packageManager: 'pnpm@9.0.0',
+      scripts: {
+        build: 'vite build',
+        test: 'vitest',
+      },
+      dependencies: {
+        react: '^18.0.0',
+      },
+      devDependencies: {
+        typescript: '^5.0.0',
+      },
+      eslintConfig: {
+        rules: {
+          semi: 'error',
+          quotes: 'error',
+          eqeqeq: 'error',
+          curly: 'error',
+          'no-var': 'error',
+          'prefer-const': 'error',
+          'no-console': 'warn',
+          'no-unused-vars': 'warn',
+          'no-shadow': 'error',
+          'no-debugger': 'error',
+          'no-undef': 'error',
+          'no-alert': 'warn',
+        },
+      },
+      prettier: {},
+    }, null, 2), 'utf-8');
+
+    await fsp.writeFile(path.join(tempDir, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: {
+        strict: true,
+      },
+    }, null, 2), 'utf-8');
+
+    await fsp.writeFile(path.join(tempDir, '.husky', 'pre-commit'), 'npm run test\n', 'utf-8');
+    await fsp.writeFile(path.join(tempDir, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n', 'utf-8');
+
+    await fsp.writeFile(path.join(tempDir, 'src', 'features', 'user', 'UserList.tsx'), [
+      'export async function UserList() {',
+      '  const module = await import("./user-service");',
+      '  return module.renderUserList();',
+      '}',
+      '',
+    ].join('\n'), 'utf-8');
+
+    await fsp.writeFile(path.join(tempDir, 'src', 'features', 'user', 'user-service.ts'), [
+      '/** user service */',
+      'export function renderUserList(): string {',
+      '  return "ok";',
+      '}',
+      '',
+    ].join('\n'), 'utf-8');
+
+    const result = analyze({
+      targetPath: tempDir,
+      mode: 'summary',
+      outputFormat: 'json',
+    });
+
+    assert.equal(result.scores.structureTotal, 100);
+    assert.equal(result.scores.scorecard.dimensions.length, 8);
+    assert.equal(result.scores.scorecard.measuredWeight, 100);
+    assert.equal(result.scores.total < result.scores.structureTotal, true);
+
+    const testCoverage = result.scores.scorecard.dimensions.find(dimension => dimension.id === 'test-coverage');
+    assert.equal(testCoverage?.status, 'needs-improvement');
+    const typeSafety = result.scores.scorecard.dimensions.find(dimension => dimension.id === 'type-safety');
+    assert.equal((typeSafety?.score || 0) >= 10, true);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 async function testInstallRoots() {
@@ -3136,6 +3223,7 @@ async function main() {
     ['prompt builder emits compact mandatory activation rules with installed-skill filtering', testPromptBuilderActivationRules],
     ['prompt builder emits demo profile banner, routing, and runtime summary helpers', testPromptBuilderDemoProfileHelpers],
     ['distribution profiles keep profile boundaries and runtime artifacts stable', testDistributionProfiles],
+    ['structure analyzer emits 8-dimension engineering scorecards without inflating structure-only health', testStructureAnalyzerBuildsEngineeringScorecard],
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
     ['task intake router recommends direct vs orchestrated execution deterministically', testTaskIntakeRoutingLibrary],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],
