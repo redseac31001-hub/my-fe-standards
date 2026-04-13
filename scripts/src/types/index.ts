@@ -265,6 +265,8 @@ export interface PackageJson {
   name?: string;
   version?: string;
   type?: string;
+  private?: boolean;
+  bin?: string | Record<string, string>;
   scripts?: Record<string, string>;
   workspaces?: string[] | { packages?: string[] };
   dependencies?: Record<string, string>;
@@ -274,7 +276,7 @@ export interface PackageJson {
 // ============ 安装状态类型 ============
 
 export type InstallMode = 'local' | 'remote';
-export type InstallProfile = 'core' | 'analysis' | 'orchestrator' | 'full';
+export type InstallProfile = 'core' | 'analysis' | 'orchestrator' | 'full' | 'demo';
 
 export interface InstallManagedFile {
   path: string;
@@ -292,6 +294,7 @@ export interface InstallState {
   profile: InstallProfile;
   enableOrchestrator: boolean;
   contentHash: string;
+  depsFingerprint?: string | null;
   source: {
     remoteBaseUrl: string | null;
     manifestVersion: string | null;

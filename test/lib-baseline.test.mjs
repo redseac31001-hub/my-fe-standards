@@ -18,7 +18,10 @@ const contractValidatorDistPath = path.join(repoRoot, 'scripts', 'dist', 'contra
 const contextTargetingDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'context-targeting.js');
 const installHealthDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'install-health.js');
 const installStateDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'install-state.js');
+const installSyncDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'install-sync.js');
 const installRootsDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'install-roots.js');
+const initGeneratorDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'init-generator.js');
+const promptBuilderDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'prompt-builder.js');
 const projectDetectionDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'project-detection.js');
 const workflowRoutingDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'workflow-routing.js');
 const taskIntakeRoutingDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'task-intake-routing.js');
@@ -45,6 +48,7 @@ function createInstallState(overrides = {}) {
     profile: 'full',
     enableOrchestrator: true,
     contentHash: 'test',
+    depsFingerprint: null,
     source: {
       remoteBaseUrl: null,
       manifestVersion: null,
@@ -385,6 +389,117 @@ async function testMetadataParser() {
   ]);
 }
 
+async function testPromptBuilderActivationRules() {
+  assertBuiltArtifactExists(promptBuilderDistPath, 'npm run build:scripts');
+  const { generateActivationRules } = require(promptBuilderDistPath);
+
+  assert.equal(generateActivationRules([], [], '.codebuddy/skills', '.codebuddy/agents'), '');
+
+  const skills = [
+    {
+      id: 'frontend-code-review',
+      name: 'Frontend Review',
+      description: 'Review frontend code',
+      triggers: ['审查代码/代码质量/code review'],
+    },
+    {
+      id: 'component-refactoring',
+      name: 'Component Refactoring',
+      description: 'Refactor a component safely',
+      triggers: ['组件重构/拆分组件'],
+    },
+  ];
+  const agents = [
+    {
+      id: 'code-reviewer',
+      name: 'Code Reviewer',
+      description: '代码审查 Agent',
+      triggers: ['代码审查', 'CR'],
+      permissions: ['read_file'],
+      relatedSkills: ['frontend-code-review', 'backend-code-review'],
+    },
+  ];
+
+  const output = generateActivationRules(
+    skills,
+    agents,
+    '.codebuddy/skill-snapshots/current',
+    '.codebuddy/agent-snapshots/current',
+  );
+
+  assert.match(output, /MANDATORY ACTIVATION RULES/);
+  assert.match(output, /代码审查与质量/);
+  assert.match(output, /实现与重构/);
+  assert.match(output, /`代码审查` \| `CR` \| `审查代码` \| `代码质量` \| `code review`/);
+  assert.match(output, /\.codebuddy\/agent-snapshots\/current\/code-reviewer\/AGENT\.md/);
+  assert.match(output, /\.codebuddy\/skill-snapshots\/current\/frontend-code-review\/SKILL\.md/);
+  assert.match(output, /\.codebuddy\/skill-snapshots\/current\/component-refactoring\/SKILL\.md/);
+  assert.doesNotMatch(output, /backend-code-review\/SKILL\.md/);
+  assert.match(output, /严格按照 `AGENT\.md` 中的工作流程执行/);
+  assert.match(output, /严格按照 `SKILL\.md` 中的步骤、检查清单或模板执行/);
+
+  // 测试 3: 纯 Skill 无 Agent — THEN 步骤应引用 SKILL.md 而非 AGENT.md
+  const skillOnly = generateActivationRules(
+    [{ id: 'performance-optimization', name: 'Perf', description: '性能优化', triggers: ['性能/优化'] }],
+    [],
+    '.codebuddy/skills',
+    '.codebuddy/agents',
+  );
+  assert.match(skillOnly, /MANDATORY ACTIVATION RULES/);
+  assert.match(skillOnly, /\.codebuddy\/skills\/performance-optimization\/SKILL\.md/);
+  assert.doesNotMatch(skillOnly, /AGENT\.md/);
+  assert.match(skillOnly, /严格按照 `SKILL\.md` 中的步骤、检查清单或模板执行/);
+
+  // 测试 4: 空 triggers 边界 — 不应崩溃，实体仍然被分组
+  const emptyTriggers = generateActivationRules(
+    [{ id: 'empty-skill', name: 'Empty', description: '无触发词', triggers: [] }],
+    [],
+    '.codebuddy/skills',
+    '.codebuddy/agents',
+  );
+  // 空 triggers 的 Skill 仍应被分组（归入 other），但触发词行可能为空或 '-'
+  assert.match(emptyTriggers, /MANDATORY ACTIVATION RULES/);
+  assert.match(emptyTriggers, /\.codebuddy\/skills\/empty-skill\/SKILL\.md/);
+}
+
+async function testPromptBuilderDemoProfileHelpers() {
+  assertBuiltArtifactExists(promptBuilderDistPath, 'npm run build:scripts');
+  const {
+    generateDemoWelcomeBanner,
+    generateUnifiedRoutingPrompt,
+    generateDemoRuntimeSummary,
+  } = require(promptBuilderDistPath);
+
+  const banner = generateDemoWelcomeBanner({
+    framework: 'Vue 3',
+    vueVersion: 3,
+    vueType: 'standard',
+    lang: 'typescript',
+    uiLibs: ['Ant Design Vue'],
+    layer1RulesCount: 4,
+    agentsCount: 6,
+    skillsCount: 8,
+  });
+  assert.match(banner, /已识别技术栈: \*\*Vue 3 \+ TypeScript \+ Ant Design Vue\*\*/);
+  assert.match(banner, /已加载: 4 条核心规范 \| 6 个 Agent \| 8 个 Skill/);
+
+  const routing = generateUnifiedRoutingPrompt(
+    [{ id: 'component-refactoring', name: 'Refactor', description: 'Refactor component', triggers: ['组件重构/拆分组件'] }],
+    [{ id: 'code-reviewer', name: 'Reviewer', description: 'Review code', triggers: ['代码审查', 'CR'], permissions: ['read_file'] }],
+    '.codebuddy/skill-snapshots/current',
+    '.codebuddy/agent-snapshots/current',
+  );
+  assert.match(routing, /# 能力路由表/);
+  assert.match(routing, /code-reviewer\/AGENT\.md/);
+  assert.match(routing, /component-refactoring\/SKILL\.md/);
+  assert.doesNotMatch(routing, /MANDATORY ACTIVATION RULES/);
+
+  const runtimeSummary = generateDemoRuntimeSummary(4, 0, 0, 2);
+  assert.match(runtimeSummary, /## 已安装运行时/);
+  assert.match(runtimeSummary, /工具脚本 4 个 \| 命令 2 个/);
+  assert.doesNotMatch(runtimeSummary, /工作流/);
+}
+
 async function testDistributionProfiles() {
   assertBuiltArtifactExists(distributionProfilesDistPath, 'npm run build:scripts');
   const {
@@ -408,6 +523,13 @@ async function testDistributionProfiles() {
   assert.equal(analysisArtifacts.includes('lib/validator-gate-report.js'), true);
   assert.equal(analysisArtifacts.includes('lib/audit-report.js'), true);
   assert.equal(analysisArtifacts.includes('types/reports.js'), true);
+
+  const demoScripts = getScriptsForProfile('demo').map(item => item.file);
+  assert.deepEqual(demoScripts, ['rule-validator.js', 'skill-validator.js', 'validator-gate.js', 'structure-analyzer.js']);
+  const demoArtifacts = getScriptArtifactsForProfile('demo');
+  assert.equal(demoArtifacts.includes('structure-analyzer.js'), true);
+  assert.equal(demoArtifacts.includes('report-manager.js'), false);
+  assert.equal(demoArtifacts.includes('task-orchestrator.js'), false);
 
   const fullArtifacts = getScriptArtifactsForProfile('full');
   assert.equal(fullArtifacts.includes('agent-registry.js'), true);
@@ -750,6 +872,7 @@ async function testInstallStateHelpers() {
     listSnapshotEntries,
     gcSnapshotEntries,
     buildInstallState,
+    computeDepsFingerprint,
     writeInstallState,
   } = require(installStateDistPath);
 
@@ -828,6 +951,7 @@ async function testInstallStateHelpers() {
       installedAt: '2026-03-12T00:00:00.000Z',
       ctx,
       targetDir: tempDir,
+      depsFingerprint: 'deps-v1',
       outputPath,
       workspaceIndexPath,
       skillsRootDir: '.codebuddy/skill-snapshots/current',
@@ -872,6 +996,7 @@ async function testInstallStateHelpers() {
 
     assert.equal(baselineInstallState.contentHash, rulesOnlyChangeInstallState.contentHash);
     assert.notEqual(baselineInstallState.contentHash, runtimeChangeInstallState.contentHash);
+    assert.equal(baselineInstallState.depsFingerprint, 'deps-v1');
     assert.equal(baselineInstallState.outputs.rulesFile, '.codebuddy/rules/project-rules.md');
     assert.equal(baselineInstallState.outputs.workspaceIndexFile, '.codebuddy/workspace-index.json');
     assert.deepEqual(baselineInstallState.managedFiles.map(file => file.path), [
@@ -885,6 +1010,260 @@ async function testInstallStateHelpers() {
     const writtenInstallState = JSON.parse(await fsp.readFile(installStatePath, 'utf-8'));
     assert.equal(writtenInstallState.version, '3.3.0');
     assert.equal(writtenInstallState.source.contentPackFile, 'packs/content-pack-analysis.json');
+
+    await fsp.mkdir(path.join(tempDir, 'packages', 'web'), { recursive: true });
+    await fsp.writeFile(
+      path.join(tempDir, 'package.json'),
+      JSON.stringify({
+        name: 'workspace-root',
+        version: '1.0.0',
+        dependencies: { vue: '^3.5.0' },
+      }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(tempDir, 'packages', 'web', 'package.json'),
+      JSON.stringify({
+        name: '@demo/web',
+        version: '1.0.0',
+        dependencies: { react: '^19.0.0' },
+      }, null, 2),
+      'utf-8',
+    );
+
+    const workspaceFingerprint = computeDepsFingerprint(tempDir, {
+      isWorkspace: true,
+      rootDir: tempDir,
+      projects: [
+        {
+          name: 'workspace-root',
+          relativePath: '.',
+          absolutePath: tempDir,
+          lang: 'typescript',
+          packageJson: {
+            name: 'workspace-root',
+            version: '1.0.0',
+            dependencies: { vue: '^3.5.0' },
+          },
+          vueProfile: { version: 3, type: 'standard' },
+          dependencies: { vue: '^3.5.0' },
+          matchedLayer2Rules: [],
+          frameworkLabel: 'Vue 3',
+          uiLibLabels: [],
+          projectKind: 'frontend',
+          stackTags: ['typescript', 'vue3'],
+        },
+        {
+          name: '@demo/web',
+          relativePath: 'packages/web',
+          absolutePath: path.join(tempDir, 'packages', 'web'),
+          lang: 'typescript',
+          packageJson: {
+            name: '@demo/web',
+            version: '1.0.0',
+            dependencies: { react: '^19.0.0' },
+          },
+          vueProfile: null,
+          dependencies: { react: '^19.0.0' },
+          matchedLayer2Rules: [],
+          frameworkLabel: 'React',
+          uiLibLabels: [],
+          projectKind: 'frontend',
+          stackTags: ['typescript', 'react'],
+        },
+      ],
+      discoveredAt: '2026-03-12T00:00:00.000Z',
+      scope: 'workspace-union',
+      selectedProject: null,
+      totalProjectCount: 2,
+    });
+
+    await fsp.writeFile(
+      path.join(tempDir, 'packages', 'web', 'package.json'),
+      JSON.stringify({
+        name: '@demo/web',
+        version: '1.0.0',
+        dependencies: { react: '^19.1.0' },
+      }, null, 2),
+      'utf-8',
+    );
+    const changedWorkspaceFingerprint = computeDepsFingerprint(tempDir, {
+      isWorkspace: true,
+      rootDir: tempDir,
+      projects: [
+        {
+          name: 'workspace-root',
+          relativePath: '.',
+          absolutePath: tempDir,
+          lang: 'typescript',
+          packageJson: {
+            name: 'workspace-root',
+            version: '1.0.0',
+            dependencies: { vue: '^3.5.0' },
+          },
+          vueProfile: { version: 3, type: 'standard' },
+          dependencies: { vue: '^3.5.0' },
+          matchedLayer2Rules: [],
+          frameworkLabel: 'Vue 3',
+          uiLibLabels: [],
+          projectKind: 'frontend',
+          stackTags: ['typescript', 'vue3'],
+        },
+        {
+          name: '@demo/web',
+          relativePath: 'packages/web',
+          absolutePath: path.join(tempDir, 'packages', 'web'),
+          lang: 'typescript',
+          packageJson: {
+            name: '@demo/web',
+            version: '1.0.0',
+            dependencies: { react: '^19.1.0' },
+          },
+          vueProfile: null,
+          dependencies: { react: '^19.1.0' },
+          matchedLayer2Rules: [],
+          frameworkLabel: 'React',
+          uiLibLabels: [],
+          projectKind: 'frontend',
+          stackTags: ['typescript', 'react'],
+        },
+      ],
+      discoveredAt: '2026-03-12T00:00:00.000Z',
+      scope: 'workspace-union',
+      selectedProject: null,
+      totalProjectCount: 2,
+    });
+    assert.notEqual(workspaceFingerprint, changedWorkspaceFingerprint);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testInstallLockHelpers() {
+  assertBuiltArtifactExists(installSyncDistPath, 'npm run build:scripts');
+  const { acquireInstallLock, releaseInstallLock } = require(installSyncDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-install-lock-'));
+  try {
+    const loggerA = createTestLogger();
+    const firstLock = acquireInstallLock(tempDir, loggerA.logger);
+    assert.ok(firstLock, 'first install lock should be acquired');
+    assert.equal(fs.existsSync(path.join(tempDir, '.codebuddy', '.install.lock')), true);
+
+    const loggerB = createTestLogger();
+    const secondLock = acquireInstallLock(tempDir, loggerB.logger);
+    assert.equal(secondLock, null);
+    assert.equal(loggerB.messages.warn.some(message => message.includes('另一个安装进程正在运行')), true);
+
+    releaseInstallLock(firstLock, loggerA.logger);
+    assert.equal(fs.existsSync(path.join(tempDir, '.codebuddy', '.install.lock')), false);
+
+    await fsp.mkdir(path.join(tempDir, '.codebuddy'), { recursive: true });
+    await fsp.writeFile(
+      path.join(tempDir, '.codebuddy', '.install.lock'),
+      JSON.stringify({
+        pid: 999,
+        startedAt: '2026-03-12T00:00:00.000Z',
+        hostname: 'stale-host',
+        lockId: 'stale-lock',
+      }, null, 2),
+      'utf-8',
+    );
+
+    const loggerC = createTestLogger();
+    const staleReplacementLock = acquireInstallLock(tempDir, loggerC.logger);
+    assert.ok(staleReplacementLock, 'stale install lock should be replaced');
+    assert.equal(loggerC.messages.warn.some(message => message.includes('发现过期安装锁')), true);
+    releaseInstallLock(staleReplacementLock, loggerC.logger);
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function testInitGenerator() {
+  assertBuiltArtifactExists(initGeneratorDistPath, 'npm run build:scripts');
+  const { runInit } = require(initGeneratorDistPath);
+
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-init-generator-'));
+  try {
+    await fsp.mkdir(path.join(tempDir, '.codebuddy'), { recursive: true });
+    await fsp.mkdir(path.join(tempDir, '.husky', '_'), { recursive: true });
+    await fsp.writeFile(
+      path.join(tempDir, '.codebuddy', 'install.json'),
+      JSON.stringify(createInstallState(), null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(
+      path.join(tempDir, 'package.json'),
+      JSON.stringify({
+        name: 'demo-app',
+        version: '1.0.0',
+        scripts: {
+          test: 'vitest',
+        },
+        devDependencies: {
+          husky: '^9.0.0',
+        },
+      }, null, 2),
+      'utf-8',
+    );
+    await fsp.writeFile(path.join(tempDir, '.husky', '_', 'husky.sh'), '#!/usr/bin/env sh\n', 'utf-8');
+
+    const dryRunLogger = createTestLogger();
+    const dryRunResult = runInit({
+      targetDir: tempDir,
+      bootstrapPackageName: 'my-fe-standards',
+      gitHooks: true,
+      ci: true,
+      scripts: true,
+      force: false,
+      dryRun: true,
+    }, dryRunLogger.logger);
+    assert.equal(dryRunResult.generated.includes('.github/workflows/codebuddy-gate.yml'), true);
+    assert.equal(dryRunResult.generated.includes('.husky/pre-commit'), true);
+    assert.equal(dryRunResult.generated.includes('.husky/pre-push'), true);
+    assert.equal(dryRunResult.injected.includes('codebuddy:install'), true);
+    assert.equal(fs.existsSync(path.join(tempDir, '.github', 'workflows', 'codebuddy-gate.yml')), false);
+
+    const logger = createTestLogger();
+    const result = runInit({
+      targetDir: tempDir,
+      bootstrapPackageName: 'my-fe-standards',
+      gitHooks: true,
+      ci: true,
+      scripts: true,
+      force: false,
+      dryRun: false,
+    }, logger.logger);
+
+    const packageJson = JSON.parse(await fsp.readFile(path.join(tempDir, 'package.json'), 'utf-8'));
+    const workflow = await fsp.readFile(path.join(tempDir, '.github', 'workflows', 'codebuddy-gate.yml'), 'utf-8');
+    const preCommit = await fsp.readFile(path.join(tempDir, '.husky', 'pre-commit'), 'utf-8');
+    const prePush = await fsp.readFile(path.join(tempDir, '.husky', 'pre-push'), 'utf-8');
+
+    assert.equal(result.generated.includes('.github/workflows/codebuddy-gate.yml'), true);
+    assert.equal(packageJson.scripts['codebuddy:install'], 'npx --yes --package my-fe-standards codebuddy-loader install');
+    assert.equal(packageJson.scripts['codebuddy:doctor'], 'npx --yes --package my-fe-standards codebuddy-loader doctor');
+    assert.equal(packageJson.scripts['codebuddy:validate'], 'node .codebuddy/scripts/validator-gate.js run');
+    assert.equal(workflow.includes('codebuddy-loader install --if-deps-changed'), true);
+    assert.equal(workflow.includes('validator-gate.js run --json'), true);
+    assert.equal(workflow.includes('codebuddy-loader doctor --json'), true);
+    assert.equal(preCommit.includes('node .codebuddy/scripts/validator-gate.js run --scope rules'), true);
+    assert.equal(prePush.includes('npx --yes --package my-fe-standards codebuddy-loader doctor'), true);
+
+    const rerunResult = runInit({
+      targetDir: tempDir,
+      bootstrapPackageName: 'my-fe-standards',
+      gitHooks: true,
+      ci: true,
+      scripts: true,
+      force: false,
+      dryRun: false,
+    }, logger.logger);
+    assert.equal(rerunResult.generated.length, 0);
+    assert.equal(rerunResult.skipped.includes('.github/workflows/codebuddy-gate.yml'), true);
+    assert.equal(rerunResult.skipped.includes('.husky/pre-commit'), true);
+    assert.equal(rerunResult.skipped.includes('.husky/pre-push'), true);
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
@@ -1716,7 +2095,13 @@ async function testValidatorGateWritesStrictReports() {
 
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'my-fe-standards-validator-gate-'));
   try {
-    await writeRepositoryFactFixture(tempDir);
+    const today = new Date().toISOString().slice(0, 10);
+    await writeRepositoryFactFixture(tempDir, {
+      roadmapLastUpdated: today,
+      docsIndexLastUpdated: today,
+      protocolLastUpdated: today,
+      handoffLatestDate: today,
+    });
 
     const rulesDir = path.join(tempDir, 'rules');
     const skillsDir = path.join(tempDir, 'custom-skills');
@@ -2748,6 +3133,8 @@ async function main() {
   const tests = [
     ['frontmatter utils parse and extract structured YAML content', testFrontmatterUtils],
     ['metadata parser normalizes skill and agent metadata', testMetadataParser],
+    ['prompt builder emits compact mandatory activation rules with installed-skill filtering', testPromptBuilderActivationRules],
+    ['prompt builder emits demo profile banner, routing, and runtime summary helpers', testPromptBuilderDemoProfileHelpers],
     ['distribution profiles keep profile boundaries and runtime artifacts stable', testDistributionProfiles],
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
     ['task intake router recommends direct vs orchestrated execution deterministically', testTaskIntakeRoutingLibrary],
@@ -2774,6 +3161,8 @@ async function main() {
     ['context targeting keeps skill and business-rule matching stable', testContextTargeting],
     ['project detection recognizes workspace structure and target selection', testProjectDetection],
     ['install state helpers keep snapshot retention and hashing stable', testInstallStateHelpers],
+    ['install lock helpers enforce atomic single-writer semantics with stale lock recovery', testInstallLockHelpers],
+    ['init generator writes CI, husky hooks, and package scripts without duplicate re-entry', testInitGenerator],
     ['install roots prefer installed outputs and fall back predictably', testInstallRoots],
   ];
 

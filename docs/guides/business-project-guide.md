@@ -37,23 +37,44 @@
 --profile analysis --rule-level quick --pack-only
 ```
 
+如果你要演示平台闭环能力，而不是只演示规则加载，业务项目建议直接加上：
+
+```text
+--full
+```
+
+这会额外安装：
+
+- `task-orchestrator.js`
+- `task-executor.js`
+- `taskbook-manager.js`
+- `agent-call-manager.js`
+- Workflow / TaskBook / Agent Call 契约
+
 macOS / Linux：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 ```
 
 Windows PowerShell：
 
 ```powershell
-iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
-node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 ```
 
-如需完整编排能力，追加：
+如果你要做“多 Agent 协作 + 需求分析 / 设计 / 开发 / 审查 / 测试流程”演示，推荐直接使用：
 
-```text
---profile full
+```bash
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
+```
+
+Windows PowerShell：
+
+```powershell
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
 ```
 
 ### 方式一补充：直接执行 loader
@@ -61,14 +82,14 @@ node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac3100
 无需下载任何文件，在**业务项目根目录**执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 ```
 
 Windows PowerShell：
 
 ```powershell
-iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-loader.bundle.js -OutFile codebuddy-loader.bundle.js
-node codebuddy-loader.bundle.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-loader.bundle.js -OutFile codebuddy-loader.bundle.js
+node codebuddy-loader.bundle.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 ```
 
 **执行过程**：
@@ -109,6 +130,12 @@ node codebuddy-loader.js --remote https://internal.company.com/fe-standards
 | `--rule-level <lvl>` | 规则裁剪等级 | `--rule-level quick` |
 | `--enable-orchestrator` | 启用完整编排体系 | 含 Workflow/TaskBook/AgentCall |
 | `--verbose` | 详细日志 | 调试问题时使用 |
+
+演示推荐档位：
+
+- 平台闭环演示：`--full`
+- 普通规则/分析接入：默认 `analysis`
+- 规则详细度：默认 `quick` 已足够，除非你明确要演示完整规则正文
 
 ---
 

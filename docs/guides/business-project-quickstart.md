@@ -16,20 +16,32 @@ date: 2026-03-23
 
 ## 1. 安装
 
-在业务项目根目录执行：
+如果你要演示多 Agent 协作、需求分析、设计、开发、审查、测试闭环，推荐直接安装完整运行时。
+
+macOS / Linux：
 
 ```bash
-node scripts/dist/codebuddy-loader.js
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
 ```
 
-如果你使用远程源，Windows PowerShell 推荐：
+Windows PowerShell：
 
 ```powershell
-iwr https://your-server.com/standards/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
-node codebuddy-install.js --remote https://your-server.com/standards --profile full --pack-only
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
 ```
 
-如果你使用远程源，按你的远程安装方式执行即可；Quickstart 不改变安装步骤。
+说明：
+
+- `codebuddy-install.js` 默认补齐 `--rule-level quick --pack-only`
+- `--full` 会安装完整编排链路，适合演示 `task-orchestrator / task-executor / TaskBook / Agent Call`
+- 如果你只是要轻量规则和分析能力，不演示闭环，可以去掉 `--full`
+
+如果你是在 `my-fe-standards` 仓库内做本地夹具验证，再使用：
+
+```bash
+node scripts/dist/codebuddy-loader.js --profile full --rule-level quick
+```
 
 安装后先确认：
 
@@ -157,7 +169,7 @@ node .codebuddy/scripts/report-manager.js hotspots --top 10
 
 ```bash
 # 1) 安装/同步
-node scripts/dist/codebuddy-loader.js
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
 
 # 2) 确认状态
 node .codebuddy/scripts/codebuddy-loader.js status
@@ -177,7 +189,7 @@ node .codebuddy/scripts/task-executor.js <taskBookId>
 
 ```bash
 # 1) 安装/同步
-node scripts/dist/codebuddy-loader.js
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 
 # 2) 让 AI 先读 API/需求文档与当前相关代码
 

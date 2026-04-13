@@ -553,6 +553,59 @@ interface RouteGroup<T, K extends string> {
   items: T[];
 }
 
+type ActivationCategory =
+  | 'review'
+  | 'diagnosis'
+  | 'performance'
+  | 'architecture'
+  | 'documentation'
+  | 'testing'
+  | 'implementation'
+  | 'orchestration'
+  | 'other';
+
+interface ActivationGroupEntry {
+  id: string;
+  entityType: 'skill' | 'agent';
+  name: string;
+  description: string;
+  triggers: string[];
+  filePath: string;
+  relatedSkills?: string[];
+}
+
+interface ActivationGroup {
+  key: ActivationCategory;
+  title: string;
+  entries: ActivationGroupEntry[];
+  mergedTriggers: string[];
+}
+
+const ACTIVATION_GROUP_DEFINITIONS: Array<{ key: ActivationCategory; title: string }> = [
+  { key: 'review', title: '代码审查与质量' },
+  { key: 'diagnosis', title: 'Bug 排查与修复' },
+  { key: 'performance', title: '性能与构建优化' },
+  { key: 'architecture', title: '架构与结构分析' },
+  { key: 'documentation', title: '文档与设计' },
+  { key: 'testing', title: '测试实现' },
+  { key: 'implementation', title: '实现与重构' },
+  { key: 'orchestration', title: '规划与执行' },
+  { key: 'other', title: '其他专用能力' },
+];
+
+const AGENT_ACTIVATION_CATEGORY_OVERRIDES: Partial<Record<string, ActivationCategory>> = {
+  'bug-investigator': 'diagnosis',
+  'build-fix': 'diagnosis',
+  'code-reviewer': 'review',
+  'performance-profiler': 'performance',
+  'planner': 'orchestration',
+  'security-reviewer': 'review',
+  'structure-analyzer': 'architecture',
+  'system-overview-writer': 'documentation',
+  'task-orchestrator': 'orchestration',
+  'tdd-driver': 'testing',
+};
+
 const ORCHESTRATION_ROUTE_KEYWORDS = [
   'orchestrator',
   'planner',
@@ -633,12 +686,28 @@ function includesAnyKeyword(text: string, keywords: readonly string[]): boolean 
   return keywords.some(keyword => text.includes(keyword));
 }
 
+function normalizeKeywords(values: string[] | undefined): string[] {
+  return [...new Set((values || []).map(value => value.trim()).filter(Boolean))];
+}
+
 function summarizeRouteTriggers(triggers: string[] | undefined, maxItems = 3): string {
-  const values = [...new Set((triggers || []).map(trigger => trigger.trim()).filter(Boolean))];
+  const values = normalizeKeywords(triggers);
   if (values.length === 0) return '-';
 
   const formatted = values.slice(0, maxItems).map(trigger => `\`${trigger}\``).join(', ');
   return values.length > maxItems ? `${formatted} +${values.length - maxItems}` : formatted;
+}
+
+function flattenSkillTriggers(triggers: string[]): string[] {
+  return normalizeKeywords(triggers.flatMap(trigger => trigger.split('/').map(part => part.trim())));
+}
+
+function formatTriggerKeywords(keywords: string[], maxItems = 5, separator = ', '): string {
+  const uniqueKeywords = normalizeKeywords(keywords);
+  if (uniqueKeywords.length === 0) return '-';
+
+  const formatted = uniqueKeywords.slice(0, maxItems).map(keyword => `\`${keyword}\``).join(separator);
+  return uniqueKeywords.length > maxItems ? `${formatted}${separator}+${uniqueKeywords.length - maxItems}` : formatted;
 }
 
 function formatRouteIds(ids: string[]): string {
@@ -801,6 +870,119 @@ function groupSkillsByScenario(skills: SkillMetadata[]): Array<RouteGroup<SkillM
   return groups.filter(group => group.items.length > 0);
 }
 
+function classifyAgentForActivation(agent: AgentMetadata): ActivationCategory {
+  const override = AGENT_ACTIVATION_CATEGORY_OVERRIDES[agent.id];
+  if (override) {
+    return override;
+  }
+
+  const text = `${agent.id} ${agent.name} ${normalizeKeywords(agent.triggers).join(' ')}`.toLowerCase();
+
+  if (includesAnyKeyword(text, DOCUMENTATION_ROUTE_KEYWORDS)) {
+    return 'documentation';
+  }
+  if (/(performance|profil(e|er)?|lighthouse|web vitals|性能分析|性能优化|渲染性能|加载速度)/.test(text)) {
+    return 'performance';
+  }
+  if (includesAnyKeyword(text, ORCHESTRATION_ROUTE_KEYWORDS)) {
+    return 'orchestration';
+  }
+  if (/(structure|module|architecture|目录|架构|项目健康度)/.test(text)) {
+    return 'architecture';
+  }
+  if (/(review|security|审查|安全|代码质量)/.test(text)) {
+    return 'review';
+  }
+  if (/(testing|test|tdd|测试驱动|测试先行|写测试)/.test(text)) {
+    return 'testing';
+  }
+  if (/(bug|debug|fix|修复|排查|异常|报错|白屏|lint|type error|类型错误|编译错误|构建失败)/.test(text)) {
+    return 'diagnosis';
+  }
+
+  return 'other';
+}
+
+function classifySkillForActivation(skill: SkillMetadata): ActivationCategory {
+  const scenarioText = normalizeKeywords(skill.scenarios).join(' ');
+  const text = `${skill.id} ${skill.name} ${flattenSkillTriggers(skill.triggers).join(' ')} ${scenarioText}`.toLowerCase();
+
+  if (includesAnyKeyword(text, DOCUMENTATION_SKILL_ROUTE_KEYWORDS) || /(概要设计|系统设计文档|设计文档模板|prd|需求文档|产品文档|documentation)/.test(text)) {
+    return 'documentation';
+  }
+  if (/(performance|build-optimization|render|bundle|懒加载|虚拟滚动|首屏|加载速度|包体积|构建优化)/.test(text)) {
+    return 'performance';
+  }
+  if (/(structure|module|architecture|模块|目录|架构)/.test(text)) {
+    return 'architecture';
+  }
+  if (/(review|审查|code review|代码质量|a11y|i18n|wcag|无障碍|国际化|quality|code-review|localization)/.test(text)) {
+    return 'review';
+  }
+  if (includesAnyKeyword(text, IMPLEMENTATION_SKILL_ROUTE_KEYWORDS) || /(state-management|migration|pinia|vuex|store|组件重构|拆分组件)/.test(text)) {
+    return 'implementation';
+  }
+  if (/(testing|test|测试|api 测试|单元测试|coverage)/.test(text)) {
+    return 'testing';
+  }
+  if (/(plan|planning|workflow|ralph|skill-creator|格式转换|conversion)/.test(text)) {
+    return 'orchestration';
+  }
+
+  return 'other';
+}
+
+function buildActivationGroups(
+  skills: SkillMetadata[],
+  agents: AgentMetadata[],
+  skillsRootDir: string,
+  agentsRootDir: string,
+): ActivationGroup[] {
+  if (skills.length === 0 && agents.length === 0) {
+    return [];
+  }
+
+  const groups = new Map<ActivationCategory, ActivationGroup>(
+    ACTIVATION_GROUP_DEFINITIONS.map(definition => [
+      definition.key,
+      { key: definition.key, title: definition.title, entries: [], mergedTriggers: [] },
+    ]),
+  );
+
+  for (const agent of [...agents].sort((a, b) => a.id.localeCompare(b.id))) {
+    const category = classifyAgentForActivation(agent);
+    groups.get(category)?.entries.push({
+      id: agent.id,
+      entityType: 'agent',
+      name: agent.name,
+      description: agent.description,
+      triggers: normalizeKeywords(agent.triggers),
+      filePath: `${agentsRootDir}/${agent.id}/AGENT.md`,
+      relatedSkills: agent.relatedSkills,
+    });
+  }
+
+  for (const skill of [...skills].sort((a, b) => a.id.localeCompare(b.id))) {
+    const category = classifySkillForActivation(skill);
+    groups.get(category)?.entries.push({
+      id: skill.id,
+      entityType: 'skill',
+      name: skill.name,
+      description: skill.description,
+      triggers: flattenSkillTriggers(skill.triggers),
+      filePath: `${skillsRootDir}/${skill.id}/SKILL.md`,
+    });
+  }
+
+  return ACTIVATION_GROUP_DEFINITIONS
+    .map(definition => groups.get(definition.key)!)
+    .map(group => ({
+      ...group,
+      mergedTriggers: normalizeKeywords(group.entries.flatMap(entry => entry.triggers)),
+    }))
+    .filter(group => group.entries.length > 0);
+}
+
 export function generateAgentsPrompt(agents: AgentMetadata[], agentsRootDir = '.codebuddy/agents'): string {
   if (agents.length === 0) return '';
 
@@ -903,6 +1085,64 @@ ${groupSections}
 
 **仅当用户请求执行具体操作时**才触发技能加载。
 `;
+}
+
+export function generateActivationRules(
+  skills: SkillMetadata[],
+  agents: AgentMetadata[],
+  skillsRootDir: string,
+  agentsRootDir: string,
+): string {
+  const groups = buildActivationGroups(skills, agents, skillsRootDir, agentsRootDir);
+  if (groups.length === 0) return '';
+
+  const installedSkillIds = new Set(skills.map(skill => skill.id));
+  let sections = '';
+  let ruleNumber = 1;
+
+  for (const group of groups) {
+    const agentEntries = group.entries.filter((entry): entry is ActivationGroupEntry => entry.entityType === 'agent');
+    const directSkillPaths = group.entries
+      .filter((entry): entry is ActivationGroupEntry => entry.entityType === 'skill')
+      .map(entry => entry.filePath);
+    const relatedSkillPaths = agentEntries.flatMap(agent =>
+      (agent.relatedSkills || [])
+        .filter(skillId => installedSkillIds.has(skillId))
+        .map(skillId => `${skillsRootDir}/${skillId}/SKILL.md`),
+    );
+    const skillPaths = [...new Set([...directSkillPaths, ...relatedSkillPaths])];
+
+    const thenSteps: string[] = [];
+    if (agentEntries.length > 0) {
+      thenSteps.push(`优先读取 Agent 定义：${formatCodeList(agentEntries.map(entry => entry.filePath))}`);
+    }
+    if (skillPaths.length > 0) {
+      thenSteps.push(`补充读取 Skill：${formatCodeList(skillPaths)}；如存在同级 \`references/\`，一并读取。`);
+    }
+    if (agentEntries.length > 0) {
+      thenSteps.push('严格按照 `AGENT.md` 中的工作流程执行；如已读取 Skill，再同步遵循 `SKILL.md` 的检查清单、模板或输出要求。');
+    } else {
+      thenSteps.push('严格按照 `SKILL.md` 中的步骤、检查清单或模板执行。');
+    }
+
+    const thenBlock = thenSteps.map((step, index) => `  ${index + 1}. ${step}`).join('\n');
+    sections += `## 规则 ${ruleNumber}：${group.title}\n\n`;
+    sections += `- **WHEN**：用户请求命中以下任一关键词时触发\n`;
+    sections += `  ${formatTriggerKeywords(group.mergedTriggers, 8, ' | ')}\n`;
+    sections += `- **THEN**：\n${thenBlock}\n`;
+    sections += `- **NEVER**：\n`;
+    sections += `  - ❌ 不得跳过已安装的 Skill/Agent，直接用通用知识替代\n`;
+    sections += `  - ❌ 不得省略工作流程中的必要步骤\n\n`;
+    ruleNumber += 1;
+  }
+
+  return `
+# ⚡ 强制激活规则（MANDATORY ACTIVATION RULES）
+
+> 当用户请求命中以下触发词时，**必须先读取对应 Agent/Skill 文件，再执行任务**。
+> 不要跳过已安装能力，也不要只依赖通用知识直接作答。
+
+${sections}`;
 }
 
 export function generateRuleActivationPrompt(_config: LoaderConfig): string {
@@ -1075,5 +1315,158 @@ ${routingRules}\`\`\`
 4. 应用对应技术栈的编码约定
 ${routingExample}${mixWarning}
 **重要**: 每个子项目的 Layer2 规则缓存独立存放在 \`.codebuddy/rules_cache/projects/{项目路径}/layer2_business/\` 下。
+`;
+}
+
+// ============ Demo 模式专用生成器 ============
+
+export interface DemoWelcomeBannerOptions {
+  vueVersion: number | null;
+  vueType: string | null;
+  uiLibs: string[];
+  lang: string;
+  framework: string | null;
+  layer1RulesCount: number;
+  agentsCount: number;
+  skillsCount: number;
+}
+
+/**
+ * 生成 demo 模式的欢迎 Banner（技术栈识别 + 快速上手）
+ */
+export function generateDemoWelcomeBanner(options: DemoWelcomeBannerOptions): string {
+  const stackParts: string[] = [];
+  const seen = new Set<string>();
+  const pushPart = (value: string | null | undefined): void => {
+    const part = (value || '').trim();
+    if (!part) return;
+    const key = part.replace(/\s+/g, '').toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    stackParts.push(part);
+  };
+
+  pushPart(options.framework);
+  if (options.vueVersion) pushPart(`Vue ${options.vueVersion}`);
+  if (options.lang !== 'unknown') pushPart(options.lang === 'typescript' ? 'TypeScript' : options.lang);
+  for (const lib of options.uiLibs) pushPart(lib);
+
+  const stackLabel = stackParts.length > 0 ? stackParts.join(' + ') : '通用项目';
+
+  return `# CodeBuddy 前端架构助手
+
+已识别技术栈: **${stackLabel}**
+已加载: ${options.layer1RulesCount} 条核心规范 | ${options.agentsCount} 个 Agent | ${options.skillsCount} 个 Skill
+
+快速上手:
+- 输入 \`/task 实现用户登录\` 启动任务编排
+- 输入 "审查这段代码" 触发代码审查
+- 输入 "帮我排查这个 bug" 启动 Bug 调查
+- 输入 "分析项目结构" 执行架构分析
+
+---
+
+`;
+}
+
+/**
+ * 生成 demo 模式的统一路由表（替代 Agent 表 + Skill 表 + 激活规则三个段落）
+ */
+export function generateUnifiedRoutingPrompt(
+  skills: SkillMetadata[],
+  agents: AgentMetadata[],
+  skillsRootDir: string,
+  agentsRootDir: string,
+): string {
+  if (skills.length === 0 && agents.length === 0) return '';
+
+  const rows: Array<{ keywords: string; filePath: string; entityType: string }> = [];
+
+  for (const agent of [...agents].sort((a, b) => a.id.localeCompare(b.id))) {
+    const triggers = normalizeKeywords(agent.triggers);
+    if (triggers.length === 0) continue;
+    rows.push({
+      keywords: triggers.slice(0, 4).join(', '),
+      filePath: `${agentsRootDir}/${agent.id}/AGENT.md`,
+      entityType: 'Agent',
+    });
+  }
+
+  for (const skill of [...skills].sort((a, b) => a.id.localeCompare(b.id))) {
+    const triggers = flattenSkillTriggers(skill.triggers);
+    if (triggers.length === 0) continue;
+    rows.push({
+      keywords: triggers.slice(0, 4).join(', '),
+      filePath: `${skillsRootDir}/${skill.id}/SKILL.md`,
+      entityType: 'Skill',
+    });
+  }
+
+  let table = '| 关键词 | 读取文件 |\n|--------|----------|\n';
+  for (const row of rows) {
+    table += `| ${row.keywords} | \`${row.filePath}\` |\n`;
+  }
+
+  return `
+# 能力路由表
+
+用户请求 → 匹配下表关键词 → 读取对应文件 → 按文件中步骤执行
+
+${table}
+
+**规则**: 命中关键词后**必须**先用 \`read_file\` 读取对应文件，不得跳过。未命中任何关键词时，直接基于上方核心规范回答。
+
+---
+
+`;
+}
+
+/**
+ * demo 模式的快速行动指引（仅 4 个核心场景）
+ */
+export function generateDemoQuickActionGuide(): string {
+  return `
+## 快速行动指引
+
+| 场景 | 入口 |
+|------|------|
+| 新功能 / 重构 / 缺陷修复 | \`/task <需求描述>\` |
+| 代码审查 | 说 "审查这段代码" 或 "code review" |
+| Bug 排查 | 说 "帮我排查" 或 "修复 bug" |
+| 项目结构分析 | 说 "分析项目结构" |
+
+需要查看规则详情时，使用 \`read_file\` 读取 \`.codebuddy/rules_cache/\` 下对应文件。
+
+---
+
+`;
+}
+
+/**
+ * demo 模式的紧凑运行时汇总（替代 Scripts/Workflows/TaskBooks/Commands 四个段落）
+ */
+export function generateDemoRuntimeSummary(
+  scriptsCount: number,
+  workflowsCount: number,
+  taskbooksCount: number,
+  commandsCount: number,
+): string {
+  const items: string[] = [];
+  if (scriptsCount > 0) items.push(`工具脚本 ${scriptsCount} 个`);
+  if (workflowsCount > 0) items.push(`工作流 ${workflowsCount} 个`);
+  if (taskbooksCount > 0) items.push(`任务书契约 ${taskbooksCount} 个`);
+  if (commandsCount > 0) items.push(`命令 ${commandsCount} 个`);
+
+  if (items.length === 0) return '';
+
+  return `
+## 已安装运行时
+
+${items.join(' | ')}
+
+详见 \`.codebuddy/scripts/README.md\` 和 \`.codebuddy/commands/README.md\`。
+
+---
+
 `;
 }

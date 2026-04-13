@@ -2,6 +2,10 @@
   "name": "my-fe-standards",
   "version": "3.3.0",
   "description": "AI 辅助开发平台 - 前端架构师规则库 + Ralph 自主编码系统",
+  "bin": {
+    "codebuddy-loader": "./scripts/dist/codebuddy-loader.bundle.js",
+    "codebuddy-install": "./scripts/dist/codebuddy-install.js"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "esbuild": "^0.27.3",

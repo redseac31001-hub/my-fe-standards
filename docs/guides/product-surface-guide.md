@@ -29,14 +29,20 @@ date: 2026-03-16
 主入口：
 
 ```bash
-# 安装或同步到当前项目
-node scripts/dist/codebuddy-loader.js
+# 业务项目推荐：远程安装完整运行时（适合平台闭环演示）
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
 
-# 查看当前项目安装状态
-node scripts/dist/codebuddy-loader.js status
+# 安装后在业务项目内查看状态
+node .codebuddy/scripts/codebuddy-loader.js status
 
-# 诊断当前项目安装问题
-node scripts/dist/codebuddy-loader.js doctor --json
+# 安装后在业务项目内诊断问题
+node .codebuddy/scripts/codebuddy-loader.js doctor --json
+```
+
+如果你是在 `my-fe-standards` 仓库内做本地开发或夹具验证，再使用：
+
+```bash
+node scripts/dist/codebuddy-loader.js --profile full --rule-level quick
 ```
 
 你需要关注的结果：
@@ -48,6 +54,7 @@ node scripts/dist/codebuddy-loader.js doctor --json
 相关文档：
 
 - [Business Project Guide](./business-project-guide.md)
+- [GLM4.7 业务项目演示 Runbook](./glm47-business-demo-runbook.md)
 - [Private Deployment Guide](./private-deployment-guide.md)
 - [Remote Usage Guide](./remote-usage-guide.md)
 

@@ -69,6 +69,7 @@ const project_detection_1 = require("./lib/project-detection");
 const context_targeting_1 = require("./lib/context-targeting");
 const remote_content_pack_1 = require("./lib/remote-content-pack");
 const metadata_parser_1 = require("./lib/metadata-parser");
+const init_generator_1 = require("./lib/init-generator");
 const prompt_builder_1 = require("./lib/prompt-builder");
 // ============ 配置常量 ============
 const SCRIPT_DIR = __dirname;
@@ -84,10 +85,30 @@ const DEFAULT_RULE_LEVEL = 'full';
 const DEFAULT_PROFILE = 'analysis';
 const SKILL_SNAPSHOT_RETAIN_COUNT = 3;
 const AGENT_SNAPSHOT_RETAIN_COUNT = 3;
-const COMMANDS = new Set(['install', 'status', 'doctor']);
-const INSTALL_PROFILES = ['core', 'analysis', 'orchestrator', 'full'];
+const DEMO_SKILL_LIMIT = 8;
+const DEMO_AGENT_LIMIT = 6;
+const COMMANDS = new Set(['install', 'status', 'doctor', 'init']);
+const INSTALL_PROFILES = ['core', 'analysis', 'orchestrator', 'full', 'demo'];
 const WORKSPACE_SCOPES = ['workspace-union', 'project-targeted'];
 const SKILL_ROLES = ['frontend', 'backend', 'fullstack', 'qa', 'architect', 'product', 'devops'];
+const DEMO_LOW_PRIORITY_SKILL_IDS = new Set([
+    'prd',
+    'ralph-converter',
+    'skill-creator',
+    'system-overview-design',
+]);
+const DEMO_AGENT_BASE_PRIORITY = {
+    'code-reviewer': 24,
+    'bug-investigator': 23,
+    'build-fix': 22,
+    'structure-analyzer': 21,
+    'task-orchestrator': 20,
+    'performance-profiler': 16,
+    'planner': 13,
+    'tdd-driver': 12,
+    'security-reviewer': 9,
+    'system-overview-writer': 4,
+};
 const LOADER_DISPLAY_VERSION = 'v3.3.0';
 // ============ 帮助信息 ============
 function showHelp() {
@@ -108,10 +129,17 @@ function showHelp() {
   install              安装/同步 CodeBuddy 规则和运行时（默认）
   status               显示当前项目的 CodeBuddy 安装状态
   doctor               诊断当前项目的 CodeBuddy 安装问题
+  init                 生成下游项目接入配置（CI / hooks / package scripts）
 
 选项：
   --help, -h           显示帮助信息
   --json               status / doctor 输出 JSON
+  --if-deps-changed    install 时仅在依赖指纹变化时继续执行
+  --dry-run            init 时仅输出将生成的文件，不写入
+  --force              init 时覆盖已有 workflow / scripts 配置
+  --git-hooks          init 时仅生成 git hooks（若与 --ci/--scripts 同时缺省，则默认三者都生成）
+  --ci                 init 时仅生成 GitHub Actions 模板
+  --scripts            init 时仅注入 package.json scripts
   --remote <URL>       从远程 URL 获取规则
   --remote-bearer-token <token>
                        远程请求附带 Bearer Token（也支持环境变量 CODEBUDDY_REMOTE_BEARER_TOKEN）
@@ -147,6 +175,15 @@ function showHelp() {
 
   # 诊断安装问题（JSON 输出）
   node codebuddy-loader.js doctor --json
+
+  # 仅在依赖变化时重新安装
+  node codebuddy-loader.js install --if-deps-changed
+
+  # 生成最小接入配置（预览）
+  node codebuddy-loader.js init --dry-run
+
+  # 生成最小接入配置
+  node codebuddy-loader.js init
 
   # 仅加载重构相关规则
   node codebuddy-loader.js --task refactoring
@@ -233,6 +270,20 @@ function getLoaderVersion(ctx, logger) {
     catch (error) {
         logger.warn(`读取 loader package.json 失败: ${error.message}`);
         return '0.0.0';
+    }
+}
+function getLoaderPackageName(logger) {
+    if (!fs.existsSync(PACKAGE_JSON_PATH)) {
+        logger.warn(`未找到 loader package.json: ${PACKAGE_JSON_PATH}`);
+        return 'my-fe-standards';
+    }
+    try {
+        const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf-8'));
+        return pkg.name || 'my-fe-standards';
+    }
+    catch (error) {
+        logger.warn(`读取 loader package.json 失败: ${error.message}`);
+        return 'my-fe-standards';
     }
 }
 // ============ 规则加载 ============
@@ -425,6 +476,143 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
         }
     }
     return entities;
+}
+function createDemoSkillSelectionContext(workspaceInfo) {
+    const projects = (0, context_targeting_1.collectSkillContextProjects)(workspaceInfo);
+    const languageSet = new Set();
+    const frameworkTagSet = new Set();
+    const projectKindSet = new Set();
+    const stackTagSet = new Set();
+    for (const project of projects) {
+        languageSet.add(project.lang);
+        projectKindSet.add(project.projectKind);
+        for (const tag of project.stackTags) {
+            stackTagSet.add(tag);
+        }
+        for (const tag of (0, context_targeting_1.collectProjectFrameworkTags)(project)) {
+            frameworkTagSet.add(tag);
+        }
+    }
+    return {
+        projects,
+        languageSet,
+        frameworkTagSet,
+        projectKindSet,
+        stackTagSet,
+    };
+}
+function getDemoSkillPriority(skill, context) {
+    const skillId = skill.id.toLowerCase();
+    let score = 0;
+    if (DEMO_LOW_PRIORITY_SKILL_IDS.has(skill.id))
+        score -= 25;
+    if (skillId.includes('review'))
+        score += 6;
+    if (skillId.includes('refactor'))
+        score += 6;
+    if (skillId.includes('testing'))
+        score += 5;
+    if (skillId.includes('performance'))
+        score += 4;
+    if (skillId.includes('structure') || skillId.includes('module'))
+        score += 6;
+    if (skillId.includes('state'))
+        score += 3;
+    if (skillId.includes('i18n') || skillId.includes('a11y'))
+        score += 2;
+    if (context.projectKindSet.has('frontend')) {
+        if (skillId.includes('frontend'))
+            score += 8;
+        if (skillId.includes('backend'))
+            score -= 8;
+    }
+    if (context.projectKindSet.has('backend')) {
+        if (skillId.includes('backend'))
+            score += 8;
+        if (skillId.includes('frontend'))
+            score -= 8;
+    }
+    if (context.stackTagSet.has('vue3') || context.stackTagSet.has('vue2')) {
+        if (skill.id === 'component-refactoring')
+            score += 4;
+        if (skill.id === 'state-management')
+            score += 4;
+    }
+    return score;
+}
+function scoreSkillForDemo(skill, context, targetRole, workspaceInfo) {
+    const matchedLanguages = (skill.languages || []).filter(language => context.languageSet.has(language)).length;
+    const matchedFrameworks = (skill.frameworks || []).filter(framework => context.frameworkTagSet.has((0, project_detection_1.normalizeStackLabel)(framework))).length;
+    const hasStackConstraints = Boolean((skill.languages && skill.languages.length > 0) || (skill.frameworks && skill.frameworks.length > 0));
+    let score = 0;
+    if ((0, context_targeting_1.matchesSkillWorkspaceScope)(skill, workspaceInfo))
+        score += 20;
+    if ((0, context_targeting_1.matchesSkillRole)(skill, targetRole))
+        score += 20;
+    if ((0, context_targeting_1.matchesSkillStack)(skill, context.projects))
+        score += 30;
+    score += matchedLanguages * 8;
+    score += matchedFrameworks * 8;
+    score += hasStackConstraints ? 0 : 6;
+    score += Math.min(skill.triggers.length, 4);
+    score += getDemoSkillPriority(skill, context);
+    return score;
+}
+function scoreAgentForDemo(agent, selectedSkillIds) {
+    let score = DEMO_AGENT_BASE_PRIORITY[agent.id] || 0;
+    const relatedSkillMatches = (agent.relatedSkills || []).filter(skillId => selectedSkillIds.has(skillId)).length;
+    score += relatedSkillMatches * 10;
+    score += Math.min(agent.triggers.length, 4);
+    if (agent.id === 'code-reviewer' && (selectedSkillIds.has('frontend-code-review') || selectedSkillIds.has('backend-code-review'))) {
+        score += 6;
+    }
+    if (agent.id === 'performance-profiler' && selectedSkillIds.has('performance-optimization')) {
+        score += 6;
+    }
+    if (agent.id === 'structure-analyzer' && (selectedSkillIds.has('structure-review') || selectedSkillIds.has('module-mapping'))) {
+        score += 6;
+    }
+    if (agent.id === 'tdd-driver' && (selectedSkillIds.has('frontend-testing') || selectedSkillIds.has('backend-testing'))) {
+        score += 6;
+    }
+    if (agent.id === 'system-overview-writer' && selectedSkillIds.has('system-overview-design')) {
+        score += 6;
+    }
+    return score;
+}
+function selectTopDemoEntities(entities, limit, scoreEntity) {
+    const ranked = [...entities]
+        .map(entity => ({ entity, score: scoreEntity(entity) }))
+        .sort((left, right) => right.score - left.score || left.entity.id.localeCompare(right.entity.id));
+    return {
+        selected: ranked.slice(0, limit).map(entry => entry.entity),
+        removedIds: ranked.slice(limit).map(entry => entry.entity.id),
+    };
+}
+function pruneManagedEntityDirectories(targetDir, tracker, rootDir, entityIds, label, logger) {
+    if (!rootDir || entityIds.length === 0) {
+        return;
+    }
+    const normalizedRootDir = rootDir.replace(/\\/g, '/');
+    for (const entityId of entityIds) {
+        const relativePrefix = `${normalizedRootDir}/${entityId}`;
+        const absolutePath = path.join(targetDir, rootDir, entityId);
+        const removedPaths = [...tracker.files.keys()].filter(managedPath => managedPath === relativePrefix || managedPath.startsWith(`${relativePrefix}/`));
+        if (!fs.existsSync(absolutePath)) {
+            for (const managedPath of removedPaths) {
+                tracker.files.delete(managedPath);
+            }
+            continue;
+        }
+        if (!(0, install_sync_1.removeManagedPath)(targetDir, absolutePath)) {
+            continue;
+        }
+        for (const managedPath of removedPaths) {
+            tracker.files.delete(managedPath);
+        }
+        tracker.summary.removed += removedPaths.length;
+        logger.verbose(`demo 模式裁剪${label}: ${entityId}`);
+    }
 }
 // ============ 技能系统 ============
 async function loadSkills(ctx, logger, skillsPath, tracker, targetDir, workspaceInfo, targetSubDir) {
@@ -762,7 +950,8 @@ function parseContextArgs(args) {
         }
     }
     const ruleLevelIndex = args.indexOf('--rule-level');
-    if (ruleLevelIndex !== -1) {
+    const ruleLevelExplicit = ruleLevelIndex !== -1;
+    if (ruleLevelExplicit) {
         const value = (args[ruleLevelIndex + 1] || '').trim().toLowerCase();
         if (value === 'summary' || value === 'quick' || value === 'full') {
             ruleLevel = value;
@@ -771,6 +960,10 @@ function parseContextArgs(args) {
             (0, logger_1.logError)(`--rule-level 仅支持 summary|quick|full，当前: ${value}`);
             process.exit(1);
         }
+    }
+    // demo profile 默认使用 quick 裁剪等级（除非用户显式指定）
+    if (profile === 'demo' && !ruleLevelExplicit) {
+        ruleLevel = 'quick';
     }
     const timeoutIndex = args.indexOf('--timeout');
     if (timeoutIndex !== -1) {
@@ -793,11 +986,27 @@ function parseContextArgs(args) {
         relevanceThreshold,
         ruleLevel,
         profile,
-        enableOrchestrator: (0, distribution_profiles_1.isOrchestratorProfile)(profile),
+        enableOrchestrator: profile !== 'demo' && (0, distribution_profiles_1.isOrchestratorProfile)(profile),
         disableWorkspace,
         workspaceScope,
         targetProject,
         targetRole,
+    };
+}
+function parseInstallCliOptions(args) {
+    return {
+        ifDepsChanged: args.includes('--if-deps-changed'),
+    };
+}
+function parseInitCliOptions(args) {
+    const explicitSelections = ['--git-hooks', '--ci', '--scripts'].filter(flag => args.includes(flag));
+    const useExplicitSelections = explicitSelections.length > 0;
+    return {
+        gitHooks: useExplicitSelections ? args.includes('--git-hooks') : true,
+        ci: useExplicitSelections ? args.includes('--ci') : true,
+        scripts: useExplicitSelections ? args.includes('--scripts') : true,
+        force: args.includes('--force'),
+        dryRun: args.includes('--dry-run'),
     };
 }
 function parseCliArgs() {
@@ -824,7 +1033,26 @@ function parseCliArgs() {
         command,
         ctx: parseContextArgs(filteredArgs),
         json,
+        installOptions: parseInstallCliOptions(filteredArgs),
+        initOptions: parseInitCliOptions(filteredArgs),
     };
+}
+function resolveWorkspaceInfoForInstall(ctx, logger, targetDir) {
+    const discoveredWorkspaceInfo = ctx.disableWorkspace
+        ? {
+            isWorkspace: false,
+            rootDir: targetDir,
+            projects: [],
+            discoveredAt: new Date().toISOString(),
+            scope: ctx.workspaceScope,
+            selectedProject: null,
+            totalProjectCount: 0,
+        }
+        : (0, project_detection_1.discoverWorkspace)(logger, targetDir);
+    if (ctx.disableWorkspace) {
+        return discoveredWorkspaceInfo;
+    }
+    return (0, project_detection_1.createScopedWorkspaceInfo)(discoveredWorkspaceInfo, ctx.workspaceScope, ctx.targetProject);
 }
 function runStatusCommand(targetDir, logger, json) {
     const installStatePath = path.join(targetDir, '.codebuddy', 'install.json');
@@ -862,18 +1090,70 @@ function runDoctorCommand(targetDir, logger, json) {
     }
     return summary.status === 'fail' ? 1 : 0;
 }
+function runInitCommand(targetDir, logger, options) {
+    try {
+        const result = (0, init_generator_1.runInit)({
+            targetDir,
+            bootstrapPackageName: getLoaderPackageName(logger),
+            gitHooks: options.gitHooks,
+            ci: options.ci,
+            scripts: options.scripts,
+            force: options.force,
+            dryRun: options.dryRun,
+        }, logger);
+        const lines = [
+            options.dryRun ? 'CodeBuddy Init (dry-run)' : 'CodeBuddy Init',
+            `Target: ${targetDir}`,
+            '',
+        ];
+        if (result.generated.length > 0) {
+            lines.push('Generated:');
+            for (const item of result.generated) {
+                lines.push(`  - ${item}`);
+            }
+        }
+        if (result.injected.length > 0) {
+            lines.push('Injected package.json scripts:');
+            for (const item of result.injected) {
+                lines.push(`  - ${item}`);
+            }
+        }
+        if (result.skipped.length > 0) {
+            lines.push('Skipped:');
+            for (const item of result.skipped) {
+                lines.push(`  - ${item}`);
+            }
+        }
+        if (result.notes.length > 0) {
+            lines.push('Notes:');
+            for (const item of result.notes) {
+                lines.push(`  - ${item}`);
+            }
+        }
+        console.log(lines.join('\n'));
+        return 0;
+    }
+    catch (error) {
+        logger.error(error.message);
+        return 1;
+    }
+}
 // ============ 主函数 ============
 async function main() {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
     const parsedCli = parseCliArgs();
     const parsedCtx = parsedCli.ctx;
     const logger = (0, logger_1.createLogger)(parsedCtx);
     const targetDir = process.cwd();
+    let depsFingerprint = null;
     if (parsedCli.command === 'status') {
         process.exit(runStatusCommand(targetDir, logger, parsedCli.json));
     }
     if (parsedCli.command === 'doctor') {
         process.exit(runDoctorCommand(targetDir, logger, parsedCli.json));
+    }
+    if (parsedCli.command === 'init') {
+        process.exit(runInitCommand(targetDir, logger, parsedCli.initOptions));
     }
     // loadConfig 可能返回 manifest，需要合并到 ctx
     const { config, manifest } = await loadConfig(parsedCtx, logger);
@@ -906,79 +1186,90 @@ async function main() {
     const managedFileTracker = (0, install_sync_1.createManagedFileTracker)(targetDir);
     logger.log(`目标项目: ${targetDir}`);
     // ============ Workspace 多项目发现 ============
-    const discoveredWorkspaceInfo = ctx.disableWorkspace
-        ? {
-            isWorkspace: false,
-            rootDir: targetDir,
-            projects: [],
-            discoveredAt: new Date().toISOString(),
-            scope: ctx.workspaceScope,
-            selectedProject: null,
-            totalProjectCount: 0,
-        }
-        : (0, project_detection_1.discoverWorkspace)(logger, targetDir);
     let workspaceInfo;
-    if (ctx.disableWorkspace) {
-        workspaceInfo = discoveredWorkspaceInfo;
+    try {
+        workspaceInfo = resolveWorkspaceInfoForInstall(ctx, logger, targetDir);
     }
-    else {
-        try {
-            workspaceInfo = (0, project_detection_1.createScopedWorkspaceInfo)(discoveredWorkspaceInfo, ctx.workspaceScope, ctx.targetProject);
+    catch (error) {
+        (0, logger_1.logError)(error.message);
+        process.exit(1);
+    }
+    const installLockHandle = (0, install_sync_1.acquireInstallLock)(targetDir, logger);
+    if (!installLockHandle) {
+        process.exit(1);
+    }
+    try {
+        if (parsedCli.installOptions.ifDepsChanged) {
+            const currentDepsFingerprint = (0, install_state_1.computeDepsFingerprint)(targetDir, workspaceInfo);
+            const previousDepsFingerprint = (previousInstallState === null || previousInstallState === void 0 ? void 0 : previousInstallState.depsFingerprint) || null;
+            if (currentDepsFingerprint && currentDepsFingerprint === previousDepsFingerprint) {
+                logger.log('依赖未变更，跳过安装。');
+                return;
+            }
+            depsFingerprint = currentDepsFingerprint;
         }
-        catch (error) {
-            (0, logger_1.logError)(error.message);
-            process.exit(1);
+        else {
+            depsFingerprint = (0, install_state_1.computeDepsFingerprint)(targetDir, workspaceInfo);
         }
-    }
-    if (!ctx.disableWorkspace && workspaceInfo.scope === 'project-targeted' && workspaceInfo.projects[0]) {
-        logger.log(`Workspace 定向模式: ${workspaceInfo.projects[0].name} (${workspaceInfo.projects[0].relativePath})`);
-    }
-    if (ctx.disableWorkspace) {
-        logger.verbose('Workspace 发现已禁用（--no-workspace）');
-    }
-    else if (workspaceInfo.isWorkspace) {
-        logger.log(`Workspace 模式: ${workspaceInfo.totalProjectCount} 个子项目（当前范围: ${workspaceInfo.scope}）`);
-    }
-    else {
-        logger.verbose('单项目模式（未发现多个子项目）');
-    }
-    if (ctx.targetRole) {
-        logger.log(`岗位过滤: ${ctx.targetRole}`);
-    }
-    const { layers, skills: skillsConfig, output, frontmatter } = config;
-    // 检测项目依赖（向后兼容：选择 primaryProject 作为 Layer1 基准）
-    let pkg;
-    let dependencies;
-    let vueProfile;
-    let primaryProject = null;
-    if ((workspaceInfo.isWorkspace || workspaceInfo.projects.length > 0) && workspaceInfo.projects.length > 0) {
-        // Workspace 模式：选择第一个有 Vue 依赖的项目，否则取第一个
-        primaryProject =
-            workspaceInfo.projects.find(p => p.vueProfile !== null) ||
-                workspaceInfo.projects[0];
-        pkg = (_a = primaryProject.packageJson) !== null && _a !== void 0 ? _a : {};
-        dependencies = primaryProject.dependencies;
-        vueProfile = primaryProject.vueProfile;
-        logger.verbose(`主项目（Layer1 基准）: ${primaryProject.name} (${primaryProject.relativePath})`);
-    }
-    else {
-        pkg = getPackageJson(logger, targetDir);
-        dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
-        vueProfile = (0, project_detection_1.checkVueProfile)(dependencies);
-    }
-    if (vueProfile) {
-        logger.log(`检测到 Vue ${vueProfile.version} (${vueProfile.type})`);
-    }
-    // 构建输出内容
-    const updatedAt = new Date().toISOString();
-    let finalContent = `---
+        if (!ctx.disableWorkspace && workspaceInfo.scope === 'project-targeted' && workspaceInfo.projects[0]) {
+            logger.log(`Workspace 定向模式: ${workspaceInfo.projects[0].name} (${workspaceInfo.projects[0].relativePath})`);
+        }
+        if (ctx.disableWorkspace) {
+            logger.verbose('Workspace 发现已禁用（--no-workspace）');
+        }
+        else if (workspaceInfo.isWorkspace) {
+            logger.log(`Workspace 模式: ${workspaceInfo.totalProjectCount} 个子项目（当前范围: ${workspaceInfo.scope}）`);
+        }
+        else {
+            logger.verbose('单项目模式（未发现多个子项目）');
+        }
+        if (ctx.targetRole) {
+            logger.log(`岗位过滤: ${ctx.targetRole}`);
+        }
+        const { layers, skills: skillsConfig, output, frontmatter } = config;
+        // 检测项目依赖（向后兼容：选择 primaryProject 作为 Layer1 基准）
+        let pkg;
+        let dependencies;
+        let vueProfile;
+        let primaryProject = null;
+        if ((workspaceInfo.isWorkspace || workspaceInfo.projects.length > 0) && workspaceInfo.projects.length > 0) {
+            // Workspace 模式：选择第一个有 Vue 依赖的项目，否则取第一个
+            primaryProject =
+                workspaceInfo.projects.find(p => p.vueProfile !== null) ||
+                    workspaceInfo.projects[0];
+            pkg = (_a = primaryProject.packageJson) !== null && _a !== void 0 ? _a : {};
+            dependencies = primaryProject.dependencies;
+            vueProfile = primaryProject.vueProfile;
+            logger.verbose(`主项目（Layer1 基准）: ${primaryProject.name} (${primaryProject.relativePath})`);
+        }
+        else {
+            pkg = getPackageJson(logger, targetDir);
+            dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+            vueProfile = (0, project_detection_1.checkVueProfile)(dependencies);
+        }
+        if (vueProfile) {
+            logger.log(`检测到 Vue ${vueProfile.version} (${vueProfile.type})`);
+        }
+        // 构建输出内容
+        const updatedAt = new Date().toISOString();
+        const isDemo = (0, distribution_profiles_1.isDemoProfile)(ctx.profile);
+        let finalContent = `---
 description: ${(frontmatter === null || frontmatter === void 0 ? void 0 : frontmatter.description) || '前端架构规范 - CodeBuddy GLM-4.7 专用版'}
 alwaysApply: ${(frontmatter === null || frontmatter === void 0 ? void 0 : frontmatter.alwaysApply) !== undefined ? frontmatter.alwaysApply : true}
 enabled: ${(frontmatter === null || frontmatter === void 0 ? void 0 : frontmatter.enabled) !== undefined ? frontmatter.enabled : true}
 updatedAt: ${updatedAt}
 ---
 
-# 前端架构规范 (CodeBuddy 版)
+`;
+        if (isDemo) {
+            // demo 模式：插入欢迎 Banner（技术栈信息稍后在加载完毕后补充）
+            finalContent += `> Generated by CodeBuddy Rule Loader ${LOADER_DISPLAY_VERSION} (demo profile)
+> Generated at: ${updatedAt}
+
+`;
+        }
+        else {
+            finalContent += `# 前端架构规范 (CodeBuddy 版)
 
 > Generated by CodeBuddy Rule Loader ${LOADER_DISPLAY_VERSION}
 > Generated at: ${updatedAt}
@@ -987,337 +1278,411 @@ updatedAt: ${updatedAt}
 ---
 
 `;
-    // ============ Layer 1: Base (Eager Load) ============
-    logger.log('处理 Layer 1: 基础规范 (Eager Load)...');
-    const layer1Folders = [...(((_b = layers.base) === null || _b === void 0 ? void 0 : _b.staticDeps) || [])];
-    // 根据 Vue 版本添加规则
-    if (vueProfile) {
-        if (vueProfile.version === 3) {
-            layer1Folders.push('vue3');
         }
-        else if (vueProfile.version === 2) {
-            if (vueProfile.type === 'composition') {
-                layer1Folders.push('vue2/vue2-composition.md');
+        // ============ Layer 1: Base (Eager Load) ============
+        logger.log('处理 Layer 1: 基础规范 (Eager Load)...');
+        const layer1Folders = [...(((_b = layers.base) === null || _b === void 0 ? void 0 : _b.staticDeps) || [])];
+        // 根据 Vue 版本添加规则
+        if (vueProfile) {
+            if (vueProfile.version === 3) {
+                layer1Folders.push('vue3');
+            }
+            else if (vueProfile.version === 2) {
+                if (vueProfile.type === 'composition') {
+                    layer1Folders.push('vue2/vue2-composition.md');
+                }
+                else {
+                    layer1Folders.push('vue2/vue2-general.md');
+                }
+            }
+        }
+        const layer1Rules = await loadLayerRules(ctx, logger, ((_c = layers.base) === null || _c === void 0 ? void 0 : _c.id) || 'layer1_base', layer1Folders);
+        const layer1ReferenceIndex = [];
+        if (ctx.ruleLevel !== 'full') {
+            const layer1FullRules = await loadLayerRules({ ...ctx, ruleLevel: 'full' }, logger, ((_d = layers.base) === null || _d === void 0 ? void 0 : _d.id) || 'layer1_base', layer1Folders);
+            for (const rule of layer1FullRules) {
+                const referencePath = `.codebuddy/rules_cache/layer1_reference/${rule.path}`.replace(/\\/g, '/');
+                (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(targetDir, referencePath), rule.content);
+                layer1ReferenceIndex.push({
+                    rule: rule.path.replace(/\.md$/, ''),
+                    path: referencePath,
+                });
+            }
+            if (layer1ReferenceIndex.length > 0) {
+                logger.log(`已生成 ${layer1ReferenceIndex.length} 个 Layer 1 完整参考缓存`);
+            }
+        }
+        finalContent += `## ${((_e = layers.base) === null || _e === void 0 ? void 0 : _e.title) || 'Layer 1: 基础规范'}\n\n`;
+        finalContent += `> 这些是本项目必须遵守的核心规范\n\n`;
+        for (const rule of layer1Rules) {
+            finalContent += `<!-- Source: ${rule.path} -->\n${rule.content}\n\n---\n\n`;
+        }
+        // ============ Layer 2: Business (Lazy Load - Index Only) ============
+        logger.log('处理 Layer 2: 业务规范 (Lazy Load)...');
+        const layer2Index = [];
+        const businessDeps = ((_f = layers.business) === null || _f === void 0 ? void 0 : _f.dependencies) || {};
+        const standaloneLang = primaryProject ? primaryProject.lang : (0, project_detection_1.detectProjectLangFromDir)(targetDir);
+        const standalonePackageJson = !primaryProject && fs.existsSync(path.join(targetDir, 'package.json')) ? pkg : undefined;
+        const standaloneMetadata = primaryProject
+            ? null
+            : (0, project_detection_1.detectProjectMetadata)(targetDir, standaloneLang, standalonePackageJson);
+        const layer2TargetProject = primaryProject !== null && primaryProject !== void 0 ? primaryProject : {
+            lang: standaloneLang,
+            projectKind: (standaloneMetadata === null || standaloneMetadata === void 0 ? void 0 : standaloneMetadata.projectKind) || 'unknown',
+            stackTags: (standaloneMetadata === null || standaloneMetadata === void 0 ? void 0 : standaloneMetadata.stackTags) || [],
+            dependencies: (standaloneMetadata === null || standaloneMetadata === void 0 ? void 0 : standaloneMetadata.dependencies) || dependencies,
+        };
+        for (const match of (0, context_targeting_1.collectMatchedBusinessRules)(layer2TargetProject, businessDeps)) {
+            logger.log(`  命中 ${match.selector}，添加规则索引`);
+            layer2Index.push({
+                dep: match.selector,
+                rule: match.rule,
+                path: `.codebuddy/rules_cache/layer2_business/${match.rule}.md`
+            });
+            // 缓存规则文件
+            const cacheDir = path.join(targetDir, '.codebuddy/rules_cache/layer2_business');
+            if (!fs.existsSync(cacheDir)) {
+                fs.mkdirSync(cacheDir, { recursive: true });
+            }
+            const content = await loadRuleFile(ctx, logger, ((_g = layers.business) === null || _g === void 0 ? void 0 : _g.id) || 'layer2_business', `${match.rule}.md`);
+            if (content) {
+                (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(cacheDir, `${match.rule}.md`), content);
+            }
+        }
+        // ============ Workspace: 为每个子项目匹配并缓存 Layer2 规则 ============
+        if (workspaceInfo.totalProjectCount > 1) {
+            logger.log('处理 Workspace 子项目 Layer2 规则...');
+            for (const project of workspaceInfo.projects) {
+                // 跳过根项目（已在上面处理）
+                if (project.relativePath === '.')
+                    continue;
+                for (const match of (0, context_targeting_1.collectMatchedBusinessRules)(project, businessDeps)) {
+                    logger.verbose(`  ${project.name}: 命中 ${match.selector}，添加规则索引`);
+                    project.matchedLayer2Rules.push({
+                        dep: match.selector,
+                        rule: match.rule,
+                        path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${match.rule}.md`,
+                    });
+                    // 缓存到子项目独立目录
+                    const projectCacheDir = path.join(targetDir, `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`);
+                    if (!fs.existsSync(projectCacheDir)) {
+                        fs.mkdirSync(projectCacheDir, { recursive: true });
+                    }
+                    const content = await loadRuleFile(ctx, logger, ((_h = layers.business) === null || _h === void 0 ? void 0 : _h.id) || 'layer2_business', `${match.rule}.md`);
+                    if (content) {
+                        (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(projectCacheDir, `${match.rule}.md`), content);
+                    }
+                }
+            }
+            // 同时填充根项目的 matchedLayer2Rules（如果存在）
+            const rootProject = workspaceInfo.projects.find(p => p.relativePath === '.');
+            if (rootProject) {
+                rootProject.matchedLayer2Rules = [...layer2Index];
+            }
+        }
+        // ============ Layer 3: Action (Lazy Load - Index Only) ============
+        logger.log('处理 Layer 3: 任务检查清单 (Lazy Load)...');
+        const layer3Index = [];
+        const actionDefaults = ((_j = layers.action) === null || _j === void 0 ? void 0 : _j.defaults) || [];
+        for (const item of actionDefaults) {
+            layer3Index.push({
+                rule: item,
+                path: `.codebuddy/rules_cache/layer3_action/${item}.md`
+            });
+            // 缓存规则文件
+            const cacheDir = path.join(targetDir, '.codebuddy/rules_cache/layer3_action');
+            if (!fs.existsSync(cacheDir)) {
+                fs.mkdirSync(cacheDir, { recursive: true });
+            }
+            const content = await loadRuleFile(ctx, logger, ((_k = layers.action) === null || _k === void 0 ? void 0 : _k.id) || 'layer3_action', item + '.md');
+            if (content) {
+                (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(cacheDir, item + '.md'), content);
+            }
+        }
+        // ============ 生成规则索引表 ============
+        if (layer1ReferenceIndex.length > 0 || layer2Index.length > 0 || layer3Index.length > 0) {
+            finalContent += `## 📚 规则参考索引 (按需加载)\n\n`;
+            if (layer1ReferenceIndex.length > 0) {
+                finalContent += `> 当前主入口仅内嵌 Layer 1 的 ${ctx.ruleLevel} 内容；完整原文与 Layer 2/3 细节规则请按需读取\n\n`;
             }
             else {
-                layer1Folders.push('vue2/vue2-general.md');
+                finalContent += `> 以下规则包含具体的技术栈实现细节，请按需读取\n\n`;
             }
-        }
-    }
-    const layer1Rules = await loadLayerRules(ctx, logger, ((_c = layers.base) === null || _c === void 0 ? void 0 : _c.id) || 'layer1_base', layer1Folders);
-    const layer1ReferenceIndex = [];
-    if (ctx.ruleLevel !== 'full') {
-        const layer1FullRules = await loadLayerRules({ ...ctx, ruleLevel: 'full' }, logger, ((_d = layers.base) === null || _d === void 0 ? void 0 : _d.id) || 'layer1_base', layer1Folders);
-        for (const rule of layer1FullRules) {
-            const referencePath = `.codebuddy/rules_cache/layer1_reference/${rule.path}`.replace(/\\/g, '/');
-            (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(targetDir, referencePath), rule.content);
-            layer1ReferenceIndex.push({
-                rule: rule.path.replace(/\.md$/, ''),
-                path: referencePath,
-            });
-        }
-        if (layer1ReferenceIndex.length > 0) {
-            logger.log(`已生成 ${layer1ReferenceIndex.length} 个 Layer 1 完整参考缓存`);
-        }
-    }
-    finalContent += `## ${((_e = layers.base) === null || _e === void 0 ? void 0 : _e.title) || 'Layer 1: 基础规范'}\n\n`;
-    finalContent += `> 这些是本项目必须遵守的核心规范\n\n`;
-    for (const rule of layer1Rules) {
-        finalContent += `<!-- Source: ${rule.path} -->\n${rule.content}\n\n---\n\n`;
-    }
-    // ============ Layer 2: Business (Lazy Load - Index Only) ============
-    logger.log('处理 Layer 2: 业务规范 (Lazy Load)...');
-    const layer2Index = [];
-    const businessDeps = ((_f = layers.business) === null || _f === void 0 ? void 0 : _f.dependencies) || {};
-    const standaloneLang = primaryProject ? primaryProject.lang : (0, project_detection_1.detectProjectLangFromDir)(targetDir);
-    const standalonePackageJson = !primaryProject && fs.existsSync(path.join(targetDir, 'package.json')) ? pkg : undefined;
-    const standaloneMetadata = primaryProject
-        ? null
-        : (0, project_detection_1.detectProjectMetadata)(targetDir, standaloneLang, standalonePackageJson);
-    const layer2TargetProject = primaryProject !== null && primaryProject !== void 0 ? primaryProject : {
-        lang: standaloneLang,
-        projectKind: (standaloneMetadata === null || standaloneMetadata === void 0 ? void 0 : standaloneMetadata.projectKind) || 'unknown',
-        stackTags: (standaloneMetadata === null || standaloneMetadata === void 0 ? void 0 : standaloneMetadata.stackTags) || [],
-        dependencies: (standaloneMetadata === null || standaloneMetadata === void 0 ? void 0 : standaloneMetadata.dependencies) || dependencies,
-    };
-    for (const match of (0, context_targeting_1.collectMatchedBusinessRules)(layer2TargetProject, businessDeps)) {
-        logger.log(`  命中 ${match.selector}，添加规则索引`);
-        layer2Index.push({
-            dep: match.selector,
-            rule: match.rule,
-            path: `.codebuddy/rules_cache/layer2_business/${match.rule}.md`
-        });
-        // 缓存规则文件
-        const cacheDir = path.join(targetDir, '.codebuddy/rules_cache/layer2_business');
-        if (!fs.existsSync(cacheDir)) {
-            fs.mkdirSync(cacheDir, { recursive: true });
-        }
-        const content = await loadRuleFile(ctx, logger, ((_g = layers.business) === null || _g === void 0 ? void 0 : _g.id) || 'layer2_business', `${match.rule}.md`);
-        if (content) {
-            (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(cacheDir, `${match.rule}.md`), content);
-        }
-    }
-    // ============ Workspace: 为每个子项目匹配并缓存 Layer2 规则 ============
-    if (workspaceInfo.totalProjectCount > 1) {
-        logger.log('处理 Workspace 子项目 Layer2 规则...');
-        for (const project of workspaceInfo.projects) {
-            // 跳过根项目（已在上面处理）
-            if (project.relativePath === '.')
-                continue;
-            for (const match of (0, context_targeting_1.collectMatchedBusinessRules)(project, businessDeps)) {
-                logger.verbose(`  ${project.name}: 命中 ${match.selector}，添加规则索引`);
-                project.matchedLayer2Rules.push({
-                    dep: match.selector,
-                    rule: match.rule,
-                    path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${match.rule}.md`,
-                });
-                // 缓存到子项目独立目录
-                const projectCacheDir = path.join(targetDir, `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`);
-                if (!fs.existsSync(projectCacheDir)) {
-                    fs.mkdirSync(projectCacheDir, { recursive: true });
-                }
-                const content = await loadRuleFile(ctx, logger, ((_h = layers.business) === null || _h === void 0 ? void 0 : _h.id) || 'layer2_business', `${match.rule}.md`);
-                if (content) {
-                    (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(projectCacheDir, `${match.rule}.md`), content);
-                }
+            finalContent += `| 规则名称 | 本地路径 | 说明 |\n|---------|---------|------|\n`;
+            for (const item of layer1ReferenceIndex) {
+                finalContent += `| ${item.rule} | \`${item.path}\` | Layer 1 完整参考 |\n`;
             }
+            for (const item of layer2Index) {
+                finalContent += `| ${item.rule} | \`${item.path}\` | Layer 2 匹配：${item.dep} |\n`;
+            }
+            for (const item of layer3Index) {
+                finalContent += `| ${item.rule} | \`${item.path}\` | 任务检查清单 |\n`;
+            }
+            finalContent += '\n';
         }
-        // 同时填充根项目的 matchedLayer2Rules（如果存在）
-        const rootProject = workspaceInfo.projects.find(p => p.relativePath === '.');
-        if (rootProject) {
-            rootProject.matchedLayer2Rules = [...layer2Index];
+        // ============ Workspace: 生成索引文件和提示词 ============
+        let workspaceIndexPath = null;
+        if (workspaceInfo.totalProjectCount > 1) {
+            // 生成 workspace-index.json
+            const workspaceIndex = {
+                version: '1.1.0',
+                generatedAt: new Date().toISOString(),
+                rootDir: targetDir,
+                projectCount: workspaceInfo.projects.length,
+                totalProjectCount: workspaceInfo.totalProjectCount,
+                scope: workspaceInfo.scope,
+                selectedProject: workspaceInfo.selectedProject,
+                projects: workspaceInfo.projects.map(p => {
+                    var _a, _b;
+                    return ({
+                        name: p.name,
+                        relativePath: p.relativePath,
+                        lang: p.lang,
+                        frameworkLabel: p.frameworkLabel,
+                        uiLibLabels: p.uiLibLabels,
+                        projectKind: p.projectKind,
+                        stackTags: p.stackTags,
+                        vueVersion: (_b = (_a = p.vueProfile) === null || _a === void 0 ? void 0 : _a.version) !== null && _b !== void 0 ? _b : null,
+                        layer2CachePath: p.relativePath === '.'
+                            ? '.codebuddy/rules_cache/layer2_business/'
+                            : `.codebuddy/rules_cache/projects/${p.relativePath}/layer2_business/`,
+                        matchedRules: p.matchedLayer2Rules.map(r => r.rule),
+                    });
+                }),
+            };
+            workspaceIndexPath = path.join(targetDir, '.codebuddy/workspace-index.json');
+            const workspaceIndexDir = path.dirname(workspaceIndexPath);
+            if (!fs.existsSync(workspaceIndexDir)) {
+                fs.mkdirSync(workspaceIndexDir, { recursive: true });
+            }
+            (0, install_sync_1.writeManagedFile)(managedFileTracker, workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2));
+            logger.log(`已生成 workspace-index.json (${workspaceInfo.projects.length} 个项目)`);
+            // 注入 workspace 提示词
+            finalContent += (0, prompt_builder_1.generateWorkspacePrompt)(workspaceInfo);
         }
-    }
-    // ============ Layer 3: Action (Lazy Load - Index Only) ============
-    logger.log('处理 Layer 3: 任务检查清单 (Lazy Load)...');
-    const layer3Index = [];
-    const actionDefaults = ((_j = layers.action) === null || _j === void 0 ? void 0 : _j.defaults) || [];
-    for (const item of actionDefaults) {
-        layer3Index.push({
-            rule: item,
-            path: `.codebuddy/rules_cache/layer3_action/${item}.md`
-        });
-        // 缓存规则文件
-        const cacheDir = path.join(targetDir, '.codebuddy/rules_cache/layer3_action');
-        if (!fs.existsSync(cacheDir)) {
-            fs.mkdirSync(cacheDir, { recursive: true });
-        }
-        const content = await loadRuleFile(ctx, logger, ((_k = layers.action) === null || _k === void 0 ? void 0 : _k.id) || 'layer3_action', item + '.md');
-        if (content) {
-            (0, install_sync_1.writeManagedFile)(managedFileTracker, path.join(cacheDir, item + '.md'), content);
-        }
-    }
-    // ============ 生成规则索引表 ============
-    if (layer1ReferenceIndex.length > 0 || layer2Index.length > 0 || layer3Index.length > 0) {
-        finalContent += `## 📚 规则参考索引 (按需加载)\n\n`;
-        if (layer1ReferenceIndex.length > 0) {
-            finalContent += `> 当前主入口仅内嵌 Layer 1 的 ${ctx.ruleLevel} 内容；完整原文与 Layer 2/3 细节规则请按需读取\n\n`;
+        // ============ 规则激活提示词 ============
+        if (!isDemo) {
+            finalContent += (0, prompt_builder_1.generateRuleActivationPrompt)(config);
+            finalContent += (0, prompt_builder_1.generateQuickActionGuide)();
         }
         else {
-            finalContent += `> 以下规则包含具体的技术栈实现细节，请按需读取\n\n`;
+            finalContent += (0, prompt_builder_1.generateDemoQuickActionGuide)();
         }
-        finalContent += `| 规则名称 | 本地路径 | 说明 |\n|---------|---------|------|\n`;
-        for (const item of layer1ReferenceIndex) {
-            finalContent += `| ${item.rule} | \`${item.path}\` | Layer 1 完整参考 |\n`;
+        // ============ 技能系统 ============
+        let skills = [];
+        let skillsRootDir = null;
+        const skillsSnapshotRetention = (skillsConfig === null || skillsConfig === void 0 ? void 0 : skillsConfig.enabled) ? SKILL_SNAPSHOT_RETAIN_COUNT : null;
+        if (skillsConfig === null || skillsConfig === void 0 ? void 0 : skillsConfig.enabled) {
+            logger.log('加载技能系统...');
+            skillsRootDir = `.codebuddy/skill-snapshots/${(0, install_state_1.createInstallSnapshotId)()}`;
+            logger.verbose(`Skills active root: ${skillsRootDir}`);
+            skills = await loadSkills(ctx, logger, skillsConfig.path || 'custom-skills', managedFileTracker, targetDir, workspaceInfo, skillsRootDir);
+            if (isDemo && skills.length > DEMO_SKILL_LIMIT) {
+                const demoSkillContext = createDemoSkillSelectionContext(workspaceInfo);
+                const { selected, removedIds } = selectTopDemoEntities(skills, DEMO_SKILL_LIMIT, skill => scoreSkillForDemo(skill, demoSkillContext, ctx.targetRole, workspaceInfo));
+                pruneManagedEntityDirectories(targetDir, managedFileTracker, skillsRootDir, removedIds, '技能', logger);
+                skills = selected;
+                logger.log(`demo 模式裁剪技能：保留 ${skills.length} 个，移除 ${removedIds.length} 个`);
+                logger.verbose(`demo 模式保留技能: ${skills.map(skill => skill.id).join(', ')}`);
+            }
+            logger.log(`已加载 ${skills.length} 个技能`);
+            if (!isDemo) {
+                finalContent += (0, prompt_builder_1.generateSkillsPrompt)(skills, skillsRootDir);
+            }
         }
-        for (const item of layer2Index) {
-            finalContent += `| ${item.rule} | \`${item.path}\` | Layer 2 匹配：${item.dep} |\n`;
+        // ============ Agent 系统 ============
+        logger.log('加载 Agent 系统...');
+        let agentsRootDir = `.codebuddy/agent-snapshots/${(0, install_state_1.createInstallSnapshotId)()}`;
+        const agentsSnapshotRetention = AGENT_SNAPSHOT_RETAIN_COUNT;
+        logger.verbose(`Agents active root: ${agentsRootDir}`);
+        let agents = await loadAgents(ctx, logger, 'agents', managedFileTracker, targetDir, agentsRootDir);
+        if (isDemo && agents.length > DEMO_AGENT_LIMIT) {
+            const selectedSkillIds = new Set(skills.map(skill => skill.id));
+            const { selected, removedIds } = selectTopDemoEntities(agents, DEMO_AGENT_LIMIT, agent => scoreAgentForDemo(agent, selectedSkillIds));
+            pruneManagedEntityDirectories(targetDir, managedFileTracker, agentsRootDir, removedIds, 'Agent', logger);
+            agents = selected;
+            logger.log(`demo 模式裁剪 Agent：保留 ${agents.length} 个，移除 ${removedIds.length} 个`);
+            logger.verbose(`demo 模式保留 Agent: ${agents.map(agent => agent.id).join(', ')}`);
         }
-        for (const item of layer3Index) {
-            finalContent += `| ${item.rule} | \`${item.path}\` | 任务检查清单 |\n`;
+        if (agents.length > 0) {
+            logger.log(`已加载 ${agents.length} 个 Agents`);
+            if (!isDemo) {
+                finalContent += (0, prompt_builder_1.generateAgentsPrompt)(agents, agentsRootDir);
+            }
         }
-        finalContent += '\n';
-    }
-    // ============ Workspace: 生成索引文件和提示词 ============
-    let workspaceIndexPath = null;
-    if (workspaceInfo.totalProjectCount > 1) {
-        // 生成 workspace-index.json
-        const workspaceIndex = {
-            version: '1.1.0',
-            generatedAt: new Date().toISOString(),
-            rootDir: targetDir,
-            projectCount: workspaceInfo.projects.length,
-            totalProjectCount: workspaceInfo.totalProjectCount,
-            scope: workspaceInfo.scope,
-            selectedProject: workspaceInfo.selectedProject,
-            projects: workspaceInfo.projects.map(p => {
-                var _a, _b;
-                return ({
-                    name: p.name,
-                    relativePath: p.relativePath,
-                    lang: p.lang,
-                    frameworkLabel: p.frameworkLabel,
-                    uiLibLabels: p.uiLibLabels,
-                    projectKind: p.projectKind,
-                    stackTags: p.stackTags,
-                    vueVersion: (_b = (_a = p.vueProfile) === null || _a === void 0 ? void 0 : _a.version) !== null && _b !== void 0 ? _b : null,
-                    layer2CachePath: p.relativePath === '.'
-                        ? '.codebuddy/rules_cache/layer2_business/'
-                        : `.codebuddy/rules_cache/projects/${p.relativePath}/layer2_business/`,
-                    matchedRules: p.matchedLayer2Rules.map(r => r.rule),
-                });
-            }),
-        };
-        workspaceIndexPath = path.join(targetDir, '.codebuddy/workspace-index.json');
-        const workspaceIndexDir = path.dirname(workspaceIndexPath);
-        if (!fs.existsSync(workspaceIndexDir)) {
-            fs.mkdirSync(workspaceIndexDir, { recursive: true });
+        if (isDemo) {
+            // demo 模式：使用统一路由表替代 Agent 表 + Skill 表 + 激活规则
+            logger.log('生成统一路由表（demo 模式）...');
+            // 在 Layer 1 规则之前插入欢迎 Banner
+            const bannerContent = (0, prompt_builder_1.generateDemoWelcomeBanner)({
+                vueVersion: (_l = vueProfile === null || vueProfile === void 0 ? void 0 : vueProfile.version) !== null && _l !== void 0 ? _l : null,
+                vueType: (_m = vueProfile === null || vueProfile === void 0 ? void 0 : vueProfile.type) !== null && _m !== void 0 ? _m : null,
+                uiLibs: (_o = primaryProject === null || primaryProject === void 0 ? void 0 : primaryProject.uiLibLabels) !== null && _o !== void 0 ? _o : [],
+                lang: (_p = primaryProject === null || primaryProject === void 0 ? void 0 : primaryProject.lang) !== null && _p !== void 0 ? _p : (standaloneLang || 'unknown'),
+                framework: (_q = primaryProject === null || primaryProject === void 0 ? void 0 : primaryProject.frameworkLabel) !== null && _q !== void 0 ? _q : null,
+                layer1RulesCount: layer1Rules.length,
+                agentsCount: agents.length,
+                skillsCount: skills.length,
+            });
+            // 在 frontmatter 之后、Layer 1 之前插入 Banner
+            const insertPoint = finalContent.indexOf('## ');
+            if (insertPoint !== -1) {
+                finalContent = finalContent.slice(0, insertPoint) + bannerContent + finalContent.slice(insertPoint);
+            }
+            else {
+                finalContent += bannerContent;
+            }
+            finalContent += (0, prompt_builder_1.generateUnifiedRoutingPrompt)(skills, agents, skillsRootDir || '.codebuddy/skills', agentsRootDir || '.codebuddy/agents');
+            logger.log('统一路由表已注入');
         }
-        (0, install_sync_1.writeManagedFile)(managedFileTracker, workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2));
-        logger.log(`已生成 workspace-index.json (${workspaceInfo.projects.length} 个项目)`);
-        // 注入 workspace 提示词
-        finalContent += (0, prompt_builder_1.generateWorkspacePrompt)(workspaceInfo);
-    }
-    // ============ 规则激活提示词 ============
-    finalContent += (0, prompt_builder_1.generateRuleActivationPrompt)(config);
-    finalContent += (0, prompt_builder_1.generateQuickActionGuide)();
-    // ============ 技能系统 ============
-    let skills = [];
-    let skillsRootDir = null;
-    const skillsSnapshotRetention = (skillsConfig === null || skillsConfig === void 0 ? void 0 : skillsConfig.enabled) ? SKILL_SNAPSHOT_RETAIN_COUNT : null;
-    if (skillsConfig === null || skillsConfig === void 0 ? void 0 : skillsConfig.enabled) {
-        logger.log('加载技能系统...');
-        skillsRootDir = `.codebuddy/skill-snapshots/${(0, install_state_1.createInstallSnapshotId)()}`;
-        logger.verbose(`Skills active root: ${skillsRootDir}`);
-        skills = await loadSkills(ctx, logger, skillsConfig.path || 'custom-skills', managedFileTracker, targetDir, workspaceInfo, skillsRootDir);
-        logger.log(`已加载 ${skills.length} 个技能`);
-        finalContent += (0, prompt_builder_1.generateSkillsPrompt)(skills, skillsRootDir);
-    }
-    // ============ Agent 系统 ============
-    logger.log('加载 Agent 系统...');
-    let agentsRootDir = `.codebuddy/agent-snapshots/${(0, install_state_1.createInstallSnapshotId)()}`;
-    const agentsSnapshotRetention = AGENT_SNAPSHOT_RETAIN_COUNT;
-    logger.verbose(`Agents active root: ${agentsRootDir}`);
-    const agents = await loadAgents(ctx, logger, 'agents', managedFileTracker, targetDir, agentsRootDir);
-    if (agents.length > 0) {
-        logger.log(`已加载 ${agents.length} 个 Agents`);
-        finalContent += (0, prompt_builder_1.generateAgentsPrompt)(agents, agentsRootDir);
-    }
-    // ============ 脚本分发 ============
-    logger.log('分发工具脚本...');
-    const distributedScripts = await distributeScripts(ctx, logger, targetDir, managedFileTracker);
-    if (distributedScripts.length > 0) {
-        logger.log(`已分发 ${distributedScripts.length} 个脚本`);
-        finalContent += (0, prompt_builder_1.generateScriptsPrompt)(distributedScripts);
-    }
-    // ============ Workflows 分发（orchestrator/full） ============
-    let distributedWorkflows = [];
-    if (ctx.enableOrchestrator) {
-        logger.log('分发 Workflows...');
-        distributedWorkflows = await distributeWorkflows(ctx, logger, targetDir, managedFileTracker);
-        if (distributedWorkflows.length > 0) {
-            logger.log(`已分发 ${distributedWorkflows.length} 个工作流`);
-            finalContent += (0, prompt_builder_1.generateWorkflowsPrompt)(distributedWorkflows);
+        else if (skills.length > 0 || agents.length > 0) {
+            logger.log('生成强制激活规则...');
+            finalContent += (0, prompt_builder_1.generateActivationRules)(skills, agents, skillsRootDir || '.codebuddy/skills', agentsRootDir || '.codebuddy/agents');
+            logger.log('强制激活规则已注入');
         }
-    }
-    else {
-        logger.verbose('跳过 Workflows 分发（当前 profile 不包含编排契约）');
-    }
-    // ============ TaskBooks 契约分发（orchestrator/full） ============
-    let distributedTaskBooks = [];
-    if (ctx.enableOrchestrator) {
-        logger.log('分发 TaskBook 契约...');
-        distributedTaskBooks = await distributeTaskBooks(ctx, logger, targetDir, managedFileTracker);
-        if (distributedTaskBooks.length > 0) {
-            logger.log(`已分发 ${distributedTaskBooks.length} 个 TaskBook 契约文件`);
-            finalContent += (0, prompt_builder_1.generateTaskBooksPrompt)(distributedTaskBooks);
+        // ============ 脚本分发 ============
+        logger.log('分发工具脚本...');
+        const distributedScripts = await distributeScripts(ctx, logger, targetDir, managedFileTracker);
+        if (distributedScripts.length > 0) {
+            logger.log(`已分发 ${distributedScripts.length} 个脚本`);
+            if (!isDemo) {
+                finalContent += (0, prompt_builder_1.generateScriptsPrompt)(distributedScripts);
+            }
         }
-    }
-    else {
-        logger.verbose('跳过 TaskBook 契约分发（当前 profile 不包含编排契约）');
-    }
-    // ============ Agent Calls 契约分发（orchestrator/full） ============
-    let distributedAgentCalls = [];
-    if (ctx.enableOrchestrator) {
-        logger.log('分发 Agent Call 契约...');
-        distributedAgentCalls = await distributeAgentCalls(ctx, logger, targetDir, managedFileTracker);
-        if (distributedAgentCalls.length > 0) {
-            logger.log(`已分发 ${distributedAgentCalls.length} 个 Agent Call 契约文件`);
-            finalContent += (0, prompt_builder_1.generateAgentCallsPrompt)(distributedAgentCalls);
+        // ============ Workflows 分发（orchestrator/full） ============
+        let distributedWorkflows = [];
+        if (ctx.enableOrchestrator) {
+            logger.log('分发 Workflows...');
+            distributedWorkflows = await distributeWorkflows(ctx, logger, targetDir, managedFileTracker);
+            if (distributedWorkflows.length > 0) {
+                logger.log(`已分发 ${distributedWorkflows.length} 个工作流`);
+                if (!isDemo) {
+                    finalContent += (0, prompt_builder_1.generateWorkflowsPrompt)(distributedWorkflows);
+                }
+            }
         }
-    }
-    else {
-        logger.verbose('跳过 Agent Call 契约分发（当前 profile 不包含编排契约）');
-    }
-    // ============ 命令分发 ============
-    logger.log('分发 Slash Commands...');
-    const distributedCommands = await distributeCommands(ctx, logger, targetDir, managedFileTracker);
-    if (distributedCommands.length > 0) {
-        logger.log(`已分发 ${distributedCommands.length} 个命令`);
-        finalContent += (0, prompt_builder_1.generateCommandsPrompt)(distributedCommands);
-    }
-    // ============ 输出文件 ============
-    const outputDir = path.join(targetDir, (output === null || output === void 0 ? void 0 : output.dirName) || '.codebuddy/rules');
-    if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-    }
-    const outputPath = path.join(outputDir, (output === null || output === void 0 ? void 0 : output.fileName) || 'project-rules.md');
-    (0, install_sync_1.writeManagedFile)(managedFileTracker, outputPath, finalContent);
-    // 更新 .gitignore
-    updateGitignore(logger, targetDir);
-    const removedManagedFiles = (0, install_sync_1.cleanupStaleManagedFiles)(managedFileTracker, previousInstallState, {
-        preservePrefixes: [
-            '.codebuddy/agent-snapshots/',
-            '.codebuddy/agents/',
-            '.codebuddy/skill-snapshots/',
-            '.codebuddy/skills/',
-        ],
-    }, logger);
-    const loaderVersion = getLoaderVersion(ctx, logger);
-    const installState = (0, install_state_1.buildInstallState)({
-        version: loaderVersion,
-        ctx,
-        targetDir,
-        outputPath,
-        workspaceIndexPath,
-        skillsRootDir,
-        skillsSnapshotRetention,
-        agentsRootDir,
-        agentsSnapshotRetention,
-        layer1RulesCount: layer1Rules.length,
-        layer2IndexCount: layer2Index.length,
-        layer3IndexCount: layer3Index.length,
-        skillsCount: skills.length,
-        agentsCount: agents.length,
-        distributedScripts,
-        distributedWorkflows,
-        distributedTaskBooks,
-        distributedAgentCalls,
-        distributedCommands,
-        managedFiles: (0, install_sync_1.getManagedFiles)(managedFileTracker),
-        workspaceInfo,
-    });
-    const installStatePath = (0, install_state_1.writeInstallState)(targetDir, installState);
-    const removedAgentSnapshots = (0, install_state_1.gcSnapshotEntries)(targetDir, '.codebuddy/agent-snapshots', agentsRootDir, agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT, logger);
-    const removedSkillSnapshots = (0, install_state_1.gcSnapshotEntries)(targetDir, '.codebuddy/skill-snapshots', skillsRootDir, skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT, logger);
-    logger.log(`已生成 install.json: ${installStatePath}`);
-    logger.log(`同步结果: 写入 ${managedFileTracker.summary.written}，复用 ${managedFileTracker.summary.unchanged}，清理 ${removedManagedFiles.length}`);
-    if (removedAgentSnapshots.length > 0) {
-        logger.log(`Agent 快照回收: ${removedAgentSnapshots.length} 个（保留最近 ${agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT} 个）`);
-    }
-    if (removedSkillSnapshots.length > 0) {
-        logger.log(`技能快照回收: ${removedSkillSnapshots.length} 个（保留最近 ${skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT} 个）`);
-    }
-    logger.log('');
-    logger.log('═══════════════════════════════════════════════════════════════════');
-    logger.log(`✅ 成功! 规则文件已写入: ${outputPath}`);
-    logger.log(`   文件大小: ${(finalContent.length / 1024).toFixed(2)} KB`);
-    logger.log(`   Layer 1 规则: ${layer1Rules.length} 个`);
-    logger.log(`   Layer 2 索引: ${layer2Index.length} 个`);
-    logger.log(`   Layer 3 索引: ${layer3Index.length} 个`);
-    logger.log(`   工具脚本: ${distributedScripts.length} 个`);
-    logger.log(`   Workflows: ${distributedWorkflows.length} 个`);
-    logger.log(`   TaskBook 契约: ${distributedTaskBooks.length} 个`);
-    logger.log(`   Agent Call 契约: ${distributedAgentCalls.length} 个`);
-    logger.log(`   Slash Commands: ${distributedCommands.length} 个`);
-    if (workspaceInfo.totalProjectCount > 1) {
-        logger.log(`   Workspace 子项目: ${workspaceInfo.projects.length} 个`);
-        for (const p of workspaceInfo.projects) {
-            const rules = p.matchedLayer2Rules.map(r => r.rule).join(', ') || '无';
-            logger.log(`     - ${p.name} (${p.relativePath}): ${p.frameworkLabel || '无框架'} | 规则: ${rules}`);
+        else {
+            logger.verbose('跳过 Workflows 分发（当前 profile 不包含编排契约）');
         }
+        // ============ TaskBooks 契约分发（orchestrator/full） ============
+        let distributedTaskBooks = [];
+        if (ctx.enableOrchestrator) {
+            logger.log('分发 TaskBook 契约...');
+            distributedTaskBooks = await distributeTaskBooks(ctx, logger, targetDir, managedFileTracker);
+            if (distributedTaskBooks.length > 0) {
+                logger.log(`已分发 ${distributedTaskBooks.length} 个 TaskBook 契约文件`);
+                if (!isDemo) {
+                    finalContent += (0, prompt_builder_1.generateTaskBooksPrompt)(distributedTaskBooks);
+                }
+            }
+        }
+        else {
+            logger.verbose('跳过 TaskBook 契约分发（当前 profile 不包含编排契约）');
+        }
+        // ============ Agent Calls 契约分发（orchestrator/full） ============
+        let distributedAgentCalls = [];
+        if (ctx.enableOrchestrator) {
+            logger.log('分发 Agent Call 契约...');
+            distributedAgentCalls = await distributeAgentCalls(ctx, logger, targetDir, managedFileTracker);
+            if (distributedAgentCalls.length > 0) {
+                logger.log(`已分发 ${distributedAgentCalls.length} 个 Agent Call 契约文件`);
+                if (!isDemo) {
+                    finalContent += (0, prompt_builder_1.generateAgentCallsPrompt)(distributedAgentCalls);
+                }
+            }
+        }
+        else {
+            logger.verbose('跳过 Agent Call 契约分发（当前 profile 不包含编排契约）');
+        }
+        // ============ 命令分发 ============
+        logger.log('分发 Slash Commands...');
+        const distributedCommands = await distributeCommands(ctx, logger, targetDir, managedFileTracker);
+        if (distributedCommands.length > 0) {
+            logger.log(`已分发 ${distributedCommands.length} 个命令`);
+            if (!isDemo) {
+                finalContent += (0, prompt_builder_1.generateCommandsPrompt)(distributedCommands);
+            }
+        }
+        if (isDemo) {
+            finalContent += (0, prompt_builder_1.generateDemoRuntimeSummary)(distributedScripts.length, distributedWorkflows.length, distributedTaskBooks.length, distributedCommands.length);
+        }
+        // ============ 输出文件 ============
+        const outputDir = path.join(targetDir, (output === null || output === void 0 ? void 0 : output.dirName) || '.codebuddy/rules');
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+        const outputPath = path.join(outputDir, (output === null || output === void 0 ? void 0 : output.fileName) || 'project-rules.md');
+        (0, install_sync_1.writeManagedFile)(managedFileTracker, outputPath, finalContent);
+        // 更新 .gitignore
+        updateGitignore(logger, targetDir);
+        const removedManagedFiles = (0, install_sync_1.cleanupStaleManagedFiles)(managedFileTracker, previousInstallState, {
+            preservePrefixes: [
+                '.codebuddy/agent-snapshots/',
+                '.codebuddy/agents/',
+                '.codebuddy/skill-snapshots/',
+                '.codebuddy/skills/',
+            ],
+        }, logger);
+        const loaderVersion = getLoaderVersion(ctx, logger);
+        const installState = (0, install_state_1.buildInstallState)({
+            version: loaderVersion,
+            ctx,
+            targetDir,
+            depsFingerprint,
+            outputPath,
+            workspaceIndexPath,
+            skillsRootDir,
+            skillsSnapshotRetention,
+            agentsRootDir,
+            agentsSnapshotRetention,
+            layer1RulesCount: layer1Rules.length,
+            layer2IndexCount: layer2Index.length,
+            layer3IndexCount: layer3Index.length,
+            skillsCount: skills.length,
+            agentsCount: agents.length,
+            distributedScripts,
+            distributedWorkflows,
+            distributedTaskBooks,
+            distributedAgentCalls,
+            distributedCommands,
+            managedFiles: (0, install_sync_1.getManagedFiles)(managedFileTracker),
+            workspaceInfo,
+        });
+        const installStatePath = (0, install_state_1.writeInstallState)(targetDir, installState);
+        const removedAgentSnapshots = (0, install_state_1.gcSnapshotEntries)(targetDir, '.codebuddy/agent-snapshots', agentsRootDir, agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT, logger);
+        const removedSkillSnapshots = (0, install_state_1.gcSnapshotEntries)(targetDir, '.codebuddy/skill-snapshots', skillsRootDir, skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT, logger);
+        logger.log(`已生成 install.json: ${installStatePath}`);
+        logger.log(`同步结果: 写入 ${managedFileTracker.summary.written}，复用 ${managedFileTracker.summary.unchanged}，清理 ${removedManagedFiles.length}`);
+        if (removedAgentSnapshots.length > 0) {
+            logger.log(`Agent 快照回收: ${removedAgentSnapshots.length} 个（保留最近 ${agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT} 个）`);
+        }
+        if (removedSkillSnapshots.length > 0) {
+            logger.log(`技能快照回收: ${removedSkillSnapshots.length} 个（保留最近 ${skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT} 个）`);
+        }
+        logger.log('');
+        logger.log('═══════════════════════════════════════════════════════════════════');
+        logger.log(`✅ 成功! 规则文件已写入: ${outputPath}`);
+        logger.log(`   文件大小: ${(finalContent.length / 1024).toFixed(2)} KB`);
+        logger.log(`   Layer 1 规则: ${layer1Rules.length} 个`);
+        logger.log(`   Layer 2 索引: ${layer2Index.length} 个`);
+        logger.log(`   Layer 3 索引: ${layer3Index.length} 个`);
+        logger.log(`   工具脚本: ${distributedScripts.length} 个`);
+        logger.log(`   Workflows: ${distributedWorkflows.length} 个`);
+        logger.log(`   TaskBook 契约: ${distributedTaskBooks.length} 个`);
+        logger.log(`   Agent Call 契约: ${distributedAgentCalls.length} 个`);
+        logger.log(`   Slash Commands: ${distributedCommands.length} 个`);
+        if (workspaceInfo.totalProjectCount > 1) {
+            logger.log(`   Workspace 子项目: ${workspaceInfo.projects.length} 个`);
+            for (const p of workspaceInfo.projects) {
+                const rules = p.matchedLayer2Rules.map(r => r.rule).join(', ') || '无';
+                logger.log(`     - ${p.name} (${p.relativePath}): ${p.frameworkLabel || '无框架'} | 规则: ${rules}`);
+            }
+        }
+        logger.log('═══════════════════════════════════════════════════════════════════');
     }
-    logger.log('═══════════════════════════════════════════════════════════════════');
+    finally {
+        (0, install_sync_1.releaseInstallLock)(installLockHandle, logger);
+    }
 }
 main().catch((err) => {
     (0, logger_1.logError)(`Fatal Error: ${err.message}`);

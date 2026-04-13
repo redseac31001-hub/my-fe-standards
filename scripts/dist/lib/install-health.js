@@ -94,6 +94,26 @@ const PROFILE_RESIDUAL_ARTIFACTS = {
     orchestrator: [
         '.codebuddy/scripts/agent-registry.js',
     ],
+    demo: [
+        '.codebuddy/scripts/task-intake-router.js',
+        '.codebuddy/scripts/module-mapper.js',
+        '.codebuddy/scripts/report-manager.js',
+        '.codebuddy/scripts/reference-finder.js',
+        '.codebuddy/scripts/context-collector.js',
+        '.codebuddy/scripts/contract-validator.js',
+        '.codebuddy/scripts/agent-call-manager.js',
+        '.codebuddy/scripts/task-orchestrator.js',
+        '.codebuddy/scripts/taskbook-manager.js',
+        '.codebuddy/scripts/task-executor.js',
+        '.codebuddy/scripts/agent-registry.js',
+        '.codebuddy/agent-calls/agent-call.schema.json',
+        '.codebuddy/agent-calls/README.md',
+        '.codebuddy/taskbooks/taskbook.schema.json',
+        '.codebuddy/taskbooks/README.md',
+        '.codebuddy/workflows/default.workflow.json',
+        '.codebuddy/workflows/workflow.schema.json',
+        '.codebuddy/workflows/README.md',
+    ],
     full: [],
 };
 const OPTIONAL_STATIC_SUPPORT_FILES = new Set([

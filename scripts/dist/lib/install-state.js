@@ -38,6 +38,7 @@ exports.createInstallSnapshotId = createInstallSnapshotId;
 exports.buildSnapshotSortKey = buildSnapshotSortKey;
 exports.listSnapshotEntries = listSnapshotEntries;
 exports.gcSnapshotEntries = gcSnapshotEntries;
+exports.computeDepsFingerprint = computeDepsFingerprint;
 exports.buildInstallState = buildInstallState;
 exports.writeInstallState = writeInstallState;
 const fs = __importStar(require("fs"));
@@ -130,9 +131,62 @@ function gcSnapshotEntries(targetDir, snapshotRootDir, activeRootDir, retainCoun
     }
     return removed.sort();
 }
+function normalizeDependencyRecord(record) {
+    return Object.fromEntries(Object.entries(record || {}).sort(([left], [right]) => left.localeCompare(right)));
+}
+function readPackageJsonForFingerprint(packageJsonPath) {
+    if (!fs.existsSync(packageJsonPath)) {
+        return null;
+    }
+    try {
+        return JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    }
+    catch (_a) {
+        return null;
+    }
+}
+function computeDepsFingerprint(targetDir, workspaceInfo) {
+    var _a;
+    const packages = new Map();
+    if ((_a = workspaceInfo === null || workspaceInfo === void 0 ? void 0 : workspaceInfo.projects) === null || _a === void 0 ? void 0 : _a.length) {
+        for (const project of workspaceInfo.projects) {
+            const packageJsonPath = path.join(project.absolutePath, 'package.json');
+            const packageJson = project.packageJson || readPackageJsonForFingerprint(packageJsonPath);
+            if (!packageJson) {
+                continue;
+            }
+            packages.set(project.relativePath, {
+                dependencies: normalizeDependencyRecord(packageJson.dependencies),
+                devDependencies: normalizeDependencyRecord(packageJson.devDependencies),
+            });
+        }
+    }
+    if (packages.size === 0) {
+        const rootPackageJson = readPackageJsonForFingerprint(path.join(targetDir, 'package.json'));
+        if (!rootPackageJson) {
+            return null;
+        }
+        packages.set('.', {
+            dependencies: normalizeDependencyRecord(rootPackageJson.dependencies),
+            devDependencies: normalizeDependencyRecord(rootPackageJson.devDependencies),
+        });
+    }
+    const payload = {
+        packages: [...packages.entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([relativePath, deps]) => ({
+            relativePath,
+            dependencies: deps.dependencies,
+            devDependencies: deps.devDependencies,
+        })),
+    };
+    return (0, crypto_1.createHash)('sha256')
+        .update(JSON.stringify(payload))
+        .digest('hex');
+}
 function buildInstallState(params) {
     var _a, _b, _c, _d, _e, _f, _g, _h;
-    const { version, installedAt = new Date().toISOString(), ctx, targetDir, outputPath, workspaceIndexPath, skillsRootDir, skillsSnapshotRetention, agentsRootDir, agentsSnapshotRetention, layer1RulesCount, layer2IndexCount, layer3IndexCount, skillsCount, agentsCount, distributedScripts, distributedWorkflows, distributedTaskBooks, distributedAgentCalls, distributedCommands, managedFiles, workspaceInfo, } = params;
+    const { version, installedAt = new Date().toISOString(), ctx, targetDir, depsFingerprint = null, outputPath, workspaceIndexPath, skillsRootDir, skillsSnapshotRetention, agentsRootDir, agentsSnapshotRetention, layer1RulesCount, layer2IndexCount, layer3IndexCount, skillsCount, agentsCount, distributedScripts, distributedWorkflows, distributedTaskBooks, distributedAgentCalls, distributedCommands, managedFiles, workspaceInfo, } = params;
     const profile = ctx.profile;
     const mode = ctx.isRemote ? 'remote' : 'local';
     const rulesFile = (0, install_sync_1.toProjectRelativePath)(targetDir, outputPath);
@@ -148,6 +202,7 @@ function buildInstallState(params) {
         mode,
         profile,
         enableOrchestrator: ctx.enableOrchestrator,
+        depsFingerprint,
         source: {
             remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
             manifestVersion: ((_a = ctx.remoteManifest) === null || _a === void 0 ? void 0 : _a.version) || null,
@@ -199,6 +254,7 @@ function buildInstallState(params) {
         profile,
         enableOrchestrator: ctx.enableOrchestrator,
         contentHash,
+        depsFingerprint,
         source: {
             remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
             manifestVersion: ((_e = ctx.remoteManifest) === null || _e === void 0 ? void 0 : _e.version) || null,

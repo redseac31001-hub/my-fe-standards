@@ -49,15 +49,19 @@ import {
   TASKBOOK_FILES_TO_DISTRIBUTE,
   WORKFLOWS_TO_DISTRIBUTE,
   getScriptsForProfile,
+  isDemoProfile,
   isOrchestratorProfile,
 } from './lib/distribution-profiles';
 import {
+  acquireInstallLock,
+  releaseInstallLock,
   ManagedFileTracker,
   cleanupStaleManagedFiles,
   copyManagedFile,
   createManagedFileTracker,
   getManagedFiles,
   listFilesRecursive,
+  removeManagedPath,
   readInstallState,
   writeManagedFile,
 } from './lib/install-sync';
@@ -70,6 +74,7 @@ import {
 } from './lib/install-health';
 import {
   buildInstallState,
+  computeDepsFingerprint,
   createInstallSnapshotId,
   gcSnapshotEntries,
   writeInstallState,
@@ -80,13 +85,20 @@ import {
   detectProjectLangFromDir,
   detectProjectMetadata,
   discoverWorkspace,
+  normalizeStackLabel,
 } from './lib/project-detection';
 import {
   collectMatchedBusinessRules,
+  collectProjectFrameworkTags,
+  collectSkillContextProjects,
+  matchesSkillRole,
+  matchesSkillStack,
+  matchesSkillWorkspaceScope,
   shouldIncludeSkill,
 } from './lib/context-targeting';
 import { ensureRemoteContentPack, readRemoteAsset, readRemoteTextAsset } from './lib/remote-content-pack';
 import { parseSkillMetadata, parseAgentMetadata } from './lib/metadata-parser';
+import { runInit } from './lib/init-generator';
 import {
   generateWorkflowsPrompt,
   generateTaskBooksPrompt,
@@ -98,8 +110,13 @@ import {
   generateScriptsPrompt,
   generateAgentsPrompt,
   generateSkillsPrompt,
+  generateActivationRules,
   generateRuleActivationPrompt,
   generateWorkspacePrompt,
+  generateDemoWelcomeBanner,
+  generateUnifiedRoutingPrompt,
+  generateDemoQuickActionGuide,
+  generateDemoRuntimeSummary,
 } from './lib/prompt-builder';
 
 // ============ 配置常量 ============
@@ -118,17 +135,51 @@ const DEFAULT_RULE_LEVEL: Context['ruleLevel'] = 'full';
 const DEFAULT_PROFILE: Context['profile'] = 'analysis';
 const SKILL_SNAPSHOT_RETAIN_COUNT = 3;
 const AGENT_SNAPSHOT_RETAIN_COUNT = 3;
-const COMMANDS = new Set(['install', 'status', 'doctor']);
-const INSTALL_PROFILES: Context['profile'][] = ['core', 'analysis', 'orchestrator', 'full'];
+const DEMO_SKILL_LIMIT = 8;
+const DEMO_AGENT_LIMIT = 6;
+const COMMANDS = new Set(['install', 'status', 'doctor', 'init']);
+const INSTALL_PROFILES: Context['profile'][] = ['core', 'analysis', 'orchestrator', 'full', 'demo'];
 const WORKSPACE_SCOPES: WorkspaceScope[] = ['workspace-union', 'project-targeted'];
 const SKILL_ROLES: SkillRole[] = ['frontend', 'backend', 'fullstack', 'qa', 'architect', 'product', 'devops'];
+const DEMO_LOW_PRIORITY_SKILL_IDS = new Set([
+  'prd',
+  'ralph-converter',
+  'skill-creator',
+  'system-overview-design',
+]);
+const DEMO_AGENT_BASE_PRIORITY: Record<string, number> = {
+  'code-reviewer': 24,
+  'bug-investigator': 23,
+  'build-fix': 22,
+  'structure-analyzer': 21,
+  'task-orchestrator': 20,
+  'performance-profiler': 16,
+  'planner': 13,
+  'tdd-driver': 12,
+  'security-reviewer': 9,
+  'system-overview-writer': 4,
+};
 
-type LoaderCommand = 'install' | 'status' | 'doctor';
+type LoaderCommand = 'install' | 'status' | 'doctor' | 'init';
+
+interface InstallCliOptions {
+  ifDepsChanged: boolean;
+}
+
+interface InitCliOptions {
+  gitHooks: boolean;
+  ci: boolean;
+  scripts: boolean;
+  force: boolean;
+  dryRun: boolean;
+}
 
 interface ParsedCliArgs {
   command: LoaderCommand;
   ctx: Readonly<Context>;
   json: boolean;
+  installOptions: InstallCliOptions;
+  initOptions: InitCliOptions;
 }
 
 const LOADER_DISPLAY_VERSION = 'v3.3.0';
@@ -153,10 +204,17 @@ function showHelp(): void {
   install              安装/同步 CodeBuddy 规则和运行时（默认）
   status               显示当前项目的 CodeBuddy 安装状态
   doctor               诊断当前项目的 CodeBuddy 安装问题
+  init                 生成下游项目接入配置（CI / hooks / package scripts）
 
 选项：
   --help, -h           显示帮助信息
   --json               status / doctor 输出 JSON
+  --if-deps-changed    install 时仅在依赖指纹变化时继续执行
+  --dry-run            init 时仅输出将生成的文件，不写入
+  --force              init 时覆盖已有 workflow / scripts 配置
+  --git-hooks          init 时仅生成 git hooks（若与 --ci/--scripts 同时缺省，则默认三者都生成）
+  --ci                 init 时仅生成 GitHub Actions 模板
+  --scripts            init 时仅注入 package.json scripts
   --remote <URL>       从远程 URL 获取规则
   --remote-bearer-token <token>
                        远程请求附带 Bearer Token（也支持环境变量 CODEBUDDY_REMOTE_BEARER_TOKEN）
@@ -192,6 +250,15 @@ function showHelp(): void {
 
   # 诊断安装问题（JSON 输出）
   node codebuddy-loader.js doctor --json
+
+  # 仅在依赖变化时重新安装
+  node codebuddy-loader.js install --if-deps-changed
+
+  # 生成最小接入配置（预览）
+  node codebuddy-loader.js init --dry-run
+
+  # 生成最小接入配置
+  node codebuddy-loader.js init
 
   # 仅加载重构相关规则
   node codebuddy-loader.js --task refactoring
@@ -280,6 +347,21 @@ function getLoaderVersion(ctx: Readonly<Context>, logger: Logger): string {
   } catch (error) {
     logger.warn(`读取 loader package.json 失败: ${(error as Error).message}`);
     return '0.0.0';
+  }
+}
+
+function getLoaderPackageName(logger: Logger): string {
+  if (!fs.existsSync(PACKAGE_JSON_PATH)) {
+    logger.warn(`未找到 loader package.json: ${PACKAGE_JSON_PATH}`);
+    return 'my-fe-standards';
+  }
+
+  try {
+    const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf-8')) as PackageJson;
+    return pkg.name || 'my-fe-standards';
+  } catch (error) {
+    logger.warn(`读取 loader package.json 失败: ${(error as Error).message}`);
+    return 'my-fe-standards';
   }
 }
 
@@ -396,6 +478,14 @@ interface LoadEntitiesOptions<T> {
   includeEntity?: (metadata: T, entityId: string) => boolean;
 }
 
+interface DemoSkillSelectionContext {
+  projects: Array<Pick<SubProject, 'lang' | 'stackTags' | 'frameworkLabel' | 'vueProfile' | 'uiLibLabels' | 'projectKind'>>;
+  languageSet: Set<string>;
+  frameworkTagSet: Set<string>;
+  projectKindSet: Set<string>;
+  stackTagSet: Set<string>;
+}
+
 async function loadEntities<T>(
   ctx: Readonly<Context>,
   logger: Logger,
@@ -510,6 +600,167 @@ async function loadEntities<T>(
   }
 
   return entities;
+}
+
+function createDemoSkillSelectionContext(workspaceInfo: WorkspaceInfo): DemoSkillSelectionContext {
+  const projects = collectSkillContextProjects(workspaceInfo);
+  const languageSet = new Set<string>();
+  const frameworkTagSet = new Set<string>();
+  const projectKindSet = new Set<string>();
+  const stackTagSet = new Set<string>();
+
+  for (const project of projects) {
+    languageSet.add(project.lang);
+    projectKindSet.add(project.projectKind);
+    for (const tag of project.stackTags) {
+      stackTagSet.add(tag);
+    }
+    for (const tag of collectProjectFrameworkTags(project)) {
+      frameworkTagSet.add(tag);
+    }
+  }
+
+  return {
+    projects,
+    languageSet,
+    frameworkTagSet,
+    projectKindSet,
+    stackTagSet,
+  };
+}
+
+function getDemoSkillPriority(skill: SkillMetadata, context: DemoSkillSelectionContext): number {
+  const skillId = skill.id.toLowerCase();
+  let score = 0;
+
+  if (DEMO_LOW_PRIORITY_SKILL_IDS.has(skill.id)) score -= 25;
+  if (skillId.includes('review')) score += 6;
+  if (skillId.includes('refactor')) score += 6;
+  if (skillId.includes('testing')) score += 5;
+  if (skillId.includes('performance')) score += 4;
+  if (skillId.includes('structure') || skillId.includes('module')) score += 6;
+  if (skillId.includes('state')) score += 3;
+  if (skillId.includes('i18n') || skillId.includes('a11y')) score += 2;
+
+  if (context.projectKindSet.has('frontend')) {
+    if (skillId.includes('frontend')) score += 8;
+    if (skillId.includes('backend')) score -= 8;
+  }
+
+  if (context.projectKindSet.has('backend')) {
+    if (skillId.includes('backend')) score += 8;
+    if (skillId.includes('frontend')) score -= 8;
+  }
+
+  if (context.stackTagSet.has('vue3') || context.stackTagSet.has('vue2')) {
+    if (skill.id === 'component-refactoring') score += 4;
+    if (skill.id === 'state-management') score += 4;
+  }
+
+  return score;
+}
+
+function scoreSkillForDemo(
+  skill: SkillMetadata,
+  context: DemoSkillSelectionContext,
+  targetRole: SkillRole | null,
+  workspaceInfo: WorkspaceInfo,
+): number {
+  const matchedLanguages = (skill.languages || []).filter(language => context.languageSet.has(language)).length;
+  const matchedFrameworks = (skill.frameworks || []).filter(framework => context.frameworkTagSet.has(normalizeStackLabel(framework))).length;
+  const hasStackConstraints = Boolean((skill.languages && skill.languages.length > 0) || (skill.frameworks && skill.frameworks.length > 0));
+
+  let score = 0;
+  if (matchesSkillWorkspaceScope(skill, workspaceInfo)) score += 20;
+  if (matchesSkillRole(skill, targetRole)) score += 20;
+  if (matchesSkillStack(skill, context.projects)) score += 30;
+  score += matchedLanguages * 8;
+  score += matchedFrameworks * 8;
+  score += hasStackConstraints ? 0 : 6;
+  score += Math.min(skill.triggers.length, 4);
+  score += getDemoSkillPriority(skill, context);
+  return score;
+}
+
+function scoreAgentForDemo(agent: AgentMetadata, selectedSkillIds: Set<string>): number {
+  let score = DEMO_AGENT_BASE_PRIORITY[agent.id] || 0;
+  const relatedSkillMatches = (agent.relatedSkills || []).filter(skillId => selectedSkillIds.has(skillId)).length;
+
+  score += relatedSkillMatches * 10;
+  score += Math.min(agent.triggers.length, 4);
+
+  if (agent.id === 'code-reviewer' && (selectedSkillIds.has('frontend-code-review') || selectedSkillIds.has('backend-code-review'))) {
+    score += 6;
+  }
+  if (agent.id === 'performance-profiler' && selectedSkillIds.has('performance-optimization')) {
+    score += 6;
+  }
+  if (agent.id === 'structure-analyzer' && (selectedSkillIds.has('structure-review') || selectedSkillIds.has('module-mapping'))) {
+    score += 6;
+  }
+  if (agent.id === 'tdd-driver' && (selectedSkillIds.has('frontend-testing') || selectedSkillIds.has('backend-testing'))) {
+    score += 6;
+  }
+  if (agent.id === 'system-overview-writer' && selectedSkillIds.has('system-overview-design')) {
+    score += 6;
+  }
+
+  return score;
+}
+
+function selectTopDemoEntities<T extends { id: string }>(
+  entities: T[],
+  limit: number,
+  scoreEntity: (entity: T) => number,
+): { selected: T[]; removedIds: string[] } {
+  const ranked = [...entities]
+    .map(entity => ({ entity, score: scoreEntity(entity) }))
+    .sort((left, right) => right.score - left.score || left.entity.id.localeCompare(right.entity.id));
+
+  return {
+    selected: ranked.slice(0, limit).map(entry => entry.entity),
+    removedIds: ranked.slice(limit).map(entry => entry.entity.id),
+  };
+}
+
+function pruneManagedEntityDirectories(
+  targetDir: string,
+  tracker: ManagedFileTracker,
+  rootDir: string | null,
+  entityIds: string[],
+  label: string,
+  logger: Logger,
+): void {
+  if (!rootDir || entityIds.length === 0) {
+    return;
+  }
+
+  const normalizedRootDir = rootDir.replace(/\\/g, '/');
+
+  for (const entityId of entityIds) {
+    const relativePrefix = `${normalizedRootDir}/${entityId}`;
+    const absolutePath = path.join(targetDir, rootDir, entityId);
+    const removedPaths = [...tracker.files.keys()].filter(
+      managedPath => managedPath === relativePrefix || managedPath.startsWith(`${relativePrefix}/`),
+    );
+
+    if (!fs.existsSync(absolutePath)) {
+      for (const managedPath of removedPaths) {
+        tracker.files.delete(managedPath);
+      }
+      continue;
+    }
+
+    if (!removeManagedPath(targetDir, absolutePath)) {
+      continue;
+    }
+
+    for (const managedPath of removedPaths) {
+      tracker.files.delete(managedPath);
+    }
+    tracker.summary.removed += removedPaths.length;
+    logger.verbose(`demo 模式裁剪${label}: ${entityId}`);
+  }
 }
 
 // ============ 技能系统 ============
@@ -927,7 +1178,8 @@ function parseContextArgs(args: string[]): Readonly<Context> {
   }
 
   const ruleLevelIndex = args.indexOf('--rule-level');
-  if (ruleLevelIndex !== -1) {
+  const ruleLevelExplicit = ruleLevelIndex !== -1;
+  if (ruleLevelExplicit) {
     const value = (args[ruleLevelIndex + 1] || '').trim().toLowerCase();
     if (value === 'summary' || value === 'quick' || value === 'full') {
       ruleLevel = value as Context['ruleLevel'];
@@ -935,6 +1187,11 @@ function parseContextArgs(args: string[]): Readonly<Context> {
       logError(`--rule-level 仅支持 summary|quick|full，当前: ${value}`);
       process.exit(1);
     }
+  }
+
+  // demo profile 默认使用 quick 裁剪等级（除非用户显式指定）
+  if (profile === 'demo' && !ruleLevelExplicit) {
+    ruleLevel = 'quick';
   }
 
   const timeoutIndex = args.indexOf('--timeout');
@@ -959,11 +1216,30 @@ function parseContextArgs(args: string[]): Readonly<Context> {
     relevanceThreshold,
     ruleLevel,
     profile,
-    enableOrchestrator: isOrchestratorProfile(profile),
+    enableOrchestrator: profile !== 'demo' && isOrchestratorProfile(profile),
     disableWorkspace,
     workspaceScope,
     targetProject,
     targetRole,
+  };
+}
+
+function parseInstallCliOptions(args: string[]): InstallCliOptions {
+  return {
+    ifDepsChanged: args.includes('--if-deps-changed'),
+  };
+}
+
+function parseInitCliOptions(args: string[]): InitCliOptions {
+  const explicitSelections = ['--git-hooks', '--ci', '--scripts'].filter(flag => args.includes(flag));
+  const useExplicitSelections = explicitSelections.length > 0;
+
+  return {
+    gitHooks: useExplicitSelections ? args.includes('--git-hooks') : true,
+    ci: useExplicitSelections ? args.includes('--ci') : true,
+    scripts: useExplicitSelections ? args.includes('--scripts') : true,
+    force: args.includes('--force'),
+    dryRun: args.includes('--dry-run'),
   };
 }
 
@@ -995,7 +1271,33 @@ function parseCliArgs(): ParsedCliArgs {
     command,
     ctx: parseContextArgs(filteredArgs),
     json,
+    installOptions: parseInstallCliOptions(filteredArgs),
+    initOptions: parseInitCliOptions(filteredArgs),
   };
+}
+
+function resolveWorkspaceInfoForInstall(
+  ctx: Readonly<Context>,
+  logger: Logger,
+  targetDir: string,
+): WorkspaceInfo {
+  const discoveredWorkspaceInfo: WorkspaceInfo = ctx.disableWorkspace
+    ? {
+      isWorkspace: false,
+      rootDir: targetDir,
+      projects: [],
+      discoveredAt: new Date().toISOString(),
+      scope: ctx.workspaceScope,
+      selectedProject: null,
+      totalProjectCount: 0,
+    }
+    : discoverWorkspace(logger, targetDir);
+
+  if (ctx.disableWorkspace) {
+    return discoveredWorkspaceInfo;
+  }
+
+  return createScopedWorkspaceInfo(discoveredWorkspaceInfo, ctx.workspaceScope, ctx.targetProject);
 }
 
 function runStatusCommand(targetDir: string, logger: Logger, json: boolean): number {
@@ -1038,6 +1340,60 @@ function runDoctorCommand(targetDir: string, logger: Logger, json: boolean): num
   return summary.status === 'fail' ? 1 : 0;
 }
 
+function runInitCommand(targetDir: string, logger: Logger, options: InitCliOptions): number {
+  try {
+    const result = runInit({
+      targetDir,
+      bootstrapPackageName: getLoaderPackageName(logger),
+      gitHooks: options.gitHooks,
+      ci: options.ci,
+      scripts: options.scripts,
+      force: options.force,
+      dryRun: options.dryRun,
+    }, logger);
+
+    const lines = [
+      options.dryRun ? 'CodeBuddy Init (dry-run)' : 'CodeBuddy Init',
+      `Target: ${targetDir}`,
+      '',
+    ];
+
+    if (result.generated.length > 0) {
+      lines.push('Generated:');
+      for (const item of result.generated) {
+        lines.push(`  - ${item}`);
+      }
+    }
+
+    if (result.injected.length > 0) {
+      lines.push('Injected package.json scripts:');
+      for (const item of result.injected) {
+        lines.push(`  - ${item}`);
+      }
+    }
+
+    if (result.skipped.length > 0) {
+      lines.push('Skipped:');
+      for (const item of result.skipped) {
+        lines.push(`  - ${item}`);
+      }
+    }
+
+    if (result.notes.length > 0) {
+      lines.push('Notes:');
+      for (const item of result.notes) {
+        lines.push(`  - ${item}`);
+      }
+    }
+
+    console.log(lines.join('\n'));
+    return 0;
+  } catch (error) {
+    logger.error((error as Error).message);
+    return 1;
+  }
+}
+
 // ============ 主函数 ============
 
 async function main(): Promise<void> {
@@ -1045,6 +1401,7 @@ async function main(): Promise<void> {
   const parsedCtx = parsedCli.ctx;
   const logger = createLogger(parsedCtx);
   const targetDir = process.cwd();
+  let depsFingerprint: string | null = null;
 
   if (parsedCli.command === 'status') {
     process.exit(runStatusCommand(targetDir, logger, parsedCli.json));
@@ -1052,6 +1409,10 @@ async function main(): Promise<void> {
 
   if (parsedCli.command === 'doctor') {
     process.exit(runDoctorCommand(targetDir, logger, parsedCli.json));
+  }
+
+  if (parsedCli.command === 'init') {
+    process.exit(runInitCommand(targetDir, logger, parsedCli.initOptions));
   }
 
   // loadConfig 可能返回 manifest，需要合并到 ctx
@@ -1088,45 +1449,46 @@ async function main(): Promise<void> {
   logger.log(`目标项目: ${targetDir}`);
 
   // ============ Workspace 多项目发现 ============
-  const discoveredWorkspaceInfo: WorkspaceInfo = ctx.disableWorkspace
-    ? {
-      isWorkspace: false,
-      rootDir: targetDir,
-      projects: [],
-      discoveredAt: new Date().toISOString(),
-      scope: ctx.workspaceScope,
-      selectedProject: null,
-      totalProjectCount: 0,
-    }
-    : discoverWorkspace(logger, targetDir);
-
   let workspaceInfo: WorkspaceInfo;
-  if (ctx.disableWorkspace) {
-    workspaceInfo = discoveredWorkspaceInfo;
-  } else {
-    try {
-      workspaceInfo = createScopedWorkspaceInfo(discoveredWorkspaceInfo, ctx.workspaceScope, ctx.targetProject);
-    } catch (error) {
-      logError((error as Error).message);
-      process.exit(1);
+  try {
+    workspaceInfo = resolveWorkspaceInfoForInstall(ctx, logger, targetDir);
+  } catch (error) {
+    logError((error as Error).message);
+    process.exit(1);
+  }
+
+  const installLockHandle = acquireInstallLock(targetDir, logger);
+  if (!installLockHandle) {
+    process.exit(1);
+  }
+  try {
+    if (parsedCli.installOptions.ifDepsChanged) {
+      const currentDepsFingerprint = computeDepsFingerprint(targetDir, workspaceInfo);
+      const previousDepsFingerprint = previousInstallState?.depsFingerprint || null;
+      if (currentDepsFingerprint && currentDepsFingerprint === previousDepsFingerprint) {
+        logger.log('依赖未变更，跳过安装。');
+        return;
+      }
+      depsFingerprint = currentDepsFingerprint;
+    } else {
+      depsFingerprint = computeDepsFingerprint(targetDir, workspaceInfo);
     }
-  }
 
-  if (!ctx.disableWorkspace && workspaceInfo.scope === 'project-targeted' && workspaceInfo.projects[0]) {
-    logger.log(`Workspace 定向模式: ${workspaceInfo.projects[0].name} (${workspaceInfo.projects[0].relativePath})`);
-  }
+    if (!ctx.disableWorkspace && workspaceInfo.scope === 'project-targeted' && workspaceInfo.projects[0]) {
+      logger.log(`Workspace 定向模式: ${workspaceInfo.projects[0].name} (${workspaceInfo.projects[0].relativePath})`);
+    }
 
-  if (ctx.disableWorkspace) {
-    logger.verbose('Workspace 发现已禁用（--no-workspace）');
-  } else if (workspaceInfo.isWorkspace) {
-    logger.log(`Workspace 模式: ${workspaceInfo.totalProjectCount} 个子项目（当前范围: ${workspaceInfo.scope}）`);
-  } else {
-    logger.verbose('单项目模式（未发现多个子项目）');
-  }
+    if (ctx.disableWorkspace) {
+      logger.verbose('Workspace 发现已禁用（--no-workspace）');
+    } else if (workspaceInfo.isWorkspace) {
+      logger.log(`Workspace 模式: ${workspaceInfo.totalProjectCount} 个子项目（当前范围: ${workspaceInfo.scope}）`);
+    } else {
+      logger.verbose('单项目模式（未发现多个子项目）');
+    }
 
-  if (ctx.targetRole) {
-    logger.log(`岗位过滤: ${ctx.targetRole}`);
-  }
+    if (ctx.targetRole) {
+      logger.log(`岗位过滤: ${ctx.targetRole}`);
+    }
 
   const { layers, skills: skillsConfig, output, frontmatter } = config;
 
@@ -1157,6 +1519,7 @@ async function main(): Promise<void> {
 
   // 构建输出内容
   const updatedAt = new Date().toISOString();
+  const isDemo = isDemoProfile(ctx.profile);
   let finalContent = `---
 description: ${frontmatter?.description || '前端架构规范 - CodeBuddy GLM-4.7 专用版'}
 alwaysApply: ${frontmatter?.alwaysApply !== undefined ? frontmatter.alwaysApply : true}
@@ -1164,7 +1527,16 @@ enabled: ${frontmatter?.enabled !== undefined ? frontmatter.enabled : true}
 updatedAt: ${updatedAt}
 ---
 
-# 前端架构规范 (CodeBuddy 版)
+`;
+
+  if (isDemo) {
+    // demo 模式：插入欢迎 Banner（技术栈信息稍后在加载完毕后补充）
+    finalContent += `> Generated by CodeBuddy Rule Loader ${LOADER_DISPLAY_VERSION} (demo profile)
+> Generated at: ${updatedAt}
+
+`;
+  } else {
+    finalContent += `# 前端架构规范 (CodeBuddy 版)
 
 > Generated by CodeBuddy Rule Loader ${LOADER_DISPLAY_VERSION}
 > Generated at: ${updatedAt}
@@ -1173,6 +1545,7 @@ updatedAt: ${updatedAt}
 ---
 
 `;
+  }
 
   // ============ Layer 1: Base (Eager Load) ============
   logger.log('处理 Layer 1: 基础规范 (Eager Load)...');
@@ -1383,8 +1756,12 @@ updatedAt: ${updatedAt}
   }
 
   // ============ 规则激活提示词 ============
-  finalContent += generateRuleActivationPrompt(config);
-  finalContent += generateQuickActionGuide();
+  if (!isDemo) {
+    finalContent += generateRuleActivationPrompt(config);
+    finalContent += generateQuickActionGuide();
+  } else {
+    finalContent += generateDemoQuickActionGuide();
+  }
 
   // ============ 技能系统 ============
   let skills: SkillMetadata[] = [];
@@ -1403,8 +1780,22 @@ updatedAt: ${updatedAt}
       workspaceInfo,
       skillsRootDir,
     );
+    if (isDemo && skills.length > DEMO_SKILL_LIMIT) {
+      const demoSkillContext = createDemoSkillSelectionContext(workspaceInfo);
+      const { selected, removedIds } = selectTopDemoEntities(
+        skills,
+        DEMO_SKILL_LIMIT,
+        skill => scoreSkillForDemo(skill, demoSkillContext, ctx.targetRole, workspaceInfo),
+      );
+      pruneManagedEntityDirectories(targetDir, managedFileTracker, skillsRootDir, removedIds, '技能', logger);
+      skills = selected;
+      logger.log(`demo 模式裁剪技能：保留 ${skills.length} 个，移除 ${removedIds.length} 个`);
+      logger.verbose(`demo 模式保留技能: ${skills.map(skill => skill.id).join(', ')}`);
+    }
     logger.log(`已加载 ${skills.length} 个技能`);
-    finalContent += generateSkillsPrompt(skills, skillsRootDir);
+    if (!isDemo) {
+      finalContent += generateSkillsPrompt(skills, skillsRootDir);
+    }
   }
 
   // ============ Agent 系统 ============
@@ -1412,10 +1803,65 @@ updatedAt: ${updatedAt}
   let agentsRootDir: string | null = `.codebuddy/agent-snapshots/${createInstallSnapshotId()}`;
   const agentsSnapshotRetention = AGENT_SNAPSHOT_RETAIN_COUNT;
   logger.verbose(`Agents active root: ${agentsRootDir}`);
-  const agents = await loadAgents(ctx, logger, 'agents', managedFileTracker, targetDir, agentsRootDir);
+  let agents = await loadAgents(ctx, logger, 'agents', managedFileTracker, targetDir, agentsRootDir);
+  if (isDemo && agents.length > DEMO_AGENT_LIMIT) {
+    const selectedSkillIds = new Set(skills.map(skill => skill.id));
+    const { selected, removedIds } = selectTopDemoEntities(
+      agents,
+      DEMO_AGENT_LIMIT,
+      agent => scoreAgentForDemo(agent, selectedSkillIds),
+    );
+    pruneManagedEntityDirectories(targetDir, managedFileTracker, agentsRootDir, removedIds, 'Agent', logger);
+    agents = selected;
+    logger.log(`demo 模式裁剪 Agent：保留 ${agents.length} 个，移除 ${removedIds.length} 个`);
+    logger.verbose(`demo 模式保留 Agent: ${agents.map(agent => agent.id).join(', ')}`);
+  }
   if (agents.length > 0) {
     logger.log(`已加载 ${agents.length} 个 Agents`);
-    finalContent += generateAgentsPrompt(agents, agentsRootDir);
+    if (!isDemo) {
+      finalContent += generateAgentsPrompt(agents, agentsRootDir);
+    }
+  }
+
+  if (isDemo) {
+    // demo 模式：使用统一路由表替代 Agent 表 + Skill 表 + 激活规则
+    logger.log('生成统一路由表（demo 模式）...');
+
+    // 在 Layer 1 规则之前插入欢迎 Banner
+    const bannerContent = generateDemoWelcomeBanner({
+      vueVersion: vueProfile?.version ?? null,
+      vueType: vueProfile?.type ?? null,
+      uiLibs: primaryProject?.uiLibLabels ?? [],
+      lang: primaryProject?.lang ?? (standaloneLang || 'unknown'),
+      framework: primaryProject?.frameworkLabel ?? null,
+      layer1RulesCount: layer1Rules.length,
+      agentsCount: agents.length,
+      skillsCount: skills.length,
+    });
+    // 在 frontmatter 之后、Layer 1 之前插入 Banner
+    const insertPoint = finalContent.indexOf('## ');
+    if (insertPoint !== -1) {
+      finalContent = finalContent.slice(0, insertPoint) + bannerContent + finalContent.slice(insertPoint);
+    } else {
+      finalContent += bannerContent;
+    }
+
+    finalContent += generateUnifiedRoutingPrompt(
+      skills,
+      agents,
+      skillsRootDir || '.codebuddy/skills',
+      agentsRootDir || '.codebuddy/agents',
+    );
+    logger.log('统一路由表已注入');
+  } else if (skills.length > 0 || agents.length > 0) {
+    logger.log('生成强制激活规则...');
+    finalContent += generateActivationRules(
+      skills,
+      agents,
+      skillsRootDir || '.codebuddy/skills',
+      agentsRootDir || '.codebuddy/agents',
+    );
+    logger.log('强制激活规则已注入');
   }
 
   // ============ 脚本分发 ============
@@ -1423,7 +1869,9 @@ updatedAt: ${updatedAt}
   const distributedScripts = await distributeScripts(ctx, logger, targetDir, managedFileTracker);
   if (distributedScripts.length > 0) {
     logger.log(`已分发 ${distributedScripts.length} 个脚本`);
-    finalContent += generateScriptsPrompt(distributedScripts);
+    if (!isDemo) {
+      finalContent += generateScriptsPrompt(distributedScripts);
+    }
   }
 
   // ============ Workflows 分发（orchestrator/full） ============
@@ -1433,7 +1881,9 @@ updatedAt: ${updatedAt}
     distributedWorkflows = await distributeWorkflows(ctx, logger, targetDir, managedFileTracker);
     if (distributedWorkflows.length > 0) {
       logger.log(`已分发 ${distributedWorkflows.length} 个工作流`);
-      finalContent += generateWorkflowsPrompt(distributedWorkflows);
+      if (!isDemo) {
+        finalContent += generateWorkflowsPrompt(distributedWorkflows);
+      }
     }
   } else {
     logger.verbose('跳过 Workflows 分发（当前 profile 不包含编排契约）');
@@ -1446,7 +1896,9 @@ updatedAt: ${updatedAt}
     distributedTaskBooks = await distributeTaskBooks(ctx, logger, targetDir, managedFileTracker);
     if (distributedTaskBooks.length > 0) {
       logger.log(`已分发 ${distributedTaskBooks.length} 个 TaskBook 契约文件`);
-      finalContent += generateTaskBooksPrompt(distributedTaskBooks);
+      if (!isDemo) {
+        finalContent += generateTaskBooksPrompt(distributedTaskBooks);
+      }
     }
   } else {
     logger.verbose('跳过 TaskBook 契约分发（当前 profile 不包含编排契约）');
@@ -1459,7 +1911,9 @@ updatedAt: ${updatedAt}
     distributedAgentCalls = await distributeAgentCalls(ctx, logger, targetDir, managedFileTracker);
     if (distributedAgentCalls.length > 0) {
       logger.log(`已分发 ${distributedAgentCalls.length} 个 Agent Call 契约文件`);
-      finalContent += generateAgentCallsPrompt(distributedAgentCalls);
+      if (!isDemo) {
+        finalContent += generateAgentCallsPrompt(distributedAgentCalls);
+      }
     }
   } else {
     logger.verbose('跳过 Agent Call 契约分发（当前 profile 不包含编排契约）');
@@ -1470,7 +1924,18 @@ updatedAt: ${updatedAt}
   const distributedCommands = await distributeCommands(ctx, logger, targetDir, managedFileTracker);
   if (distributedCommands.length > 0) {
     logger.log(`已分发 ${distributedCommands.length} 个命令`);
-    finalContent += generateCommandsPrompt(distributedCommands);
+    if (!isDemo) {
+      finalContent += generateCommandsPrompt(distributedCommands);
+    }
+  }
+
+  if (isDemo) {
+    finalContent += generateDemoRuntimeSummary(
+      distributedScripts.length,
+      distributedWorkflows.length,
+      distributedTaskBooks.length,
+      distributedCommands.length,
+    );
   }
 
   // ============ 输出文件 ============
@@ -1503,6 +1968,7 @@ updatedAt: ${updatedAt}
     version: loaderVersion,
     ctx,
     targetDir,
+    depsFingerprint,
     outputPath,
     workspaceIndexPath,
     skillsRootDir,
@@ -1566,6 +2032,9 @@ updatedAt: ${updatedAt}
     }
   }
   logger.log('═══════════════════════════════════════════════════════════════════');
+  } finally {
+    releaseInstallLock(installLockHandle, logger);
+  }
 }
 
 main().catch((err: Error) => {

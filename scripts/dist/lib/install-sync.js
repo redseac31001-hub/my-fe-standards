@@ -35,6 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createManagedFileTracker = createManagedFileTracker;
 exports.readInstallState = readInstallState;
+exports.acquireInstallLock = acquireInstallLock;
+exports.releaseInstallLock = releaseInstallLock;
 exports.toProjectRelativePath = toProjectRelativePath;
 exports.listFilesRecursive = listFilesRecursive;
 exports.copyManagedFile = copyManagedFile;
@@ -43,8 +45,11 @@ exports.getManagedFiles = getManagedFiles;
 exports.cleanupStaleManagedFiles = cleanupStaleManagedFiles;
 exports.removeManagedPath = removeManagedPath;
 const fs = __importStar(require("fs"));
+const os = __importStar(require("os"));
 const path = __importStar(require("path"));
 const crypto_1 = require("crypto");
+const INSTALL_LOCK_FILE_NAME = '.install.lock';
+const INSTALL_LOCK_STALE_MS = 5 * 60 * 1000;
 function createManagedFileTracker(targetDir) {
     return {
         targetDir,
@@ -67,6 +72,102 @@ function readInstallState(targetDir, logger) {
     catch (error) {
         logger === null || logger === void 0 ? void 0 : logger.warn(`读取 install.json 失败: ${error.message}`);
         return null;
+    }
+}
+function readInstallLock(lockPath, logger) {
+    if (!fs.existsSync(lockPath)) {
+        return null;
+    }
+    try {
+        return JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
+    }
+    catch (error) {
+        logger === null || logger === void 0 ? void 0 : logger.warn(`读取安装锁失败: ${error.message}`);
+        return null;
+    }
+}
+function isStaleInstallLock(lock) {
+    if (!(lock === null || lock === void 0 ? void 0 : lock.startedAt)) {
+        return { stale: true, ageMs: Number.POSITIVE_INFINITY };
+    }
+    const startedAt = Date.parse(lock.startedAt);
+    if (!Number.isFinite(startedAt)) {
+        return { stale: true, ageMs: Number.POSITIVE_INFINITY };
+    }
+    const ageMs = Date.now() - startedAt;
+    return {
+        stale: ageMs >= INSTALL_LOCK_STALE_MS,
+        ageMs,
+    };
+}
+function acquireInstallLock(targetDir, logger) {
+    const lockPath = path.join(targetDir, '.codebuddy', INSTALL_LOCK_FILE_NAME);
+    const lockDir = path.dirname(lockPath);
+    fs.mkdirSync(lockDir, { recursive: true });
+    const lock = {
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        hostname: os.hostname(),
+        lockId: (0, crypto_1.createHash)('sha256')
+            .update(`${process.pid}-${Date.now()}-${Math.random()}`)
+            .digest('hex')
+            .slice(0, 16),
+    };
+    while (true) {
+        try {
+            const fd = fs.openSync(lockPath, 'wx');
+            try {
+                fs.writeFileSync(fd, JSON.stringify(lock, null, 2), 'utf-8');
+            }
+            finally {
+                fs.closeSync(fd);
+            }
+            return {
+                lockPath,
+                lockId: lock.lockId,
+            };
+        }
+        catch (error) {
+            const ioError = error;
+            if (ioError.code !== 'EEXIST') {
+                logger.error(`创建安装锁失败: ${ioError.message}`);
+                return null;
+            }
+            const existingLock = readInstallLock(lockPath, logger);
+            const { stale, ageMs } = isStaleInstallLock(existingLock);
+            if (stale) {
+                logger.warn(`发现过期安装锁，准备覆盖: ${toProjectRelativePath(targetDir, lockPath)} (${Math.round(ageMs / 1000)}s)`);
+                try {
+                    fs.unlinkSync(lockPath);
+                    continue;
+                }
+                catch (unlinkError) {
+                    logger.warn(`清理过期安装锁失败: ${unlinkError.message}`);
+                    return null;
+                }
+            }
+            const ownerText = existingLock
+                ? `PID ${existingLock.pid}, startedAt ${existingLock.startedAt}, host ${existingLock.hostname}`
+                : 'unknown owner';
+            logger.warn(`另一个安装进程正在运行 (${ownerText})。`);
+            logger.warn(`若确认无冲突，可删除 ${toProjectRelativePath(targetDir, lockPath)} 后重试。`);
+            return null;
+        }
+    }
+}
+function releaseInstallLock(handle, logger) {
+    if (!handle || !fs.existsSync(handle.lockPath)) {
+        return;
+    }
+    const existingLock = readInstallLock(handle.lockPath, logger);
+    if ((existingLock === null || existingLock === void 0 ? void 0 : existingLock.lockId) && existingLock.lockId !== handle.lockId) {
+        return;
+    }
+    try {
+        fs.unlinkSync(handle.lockPath);
+    }
+    catch (error) {
+        logger === null || logger === void 0 ? void 0 : logger.warn(`释放安装锁失败: ${error.message}`);
     }
 }
 function toProjectRelativePath(targetDir, absolutePath) {

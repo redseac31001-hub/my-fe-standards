@@ -24,8 +24,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // scripts/src/codebuddy-loader.ts
-var fs9 = __toESM(require("fs"));
-var path9 = __toESM(require("path"));
+var fs10 = __toESM(require("fs"));
+var path10 = __toESM(require("path"));
 
 // scripts/src/lib/logger.ts
 function createLogger(ctx) {
@@ -132,8 +132,11 @@ var path3 = __toESM(require("path"));
 
 // scripts/src/lib/install-sync.ts
 var fs = __toESM(require("fs"));
+var os = __toESM(require("os"));
 var path = __toESM(require("path"));
 var import_crypto = require("crypto");
+var INSTALL_LOCK_FILE_NAME = ".install.lock";
+var INSTALL_LOCK_STALE_MS = 5 * 60 * 1e3;
 function createManagedFileTracker(targetDir) {
   return {
     targetDir,
@@ -155,6 +158,92 @@ function readInstallState(targetDir, logger) {
   } catch (error) {
     logger?.warn(`\u8BFB\u53D6 install.json \u5931\u8D25: ${error.message}`);
     return null;
+  }
+}
+function readInstallLock(lockPath, logger) {
+  if (!fs.existsSync(lockPath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(lockPath, "utf-8"));
+  } catch (error) {
+    logger?.warn(`\u8BFB\u53D6\u5B89\u88C5\u9501\u5931\u8D25: ${error.message}`);
+    return null;
+  }
+}
+function isStaleInstallLock(lock) {
+  if (!lock?.startedAt) {
+    return { stale: true, ageMs: Number.POSITIVE_INFINITY };
+  }
+  const startedAt = Date.parse(lock.startedAt);
+  if (!Number.isFinite(startedAt)) {
+    return { stale: true, ageMs: Number.POSITIVE_INFINITY };
+  }
+  const ageMs = Date.now() - startedAt;
+  return {
+    stale: ageMs >= INSTALL_LOCK_STALE_MS,
+    ageMs
+  };
+}
+function acquireInstallLock(targetDir, logger) {
+  const lockPath = path.join(targetDir, ".codebuddy", INSTALL_LOCK_FILE_NAME);
+  const lockDir = path.dirname(lockPath);
+  fs.mkdirSync(lockDir, { recursive: true });
+  const lock = {
+    pid: process.pid,
+    startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    hostname: os.hostname(),
+    lockId: (0, import_crypto.createHash)("sha256").update(`${process.pid}-${Date.now()}-${Math.random()}`).digest("hex").slice(0, 16)
+  };
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, "wx");
+      try {
+        fs.writeFileSync(fd, JSON.stringify(lock, null, 2), "utf-8");
+      } finally {
+        fs.closeSync(fd);
+      }
+      return {
+        lockPath,
+        lockId: lock.lockId
+      };
+    } catch (error) {
+      const ioError = error;
+      if (ioError.code !== "EEXIST") {
+        logger.error(`\u521B\u5EFA\u5B89\u88C5\u9501\u5931\u8D25: ${ioError.message}`);
+        return null;
+      }
+      const existingLock = readInstallLock(lockPath, logger);
+      const { stale, ageMs } = isStaleInstallLock(existingLock);
+      if (stale) {
+        logger.warn(`\u53D1\u73B0\u8FC7\u671F\u5B89\u88C5\u9501\uFF0C\u51C6\u5907\u8986\u76D6: ${toProjectRelativePath(targetDir, lockPath)} (${Math.round(ageMs / 1e3)}s)`);
+        try {
+          fs.unlinkSync(lockPath);
+          continue;
+        } catch (unlinkError) {
+          logger.warn(`\u6E05\u7406\u8FC7\u671F\u5B89\u88C5\u9501\u5931\u8D25: ${unlinkError.message}`);
+          return null;
+        }
+      }
+      const ownerText = existingLock ? `PID ${existingLock.pid}, startedAt ${existingLock.startedAt}, host ${existingLock.hostname}` : "unknown owner";
+      logger.warn(`\u53E6\u4E00\u4E2A\u5B89\u88C5\u8FDB\u7A0B\u6B63\u5728\u8FD0\u884C (${ownerText})\u3002`);
+      logger.warn(`\u82E5\u786E\u8BA4\u65E0\u51B2\u7A81\uFF0C\u53EF\u5220\u9664 ${toProjectRelativePath(targetDir, lockPath)} \u540E\u91CD\u8BD5\u3002`);
+      return null;
+    }
+  }
+}
+function releaseInstallLock(handle, logger) {
+  if (!handle || !fs.existsSync(handle.lockPath)) {
+    return;
+  }
+  const existingLock = readInstallLock(handle.lockPath, logger);
+  if (existingLock?.lockId && existingLock.lockId !== handle.lockId) {
+    return;
+  }
+  try {
+    fs.unlinkSync(handle.lockPath);
+  } catch (error) {
+    logger?.warn(`\u91CA\u653E\u5B89\u88C5\u9501\u5931\u8D25: ${error.message}`);
   }
 }
 function toProjectRelativePath(targetDir, absolutePath) {
@@ -513,6 +602,7 @@ var FRONTMATTER_DEPENDENCIES = ["lib/frontmatter-utils.js"];
 var INSTALL_ROOTS_DEPENDENCIES = ["lib/install-roots.js", "lib/install-sync.js"];
 var MODULE_MAPPER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, "types/module-mapper.js"];
 var STRUCTURE_ANALYZER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, "types/structure-analyzer.js"];
+var TASK_INTAKE_ROUTER_DEPENDENCIES = [...CLI_ENTRY_DEPENDENCIES, "lib/task-intake-routing.js"];
 var VALIDATOR_GATE_DEPENDENCIES = [
   "rule-validator.js",
   "skill-validator.js",
@@ -548,6 +638,7 @@ var CORE_SCRIPTS = [
   { file: "validator-gate.js", dependencies: VALIDATOR_GATE_DEPENDENCIES }
 ];
 var ANALYSIS_SCRIPTS = [
+  { file: "task-intake-router.js", dependencies: TASK_INTAKE_ROUTER_DEPENDENCIES },
   { file: "structure-analyzer.js", dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },
   { file: "module-mapper.js", dependencies: MODULE_MAPPER_DEPENDENCIES },
   { file: "report-manager.js", dependencies: REPORT_MANAGER_DEPENDENCIES }
@@ -583,8 +674,18 @@ var AGENT_CALL_FILES_TO_DISTRIBUTE = [
 function isOrchestratorProfile(profile) {
   return profile === "orchestrator" || profile === "full";
 }
+var DEMO_SCRIPTS = [
+  { file: "structure-analyzer.js", dependencies: STRUCTURE_ANALYZER_DEPENDENCIES }
+];
+function isDemoProfile(profile) {
+  return profile === "demo";
+}
 function getScriptsForProfile(profile) {
   const scripts = [...CORE_SCRIPTS];
+  if (profile === "demo") {
+    scripts.push(...DEMO_SCRIPTS);
+    return scripts;
+  }
   if (profile !== "core") {
     scripts.push(...ANALYSIS_SCRIPTS);
   }
@@ -1382,6 +1483,26 @@ var PROFILE_RESIDUAL_ARTIFACTS = {
   orchestrator: [
     ".codebuddy/scripts/agent-registry.js"
   ],
+  demo: [
+    ".codebuddy/scripts/task-intake-router.js",
+    ".codebuddy/scripts/module-mapper.js",
+    ".codebuddy/scripts/report-manager.js",
+    ".codebuddy/scripts/reference-finder.js",
+    ".codebuddy/scripts/context-collector.js",
+    ".codebuddy/scripts/contract-validator.js",
+    ".codebuddy/scripts/agent-call-manager.js",
+    ".codebuddy/scripts/task-orchestrator.js",
+    ".codebuddy/scripts/taskbook-manager.js",
+    ".codebuddy/scripts/task-executor.js",
+    ".codebuddy/scripts/agent-registry.js",
+    ".codebuddy/agent-calls/agent-call.schema.json",
+    ".codebuddy/agent-calls/README.md",
+    ".codebuddy/taskbooks/taskbook.schema.json",
+    ".codebuddy/taskbooks/README.md",
+    ".codebuddy/workflows/default.workflow.json",
+    ".codebuddy/workflows/workflow.schema.json",
+    ".codebuddy/workflows/README.md"
+  ],
   full: []
 };
 var OPTIONAL_STATIC_SUPPORT_FILES = /* @__PURE__ */ new Set([
@@ -1949,12 +2070,62 @@ function gcSnapshotEntries(targetDir, snapshotRootDir, activeRootDir, retainCoun
   }
   return removed.sort();
 }
+function normalizeDependencyRecord(record) {
+  return Object.fromEntries(
+    Object.entries(record || {}).sort(([left], [right]) => left.localeCompare(right))
+  );
+}
+function readPackageJsonForFingerprint(packageJsonPath) {
+  if (!fs8.existsSync(packageJsonPath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs8.readFileSync(packageJsonPath, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+function computeDepsFingerprint(targetDir, workspaceInfo) {
+  const packages = /* @__PURE__ */ new Map();
+  if (workspaceInfo?.projects?.length) {
+    for (const project of workspaceInfo.projects) {
+      const packageJsonPath = path8.join(project.absolutePath, "package.json");
+      const packageJson = project.packageJson || readPackageJsonForFingerprint(packageJsonPath);
+      if (!packageJson) {
+        continue;
+      }
+      packages.set(project.relativePath, {
+        dependencies: normalizeDependencyRecord(packageJson.dependencies),
+        devDependencies: normalizeDependencyRecord(packageJson.devDependencies)
+      });
+    }
+  }
+  if (packages.size === 0) {
+    const rootPackageJson = readPackageJsonForFingerprint(path8.join(targetDir, "package.json"));
+    if (!rootPackageJson) {
+      return null;
+    }
+    packages.set(".", {
+      dependencies: normalizeDependencyRecord(rootPackageJson.dependencies),
+      devDependencies: normalizeDependencyRecord(rootPackageJson.devDependencies)
+    });
+  }
+  const payload = {
+    packages: [...packages.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([relativePath, deps]) => ({
+      relativePath,
+      dependencies: deps.dependencies,
+      devDependencies: deps.devDependencies
+    }))
+  };
+  return (0, import_crypto3.createHash)("sha256").update(JSON.stringify(payload)).digest("hex");
+}
 function buildInstallState(params) {
   const {
     version,
     installedAt = (/* @__PURE__ */ new Date()).toISOString(),
     ctx,
     targetDir,
+    depsFingerprint = null,
     outputPath,
     workspaceIndexPath,
     skillsRootDir,
@@ -1985,6 +2156,7 @@ function buildInstallState(params) {
     mode,
     profile,
     enableOrchestrator: ctx.enableOrchestrator,
+    depsFingerprint,
     source: {
       remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
       manifestVersion: ctx.remoteManifest?.version || null,
@@ -2034,6 +2206,7 @@ function buildInstallState(params) {
     profile,
     enableOrchestrator: ctx.enableOrchestrator,
     contentHash,
+    depsFingerprint,
     source: {
       remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
       manifestVersion: ctx.remoteManifest?.version || null,
@@ -2427,6 +2600,192 @@ function parseAgentMetadata(agentId, content) {
   };
 }
 
+// scripts/src/lib/init-generator.ts
+var fs9 = __toESM(require("fs"));
+var path9 = __toESM(require("path"));
+function toPosixPath(filePath) {
+  return filePath.replace(/\\/g, "/");
+}
+function toProjectRelativePath2(targetDir, filePath) {
+  return toPosixPath(path9.relative(targetDir, filePath));
+}
+function readProjectPackageJson(targetDir) {
+  const packageJsonPath = path9.join(targetDir, "package.json");
+  if (!fs9.existsSync(packageJsonPath)) {
+    throw new Error("\u672A\u627E\u5230 package.json\u3002\u5F53\u524D\u7248\u672C\u7684 init \u4EC5\u652F\u6301 Node \u9879\u76EE\u3002");
+  }
+  try {
+    return {
+      path: packageJsonPath,
+      data: JSON.parse(fs9.readFileSync(packageJsonPath, "utf-8"))
+    };
+  } catch (error) {
+    throw new Error(`\u89E3\u6790 package.json \u5931\u8D25: ${error.message}`);
+  }
+}
+function buildNpxCodeBuddyCommand(packageName, subCommand) {
+  return `npx --yes --package ${packageName} codebuddy-loader ${subCommand}`.trim();
+}
+function buildWorkflowTemplate(packageName) {
+  return [
+    "name: CodeBuddy Gate",
+    "on: [push, pull_request]",
+    "jobs:",
+    "  validate:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@v4",
+    "      - uses: actions/setup-node@v4",
+    "        with:",
+    "          node-version: 20",
+    "      - run: npm ci",
+    `      - run: ${buildNpxCodeBuddyCommand(packageName, "install --if-deps-changed")}`,
+    "      - run: node .codebuddy/scripts/validator-gate.js run --json",
+    `      - run: ${buildNpxCodeBuddyCommand(packageName, "doctor --json")}`,
+    ""
+  ].join("\n");
+}
+function createHookFileContent(existingContent, command, huskyShimPathExists) {
+  if (existingContent && existingContent.includes(command)) {
+    return null;
+  }
+  if (!existingContent) {
+    const headerLines = ["#!/usr/bin/env sh"];
+    if (huskyShimPathExists) {
+      headerLines.push('. "$(dirname -- "$0")/_/husky.sh"');
+    }
+    headerLines.push("", command, "");
+    return headerLines.join("\n");
+  }
+  let nextContent = existingContent;
+  if (!nextContent.endsWith("\n")) {
+    nextContent += "\n";
+  }
+  if (!nextContent.endsWith("\n\n")) {
+    nextContent += "\n";
+  }
+  nextContent += `${command}
+`;
+  return nextContent;
+}
+function upsertFile(targetDir, filePath, content, force, dryRun, result) {
+  const relativePath = toProjectRelativePath2(targetDir, filePath);
+  if (fs9.existsSync(filePath) && !force) {
+    result.skipped.push(relativePath);
+    return;
+  }
+  result.generated.push(relativePath);
+  if (dryRun) {
+    return;
+  }
+  fs9.mkdirSync(path9.dirname(filePath), { recursive: true });
+  fs9.writeFileSync(filePath, content, "utf-8");
+}
+function tryMakeExecutable(filePath) {
+  try {
+    fs9.chmodSync(filePath, 493);
+  } catch {
+  }
+}
+function ensureInstallState(targetDir) {
+  const installState = readInstallState(targetDir);
+  if (!installState) {
+    throw new Error("\u672A\u627E\u5230 .codebuddy/install.json\uFF0C\u8BF7\u5148\u6267\u884C install\u3002");
+  }
+}
+function runInit(options, logger) {
+  ensureInstallState(options.targetDir);
+  const result = {
+    generated: [],
+    skipped: [],
+    injected: [],
+    notes: []
+  };
+  const packageJson = readProjectPackageJson(options.targetDir);
+  if (options.scripts) {
+    const nextPackageJson = {
+      ...packageJson.data,
+      scripts: { ...packageJson.data.scripts || {} }
+    };
+    const desiredScripts = {
+      "codebuddy:install": buildNpxCodeBuddyCommand(options.bootstrapPackageName, "install"),
+      "codebuddy:doctor": buildNpxCodeBuddyCommand(options.bootstrapPackageName, "doctor"),
+      "codebuddy:validate": "node .codebuddy/scripts/validator-gate.js run"
+    };
+    for (const [scriptName, scriptCommand] of Object.entries(desiredScripts)) {
+      const currentCommand = nextPackageJson.scripts?.[scriptName];
+      if (currentCommand === scriptCommand) {
+        continue;
+      }
+      if (currentCommand && !options.force) {
+        result.skipped.push(`package.json:scripts.${scriptName}`);
+        continue;
+      }
+      nextPackageJson.scripts[scriptName] = scriptCommand;
+      result.injected.push(scriptName);
+    }
+    if (result.injected.length > 0) {
+      result.generated.push("package.json");
+      if (!options.dryRun) {
+        fs9.writeFileSync(packageJson.path, `${JSON.stringify(nextPackageJson, null, 2)}
+`, "utf-8");
+      }
+    }
+  }
+  if (options.ci) {
+    const workflowPath = path9.join(options.targetDir, ".github", "workflows", "codebuddy-gate.yml");
+    upsertFile(
+      options.targetDir,
+      workflowPath,
+      buildWorkflowTemplate(options.bootstrapPackageName),
+      options.force,
+      options.dryRun,
+      result
+    );
+  }
+  if (options.gitHooks) {
+    const huskyDir = path9.join(options.targetDir, ".husky");
+    if (!fs9.existsSync(huskyDir) || !fs9.statSync(huskyDir).isDirectory()) {
+      result.notes.push("\u672A\u68C0\u6D4B\u5230 .husky/\uFF0C\u5DF2\u8DF3\u8FC7 git hooks \u751F\u6210\u3002");
+    } else {
+      const huskyShimPathExists = fs9.existsSync(path9.join(huskyDir, "_", "husky.sh"));
+      const hookTargets = [
+        {
+          filePath: path9.join(huskyDir, "pre-commit"),
+          command: "node .codebuddy/scripts/validator-gate.js run --scope rules"
+        },
+        {
+          filePath: path9.join(huskyDir, "pre-push"),
+          command: buildNpxCodeBuddyCommand(options.bootstrapPackageName, "doctor")
+        }
+      ];
+      for (const hookTarget of hookTargets) {
+        const relativePath = toProjectRelativePath2(options.targetDir, hookTarget.filePath);
+        const existingContent = fs9.existsSync(hookTarget.filePath) ? fs9.readFileSync(hookTarget.filePath, "utf-8") : null;
+        const nextContent = createHookFileContent(existingContent, hookTarget.command, huskyShimPathExists);
+        if (!nextContent) {
+          result.skipped.push(relativePath);
+          continue;
+        }
+        result.generated.push(relativePath);
+        if (options.dryRun) {
+          continue;
+        }
+        fs9.mkdirSync(path9.dirname(hookTarget.filePath), { recursive: true });
+        fs9.writeFileSync(hookTarget.filePath, nextContent, "utf-8");
+        tryMakeExecutable(hookTarget.filePath);
+      }
+    }
+  }
+  logger.verbose(`init generated=${result.generated.length}, skipped=${result.skipped.length}, injected=${result.injected.length}`);
+  return {
+    generated: [...new Set(result.generated)].sort((left, right) => left.localeCompare(right)),
+    skipped: [...new Set(result.skipped)].sort((left, right) => left.localeCompare(right)),
+    injected: [...new Set(result.injected)].sort((left, right) => left.localeCompare(right)),
+    notes: [...new Set(result.notes)]
+  };
+}
+
 // scripts/src/lib/prompt-builder.ts
 function summarizeHintItems(values, maxItems = 2) {
   if (!values || values.length === 0) return null;
@@ -2522,11 +2881,11 @@ ${table}
 }
 function getCommandPromptEntry(cmd) {
   const commandName = cmd.replace(/\.md$/, "");
-  const path10 = `.codebuddy/commands/${cmd}`;
+  const path11 = `.codebuddy/commands/${cmd}`;
   if (cmd === "task.md") {
     return {
       command: "/task",
-      path: path10,
+      path: path11,
       description: "\u7AEF\u5230\u7AEF\u8BA1\u5212\u4EFB\u52A1\u7F16\u6392",
       example: "/task \u5B9E\u73B0\u7528\u6237\u767B\u5F55\u529F\u80FD"
     };
@@ -2534,73 +2893,81 @@ function getCommandPromptEntry(cmd) {
   if (cmd === "agent-call.md") {
     return {
       command: "/agent-call",
-      path: path10,
+      path: path11,
       description: "\u6267\u884C Agent Call \u5E76\u5199\u56DE result.json",
       example: "/agent-call req-20260204-xxxxxx"
     };
   }
   return {
     command: `/${commandName}`,
-    path: path10,
+    path: path11,
     description: "-",
     example: `/${commandName}`
   };
 }
 function getScriptPromptEntry(script) {
-  const path10 = `.codebuddy/scripts/${script}`;
+  const path11 = `.codebuddy/scripts/${script}`;
   if (script === "structure-analyzer.js") {
     return {
       file: script,
-      path: path10,
+      path: path11,
       description: "\u9879\u76EE\u7ED3\u6784\u5206\u6790\u5668",
-      usage: `node ${path10} .`
+      usage: `node ${path11} .`
     };
   }
   if (script === "module-mapper.js") {
     return {
       file: script,
-      path: path10,
+      path: path11,
       description: "\u6A21\u5757\u56FE\u8C31\u5206\u6790\u5668",
-      usage: `node ${path10} .`
+      usage: `node ${path11} .`
     };
   }
   if (script === "report-manager.js") {
     return {
       file: script,
-      path: path10,
+      path: path11,
       description: "\u62A5\u544A\u7BA1\u7406\u5668",
-      usage: `node ${path10} status`
+      usage: `node ${path11} status`
+    };
+  }
+  if (script === "task-intake-router.js") {
+    return {
+      file: script,
+      path: path11,
+      description: "\u4EFB\u52A1\u5165\u53E3\u5224\u65AD\u5668\uFF08\u76F4\u6267\u884C vs \u7F16\u6392\uFF09",
+      usage: `node ${path11} --description "replace mock login API" --files 4 --contract explicit`
     };
   }
   if (script === "agent-call-manager.js") {
     return {
       file: script,
-      path: path10,
+      path: path11,
       description: "Agent Call \u7BA1\u7406\u5668\uFF08list/show/validate\uFF09",
-      usage: `node ${path10} list`
+      usage: `node ${path11} list`
     };
   }
   if (script === "task-orchestrator.js") {
     return {
       file: script,
-      path: path10,
+      path: path11,
       description: "\u4E00\u952E\u95ED\u73AF\u6267\u884C\u5668\uFF08\u521B\u5EFA/\u89C4\u5212/\u6267\u884C/\u9A8C\u6536\uFF09",
-      usage: `node ${path10} "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature`
+      usage: `node ${path11} "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature`
     };
   }
   if (script === "contract-validator.js") {
     return {
       file: script,
-      path: path10,
+      path: path11,
       description: "\u5951\u7EA6\u6821\u9A8C\u5668\uFF08TaskBook/Workflow\uFF09",
-      usage: `node ${path10} --workflows --taskbooks`
+      usage: `node ${path11} --workflows --taskbooks`
     };
   }
   return {
     file: script,
-    path: path10,
+    path: path11,
     description: "-",
-    usage: `node ${path10}`
+    usage: `node ${path11}`
   };
 }
 function buildCommandsTable(commands) {
@@ -2650,6 +3017,12 @@ function buildScriptPromptGroups(scripts) {
       files: present
     });
   };
+  addGroup(
+    "\u4EFB\u52A1\u5165\u53E3\u5224\u65AD",
+    "\u4EFB\u52A1\u8FB9\u754C\u4E0D\u660E\u663E\u65F6\uFF0C\u5148\u5224\u65AD\u662F\u76F4\u6267\u884C\u8FD8\u662F\u8FDB\u5165\u7F16\u6392",
+    'node .codebuddy/scripts/task-intake-router.js --description "replace mock login API" --files 4 --contract explicit',
+    ["task-intake-router.js"]
+  );
   addGroup(
     "\u7ED3\u6784\u5206\u6790",
     "\u5148\u751F\u6210\u7ED3\u6784\u548C\u6A21\u5757\u8FB9\u754C\uFF0C\u518D\u51B3\u5B9A\u662F\u5426\u7EE7\u7EED\u6DF1\u6316",
@@ -2774,6 +3147,7 @@ function generateScriptsReadme(scripts) {
     "### 2. \u542F\u52A8\u95ED\u73AF",
     "",
     "```bash",
+    'node .codebuddy/scripts/task-intake-router.js --description "replace mock login API" --files 4 --contract explicit',
     'node .codebuddy/scripts/task-orchestrator.js "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature',
     "node .codebuddy/scripts/task-orchestrator.js --taskbook <taskBookId> --show-workflow-route --json",
     "```",
@@ -2817,6 +3191,7 @@ function generateScriptsReadme(scripts) {
     "### \u7F16\u6392 / \u5951\u7EA6\u6821\u9A8C",
     "",
     "```bash",
+    'node .codebuddy/scripts/task-intake-router.js --description "replace mock login API" --files 4 --contract explicit',
     "node .codebuddy/scripts/contract-validator.js --workflows --taskbooks",
     'node .codebuddy/scripts/task-orchestrator.js "\u5B9E\u73B0\u7528\u6237\u767B\u5F55" --type new-feature',
     "```",
@@ -2858,6 +3233,29 @@ function generateQuickActionGuide() {
 \u4F18\u5148\u8BFB\u77ED\u5165\u53E3\uFF1A\`.codebuddy/scripts/README.md\`\u3001\`.codebuddy/commands/README.md\`\u3001\`.codebuddy/rules_cache/\`\u3002
 `;
 }
+var ACTIVATION_GROUP_DEFINITIONS = [
+  { key: "review", title: "\u4EE3\u7801\u5BA1\u67E5\u4E0E\u8D28\u91CF" },
+  { key: "diagnosis", title: "Bug \u6392\u67E5\u4E0E\u4FEE\u590D" },
+  { key: "performance", title: "\u6027\u80FD\u4E0E\u6784\u5EFA\u4F18\u5316" },
+  { key: "architecture", title: "\u67B6\u6784\u4E0E\u7ED3\u6784\u5206\u6790" },
+  { key: "documentation", title: "\u6587\u6863\u4E0E\u8BBE\u8BA1" },
+  { key: "testing", title: "\u6D4B\u8BD5\u5B9E\u73B0" },
+  { key: "implementation", title: "\u5B9E\u73B0\u4E0E\u91CD\u6784" },
+  { key: "orchestration", title: "\u89C4\u5212\u4E0E\u6267\u884C" },
+  { key: "other", title: "\u5176\u4ED6\u4E13\u7528\u80FD\u529B" }
+];
+var AGENT_ACTIVATION_CATEGORY_OVERRIDES = {
+  "bug-investigator": "diagnosis",
+  "build-fix": "diagnosis",
+  "code-reviewer": "review",
+  "performance-profiler": "performance",
+  "planner": "orchestration",
+  "security-reviewer": "review",
+  "structure-analyzer": "architecture",
+  "system-overview-writer": "documentation",
+  "task-orchestrator": "orchestration",
+  "tdd-driver": "testing"
+};
 var ORCHESTRATION_ROUTE_KEYWORDS = [
   "orchestrator",
   "planner",
@@ -2929,11 +3327,23 @@ function truncateText(value, max = 48) {
 function includesAnyKeyword(text, keywords) {
   return keywords.some((keyword) => text.includes(keyword));
 }
+function normalizeKeywords(values) {
+  return [...new Set((values || []).map((value) => value.trim()).filter(Boolean))];
+}
 function summarizeRouteTriggers(triggers, maxItems = 3) {
-  const values = [...new Set((triggers || []).map((trigger) => trigger.trim()).filter(Boolean))];
+  const values = normalizeKeywords(triggers);
   if (values.length === 0) return "-";
   const formatted = values.slice(0, maxItems).map((trigger) => `\`${trigger}\``).join(", ");
   return values.length > maxItems ? `${formatted} +${values.length - maxItems}` : formatted;
+}
+function flattenSkillTriggers(triggers) {
+  return normalizeKeywords(triggers.flatMap((trigger) => trigger.split("/").map((part) => part.trim())));
+}
+function formatTriggerKeywords(keywords, maxItems = 5, separator = ", ") {
+  const uniqueKeywords = normalizeKeywords(keywords);
+  if (uniqueKeywords.length === 0) return "-";
+  const formatted = uniqueKeywords.slice(0, maxItems).map((keyword) => `\`${keyword}\``).join(separator);
+  return uniqueKeywords.length > maxItems ? `${formatted}${separator}+${uniqueKeywords.length - maxItems}` : formatted;
 }
 function formatRouteIds(ids) {
   return ids.map((id) => `\`${id}\``).join(", ");
@@ -3079,6 +3489,99 @@ function groupSkillsByScenario(skills) {
   }
   return groups.filter((group) => group.items.length > 0);
 }
+function classifyAgentForActivation(agent) {
+  const override = AGENT_ACTIVATION_CATEGORY_OVERRIDES[agent.id];
+  if (override) {
+    return override;
+  }
+  const text = `${agent.id} ${agent.name} ${normalizeKeywords(agent.triggers).join(" ")}`.toLowerCase();
+  if (includesAnyKeyword(text, DOCUMENTATION_ROUTE_KEYWORDS)) {
+    return "documentation";
+  }
+  if (/(performance|profil(e|er)?|lighthouse|web vitals|性能分析|性能优化|渲染性能|加载速度)/.test(text)) {
+    return "performance";
+  }
+  if (includesAnyKeyword(text, ORCHESTRATION_ROUTE_KEYWORDS)) {
+    return "orchestration";
+  }
+  if (/(structure|module|architecture|目录|架构|项目健康度)/.test(text)) {
+    return "architecture";
+  }
+  if (/(review|security|审查|安全|代码质量)/.test(text)) {
+    return "review";
+  }
+  if (/(testing|test|tdd|测试驱动|测试先行|写测试)/.test(text)) {
+    return "testing";
+  }
+  if (/(bug|debug|fix|修复|排查|异常|报错|白屏|lint|type error|类型错误|编译错误|构建失败)/.test(text)) {
+    return "diagnosis";
+  }
+  return "other";
+}
+function classifySkillForActivation(skill) {
+  const scenarioText = normalizeKeywords(skill.scenarios).join(" ");
+  const text = `${skill.id} ${skill.name} ${flattenSkillTriggers(skill.triggers).join(" ")} ${scenarioText}`.toLowerCase();
+  if (includesAnyKeyword(text, DOCUMENTATION_SKILL_ROUTE_KEYWORDS) || /(概要设计|系统设计文档|设计文档模板|prd|需求文档|产品文档|documentation)/.test(text)) {
+    return "documentation";
+  }
+  if (/(performance|build-optimization|render|bundle|懒加载|虚拟滚动|首屏|加载速度|包体积|构建优化)/.test(text)) {
+    return "performance";
+  }
+  if (/(structure|module|architecture|模块|目录|架构)/.test(text)) {
+    return "architecture";
+  }
+  if (/(review|审查|code review|代码质量|a11y|i18n|wcag|无障碍|国际化|quality|code-review|localization)/.test(text)) {
+    return "review";
+  }
+  if (includesAnyKeyword(text, IMPLEMENTATION_SKILL_ROUTE_KEYWORDS) || /(state-management|migration|pinia|vuex|store|组件重构|拆分组件)/.test(text)) {
+    return "implementation";
+  }
+  if (/(testing|test|测试|api 测试|单元测试|coverage)/.test(text)) {
+    return "testing";
+  }
+  if (/(plan|planning|workflow|ralph|skill-creator|格式转换|conversion)/.test(text)) {
+    return "orchestration";
+  }
+  return "other";
+}
+function buildActivationGroups(skills, agents, skillsRootDir, agentsRootDir) {
+  if (skills.length === 0 && agents.length === 0) {
+    return [];
+  }
+  const groups = new Map(
+    ACTIVATION_GROUP_DEFINITIONS.map((definition) => [
+      definition.key,
+      { key: definition.key, title: definition.title, entries: [], mergedTriggers: [] }
+    ])
+  );
+  for (const agent of [...agents].sort((a, b) => a.id.localeCompare(b.id))) {
+    const category = classifyAgentForActivation(agent);
+    groups.get(category)?.entries.push({
+      id: agent.id,
+      entityType: "agent",
+      name: agent.name,
+      description: agent.description,
+      triggers: normalizeKeywords(agent.triggers),
+      filePath: `${agentsRootDir}/${agent.id}/AGENT.md`,
+      relatedSkills: agent.relatedSkills
+    });
+  }
+  for (const skill of [...skills].sort((a, b) => a.id.localeCompare(b.id))) {
+    const category = classifySkillForActivation(skill);
+    groups.get(category)?.entries.push({
+      id: skill.id,
+      entityType: "skill",
+      name: skill.name,
+      description: skill.description,
+      triggers: flattenSkillTriggers(skill.triggers),
+      filePath: `${skillsRootDir}/${skill.id}/SKILL.md`
+    });
+  }
+  return ACTIVATION_GROUP_DEFINITIONS.map((definition) => groups.get(definition.key)).map((group) => ({
+    ...group,
+    mergedTriggers: normalizeKeywords(group.entries.flatMap((entry) => entry.triggers))
+  })).filter((group) => group.entries.length > 0);
+}
 function generateAgentsPrompt(agents, agentsRootDir = ".codebuddy/agents") {
   if (agents.length === 0) return "";
   const groups = groupAgentsByScenario(agents);
@@ -3182,6 +3685,59 @@ ${groupSections}
 
 **\u4EC5\u5F53\u7528\u6237\u8BF7\u6C42\u6267\u884C\u5177\u4F53\u64CD\u4F5C\u65F6**\u624D\u89E6\u53D1\u6280\u80FD\u52A0\u8F7D\u3002
 `;
+}
+function generateActivationRules(skills, agents, skillsRootDir, agentsRootDir) {
+  const groups = buildActivationGroups(skills, agents, skillsRootDir, agentsRootDir);
+  if (groups.length === 0) return "";
+  const installedSkillIds = new Set(skills.map((skill) => skill.id));
+  let sections = "";
+  let ruleNumber = 1;
+  for (const group of groups) {
+    const agentEntries = group.entries.filter((entry) => entry.entityType === "agent");
+    const directSkillPaths = group.entries.filter((entry) => entry.entityType === "skill").map((entry) => entry.filePath);
+    const relatedSkillPaths = agentEntries.flatMap(
+      (agent) => (agent.relatedSkills || []).filter((skillId) => installedSkillIds.has(skillId)).map((skillId) => `${skillsRootDir}/${skillId}/SKILL.md`)
+    );
+    const skillPaths = [.../* @__PURE__ */ new Set([...directSkillPaths, ...relatedSkillPaths])];
+    const thenSteps = [];
+    if (agentEntries.length > 0) {
+      thenSteps.push(`\u4F18\u5148\u8BFB\u53D6 Agent \u5B9A\u4E49\uFF1A${formatCodeList(agentEntries.map((entry) => entry.filePath))}`);
+    }
+    if (skillPaths.length > 0) {
+      thenSteps.push(`\u8865\u5145\u8BFB\u53D6 Skill\uFF1A${formatCodeList(skillPaths)}\uFF1B\u5982\u5B58\u5728\u540C\u7EA7 \`references/\`\uFF0C\u4E00\u5E76\u8BFB\u53D6\u3002`);
+    }
+    if (agentEntries.length > 0) {
+      thenSteps.push("\u4E25\u683C\u6309\u7167 `AGENT.md` \u4E2D\u7684\u5DE5\u4F5C\u6D41\u7A0B\u6267\u884C\uFF1B\u5982\u5DF2\u8BFB\u53D6 Skill\uFF0C\u518D\u540C\u6B65\u9075\u5FAA `SKILL.md` \u7684\u68C0\u67E5\u6E05\u5355\u3001\u6A21\u677F\u6216\u8F93\u51FA\u8981\u6C42\u3002");
+    } else {
+      thenSteps.push("\u4E25\u683C\u6309\u7167 `SKILL.md` \u4E2D\u7684\u6B65\u9AA4\u3001\u68C0\u67E5\u6E05\u5355\u6216\u6A21\u677F\u6267\u884C\u3002");
+    }
+    const thenBlock = thenSteps.map((step, index) => `  ${index + 1}. ${step}`).join("\n");
+    sections += `## \u89C4\u5219 ${ruleNumber}\uFF1A${group.title}
+
+`;
+    sections += `- **WHEN**\uFF1A\u7528\u6237\u8BF7\u6C42\u547D\u4E2D\u4EE5\u4E0B\u4EFB\u4E00\u5173\u952E\u8BCD\u65F6\u89E6\u53D1
+`;
+    sections += `  ${formatTriggerKeywords(group.mergedTriggers, 8, " | ")}
+`;
+    sections += `- **THEN**\uFF1A
+${thenBlock}
+`;
+    sections += `- **NEVER**\uFF1A
+`;
+    sections += `  - \u274C \u4E0D\u5F97\u8DF3\u8FC7\u5DF2\u5B89\u88C5\u7684 Skill/Agent\uFF0C\u76F4\u63A5\u7528\u901A\u7528\u77E5\u8BC6\u66FF\u4EE3
+`;
+    sections += `  - \u274C \u4E0D\u5F97\u7701\u7565\u5DE5\u4F5C\u6D41\u7A0B\u4E2D\u7684\u5FC5\u8981\u6B65\u9AA4
+
+`;
+    ruleNumber += 1;
+  }
+  return `
+# \u26A1 \u5F3A\u5236\u6FC0\u6D3B\u89C4\u5219\uFF08MANDATORY ACTIVATION RULES\uFF09
+
+> \u5F53\u7528\u6237\u8BF7\u6C42\u547D\u4E2D\u4EE5\u4E0B\u89E6\u53D1\u8BCD\u65F6\uFF0C**\u5FC5\u987B\u5148\u8BFB\u53D6\u5BF9\u5E94 Agent/Skill \u6587\u4EF6\uFF0C\u518D\u6267\u884C\u4EFB\u52A1**\u3002
+> \u4E0D\u8981\u8DF3\u8FC7\u5DF2\u5B89\u88C5\u80FD\u529B\uFF0C\u4E5F\u4E0D\u8981\u53EA\u4F9D\u8D56\u901A\u7528\u77E5\u8BC6\u76F4\u63A5\u4F5C\u7B54\u3002
+
+${sections}`;
 }
 function generateRuleActivationPrompt(_config) {
   let table = "| \u4EFB\u52A1\u7C7B\u578B | \u5173\u952E\u8BCD | \u91CD\u70B9\u89C4\u5219 |\n|---------|--------|--------|\n";
@@ -3334,25 +3890,150 @@ ${routingExample}${mixWarning}
 **\u91CD\u8981**: \u6BCF\u4E2A\u5B50\u9879\u76EE\u7684 Layer2 \u89C4\u5219\u7F13\u5B58\u72EC\u7ACB\u5B58\u653E\u5728 \`.codebuddy/rules_cache/projects/{\u9879\u76EE\u8DEF\u5F84}/layer2_business/\` \u4E0B\u3002
 `;
 }
+function generateDemoWelcomeBanner(options) {
+  const stackParts = [];
+  const seen = /* @__PURE__ */ new Set();
+  const pushPart = (value) => {
+    const part = (value || "").trim();
+    if (!part) return;
+    const key = part.replace(/\s+/g, "").toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    stackParts.push(part);
+  };
+  pushPart(options.framework);
+  if (options.vueVersion) pushPart(`Vue ${options.vueVersion}`);
+  if (options.lang !== "unknown") pushPart(options.lang === "typescript" ? "TypeScript" : options.lang);
+  for (const lib of options.uiLibs) pushPart(lib);
+  const stackLabel = stackParts.length > 0 ? stackParts.join(" + ") : "\u901A\u7528\u9879\u76EE";
+  return `# CodeBuddy \u524D\u7AEF\u67B6\u6784\u52A9\u624B
+
+\u5DF2\u8BC6\u522B\u6280\u672F\u6808: **${stackLabel}**
+\u5DF2\u52A0\u8F7D: ${options.layer1RulesCount} \u6761\u6838\u5FC3\u89C4\u8303 | ${options.agentsCount} \u4E2A Agent | ${options.skillsCount} \u4E2A Skill
+
+\u5FEB\u901F\u4E0A\u624B:
+- \u8F93\u5165 \`/task \u5B9E\u73B0\u7528\u6237\u767B\u5F55\` \u542F\u52A8\u4EFB\u52A1\u7F16\u6392
+- \u8F93\u5165 "\u5BA1\u67E5\u8FD9\u6BB5\u4EE3\u7801" \u89E6\u53D1\u4EE3\u7801\u5BA1\u67E5
+- \u8F93\u5165 "\u5E2E\u6211\u6392\u67E5\u8FD9\u4E2A bug" \u542F\u52A8 Bug \u8C03\u67E5
+- \u8F93\u5165 "\u5206\u6790\u9879\u76EE\u7ED3\u6784" \u6267\u884C\u67B6\u6784\u5206\u6790
+
+---
+
+`;
+}
+function generateUnifiedRoutingPrompt(skills, agents, skillsRootDir, agentsRootDir) {
+  if (skills.length === 0 && agents.length === 0) return "";
+  const rows = [];
+  for (const agent of [...agents].sort((a, b) => a.id.localeCompare(b.id))) {
+    const triggers = normalizeKeywords(agent.triggers);
+    if (triggers.length === 0) continue;
+    rows.push({
+      keywords: triggers.slice(0, 4).join(", "),
+      filePath: `${agentsRootDir}/${agent.id}/AGENT.md`,
+      entityType: "Agent"
+    });
+  }
+  for (const skill of [...skills].sort((a, b) => a.id.localeCompare(b.id))) {
+    const triggers = flattenSkillTriggers(skill.triggers);
+    if (triggers.length === 0) continue;
+    rows.push({
+      keywords: triggers.slice(0, 4).join(", "),
+      filePath: `${skillsRootDir}/${skill.id}/SKILL.md`,
+      entityType: "Skill"
+    });
+  }
+  let table = "| \u5173\u952E\u8BCD | \u8BFB\u53D6\u6587\u4EF6 |\n|--------|----------|\n";
+  for (const row of rows) {
+    table += `| ${row.keywords} | \`${row.filePath}\` |
+`;
+  }
+  return `
+# \u80FD\u529B\u8DEF\u7531\u8868
+
+\u7528\u6237\u8BF7\u6C42 \u2192 \u5339\u914D\u4E0B\u8868\u5173\u952E\u8BCD \u2192 \u8BFB\u53D6\u5BF9\u5E94\u6587\u4EF6 \u2192 \u6309\u6587\u4EF6\u4E2D\u6B65\u9AA4\u6267\u884C
+
+${table}
+
+**\u89C4\u5219**: \u547D\u4E2D\u5173\u952E\u8BCD\u540E**\u5FC5\u987B**\u5148\u7528 \`read_file\` \u8BFB\u53D6\u5BF9\u5E94\u6587\u4EF6\uFF0C\u4E0D\u5F97\u8DF3\u8FC7\u3002\u672A\u547D\u4E2D\u4EFB\u4F55\u5173\u952E\u8BCD\u65F6\uFF0C\u76F4\u63A5\u57FA\u4E8E\u4E0A\u65B9\u6838\u5FC3\u89C4\u8303\u56DE\u7B54\u3002
+
+---
+
+`;
+}
+function generateDemoQuickActionGuide() {
+  return `
+## \u5FEB\u901F\u884C\u52A8\u6307\u5F15
+
+| \u573A\u666F | \u5165\u53E3 |
+|------|------|
+| \u65B0\u529F\u80FD / \u91CD\u6784 / \u7F3A\u9677\u4FEE\u590D | \`/task <\u9700\u6C42\u63CF\u8FF0>\` |
+| \u4EE3\u7801\u5BA1\u67E5 | \u8BF4 "\u5BA1\u67E5\u8FD9\u6BB5\u4EE3\u7801" \u6216 "code review" |
+| Bug \u6392\u67E5 | \u8BF4 "\u5E2E\u6211\u6392\u67E5" \u6216 "\u4FEE\u590D bug" |
+| \u9879\u76EE\u7ED3\u6784\u5206\u6790 | \u8BF4 "\u5206\u6790\u9879\u76EE\u7ED3\u6784" |
+
+\u9700\u8981\u67E5\u770B\u89C4\u5219\u8BE6\u60C5\u65F6\uFF0C\u4F7F\u7528 \`read_file\` \u8BFB\u53D6 \`.codebuddy/rules_cache/\` \u4E0B\u5BF9\u5E94\u6587\u4EF6\u3002
+
+---
+
+`;
+}
+function generateDemoRuntimeSummary(scriptsCount, workflowsCount, taskbooksCount, commandsCount) {
+  const items = [];
+  if (scriptsCount > 0) items.push(`\u5DE5\u5177\u811A\u672C ${scriptsCount} \u4E2A`);
+  if (workflowsCount > 0) items.push(`\u5DE5\u4F5C\u6D41 ${workflowsCount} \u4E2A`);
+  if (taskbooksCount > 0) items.push(`\u4EFB\u52A1\u4E66\u5951\u7EA6 ${taskbooksCount} \u4E2A`);
+  if (commandsCount > 0) items.push(`\u547D\u4EE4 ${commandsCount} \u4E2A`);
+  if (items.length === 0) return "";
+  return `
+## \u5DF2\u5B89\u88C5\u8FD0\u884C\u65F6
+
+${items.join(" | ")}
+
+\u8BE6\u89C1 \`.codebuddy/scripts/README.md\` \u548C \`.codebuddy/commands/README.md\`\u3002
+
+---
+
+`;
+}
 
 // scripts/src/codebuddy-loader.ts
 var SCRIPT_DIR = __dirname;
-var PROJECT_ROOT = path9.resolve(SCRIPT_DIR, "../..");
-var PACKAGE_JSON_PATH = path9.join(PROJECT_ROOT, "package.json");
-var RULES_ROOT = path9.join(PROJECT_ROOT, "rules");
-var CONFIG_PATH = path9.join(PROJECT_ROOT, "config", "loader-config.json");
-var SKILLS_ROOT = path9.join(PROJECT_ROOT, "custom-skills");
-var AGENTS_ROOT = path9.join(PROJECT_ROOT, "agents");
+var PROJECT_ROOT = path10.resolve(SCRIPT_DIR, "../..");
+var PACKAGE_JSON_PATH = path10.join(PROJECT_ROOT, "package.json");
+var RULES_ROOT = path10.join(PROJECT_ROOT, "rules");
+var CONFIG_PATH = path10.join(PROJECT_ROOT, "config", "loader-config.json");
+var SKILLS_ROOT = path10.join(PROJECT_ROOT, "custom-skills");
+var AGENTS_ROOT = path10.join(PROJECT_ROOT, "agents");
 var DEFAULT_TIMEOUT = 1e4;
 var DEFAULT_THRESHOLD = 0.5;
 var DEFAULT_RULE_LEVEL = "full";
 var DEFAULT_PROFILE = "analysis";
 var SKILL_SNAPSHOT_RETAIN_COUNT = 3;
 var AGENT_SNAPSHOT_RETAIN_COUNT = 3;
-var COMMANDS = /* @__PURE__ */ new Set(["install", "status", "doctor"]);
-var INSTALL_PROFILES = ["core", "analysis", "orchestrator", "full"];
+var DEMO_SKILL_LIMIT = 8;
+var DEMO_AGENT_LIMIT = 6;
+var COMMANDS = /* @__PURE__ */ new Set(["install", "status", "doctor", "init"]);
+var INSTALL_PROFILES = ["core", "analysis", "orchestrator", "full", "demo"];
 var WORKSPACE_SCOPES = ["workspace-union", "project-targeted"];
 var SKILL_ROLES = ["frontend", "backend", "fullstack", "qa", "architect", "product", "devops"];
+var DEMO_LOW_PRIORITY_SKILL_IDS = /* @__PURE__ */ new Set([
+  "prd",
+  "ralph-converter",
+  "skill-creator",
+  "system-overview-design"
+]);
+var DEMO_AGENT_BASE_PRIORITY = {
+  "code-reviewer": 24,
+  "bug-investigator": 23,
+  "build-fix": 22,
+  "structure-analyzer": 21,
+  "task-orchestrator": 20,
+  "performance-profiler": 16,
+  "planner": 13,
+  "tdd-driver": 12,
+  "security-reviewer": 9,
+  "system-overview-writer": 4
+};
 var LOADER_DISPLAY_VERSION = "v3.3.0";
 function showHelp() {
   console.log(`
@@ -3372,10 +4053,17 @@ function showHelp() {
   install              \u5B89\u88C5/\u540C\u6B65 CodeBuddy \u89C4\u5219\u548C\u8FD0\u884C\u65F6\uFF08\u9ED8\u8BA4\uFF09
   status               \u663E\u793A\u5F53\u524D\u9879\u76EE\u7684 CodeBuddy \u5B89\u88C5\u72B6\u6001
   doctor               \u8BCA\u65AD\u5F53\u524D\u9879\u76EE\u7684 CodeBuddy \u5B89\u88C5\u95EE\u9898
+  init                 \u751F\u6210\u4E0B\u6E38\u9879\u76EE\u63A5\u5165\u914D\u7F6E\uFF08CI / hooks / package scripts\uFF09
 
 \u9009\u9879\uFF1A
   --help, -h           \u663E\u793A\u5E2E\u52A9\u4FE1\u606F
   --json               status / doctor \u8F93\u51FA JSON
+  --if-deps-changed    install \u65F6\u4EC5\u5728\u4F9D\u8D56\u6307\u7EB9\u53D8\u5316\u65F6\u7EE7\u7EED\u6267\u884C
+  --dry-run            init \u65F6\u4EC5\u8F93\u51FA\u5C06\u751F\u6210\u7684\u6587\u4EF6\uFF0C\u4E0D\u5199\u5165
+  --force              init \u65F6\u8986\u76D6\u5DF2\u6709 workflow / scripts \u914D\u7F6E
+  --git-hooks          init \u65F6\u4EC5\u751F\u6210 git hooks\uFF08\u82E5\u4E0E --ci/--scripts \u540C\u65F6\u7F3A\u7701\uFF0C\u5219\u9ED8\u8BA4\u4E09\u8005\u90FD\u751F\u6210\uFF09
+  --ci                 init \u65F6\u4EC5\u751F\u6210 GitHub Actions \u6A21\u677F
+  --scripts            init \u65F6\u4EC5\u6CE8\u5165 package.json scripts
   --remote <URL>       \u4ECE\u8FDC\u7A0B URL \u83B7\u53D6\u89C4\u5219
   --remote-bearer-token <token>
                        \u8FDC\u7A0B\u8BF7\u6C42\u9644\u5E26 Bearer Token\uFF08\u4E5F\u652F\u6301\u73AF\u5883\u53D8\u91CF CODEBUDDY_REMOTE_BEARER_TOKEN\uFF09
@@ -3411,6 +4099,15 @@ function showHelp() {
 
   # \u8BCA\u65AD\u5B89\u88C5\u95EE\u9898\uFF08JSON \u8F93\u51FA\uFF09
   node codebuddy-loader.js doctor --json
+
+  # \u4EC5\u5728\u4F9D\u8D56\u53D8\u5316\u65F6\u91CD\u65B0\u5B89\u88C5
+  node codebuddy-loader.js install --if-deps-changed
+
+  # \u751F\u6210\u6700\u5C0F\u63A5\u5165\u914D\u7F6E\uFF08\u9884\u89C8\uFF09
+  node codebuddy-loader.js init --dry-run
+
+  # \u751F\u6210\u6700\u5C0F\u63A5\u5165\u914D\u7F6E
+  node codebuddy-loader.js init
 
   # \u4EC5\u52A0\u8F7D\u91CD\u6784\u76F8\u5173\u89C4\u5219
   node codebuddy-loader.js --task refactoring
@@ -3455,22 +4152,22 @@ async function loadConfig(ctx, logger) {
       process.exit(1);
     }
   } else {
-    if (!fs9.existsSync(CONFIG_PATH)) {
+    if (!fs10.existsSync(CONFIG_PATH)) {
       logger.error(`\u914D\u7F6E\u6587\u4EF6\u4E0D\u5B58\u5728: ${CONFIG_PATH}`);
       process.exit(1);
     }
     logger.verbose(`\u52A0\u8F7D\u672C\u5730\u914D\u7F6E: ${CONFIG_PATH}`);
-    return { config: JSON.parse(fs9.readFileSync(CONFIG_PATH, "utf-8")), manifest: null };
+    return { config: JSON.parse(fs10.readFileSync(CONFIG_PATH, "utf-8")), manifest: null };
   }
 }
 function getPackageJson(logger, targetDir) {
-  const pkgPath = path9.join(targetDir, "package.json");
-  if (!fs9.existsSync(pkgPath)) {
+  const pkgPath = path10.join(targetDir, "package.json");
+  if (!fs10.existsSync(pkgPath)) {
     logger.warn(`\u672A\u627E\u5230 package.json: ${pkgPath}`);
     return {};
   }
   try {
-    return JSON.parse(fs9.readFileSync(pkgPath, "utf-8"));
+    return JSON.parse(fs10.readFileSync(pkgPath, "utf-8"));
   } catch (e) {
     logger.error(`\u89E3\u6790 package.json \u5931\u8D25: ${e.message}`);
     return {};
@@ -3480,16 +4177,29 @@ function getLoaderVersion(ctx, logger) {
   if (ctx.remoteManifest?.version) {
     return ctx.remoteManifest.version;
   }
-  if (!fs9.existsSync(PACKAGE_JSON_PATH)) {
+  if (!fs10.existsSync(PACKAGE_JSON_PATH)) {
     logger.warn(`\u672A\u627E\u5230 loader package.json: ${PACKAGE_JSON_PATH}`);
     return "0.0.0";
   }
   try {
-    const pkg = JSON.parse(fs9.readFileSync(PACKAGE_JSON_PATH, "utf-8"));
+    const pkg = JSON.parse(fs10.readFileSync(PACKAGE_JSON_PATH, "utf-8"));
     return pkg.version || "0.0.0";
   } catch (error) {
     logger.warn(`\u8BFB\u53D6 loader package.json \u5931\u8D25: ${error.message}`);
     return "0.0.0";
+  }
+}
+function getLoaderPackageName(logger) {
+  if (!fs10.existsSync(PACKAGE_JSON_PATH)) {
+    logger.warn(`\u672A\u627E\u5230 loader package.json: ${PACKAGE_JSON_PATH}`);
+    return "my-fe-standards";
+  }
+  try {
+    const pkg = JSON.parse(fs10.readFileSync(PACKAGE_JSON_PATH, "utf-8"));
+    return pkg.name || "my-fe-standards";
+  } catch (error) {
+    logger.warn(`\u8BFB\u53D6 loader package.json \u5931\u8D25: ${error.message}`);
+    return "my-fe-standards";
   }
 }
 async function loadRuleFile(ctx, logger, layerId, filePath) {
@@ -3501,9 +4211,9 @@ async function loadRuleFile(ctx, logger, layerId, filePath) {
       return "";
     }
   } else {
-    const fullPath = path9.join(RULES_ROOT, layerId, filePath);
-    if (fs9.existsSync(fullPath)) {
-      return fs9.readFileSync(fullPath, "utf-8");
+    const fullPath = path10.join(RULES_ROOT, layerId, filePath);
+    if (fs10.existsSync(fullPath)) {
+      return fs10.readFileSync(fullPath, "utf-8");
     }
     return "";
   }
@@ -3523,23 +4233,23 @@ async function loadLayerRules(ctx, logger, layerId, folders) {
         }
       }
     } else {
-      const folderPath = path9.join(RULES_ROOT, layerId, folder);
-      if (fs9.existsSync(folderPath)) {
-        const stat = fs9.statSync(folderPath);
+      const folderPath = path10.join(RULES_ROOT, layerId, folder);
+      if (fs10.existsSync(folderPath)) {
+        const stat = fs10.statSync(folderPath);
         if (stat.isDirectory()) {
-          const files = fs9.readdirSync(folderPath).filter((f) => f.endsWith(".md"));
+          const files = fs10.readdirSync(folderPath).filter((f) => f.endsWith(".md"));
           for (const file of files) {
-            const content = fs9.readFileSync(path9.join(folderPath, file), "utf-8");
+            const content = fs10.readFileSync(path10.join(folderPath, file), "utf-8");
             contents.push({ path: `${folder}/${file}`, content: filterRuleByLevel(content, ctx.ruleLevel) });
           }
         } else if (folderPath.endsWith(".md")) {
-          const content = fs9.readFileSync(folderPath, "utf-8");
+          const content = fs10.readFileSync(folderPath, "utf-8");
           contents.push({ path: folder, content: filterRuleByLevel(content, ctx.ruleLevel) });
         }
       }
-      const mdPath = path9.join(RULES_ROOT, layerId, folder + ".md");
-      if (fs9.existsSync(mdPath)) {
-        const content = fs9.readFileSync(mdPath, "utf-8");
+      const mdPath = path10.join(RULES_ROOT, layerId, folder + ".md");
+      if (fs10.existsSync(mdPath)) {
+        const content = fs10.readFileSync(mdPath, "utf-8");
         contents.push({ path: folder + ".md", content: filterRuleByLevel(content, ctx.ruleLevel) });
       }
     }
@@ -3574,9 +4284,9 @@ function filterRuleByLevel(content, level) {
 }
 async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir) {
   const entities = [];
-  const localDir = path9.join(targetDir, options.targetSubDir);
-  if (!fs9.existsSync(localDir)) {
-    fs9.mkdirSync(localDir, { recursive: true });
+  const localDir = path10.join(targetDir, options.targetSubDir);
+  if (!fs10.existsSync(localDir)) {
+    fs10.mkdirSync(localDir, { recursive: true });
   }
   if (ctx.isRemote) {
     const files = ctx.remoteManifest.files.filter(
@@ -3597,7 +4307,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
       try {
         const content = await readRemoteAsset(ctx, logger, file.path);
         const relativePath = file.path.replace(options.manifestPrefix, "");
-        writeManagedFile(tracker, path9.join(localDir, relativePath), content);
+        writeManagedFile(tracker, path10.join(localDir, relativePath), content);
         logger.verbose(`\u5DF2\u4E0B\u8F7D${options.label}\u6839\u6587\u4EF6: ${relativePath}`);
       } catch (e) {
         logger.warn(`${options.label}\u6839\u6587\u4EF6\u4E0B\u8F7D\u5931\u8D25: ${file.path} - ${e.message}`);
@@ -3619,7 +4329,7 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
           try {
             const content = file.path === metadataFile.path ? metadataContent : await readRemoteAsset(ctx, logger, file.path);
             const relativePath = file.path.replace(options.manifestPrefix, "");
-            const localPath = path9.join(localDir, relativePath);
+            const localPath = path10.join(localDir, relativePath);
             writeManagedFile(tracker, localPath, content);
             logger.verbose(`\u5DF2\u4E0B\u8F7D${options.label}\u6587\u4EF6: ${relativePath}`);
           } catch (e) {
@@ -3631,21 +4341,21 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
       }
     }
   } else {
-    const sourceDir = path9.join(PROJECT_ROOT, sourcePath);
-    if (fs9.existsSync(sourceDir)) {
-      const entries = fs9.readdirSync(sourceDir, { withFileTypes: true });
+    const sourceDir = path10.join(PROJECT_ROOT, sourcePath);
+    if (fs10.existsSync(sourceDir)) {
+      const entries = fs10.readdirSync(sourceDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isFile()) continue;
-        const sourceFile = path9.join(sourceDir, entry.name);
-        const destinationPath = path9.join(localDir, entry.name);
+        const sourceFile = path10.join(sourceDir, entry.name);
+        const destinationPath = path10.join(localDir, entry.name);
         copyManagedFile(tracker, sourceFile, destinationPath);
       }
       const entityDirs = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".")).map((entry) => entry.name);
       for (const entityId of entityDirs) {
-        const entitySourceDir = path9.join(sourceDir, entityId);
-        const metadataFile = path9.join(entitySourceDir, options.metadataFileName);
-        if (!fs9.existsSync(metadataFile)) continue;
-        const content = fs9.readFileSync(metadataFile, "utf-8");
+        const entitySourceDir = path10.join(sourceDir, entityId);
+        const metadataFile = path10.join(entitySourceDir, options.metadataFileName);
+        if (!fs10.existsSync(metadataFile)) continue;
+        const content = fs10.readFileSync(metadataFile, "utf-8");
         const metadata = options.parseMetadata(entityId, content);
         if (!metadata) continue;
         if (options.includeEntity && !options.includeEntity(metadata, entityId)) {
@@ -3655,14 +4365,134 @@ async function loadEntities(ctx, logger, sourcePath, options, tracker, targetDir
         entities.push(metadata);
         const sourceFiles = listFilesRecursive(entitySourceDir);
         for (const sourceFile of sourceFiles) {
-          const relativePath = path9.relative(sourceDir, sourceFile);
-          const destinationPath = path9.join(localDir, relativePath);
+          const relativePath = path10.relative(sourceDir, sourceFile);
+          const destinationPath = path10.join(localDir, relativePath);
           copyManagedFile(tracker, sourceFile, destinationPath);
         }
       }
     }
   }
   return entities;
+}
+function createDemoSkillSelectionContext(workspaceInfo) {
+  const projects = collectSkillContextProjects(workspaceInfo);
+  const languageSet = /* @__PURE__ */ new Set();
+  const frameworkTagSet = /* @__PURE__ */ new Set();
+  const projectKindSet = /* @__PURE__ */ new Set();
+  const stackTagSet = /* @__PURE__ */ new Set();
+  for (const project of projects) {
+    languageSet.add(project.lang);
+    projectKindSet.add(project.projectKind);
+    for (const tag of project.stackTags) {
+      stackTagSet.add(tag);
+    }
+    for (const tag of collectProjectFrameworkTags(project)) {
+      frameworkTagSet.add(tag);
+    }
+  }
+  return {
+    projects,
+    languageSet,
+    frameworkTagSet,
+    projectKindSet,
+    stackTagSet
+  };
+}
+function getDemoSkillPriority(skill, context) {
+  const skillId = skill.id.toLowerCase();
+  let score = 0;
+  if (DEMO_LOW_PRIORITY_SKILL_IDS.has(skill.id)) score -= 25;
+  if (skillId.includes("review")) score += 6;
+  if (skillId.includes("refactor")) score += 6;
+  if (skillId.includes("testing")) score += 5;
+  if (skillId.includes("performance")) score += 4;
+  if (skillId.includes("structure") || skillId.includes("module")) score += 6;
+  if (skillId.includes("state")) score += 3;
+  if (skillId.includes("i18n") || skillId.includes("a11y")) score += 2;
+  if (context.projectKindSet.has("frontend")) {
+    if (skillId.includes("frontend")) score += 8;
+    if (skillId.includes("backend")) score -= 8;
+  }
+  if (context.projectKindSet.has("backend")) {
+    if (skillId.includes("backend")) score += 8;
+    if (skillId.includes("frontend")) score -= 8;
+  }
+  if (context.stackTagSet.has("vue3") || context.stackTagSet.has("vue2")) {
+    if (skill.id === "component-refactoring") score += 4;
+    if (skill.id === "state-management") score += 4;
+  }
+  return score;
+}
+function scoreSkillForDemo(skill, context, targetRole, workspaceInfo) {
+  const matchedLanguages = (skill.languages || []).filter((language) => context.languageSet.has(language)).length;
+  const matchedFrameworks = (skill.frameworks || []).filter((framework) => context.frameworkTagSet.has(normalizeStackLabel(framework))).length;
+  const hasStackConstraints = Boolean(skill.languages && skill.languages.length > 0 || skill.frameworks && skill.frameworks.length > 0);
+  let score = 0;
+  if (matchesSkillWorkspaceScope(skill, workspaceInfo)) score += 20;
+  if (matchesSkillRole(skill, targetRole)) score += 20;
+  if (matchesSkillStack(skill, context.projects)) score += 30;
+  score += matchedLanguages * 8;
+  score += matchedFrameworks * 8;
+  score += hasStackConstraints ? 0 : 6;
+  score += Math.min(skill.triggers.length, 4);
+  score += getDemoSkillPriority(skill, context);
+  return score;
+}
+function scoreAgentForDemo(agent, selectedSkillIds) {
+  let score = DEMO_AGENT_BASE_PRIORITY[agent.id] || 0;
+  const relatedSkillMatches = (agent.relatedSkills || []).filter((skillId) => selectedSkillIds.has(skillId)).length;
+  score += relatedSkillMatches * 10;
+  score += Math.min(agent.triggers.length, 4);
+  if (agent.id === "code-reviewer" && (selectedSkillIds.has("frontend-code-review") || selectedSkillIds.has("backend-code-review"))) {
+    score += 6;
+  }
+  if (agent.id === "performance-profiler" && selectedSkillIds.has("performance-optimization")) {
+    score += 6;
+  }
+  if (agent.id === "structure-analyzer" && (selectedSkillIds.has("structure-review") || selectedSkillIds.has("module-mapping"))) {
+    score += 6;
+  }
+  if (agent.id === "tdd-driver" && (selectedSkillIds.has("frontend-testing") || selectedSkillIds.has("backend-testing"))) {
+    score += 6;
+  }
+  if (agent.id === "system-overview-writer" && selectedSkillIds.has("system-overview-design")) {
+    score += 6;
+  }
+  return score;
+}
+function selectTopDemoEntities(entities, limit, scoreEntity) {
+  const ranked = [...entities].map((entity) => ({ entity, score: scoreEntity(entity) })).sort((left, right) => right.score - left.score || left.entity.id.localeCompare(right.entity.id));
+  return {
+    selected: ranked.slice(0, limit).map((entry) => entry.entity),
+    removedIds: ranked.slice(limit).map((entry) => entry.entity.id)
+  };
+}
+function pruneManagedEntityDirectories(targetDir, tracker, rootDir, entityIds, label, logger) {
+  if (!rootDir || entityIds.length === 0) {
+    return;
+  }
+  const normalizedRootDir = rootDir.replace(/\\/g, "/");
+  for (const entityId of entityIds) {
+    const relativePrefix = `${normalizedRootDir}/${entityId}`;
+    const absolutePath = path10.join(targetDir, rootDir, entityId);
+    const removedPaths = [...tracker.files.keys()].filter(
+      (managedPath) => managedPath === relativePrefix || managedPath.startsWith(`${relativePrefix}/`)
+    );
+    if (!fs10.existsSync(absolutePath)) {
+      for (const managedPath of removedPaths) {
+        tracker.files.delete(managedPath);
+      }
+      continue;
+    }
+    if (!removeManagedPath(targetDir, absolutePath)) {
+      continue;
+    }
+    for (const managedPath of removedPaths) {
+      tracker.files.delete(managedPath);
+    }
+    tracker.summary.removed += removedPaths.length;
+    logger.verbose(`demo \u6A21\u5F0F\u88C1\u526A${label}: ${entityId}`);
+  }
 }
 async function loadSkills(ctx, logger, skillsPath, tracker, targetDir, workspaceInfo, targetSubDir) {
   return loadEntities(ctx, logger, skillsPath, {
@@ -3685,16 +4515,16 @@ async function loadAgents(ctx, logger, agentsPath, tracker, targetDir, targetSub
 }
 async function distributeScripts(ctx, logger, targetDir, tracker) {
   const distributed = [];
-  const localScriptsDir = path9.join(targetDir, ".codebuddy/scripts");
+  const localScriptsDir = path10.join(targetDir, ".codebuddy/scripts");
   const scriptsToDistribute = getScriptsForProfile(ctx.profile);
-  if (!fs9.existsSync(localScriptsDir)) {
-    fs9.mkdirSync(localScriptsDir, { recursive: true });
+  if (!fs10.existsSync(localScriptsDir)) {
+    fs10.mkdirSync(localScriptsDir, { recursive: true });
   }
   if (ctx.isRemote) {
     for (const scriptInfo of scriptsToDistribute) {
       try {
         const content = await readRemoteTextAsset(ctx, logger, `scripts/dist/${scriptInfo.file}`);
-        const destPath = path9.join(localScriptsDir, scriptInfo.file);
+        const destPath = path10.join(localScriptsDir, scriptInfo.file);
         writeManagedFile(tracker, destPath, content);
         distributed.push(scriptInfo.file);
         logger.verbose(`\u5DF2\u4E0B\u8F7D\u811A\u672C: ${scriptInfo.file}`);
@@ -3702,7 +4532,7 @@ async function distributeScripts(ctx, logger, targetDir, tracker) {
           for (const dep of scriptInfo.dependencies) {
             try {
               const depContent = await readRemoteTextAsset(ctx, logger, `scripts/dist/${dep}`);
-              writeManagedFile(tracker, path9.join(localScriptsDir, dep), depContent);
+              writeManagedFile(tracker, path10.join(localScriptsDir, dep), depContent);
               logger.verbose(`\u5DF2\u4E0B\u8F7D\u4F9D\u8D56: ${dep}`);
             } catch (e) {
               logger.warn(`\u4F9D\u8D56\u4E0B\u8F7D\u5931\u8D25: ${dep} - ${e.message}`);
@@ -3714,19 +4544,19 @@ async function distributeScripts(ctx, logger, targetDir, tracker) {
       }
     }
   } else {
-    const sourceDir = path9.join(PROJECT_ROOT, "scripts/dist");
+    const sourceDir = path10.join(PROJECT_ROOT, "scripts/dist");
     for (const scriptInfo of scriptsToDistribute) {
-      const srcPath = path9.join(sourceDir, scriptInfo.file);
-      if (fs9.existsSync(srcPath)) {
-        const destPath = path9.join(localScriptsDir, scriptInfo.file);
+      const srcPath = path10.join(sourceDir, scriptInfo.file);
+      if (fs10.existsSync(srcPath)) {
+        const destPath = path10.join(localScriptsDir, scriptInfo.file);
         copyManagedFile(tracker, srcPath, destPath);
         distributed.push(scriptInfo.file);
         logger.verbose(`\u5DF2\u590D\u5236\u811A\u672C: ${scriptInfo.file}`);
         if (scriptInfo.dependencies) {
           for (const dep of scriptInfo.dependencies) {
-            const depSrc = path9.join(sourceDir, dep);
-            if (fs9.existsSync(depSrc)) {
-              copyManagedFile(tracker, depSrc, path9.join(localScriptsDir, dep));
+            const depSrc = path10.join(sourceDir, dep);
+            if (fs10.existsSync(depSrc)) {
+              copyManagedFile(tracker, depSrc, path10.join(localScriptsDir, dep));
               logger.verbose(`\u5DF2\u590D\u5236\u4F9D\u8D56: ${dep}`);
             }
           }
@@ -3737,14 +4567,14 @@ async function distributeScripts(ctx, logger, targetDir, tracker) {
     }
   }
   if (distributed.length > 0) {
-    const scriptsPackageJsonPath = path9.join(localScriptsDir, "package.json");
+    const scriptsPackageJsonPath = path10.join(localScriptsDir, "package.json");
     writeManagedFile(
       tracker,
       scriptsPackageJsonPath,
       `${JSON.stringify({ type: "commonjs" }, null, 2)}
 `
     );
-    const readmePath = path9.join(localScriptsDir, "README.md");
+    const readmePath = path10.join(localScriptsDir, "README.md");
     writeManagedFile(tracker, readmePath, generateScriptsReadme(distributed));
   }
   return distributed;
@@ -3824,13 +4654,13 @@ async function distributeCommands(ctx, logger, targetDir, tracker) {
   });
 }
 function updateGitignore(logger, projectDir) {
-  const gitignorePath = path9.join(projectDir, ".gitignore");
+  const gitignorePath = path10.join(projectDir, ".gitignore");
   const header = "# CodeBuddy \u751F\u6210\u6587\u4EF6";
   const entries = [".codebuddy/", "codebuddy-loader.bundle.js"];
   try {
     let content = "";
-    if (fs9.existsSync(gitignorePath)) {
-      content = fs9.readFileSync(gitignorePath, "utf-8");
+    if (fs10.existsSync(gitignorePath)) {
+      content = fs10.readFileSync(gitignorePath, "utf-8");
     }
     const existingLines = new Set(
       content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
@@ -3851,7 +4681,7 @@ ${header}
       content += `${entry}
 `;
     }
-    fs9.writeFileSync(gitignorePath, content, "utf-8");
+    fs10.writeFileSync(gitignorePath, content, "utf-8");
     logger.verbose("\u5DF2\u66F4\u65B0 .gitignore");
   } catch (error) {
     logger.warn(`\u66F4\u65B0 .gitignore \u5931\u8D25: ${error.message}`);
@@ -3996,7 +4826,8 @@ function parseContextArgs(args) {
     }
   }
   const ruleLevelIndex = args.indexOf("--rule-level");
-  if (ruleLevelIndex !== -1) {
+  const ruleLevelExplicit = ruleLevelIndex !== -1;
+  if (ruleLevelExplicit) {
     const value = (args[ruleLevelIndex + 1] || "").trim().toLowerCase();
     if (value === "summary" || value === "quick" || value === "full") {
       ruleLevel = value;
@@ -4004,6 +4835,9 @@ function parseContextArgs(args) {
       logError(`--rule-level \u4EC5\u652F\u6301 summary|quick|full\uFF0C\u5F53\u524D: ${value}`);
       process.exit(1);
     }
+  }
+  if (profile === "demo" && !ruleLevelExplicit) {
+    ruleLevel = "quick";
   }
   const timeoutIndex = args.indexOf("--timeout");
   if (timeoutIndex !== -1) {
@@ -4026,11 +4860,27 @@ function parseContextArgs(args) {
     relevanceThreshold,
     ruleLevel,
     profile,
-    enableOrchestrator: isOrchestratorProfile(profile),
+    enableOrchestrator: profile !== "demo" && isOrchestratorProfile(profile),
     disableWorkspace,
     workspaceScope,
     targetProject,
     targetRole
+  };
+}
+function parseInstallCliOptions(args) {
+  return {
+    ifDepsChanged: args.includes("--if-deps-changed")
+  };
+}
+function parseInitCliOptions(args) {
+  const explicitSelections = ["--git-hooks", "--ci", "--scripts"].filter((flag) => args.includes(flag));
+  const useExplicitSelections = explicitSelections.length > 0;
+  return {
+    gitHooks: useExplicitSelections ? args.includes("--git-hooks") : true,
+    ci: useExplicitSelections ? args.includes("--ci") : true,
+    scripts: useExplicitSelections ? args.includes("--scripts") : true,
+    force: args.includes("--force"),
+    dryRun: args.includes("--dry-run")
   };
 }
 function parseCliArgs() {
@@ -4055,12 +4905,29 @@ function parseCliArgs() {
   return {
     command,
     ctx: parseContextArgs(filteredArgs),
-    json
+    json,
+    installOptions: parseInstallCliOptions(filteredArgs),
+    initOptions: parseInitCliOptions(filteredArgs)
   };
 }
+function resolveWorkspaceInfoForInstall(ctx, logger, targetDir) {
+  const discoveredWorkspaceInfo = ctx.disableWorkspace ? {
+    isWorkspace: false,
+    rootDir: targetDir,
+    projects: [],
+    discoveredAt: (/* @__PURE__ */ new Date()).toISOString(),
+    scope: ctx.workspaceScope,
+    selectedProject: null,
+    totalProjectCount: 0
+  } : discoverWorkspace(logger, targetDir);
+  if (ctx.disableWorkspace) {
+    return discoveredWorkspaceInfo;
+  }
+  return createScopedWorkspaceInfo(discoveredWorkspaceInfo, ctx.workspaceScope, ctx.targetProject);
+}
 function runStatusCommand(targetDir, logger, json) {
-  const installStatePath = path9.join(targetDir, ".codebuddy", "install.json");
-  const installStateExists = fs9.existsSync(installStatePath);
+  const installStatePath = path10.join(targetDir, ".codebuddy", "install.json");
+  const installStateExists = fs10.existsSync(installStatePath);
   const installState = readInstallState(targetDir, logger);
   const inspection = inspectInstallState(targetDir, installState, installStateExists);
   if (json) {
@@ -4074,8 +4941,8 @@ function runStatusCommand(targetDir, logger, json) {
   return inspection.installState !== null ? 0 : 1;
 }
 function runDoctorCommand(targetDir, logger, json) {
-  const installStatePath = path9.join(targetDir, ".codebuddy", "install.json");
-  const installStateExists = fs9.existsSync(installStatePath);
+  const installStatePath = path10.join(targetDir, ".codebuddy", "install.json");
+  const installStateExists = fs10.existsSync(installStatePath);
   const installState = readInstallState(targetDir, logger);
   const inspection = inspectInstallState(targetDir, installState, installStateExists);
   const checks = buildDoctorChecks(inspection);
@@ -4092,16 +4959,67 @@ function runDoctorCommand(targetDir, logger, json) {
   }
   return summary.status === "fail" ? 1 : 0;
 }
+function runInitCommand(targetDir, logger, options) {
+  try {
+    const result = runInit({
+      targetDir,
+      bootstrapPackageName: getLoaderPackageName(logger),
+      gitHooks: options.gitHooks,
+      ci: options.ci,
+      scripts: options.scripts,
+      force: options.force,
+      dryRun: options.dryRun
+    }, logger);
+    const lines = [
+      options.dryRun ? "CodeBuddy Init (dry-run)" : "CodeBuddy Init",
+      `Target: ${targetDir}`,
+      ""
+    ];
+    if (result.generated.length > 0) {
+      lines.push("Generated:");
+      for (const item of result.generated) {
+        lines.push(`  - ${item}`);
+      }
+    }
+    if (result.injected.length > 0) {
+      lines.push("Injected package.json scripts:");
+      for (const item of result.injected) {
+        lines.push(`  - ${item}`);
+      }
+    }
+    if (result.skipped.length > 0) {
+      lines.push("Skipped:");
+      for (const item of result.skipped) {
+        lines.push(`  - ${item}`);
+      }
+    }
+    if (result.notes.length > 0) {
+      lines.push("Notes:");
+      for (const item of result.notes) {
+        lines.push(`  - ${item}`);
+      }
+    }
+    console.log(lines.join("\n"));
+    return 0;
+  } catch (error) {
+    logger.error(error.message);
+    return 1;
+  }
+}
 async function main() {
   const parsedCli = parseCliArgs();
   const parsedCtx = parsedCli.ctx;
   const logger = createLogger(parsedCtx);
   const targetDir = process.cwd();
+  let depsFingerprint = null;
   if (parsedCli.command === "status") {
     process.exit(runStatusCommand(targetDir, logger, parsedCli.json));
   }
   if (parsedCli.command === "doctor") {
     process.exit(runDoctorCommand(targetDir, logger, parsedCli.json));
+  }
+  if (parsedCli.command === "init") {
+    process.exit(runInitCommand(targetDir, logger, parsedCli.initOptions));
   }
   const { config, manifest } = await loadConfig(parsedCtx, logger);
   let ctx = manifest ? { ...parsedCtx, remoteManifest: manifest } : parsedCtx;
@@ -4128,67 +5046,78 @@ async function main() {
   const previousInstallState = readInstallState(targetDir, logger);
   const managedFileTracker = createManagedFileTracker(targetDir);
   logger.log(`\u76EE\u6807\u9879\u76EE: ${targetDir}`);
-  const discoveredWorkspaceInfo = ctx.disableWorkspace ? {
-    isWorkspace: false,
-    rootDir: targetDir,
-    projects: [],
-    discoveredAt: (/* @__PURE__ */ new Date()).toISOString(),
-    scope: ctx.workspaceScope,
-    selectedProject: null,
-    totalProjectCount: 0
-  } : discoverWorkspace(logger, targetDir);
   let workspaceInfo;
-  if (ctx.disableWorkspace) {
-    workspaceInfo = discoveredWorkspaceInfo;
-  } else {
-    try {
-      workspaceInfo = createScopedWorkspaceInfo(discoveredWorkspaceInfo, ctx.workspaceScope, ctx.targetProject);
-    } catch (error) {
-      logError(error.message);
-      process.exit(1);
+  try {
+    workspaceInfo = resolveWorkspaceInfoForInstall(ctx, logger, targetDir);
+  } catch (error) {
+    logError(error.message);
+    process.exit(1);
+  }
+  const installLockHandle = acquireInstallLock(targetDir, logger);
+  if (!installLockHandle) {
+    process.exit(1);
+  }
+  try {
+    if (parsedCli.installOptions.ifDepsChanged) {
+      const currentDepsFingerprint = computeDepsFingerprint(targetDir, workspaceInfo);
+      const previousDepsFingerprint = previousInstallState?.depsFingerprint || null;
+      if (currentDepsFingerprint && currentDepsFingerprint === previousDepsFingerprint) {
+        logger.log("\u4F9D\u8D56\u672A\u53D8\u66F4\uFF0C\u8DF3\u8FC7\u5B89\u88C5\u3002");
+        return;
+      }
+      depsFingerprint = currentDepsFingerprint;
+    } else {
+      depsFingerprint = computeDepsFingerprint(targetDir, workspaceInfo);
     }
-  }
-  if (!ctx.disableWorkspace && workspaceInfo.scope === "project-targeted" && workspaceInfo.projects[0]) {
-    logger.log(`Workspace \u5B9A\u5411\u6A21\u5F0F: ${workspaceInfo.projects[0].name} (${workspaceInfo.projects[0].relativePath})`);
-  }
-  if (ctx.disableWorkspace) {
-    logger.verbose("Workspace \u53D1\u73B0\u5DF2\u7981\u7528\uFF08--no-workspace\uFF09");
-  } else if (workspaceInfo.isWorkspace) {
-    logger.log(`Workspace \u6A21\u5F0F: ${workspaceInfo.totalProjectCount} \u4E2A\u5B50\u9879\u76EE\uFF08\u5F53\u524D\u8303\u56F4: ${workspaceInfo.scope}\uFF09`);
-  } else {
-    logger.verbose("\u5355\u9879\u76EE\u6A21\u5F0F\uFF08\u672A\u53D1\u73B0\u591A\u4E2A\u5B50\u9879\u76EE\uFF09");
-  }
-  if (ctx.targetRole) {
-    logger.log(`\u5C97\u4F4D\u8FC7\u6EE4: ${ctx.targetRole}`);
-  }
-  const { layers, skills: skillsConfig, output, frontmatter } = config;
-  let pkg;
-  let dependencies;
-  let vueProfile;
-  let primaryProject = null;
-  if ((workspaceInfo.isWorkspace || workspaceInfo.projects.length > 0) && workspaceInfo.projects.length > 0) {
-    primaryProject = workspaceInfo.projects.find((p) => p.vueProfile !== null) || workspaceInfo.projects[0];
-    pkg = primaryProject.packageJson ?? {};
-    dependencies = primaryProject.dependencies;
-    vueProfile = primaryProject.vueProfile;
-    logger.verbose(`\u4E3B\u9879\u76EE\uFF08Layer1 \u57FA\u51C6\uFF09: ${primaryProject.name} (${primaryProject.relativePath})`);
-  } else {
-    pkg = getPackageJson(logger, targetDir);
-    dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
-    vueProfile = checkVueProfile(dependencies);
-  }
-  if (vueProfile) {
-    logger.log(`\u68C0\u6D4B\u5230 Vue ${vueProfile.version} (${vueProfile.type})`);
-  }
-  const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  let finalContent = `---
+    if (!ctx.disableWorkspace && workspaceInfo.scope === "project-targeted" && workspaceInfo.projects[0]) {
+      logger.log(`Workspace \u5B9A\u5411\u6A21\u5F0F: ${workspaceInfo.projects[0].name} (${workspaceInfo.projects[0].relativePath})`);
+    }
+    if (ctx.disableWorkspace) {
+      logger.verbose("Workspace \u53D1\u73B0\u5DF2\u7981\u7528\uFF08--no-workspace\uFF09");
+    } else if (workspaceInfo.isWorkspace) {
+      logger.log(`Workspace \u6A21\u5F0F: ${workspaceInfo.totalProjectCount} \u4E2A\u5B50\u9879\u76EE\uFF08\u5F53\u524D\u8303\u56F4: ${workspaceInfo.scope}\uFF09`);
+    } else {
+      logger.verbose("\u5355\u9879\u76EE\u6A21\u5F0F\uFF08\u672A\u53D1\u73B0\u591A\u4E2A\u5B50\u9879\u76EE\uFF09");
+    }
+    if (ctx.targetRole) {
+      logger.log(`\u5C97\u4F4D\u8FC7\u6EE4: ${ctx.targetRole}`);
+    }
+    const { layers, skills: skillsConfig, output, frontmatter } = config;
+    let pkg;
+    let dependencies;
+    let vueProfile;
+    let primaryProject = null;
+    if ((workspaceInfo.isWorkspace || workspaceInfo.projects.length > 0) && workspaceInfo.projects.length > 0) {
+      primaryProject = workspaceInfo.projects.find((p) => p.vueProfile !== null) || workspaceInfo.projects[0];
+      pkg = primaryProject.packageJson ?? {};
+      dependencies = primaryProject.dependencies;
+      vueProfile = primaryProject.vueProfile;
+      logger.verbose(`\u4E3B\u9879\u76EE\uFF08Layer1 \u57FA\u51C6\uFF09: ${primaryProject.name} (${primaryProject.relativePath})`);
+    } else {
+      pkg = getPackageJson(logger, targetDir);
+      dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+      vueProfile = checkVueProfile(dependencies);
+    }
+    if (vueProfile) {
+      logger.log(`\u68C0\u6D4B\u5230 Vue ${vueProfile.version} (${vueProfile.type})`);
+    }
+    const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const isDemo = isDemoProfile(ctx.profile);
+    let finalContent = `---
 description: ${frontmatter?.description || "\u524D\u7AEF\u67B6\u6784\u89C4\u8303 - CodeBuddy GLM-4.7 \u4E13\u7528\u7248"}
 alwaysApply: ${frontmatter?.alwaysApply !== void 0 ? frontmatter.alwaysApply : true}
 enabled: ${frontmatter?.enabled !== void 0 ? frontmatter.enabled : true}
 updatedAt: ${updatedAt}
 ---
 
-# \u524D\u7AEF\u67B6\u6784\u89C4\u8303 (CodeBuddy \u7248)
+`;
+    if (isDemo) {
+      finalContent += `> Generated by CodeBuddy Rule Loader ${LOADER_DISPLAY_VERSION} (demo profile)
+> Generated at: ${updatedAt}
+
+`;
+    } else {
+      finalContent += `# \u524D\u7AEF\u67B6\u6784\u89C4\u8303 (CodeBuddy \u7248)
 
 > Generated by CodeBuddy Rule Loader ${LOADER_DISPLAY_VERSION}
 > Generated at: ${updatedAt}
@@ -4197,352 +5126,442 @@ updatedAt: ${updatedAt}
 ---
 
 `;
-  logger.log("\u5904\u7406 Layer 1: \u57FA\u7840\u89C4\u8303 (Eager Load)...");
-  const layer1Folders = [...layers.base?.staticDeps || []];
-  if (vueProfile) {
-    if (vueProfile.version === 3) {
-      layer1Folders.push("vue3");
-    } else if (vueProfile.version === 2) {
-      if (vueProfile.type === "composition") {
-        layer1Folders.push("vue2/vue2-composition.md");
-      } else {
-        layer1Folders.push("vue2/vue2-general.md");
+    }
+    logger.log("\u5904\u7406 Layer 1: \u57FA\u7840\u89C4\u8303 (Eager Load)...");
+    const layer1Folders = [...layers.base?.staticDeps || []];
+    if (vueProfile) {
+      if (vueProfile.version === 3) {
+        layer1Folders.push("vue3");
+      } else if (vueProfile.version === 2) {
+        if (vueProfile.type === "composition") {
+          layer1Folders.push("vue2/vue2-composition.md");
+        } else {
+          layer1Folders.push("vue2/vue2-general.md");
+        }
       }
     }
-  }
-  const layer1Rules = await loadLayerRules(ctx, logger, layers.base?.id || "layer1_base", layer1Folders);
-  const layer1ReferenceIndex = [];
-  if (ctx.ruleLevel !== "full") {
-    const layer1FullRules = await loadLayerRules(
-      { ...ctx, ruleLevel: "full" },
-      logger,
-      layers.base?.id || "layer1_base",
-      layer1Folders
-    );
-    for (const rule of layer1FullRules) {
-      const referencePath = `.codebuddy/rules_cache/layer1_reference/${rule.path}`.replace(/\\/g, "/");
-      writeManagedFile(managedFileTracker, path9.join(targetDir, referencePath), rule.content);
-      layer1ReferenceIndex.push({
-        rule: rule.path.replace(/\.md$/, ""),
-        path: referencePath
-      });
+    const layer1Rules = await loadLayerRules(ctx, logger, layers.base?.id || "layer1_base", layer1Folders);
+    const layer1ReferenceIndex = [];
+    if (ctx.ruleLevel !== "full") {
+      const layer1FullRules = await loadLayerRules(
+        { ...ctx, ruleLevel: "full" },
+        logger,
+        layers.base?.id || "layer1_base",
+        layer1Folders
+      );
+      for (const rule of layer1FullRules) {
+        const referencePath = `.codebuddy/rules_cache/layer1_reference/${rule.path}`.replace(/\\/g, "/");
+        writeManagedFile(managedFileTracker, path10.join(targetDir, referencePath), rule.content);
+        layer1ReferenceIndex.push({
+          rule: rule.path.replace(/\.md$/, ""),
+          path: referencePath
+        });
+      }
+      if (layer1ReferenceIndex.length > 0) {
+        logger.log(`\u5DF2\u751F\u6210 ${layer1ReferenceIndex.length} \u4E2A Layer 1 \u5B8C\u6574\u53C2\u8003\u7F13\u5B58`);
+      }
     }
-    if (layer1ReferenceIndex.length > 0) {
-      logger.log(`\u5DF2\u751F\u6210 ${layer1ReferenceIndex.length} \u4E2A Layer 1 \u5B8C\u6574\u53C2\u8003\u7F13\u5B58`);
-    }
-  }
-  finalContent += `## ${layers.base?.title || "Layer 1: \u57FA\u7840\u89C4\u8303"}
+    finalContent += `## ${layers.base?.title || "Layer 1: \u57FA\u7840\u89C4\u8303"}
 
 `;
-  finalContent += `> \u8FD9\u4E9B\u662F\u672C\u9879\u76EE\u5FC5\u987B\u9075\u5B88\u7684\u6838\u5FC3\u89C4\u8303
+    finalContent += `> \u8FD9\u4E9B\u662F\u672C\u9879\u76EE\u5FC5\u987B\u9075\u5B88\u7684\u6838\u5FC3\u89C4\u8303
 
 `;
-  for (const rule of layer1Rules) {
-    finalContent += `<!-- Source: ${rule.path} -->
+    for (const rule of layer1Rules) {
+      finalContent += `<!-- Source: ${rule.path} -->
 ${rule.content}
 
 ---
 
 `;
-  }
-  logger.log("\u5904\u7406 Layer 2: \u4E1A\u52A1\u89C4\u8303 (Lazy Load)...");
-  const layer2Index = [];
-  const businessDeps = layers.business?.dependencies || {};
-  const standaloneLang = primaryProject ? primaryProject.lang : detectProjectLangFromDir(targetDir);
-  const standalonePackageJson = !primaryProject && fs9.existsSync(path9.join(targetDir, "package.json")) ? pkg : void 0;
-  const standaloneMetadata = primaryProject ? null : detectProjectMetadata(targetDir, standaloneLang, standalonePackageJson);
-  const layer2TargetProject = primaryProject ?? {
-    lang: standaloneLang,
-    projectKind: standaloneMetadata?.projectKind || "unknown",
-    stackTags: standaloneMetadata?.stackTags || [],
-    dependencies: standaloneMetadata?.dependencies || dependencies
-  };
-  for (const match of collectMatchedBusinessRules(layer2TargetProject, businessDeps)) {
-    logger.log(`  \u547D\u4E2D ${match.selector}\uFF0C\u6DFB\u52A0\u89C4\u5219\u7D22\u5F15`);
-    layer2Index.push({
-      dep: match.selector,
-      rule: match.rule,
-      path: `.codebuddy/rules_cache/layer2_business/${match.rule}.md`
-    });
-    const cacheDir = path9.join(targetDir, ".codebuddy/rules_cache/layer2_business");
-    if (!fs9.existsSync(cacheDir)) {
-      fs9.mkdirSync(cacheDir, { recursive: true });
     }
-    const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", `${match.rule}.md`);
-    if (content) {
-      writeManagedFile(managedFileTracker, path9.join(cacheDir, `${match.rule}.md`), content);
-    }
-  }
-  if (workspaceInfo.totalProjectCount > 1) {
-    logger.log("\u5904\u7406 Workspace \u5B50\u9879\u76EE Layer2 \u89C4\u5219...");
-    for (const project of workspaceInfo.projects) {
-      if (project.relativePath === ".") continue;
-      for (const match of collectMatchedBusinessRules(project, businessDeps)) {
-        logger.verbose(`  ${project.name}: \u547D\u4E2D ${match.selector}\uFF0C\u6DFB\u52A0\u89C4\u5219\u7D22\u5F15`);
-        project.matchedLayer2Rules.push({
-          dep: match.selector,
-          rule: match.rule,
-          path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${match.rule}.md`
-        });
-        const projectCacheDir = path9.join(
-          targetDir,
-          `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`
-        );
-        if (!fs9.existsSync(projectCacheDir)) {
-          fs9.mkdirSync(projectCacheDir, { recursive: true });
-        }
-        const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", `${match.rule}.md`);
-        if (content) {
-          writeManagedFile(managedFileTracker, path9.join(projectCacheDir, `${match.rule}.md`), content);
-        }
+    logger.log("\u5904\u7406 Layer 2: \u4E1A\u52A1\u89C4\u8303 (Lazy Load)...");
+    const layer2Index = [];
+    const businessDeps = layers.business?.dependencies || {};
+    const standaloneLang = primaryProject ? primaryProject.lang : detectProjectLangFromDir(targetDir);
+    const standalonePackageJson = !primaryProject && fs10.existsSync(path10.join(targetDir, "package.json")) ? pkg : void 0;
+    const standaloneMetadata = primaryProject ? null : detectProjectMetadata(targetDir, standaloneLang, standalonePackageJson);
+    const layer2TargetProject = primaryProject ?? {
+      lang: standaloneLang,
+      projectKind: standaloneMetadata?.projectKind || "unknown",
+      stackTags: standaloneMetadata?.stackTags || [],
+      dependencies: standaloneMetadata?.dependencies || dependencies
+    };
+    for (const match of collectMatchedBusinessRules(layer2TargetProject, businessDeps)) {
+      logger.log(`  \u547D\u4E2D ${match.selector}\uFF0C\u6DFB\u52A0\u89C4\u5219\u7D22\u5F15`);
+      layer2Index.push({
+        dep: match.selector,
+        rule: match.rule,
+        path: `.codebuddy/rules_cache/layer2_business/${match.rule}.md`
+      });
+      const cacheDir = path10.join(targetDir, ".codebuddy/rules_cache/layer2_business");
+      if (!fs10.existsSync(cacheDir)) {
+        fs10.mkdirSync(cacheDir, { recursive: true });
+      }
+      const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", `${match.rule}.md`);
+      if (content) {
+        writeManagedFile(managedFileTracker, path10.join(cacheDir, `${match.rule}.md`), content);
       }
     }
-    const rootProject = workspaceInfo.projects.find((p) => p.relativePath === ".");
-    if (rootProject) {
-      rootProject.matchedLayer2Rules = [...layer2Index];
+    if (workspaceInfo.totalProjectCount > 1) {
+      logger.log("\u5904\u7406 Workspace \u5B50\u9879\u76EE Layer2 \u89C4\u5219...");
+      for (const project of workspaceInfo.projects) {
+        if (project.relativePath === ".") continue;
+        for (const match of collectMatchedBusinessRules(project, businessDeps)) {
+          logger.verbose(`  ${project.name}: \u547D\u4E2D ${match.selector}\uFF0C\u6DFB\u52A0\u89C4\u5219\u7D22\u5F15`);
+          project.matchedLayer2Rules.push({
+            dep: match.selector,
+            rule: match.rule,
+            path: `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business/${match.rule}.md`
+          });
+          const projectCacheDir = path10.join(
+            targetDir,
+            `.codebuddy/rules_cache/projects/${project.relativePath}/layer2_business`
+          );
+          if (!fs10.existsSync(projectCacheDir)) {
+            fs10.mkdirSync(projectCacheDir, { recursive: true });
+          }
+          const content = await loadRuleFile(ctx, logger, layers.business?.id || "layer2_business", `${match.rule}.md`);
+          if (content) {
+            writeManagedFile(managedFileTracker, path10.join(projectCacheDir, `${match.rule}.md`), content);
+          }
+        }
+      }
+      const rootProject = workspaceInfo.projects.find((p) => p.relativePath === ".");
+      if (rootProject) {
+        rootProject.matchedLayer2Rules = [...layer2Index];
+      }
     }
-  }
-  logger.log("\u5904\u7406 Layer 3: \u4EFB\u52A1\u68C0\u67E5\u6E05\u5355 (Lazy Load)...");
-  const layer3Index = [];
-  const actionDefaults = layers.action?.defaults || [];
-  for (const item of actionDefaults) {
-    layer3Index.push({
-      rule: item,
-      path: `.codebuddy/rules_cache/layer3_action/${item}.md`
-    });
-    const cacheDir = path9.join(targetDir, ".codebuddy/rules_cache/layer3_action");
-    if (!fs9.existsSync(cacheDir)) {
-      fs9.mkdirSync(cacheDir, { recursive: true });
+    logger.log("\u5904\u7406 Layer 3: \u4EFB\u52A1\u68C0\u67E5\u6E05\u5355 (Lazy Load)...");
+    const layer3Index = [];
+    const actionDefaults = layers.action?.defaults || [];
+    for (const item of actionDefaults) {
+      layer3Index.push({
+        rule: item,
+        path: `.codebuddy/rules_cache/layer3_action/${item}.md`
+      });
+      const cacheDir = path10.join(targetDir, ".codebuddy/rules_cache/layer3_action");
+      if (!fs10.existsSync(cacheDir)) {
+        fs10.mkdirSync(cacheDir, { recursive: true });
+      }
+      const content = await loadRuleFile(ctx, logger, layers.action?.id || "layer3_action", item + ".md");
+      if (content) {
+        writeManagedFile(managedFileTracker, path10.join(cacheDir, item + ".md"), content);
+      }
     }
-    const content = await loadRuleFile(ctx, logger, layers.action?.id || "layer3_action", item + ".md");
-    if (content) {
-      writeManagedFile(managedFileTracker, path9.join(cacheDir, item + ".md"), content);
-    }
-  }
-  if (layer1ReferenceIndex.length > 0 || layer2Index.length > 0 || layer3Index.length > 0) {
-    finalContent += `## \u{1F4DA} \u89C4\u5219\u53C2\u8003\u7D22\u5F15 (\u6309\u9700\u52A0\u8F7D)
+    if (layer1ReferenceIndex.length > 0 || layer2Index.length > 0 || layer3Index.length > 0) {
+      finalContent += `## \u{1F4DA} \u89C4\u5219\u53C2\u8003\u7D22\u5F15 (\u6309\u9700\u52A0\u8F7D)
 
 `;
-    if (layer1ReferenceIndex.length > 0) {
-      finalContent += `> \u5F53\u524D\u4E3B\u5165\u53E3\u4EC5\u5185\u5D4C Layer 1 \u7684 ${ctx.ruleLevel} \u5185\u5BB9\uFF1B\u5B8C\u6574\u539F\u6587\u4E0E Layer 2/3 \u7EC6\u8282\u89C4\u5219\u8BF7\u6309\u9700\u8BFB\u53D6
+      if (layer1ReferenceIndex.length > 0) {
+        finalContent += `> \u5F53\u524D\u4E3B\u5165\u53E3\u4EC5\u5185\u5D4C Layer 1 \u7684 ${ctx.ruleLevel} \u5185\u5BB9\uFF1B\u5B8C\u6574\u539F\u6587\u4E0E Layer 2/3 \u7EC6\u8282\u89C4\u5219\u8BF7\u6309\u9700\u8BFB\u53D6
 
 `;
-    } else {
-      finalContent += `> \u4EE5\u4E0B\u89C4\u5219\u5305\u542B\u5177\u4F53\u7684\u6280\u672F\u6808\u5B9E\u73B0\u7EC6\u8282\uFF0C\u8BF7\u6309\u9700\u8BFB\u53D6
+      } else {
+        finalContent += `> \u4EE5\u4E0B\u89C4\u5219\u5305\u542B\u5177\u4F53\u7684\u6280\u672F\u6808\u5B9E\u73B0\u7EC6\u8282\uFF0C\u8BF7\u6309\u9700\u8BFB\u53D6
 
 `;
-    }
-    finalContent += `| \u89C4\u5219\u540D\u79F0 | \u672C\u5730\u8DEF\u5F84 | \u8BF4\u660E |
+      }
+      finalContent += `| \u89C4\u5219\u540D\u79F0 | \u672C\u5730\u8DEF\u5F84 | \u8BF4\u660E |
 |---------|---------|------|
 `;
-    for (const item of layer1ReferenceIndex) {
-      finalContent += `| ${item.rule} | \`${item.path}\` | Layer 1 \u5B8C\u6574\u53C2\u8003 |
+      for (const item of layer1ReferenceIndex) {
+        finalContent += `| ${item.rule} | \`${item.path}\` | Layer 1 \u5B8C\u6574\u53C2\u8003 |
 `;
-    }
-    for (const item of layer2Index) {
-      finalContent += `| ${item.rule} | \`${item.path}\` | Layer 2 \u5339\u914D\uFF1A${item.dep} |
+      }
+      for (const item of layer2Index) {
+        finalContent += `| ${item.rule} | \`${item.path}\` | Layer 2 \u5339\u914D\uFF1A${item.dep} |
 `;
-    }
-    for (const item of layer3Index) {
-      finalContent += `| ${item.rule} | \`${item.path}\` | \u4EFB\u52A1\u68C0\u67E5\u6E05\u5355 |
+      }
+      for (const item of layer3Index) {
+        finalContent += `| ${item.rule} | \`${item.path}\` | \u4EFB\u52A1\u68C0\u67E5\u6E05\u5355 |
 `;
+      }
+      finalContent += "\n";
     }
-    finalContent += "\n";
-  }
-  let workspaceIndexPath = null;
-  if (workspaceInfo.totalProjectCount > 1) {
-    const workspaceIndex = {
-      version: "1.1.0",
-      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      rootDir: targetDir,
-      projectCount: workspaceInfo.projects.length,
-      totalProjectCount: workspaceInfo.totalProjectCount,
-      scope: workspaceInfo.scope,
-      selectedProject: workspaceInfo.selectedProject,
-      projects: workspaceInfo.projects.map((p) => ({
-        name: p.name,
-        relativePath: p.relativePath,
-        lang: p.lang,
-        frameworkLabel: p.frameworkLabel,
-        uiLibLabels: p.uiLibLabels,
-        projectKind: p.projectKind,
-        stackTags: p.stackTags,
-        vueVersion: p.vueProfile?.version ?? null,
-        layer2CachePath: p.relativePath === "." ? ".codebuddy/rules_cache/layer2_business/" : `.codebuddy/rules_cache/projects/${p.relativePath}/layer2_business/`,
-        matchedRules: p.matchedLayer2Rules.map((r) => r.rule)
-      }))
-    };
-    workspaceIndexPath = path9.join(targetDir, ".codebuddy/workspace-index.json");
-    const workspaceIndexDir = path9.dirname(workspaceIndexPath);
-    if (!fs9.existsSync(workspaceIndexDir)) {
-      fs9.mkdirSync(workspaceIndexDir, { recursive: true });
+    let workspaceIndexPath = null;
+    if (workspaceInfo.totalProjectCount > 1) {
+      const workspaceIndex = {
+        version: "1.1.0",
+        generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        rootDir: targetDir,
+        projectCount: workspaceInfo.projects.length,
+        totalProjectCount: workspaceInfo.totalProjectCount,
+        scope: workspaceInfo.scope,
+        selectedProject: workspaceInfo.selectedProject,
+        projects: workspaceInfo.projects.map((p) => ({
+          name: p.name,
+          relativePath: p.relativePath,
+          lang: p.lang,
+          frameworkLabel: p.frameworkLabel,
+          uiLibLabels: p.uiLibLabels,
+          projectKind: p.projectKind,
+          stackTags: p.stackTags,
+          vueVersion: p.vueProfile?.version ?? null,
+          layer2CachePath: p.relativePath === "." ? ".codebuddy/rules_cache/layer2_business/" : `.codebuddy/rules_cache/projects/${p.relativePath}/layer2_business/`,
+          matchedRules: p.matchedLayer2Rules.map((r) => r.rule)
+        }))
+      };
+      workspaceIndexPath = path10.join(targetDir, ".codebuddy/workspace-index.json");
+      const workspaceIndexDir = path10.dirname(workspaceIndexPath);
+      if (!fs10.existsSync(workspaceIndexDir)) {
+        fs10.mkdirSync(workspaceIndexDir, { recursive: true });
+      }
+      writeManagedFile(managedFileTracker, workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2));
+      logger.log(`\u5DF2\u751F\u6210 workspace-index.json (${workspaceInfo.projects.length} \u4E2A\u9879\u76EE)`);
+      finalContent += generateWorkspacePrompt(workspaceInfo);
     }
-    writeManagedFile(managedFileTracker, workspaceIndexPath, JSON.stringify(workspaceIndex, null, 2));
-    logger.log(`\u5DF2\u751F\u6210 workspace-index.json (${workspaceInfo.projects.length} \u4E2A\u9879\u76EE)`);
-    finalContent += generateWorkspacePrompt(workspaceInfo);
-  }
-  finalContent += generateRuleActivationPrompt(config);
-  finalContent += generateQuickActionGuide();
-  let skills = [];
-  let skillsRootDir = null;
-  const skillsSnapshotRetention = skillsConfig?.enabled ? SKILL_SNAPSHOT_RETAIN_COUNT : null;
-  if (skillsConfig?.enabled) {
-    logger.log("\u52A0\u8F7D\u6280\u80FD\u7CFB\u7EDF...");
-    skillsRootDir = `.codebuddy/skill-snapshots/${createInstallSnapshotId()}`;
-    logger.verbose(`Skills active root: ${skillsRootDir}`);
-    skills = await loadSkills(
-      ctx,
-      logger,
-      skillsConfig.path || "custom-skills",
+    if (!isDemo) {
+      finalContent += generateRuleActivationPrompt(config);
+      finalContent += generateQuickActionGuide();
+    } else {
+      finalContent += generateDemoQuickActionGuide();
+    }
+    let skills = [];
+    let skillsRootDir = null;
+    const skillsSnapshotRetention = skillsConfig?.enabled ? SKILL_SNAPSHOT_RETAIN_COUNT : null;
+    if (skillsConfig?.enabled) {
+      logger.log("\u52A0\u8F7D\u6280\u80FD\u7CFB\u7EDF...");
+      skillsRootDir = `.codebuddy/skill-snapshots/${createInstallSnapshotId()}`;
+      logger.verbose(`Skills active root: ${skillsRootDir}`);
+      skills = await loadSkills(
+        ctx,
+        logger,
+        skillsConfig.path || "custom-skills",
+        managedFileTracker,
+        targetDir,
+        workspaceInfo,
+        skillsRootDir
+      );
+      if (isDemo && skills.length > DEMO_SKILL_LIMIT) {
+        const demoSkillContext = createDemoSkillSelectionContext(workspaceInfo);
+        const { selected, removedIds } = selectTopDemoEntities(
+          skills,
+          DEMO_SKILL_LIMIT,
+          (skill) => scoreSkillForDemo(skill, demoSkillContext, ctx.targetRole, workspaceInfo)
+        );
+        pruneManagedEntityDirectories(targetDir, managedFileTracker, skillsRootDir, removedIds, "\u6280\u80FD", logger);
+        skills = selected;
+        logger.log(`demo \u6A21\u5F0F\u88C1\u526A\u6280\u80FD\uFF1A\u4FDD\u7559 ${skills.length} \u4E2A\uFF0C\u79FB\u9664 ${removedIds.length} \u4E2A`);
+        logger.verbose(`demo \u6A21\u5F0F\u4FDD\u7559\u6280\u80FD: ${skills.map((skill) => skill.id).join(", ")}`);
+      }
+      logger.log(`\u5DF2\u52A0\u8F7D ${skills.length} \u4E2A\u6280\u80FD`);
+      if (!isDemo) {
+        finalContent += generateSkillsPrompt(skills, skillsRootDir);
+      }
+    }
+    logger.log("\u52A0\u8F7D Agent \u7CFB\u7EDF...");
+    let agentsRootDir = `.codebuddy/agent-snapshots/${createInstallSnapshotId()}`;
+    const agentsSnapshotRetention = AGENT_SNAPSHOT_RETAIN_COUNT;
+    logger.verbose(`Agents active root: ${agentsRootDir}`);
+    let agents = await loadAgents(ctx, logger, "agents", managedFileTracker, targetDir, agentsRootDir);
+    if (isDemo && agents.length > DEMO_AGENT_LIMIT) {
+      const selectedSkillIds = new Set(skills.map((skill) => skill.id));
+      const { selected, removedIds } = selectTopDemoEntities(
+        agents,
+        DEMO_AGENT_LIMIT,
+        (agent) => scoreAgentForDemo(agent, selectedSkillIds)
+      );
+      pruneManagedEntityDirectories(targetDir, managedFileTracker, agentsRootDir, removedIds, "Agent", logger);
+      agents = selected;
+      logger.log(`demo \u6A21\u5F0F\u88C1\u526A Agent\uFF1A\u4FDD\u7559 ${agents.length} \u4E2A\uFF0C\u79FB\u9664 ${removedIds.length} \u4E2A`);
+      logger.verbose(`demo \u6A21\u5F0F\u4FDD\u7559 Agent: ${agents.map((agent) => agent.id).join(", ")}`);
+    }
+    if (agents.length > 0) {
+      logger.log(`\u5DF2\u52A0\u8F7D ${agents.length} \u4E2A Agents`);
+      if (!isDemo) {
+        finalContent += generateAgentsPrompt(agents, agentsRootDir);
+      }
+    }
+    if (isDemo) {
+      logger.log("\u751F\u6210\u7EDF\u4E00\u8DEF\u7531\u8868\uFF08demo \u6A21\u5F0F\uFF09...");
+      const bannerContent = generateDemoWelcomeBanner({
+        vueVersion: vueProfile?.version ?? null,
+        vueType: vueProfile?.type ?? null,
+        uiLibs: primaryProject?.uiLibLabels ?? [],
+        lang: primaryProject?.lang ?? (standaloneLang || "unknown"),
+        framework: primaryProject?.frameworkLabel ?? null,
+        layer1RulesCount: layer1Rules.length,
+        agentsCount: agents.length,
+        skillsCount: skills.length
+      });
+      const insertPoint = finalContent.indexOf("## ");
+      if (insertPoint !== -1) {
+        finalContent = finalContent.slice(0, insertPoint) + bannerContent + finalContent.slice(insertPoint);
+      } else {
+        finalContent += bannerContent;
+      }
+      finalContent += generateUnifiedRoutingPrompt(
+        skills,
+        agents,
+        skillsRootDir || ".codebuddy/skills",
+        agentsRootDir || ".codebuddy/agents"
+      );
+      logger.log("\u7EDF\u4E00\u8DEF\u7531\u8868\u5DF2\u6CE8\u5165");
+    } else if (skills.length > 0 || agents.length > 0) {
+      logger.log("\u751F\u6210\u5F3A\u5236\u6FC0\u6D3B\u89C4\u5219...");
+      finalContent += generateActivationRules(
+        skills,
+        agents,
+        skillsRootDir || ".codebuddy/skills",
+        agentsRootDir || ".codebuddy/agents"
+      );
+      logger.log("\u5F3A\u5236\u6FC0\u6D3B\u89C4\u5219\u5DF2\u6CE8\u5165");
+    }
+    logger.log("\u5206\u53D1\u5DE5\u5177\u811A\u672C...");
+    const distributedScripts = await distributeScripts(ctx, logger, targetDir, managedFileTracker);
+    if (distributedScripts.length > 0) {
+      logger.log(`\u5DF2\u5206\u53D1 ${distributedScripts.length} \u4E2A\u811A\u672C`);
+      if (!isDemo) {
+        finalContent += generateScriptsPrompt(distributedScripts);
+      }
+    }
+    let distributedWorkflows = [];
+    if (ctx.enableOrchestrator) {
+      logger.log("\u5206\u53D1 Workflows...");
+      distributedWorkflows = await distributeWorkflows(ctx, logger, targetDir, managedFileTracker);
+      if (distributedWorkflows.length > 0) {
+        logger.log(`\u5DF2\u5206\u53D1 ${distributedWorkflows.length} \u4E2A\u5DE5\u4F5C\u6D41`);
+        if (!isDemo) {
+          finalContent += generateWorkflowsPrompt(distributedWorkflows);
+        }
+      }
+    } else {
+      logger.verbose("\u8DF3\u8FC7 Workflows \u5206\u53D1\uFF08\u5F53\u524D profile \u4E0D\u5305\u542B\u7F16\u6392\u5951\u7EA6\uFF09");
+    }
+    let distributedTaskBooks = [];
+    if (ctx.enableOrchestrator) {
+      logger.log("\u5206\u53D1 TaskBook \u5951\u7EA6...");
+      distributedTaskBooks = await distributeTaskBooks(ctx, logger, targetDir, managedFileTracker);
+      if (distributedTaskBooks.length > 0) {
+        logger.log(`\u5DF2\u5206\u53D1 ${distributedTaskBooks.length} \u4E2A TaskBook \u5951\u7EA6\u6587\u4EF6`);
+        if (!isDemo) {
+          finalContent += generateTaskBooksPrompt(distributedTaskBooks);
+        }
+      }
+    } else {
+      logger.verbose("\u8DF3\u8FC7 TaskBook \u5951\u7EA6\u5206\u53D1\uFF08\u5F53\u524D profile \u4E0D\u5305\u542B\u7F16\u6392\u5951\u7EA6\uFF09");
+    }
+    let distributedAgentCalls = [];
+    if (ctx.enableOrchestrator) {
+      logger.log("\u5206\u53D1 Agent Call \u5951\u7EA6...");
+      distributedAgentCalls = await distributeAgentCalls(ctx, logger, targetDir, managedFileTracker);
+      if (distributedAgentCalls.length > 0) {
+        logger.log(`\u5DF2\u5206\u53D1 ${distributedAgentCalls.length} \u4E2A Agent Call \u5951\u7EA6\u6587\u4EF6`);
+        if (!isDemo) {
+          finalContent += generateAgentCallsPrompt(distributedAgentCalls);
+        }
+      }
+    } else {
+      logger.verbose("\u8DF3\u8FC7 Agent Call \u5951\u7EA6\u5206\u53D1\uFF08\u5F53\u524D profile \u4E0D\u5305\u542B\u7F16\u6392\u5951\u7EA6\uFF09");
+    }
+    logger.log("\u5206\u53D1 Slash Commands...");
+    const distributedCommands = await distributeCommands(ctx, logger, targetDir, managedFileTracker);
+    if (distributedCommands.length > 0) {
+      logger.log(`\u5DF2\u5206\u53D1 ${distributedCommands.length} \u4E2A\u547D\u4EE4`);
+      if (!isDemo) {
+        finalContent += generateCommandsPrompt(distributedCommands);
+      }
+    }
+    if (isDemo) {
+      finalContent += generateDemoRuntimeSummary(
+        distributedScripts.length,
+        distributedWorkflows.length,
+        distributedTaskBooks.length,
+        distributedCommands.length
+      );
+    }
+    const outputDir = path10.join(targetDir, output?.dirName || ".codebuddy/rules");
+    if (!fs10.existsSync(outputDir)) {
+      fs10.mkdirSync(outputDir, { recursive: true });
+    }
+    const outputPath = path10.join(outputDir, output?.fileName || "project-rules.md");
+    writeManagedFile(managedFileTracker, outputPath, finalContent);
+    updateGitignore(logger, targetDir);
+    const removedManagedFiles = cleanupStaleManagedFiles(
       managedFileTracker,
-      targetDir,
-      workspaceInfo,
-      skillsRootDir
+      previousInstallState,
+      {
+        preservePrefixes: [
+          ".codebuddy/agent-snapshots/",
+          ".codebuddy/agents/",
+          ".codebuddy/skill-snapshots/",
+          ".codebuddy/skills/"
+        ]
+      },
+      logger
     );
-    logger.log(`\u5DF2\u52A0\u8F7D ${skills.length} \u4E2A\u6280\u80FD`);
-    finalContent += generateSkillsPrompt(skills, skillsRootDir);
-  }
-  logger.log("\u52A0\u8F7D Agent \u7CFB\u7EDF...");
-  let agentsRootDir = `.codebuddy/agent-snapshots/${createInstallSnapshotId()}`;
-  const agentsSnapshotRetention = AGENT_SNAPSHOT_RETAIN_COUNT;
-  logger.verbose(`Agents active root: ${agentsRootDir}`);
-  const agents = await loadAgents(ctx, logger, "agents", managedFileTracker, targetDir, agentsRootDir);
-  if (agents.length > 0) {
-    logger.log(`\u5DF2\u52A0\u8F7D ${agents.length} \u4E2A Agents`);
-    finalContent += generateAgentsPrompt(agents, agentsRootDir);
-  }
-  logger.log("\u5206\u53D1\u5DE5\u5177\u811A\u672C...");
-  const distributedScripts = await distributeScripts(ctx, logger, targetDir, managedFileTracker);
-  if (distributedScripts.length > 0) {
-    logger.log(`\u5DF2\u5206\u53D1 ${distributedScripts.length} \u4E2A\u811A\u672C`);
-    finalContent += generateScriptsPrompt(distributedScripts);
-  }
-  let distributedWorkflows = [];
-  if (ctx.enableOrchestrator) {
-    logger.log("\u5206\u53D1 Workflows...");
-    distributedWorkflows = await distributeWorkflows(ctx, logger, targetDir, managedFileTracker);
-    if (distributedWorkflows.length > 0) {
-      logger.log(`\u5DF2\u5206\u53D1 ${distributedWorkflows.length} \u4E2A\u5DE5\u4F5C\u6D41`);
-      finalContent += generateWorkflowsPrompt(distributedWorkflows);
+    const loaderVersion = getLoaderVersion(ctx, logger);
+    const installState = buildInstallState({
+      version: loaderVersion,
+      ctx,
+      targetDir,
+      depsFingerprint,
+      outputPath,
+      workspaceIndexPath,
+      skillsRootDir,
+      skillsSnapshotRetention,
+      agentsRootDir,
+      agentsSnapshotRetention,
+      layer1RulesCount: layer1Rules.length,
+      layer2IndexCount: layer2Index.length,
+      layer3IndexCount: layer3Index.length,
+      skillsCount: skills.length,
+      agentsCount: agents.length,
+      distributedScripts,
+      distributedWorkflows,
+      distributedTaskBooks,
+      distributedAgentCalls,
+      distributedCommands,
+      managedFiles: getManagedFiles(managedFileTracker),
+      workspaceInfo
+    });
+    const installStatePath = writeInstallState(targetDir, installState);
+    const removedAgentSnapshots = gcSnapshotEntries(
+      targetDir,
+      ".codebuddy/agent-snapshots",
+      agentsRootDir,
+      agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT,
+      logger
+    );
+    const removedSkillSnapshots = gcSnapshotEntries(
+      targetDir,
+      ".codebuddy/skill-snapshots",
+      skillsRootDir,
+      skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT,
+      logger
+    );
+    logger.log(`\u5DF2\u751F\u6210 install.json: ${installStatePath}`);
+    logger.log(`\u540C\u6B65\u7ED3\u679C: \u5199\u5165 ${managedFileTracker.summary.written}\uFF0C\u590D\u7528 ${managedFileTracker.summary.unchanged}\uFF0C\u6E05\u7406 ${removedManagedFiles.length}`);
+    if (removedAgentSnapshots.length > 0) {
+      logger.log(`Agent \u5FEB\u7167\u56DE\u6536: ${removedAgentSnapshots.length} \u4E2A\uFF08\u4FDD\u7559\u6700\u8FD1 ${agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT} \u4E2A\uFF09`);
     }
-  } else {
-    logger.verbose("\u8DF3\u8FC7 Workflows \u5206\u53D1\uFF08\u5F53\u524D profile \u4E0D\u5305\u542B\u7F16\u6392\u5951\u7EA6\uFF09");
-  }
-  let distributedTaskBooks = [];
-  if (ctx.enableOrchestrator) {
-    logger.log("\u5206\u53D1 TaskBook \u5951\u7EA6...");
-    distributedTaskBooks = await distributeTaskBooks(ctx, logger, targetDir, managedFileTracker);
-    if (distributedTaskBooks.length > 0) {
-      logger.log(`\u5DF2\u5206\u53D1 ${distributedTaskBooks.length} \u4E2A TaskBook \u5951\u7EA6\u6587\u4EF6`);
-      finalContent += generateTaskBooksPrompt(distributedTaskBooks);
+    if (removedSkillSnapshots.length > 0) {
+      logger.log(`\u6280\u80FD\u5FEB\u7167\u56DE\u6536: ${removedSkillSnapshots.length} \u4E2A\uFF08\u4FDD\u7559\u6700\u8FD1 ${skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT} \u4E2A\uFF09`);
     }
-  } else {
-    logger.verbose("\u8DF3\u8FC7 TaskBook \u5951\u7EA6\u5206\u53D1\uFF08\u5F53\u524D profile \u4E0D\u5305\u542B\u7F16\u6392\u5951\u7EA6\uFF09");
-  }
-  let distributedAgentCalls = [];
-  if (ctx.enableOrchestrator) {
-    logger.log("\u5206\u53D1 Agent Call \u5951\u7EA6...");
-    distributedAgentCalls = await distributeAgentCalls(ctx, logger, targetDir, managedFileTracker);
-    if (distributedAgentCalls.length > 0) {
-      logger.log(`\u5DF2\u5206\u53D1 ${distributedAgentCalls.length} \u4E2A Agent Call \u5951\u7EA6\u6587\u4EF6`);
-      finalContent += generateAgentCallsPrompt(distributedAgentCalls);
+    logger.log("");
+    logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+    logger.log(`\u2705 \u6210\u529F! \u89C4\u5219\u6587\u4EF6\u5DF2\u5199\u5165: ${outputPath}`);
+    logger.log(`   \u6587\u4EF6\u5927\u5C0F: ${(finalContent.length / 1024).toFixed(2)} KB`);
+    logger.log(`   Layer 1 \u89C4\u5219: ${layer1Rules.length} \u4E2A`);
+    logger.log(`   Layer 2 \u7D22\u5F15: ${layer2Index.length} \u4E2A`);
+    logger.log(`   Layer 3 \u7D22\u5F15: ${layer3Index.length} \u4E2A`);
+    logger.log(`   \u5DE5\u5177\u811A\u672C: ${distributedScripts.length} \u4E2A`);
+    logger.log(`   Workflows: ${distributedWorkflows.length} \u4E2A`);
+    logger.log(`   TaskBook \u5951\u7EA6: ${distributedTaskBooks.length} \u4E2A`);
+    logger.log(`   Agent Call \u5951\u7EA6: ${distributedAgentCalls.length} \u4E2A`);
+    logger.log(`   Slash Commands: ${distributedCommands.length} \u4E2A`);
+    if (workspaceInfo.totalProjectCount > 1) {
+      logger.log(`   Workspace \u5B50\u9879\u76EE: ${workspaceInfo.projects.length} \u4E2A`);
+      for (const p of workspaceInfo.projects) {
+        const rules = p.matchedLayer2Rules.map((r) => r.rule).join(", ") || "\u65E0";
+        logger.log(`     - ${p.name} (${p.relativePath}): ${p.frameworkLabel || "\u65E0\u6846\u67B6"} | \u89C4\u5219: ${rules}`);
+      }
     }
-  } else {
-    logger.verbose("\u8DF3\u8FC7 Agent Call \u5951\u7EA6\u5206\u53D1\uFF08\u5F53\u524D profile \u4E0D\u5305\u542B\u7F16\u6392\u5951\u7EA6\uFF09");
+    logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  } finally {
+    releaseInstallLock(installLockHandle, logger);
   }
-  logger.log("\u5206\u53D1 Slash Commands...");
-  const distributedCommands = await distributeCommands(ctx, logger, targetDir, managedFileTracker);
-  if (distributedCommands.length > 0) {
-    logger.log(`\u5DF2\u5206\u53D1 ${distributedCommands.length} \u4E2A\u547D\u4EE4`);
-    finalContent += generateCommandsPrompt(distributedCommands);
-  }
-  const outputDir = path9.join(targetDir, output?.dirName || ".codebuddy/rules");
-  if (!fs9.existsSync(outputDir)) {
-    fs9.mkdirSync(outputDir, { recursive: true });
-  }
-  const outputPath = path9.join(outputDir, output?.fileName || "project-rules.md");
-  writeManagedFile(managedFileTracker, outputPath, finalContent);
-  updateGitignore(logger, targetDir);
-  const removedManagedFiles = cleanupStaleManagedFiles(
-    managedFileTracker,
-    previousInstallState,
-    {
-      preservePrefixes: [
-        ".codebuddy/agent-snapshots/",
-        ".codebuddy/agents/",
-        ".codebuddy/skill-snapshots/",
-        ".codebuddy/skills/"
-      ]
-    },
-    logger
-  );
-  const loaderVersion = getLoaderVersion(ctx, logger);
-  const installState = buildInstallState({
-    version: loaderVersion,
-    ctx,
-    targetDir,
-    outputPath,
-    workspaceIndexPath,
-    skillsRootDir,
-    skillsSnapshotRetention,
-    agentsRootDir,
-    agentsSnapshotRetention,
-    layer1RulesCount: layer1Rules.length,
-    layer2IndexCount: layer2Index.length,
-    layer3IndexCount: layer3Index.length,
-    skillsCount: skills.length,
-    agentsCount: agents.length,
-    distributedScripts,
-    distributedWorkflows,
-    distributedTaskBooks,
-    distributedAgentCalls,
-    distributedCommands,
-    managedFiles: getManagedFiles(managedFileTracker),
-    workspaceInfo
-  });
-  const installStatePath = writeInstallState(targetDir, installState);
-  const removedAgentSnapshots = gcSnapshotEntries(
-    targetDir,
-    ".codebuddy/agent-snapshots",
-    agentsRootDir,
-    agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT,
-    logger
-  );
-  const removedSkillSnapshots = gcSnapshotEntries(
-    targetDir,
-    ".codebuddy/skill-snapshots",
-    skillsRootDir,
-    skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT,
-    logger
-  );
-  logger.log(`\u5DF2\u751F\u6210 install.json: ${installStatePath}`);
-  logger.log(`\u540C\u6B65\u7ED3\u679C: \u5199\u5165 ${managedFileTracker.summary.written}\uFF0C\u590D\u7528 ${managedFileTracker.summary.unchanged}\uFF0C\u6E05\u7406 ${removedManagedFiles.length}`);
-  if (removedAgentSnapshots.length > 0) {
-    logger.log(`Agent \u5FEB\u7167\u56DE\u6536: ${removedAgentSnapshots.length} \u4E2A\uFF08\u4FDD\u7559\u6700\u8FD1 ${agentsSnapshotRetention || AGENT_SNAPSHOT_RETAIN_COUNT} \u4E2A\uFF09`);
-  }
-  if (removedSkillSnapshots.length > 0) {
-    logger.log(`\u6280\u80FD\u5FEB\u7167\u56DE\u6536: ${removedSkillSnapshots.length} \u4E2A\uFF08\u4FDD\u7559\u6700\u8FD1 ${skillsSnapshotRetention || SKILL_SNAPSHOT_RETAIN_COUNT} \u4E2A\uFF09`);
-  }
-  logger.log("");
-  logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-  logger.log(`\u2705 \u6210\u529F! \u89C4\u5219\u6587\u4EF6\u5DF2\u5199\u5165: ${outputPath}`);
-  logger.log(`   \u6587\u4EF6\u5927\u5C0F: ${(finalContent.length / 1024).toFixed(2)} KB`);
-  logger.log(`   Layer 1 \u89C4\u5219: ${layer1Rules.length} \u4E2A`);
-  logger.log(`   Layer 2 \u7D22\u5F15: ${layer2Index.length} \u4E2A`);
-  logger.log(`   Layer 3 \u7D22\u5F15: ${layer3Index.length} \u4E2A`);
-  logger.log(`   \u5DE5\u5177\u811A\u672C: ${distributedScripts.length} \u4E2A`);
-  logger.log(`   Workflows: ${distributedWorkflows.length} \u4E2A`);
-  logger.log(`   TaskBook \u5951\u7EA6: ${distributedTaskBooks.length} \u4E2A`);
-  logger.log(`   Agent Call \u5951\u7EA6: ${distributedAgentCalls.length} \u4E2A`);
-  logger.log(`   Slash Commands: ${distributedCommands.length} \u4E2A`);
-  if (workspaceInfo.totalProjectCount > 1) {
-    logger.log(`   Workspace \u5B50\u9879\u76EE: ${workspaceInfo.projects.length} \u4E2A`);
-    for (const p of workspaceInfo.projects) {
-      const rules = p.matchedLayer2Rules.map((r) => r.rule).join(", ") || "\u65E0";
-      logger.log(`     - ${p.name} (${p.relativePath}): ${p.frameworkLabel || "\u65E0\u6846\u67B6"} | \u89C4\u5219: ${rules}`);
-    }
-  }
-  logger.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
 }
 main().catch((err) => {
   logError(`Fatal Error: ${err.message}`);

@@ -15,6 +15,7 @@
 
 - Want the shortest product entry path: [Product Surface Guide](./guides/product-surface-guide.md)
 - Want the shortest business-project path: [Business Project Quickstart](./guides/business-project-quickstart.md)
+- Want a GLM-4.7 business demo path with full workflow runtime: [GLM4.7 Business Demo Runbook](./guides/glm47-business-demo-runbook.md)
 - Want to decide between direct execution and orchestration for a business-project task: [Business Project Guide](./guides/business-project-guide.md), [Team Collaboration Protocol](./guides/team-collaboration-protocol.md)
 - Want the team progress/handoff protocol: [Team Collaboration Protocol](./guides/team-collaboration-protocol.md)
 - Want to install into a business project: [Business Project Guide](./guides/business-project-guide.md)
@@ -29,6 +30,7 @@
 - [Product Surface Guide](./guides/product-surface-guide.md)
 - [Business Project Quickstart](./guides/business-project-quickstart.md)
 - [Business Project Guide](./guides/business-project-guide.md)
+- [GLM4.7 Business Demo Runbook](./guides/glm47-business-demo-runbook.md)
 - [Business Pilot Plan](./guides/business-pilot-plan.md)
 - [Handoff](./guides/HANDOFF.md)
 - [Team Collaboration Protocol](./guides/team-collaboration-protocol.md)

@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-03-23T09:52:02.605Z",
+  "generatedAt": "2026-04-13T06:15:12.485Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -1302,37 +1302,46 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "23b8a33f01514f1b4f78dd566633aa3370fbaf47cbb77ec550c41bcda124b859",
-      "size": 884515,
+      "sha256": "6d10bbba3b77cfa3a186b9945dbb466280b116341e97032617ed924328470364",
+      "size": 885494,
       "entryCount": 157,
-      "generatedAt": "2026-03-23T09:52:02.216Z"
+      "generatedAt": "2026-04-13T06:15:11.804Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "9ce8fef0c987c09a0f166f5769f6b8588631a42736bed80b6a2af7064a974294",
-      "size": 1147849,
+      "sha256": "8cc639edf62309820ca9d8f0aa1346c1a723549e5fdf4c030425643aa5cdb169",
+      "size": 1360573,
       "entryCount": 169,
-      "generatedAt": "2026-03-23T09:52:02.341Z"
+      "generatedAt": "2026-04-13T06:15:11.945Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "03ee7d87c55c99b3b5bfadebeff4f798421fc07d5f91da4c990051e93d25247b",
-      "size": 1651677,
+      "sha256": "6e98d884dd3140428cdce59f66d08b86f116d0a652c05321748c763d0f675db4",
+      "size": 2081635,
       "entryCount": 188,
-      "generatedAt": "2026-03-23T09:52:02.461Z"
+      "generatedAt": "2026-04-13T06:15:12.066Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "18d140a5fc5a9f430c25ea9e97d12780fd209e10a67ef4ce5c1f394c1cdc9b87",
-      "size": 1664115,
+      "sha256": "4549fbfe9e3de7ea71961c78615c9609b5b4bcaaf42f71406e4d8c3c888643a6",
+      "size": 2097569,
       "entryCount": 189,
-      "generatedAt": "2026-03-23T09:52:02.573Z"
+      "generatedAt": "2026-04-13T06:15:12.241Z"
+    },
+    "demo": {
+      "profile": "demo",
+      "file": "packs/content-pack-demo.json",
+      "format": "content-pack-json-v1",
+      "sha256": "ab9f8ecbef11570b3498bebb4d94d07b16dd8abb83413ac53458b02a125155bb",
+      "size": 1022576,
+      "entryCount": 160,
+      "generatedAt": "2026-04-13T06:15:12.455Z"
     }
   },
   "stats": {

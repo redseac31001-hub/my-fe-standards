@@ -40,15 +40,16 @@ CodeBuddy Remote Installer
   --loader-out <path>             保存下载到的 loader 文件，不使用临时目录
   --keep-loader                   保留下载后的 loader 文件
   --remote-bearer-token <token>   远程 Bearer Token（会透传给 loader）
-  --full                          等价于 --profile full
+  --full                          等价于 --profile full，适合多 Agent / Workflow 演示
   --help, -h                      显示帮助
 
 示例:
   node codebuddy-install.js --remote https://example.com/my-fe-standards
   node codebuddy-install.js --remote https://example.com/my-fe-standards --full
+  curl -fsSL https://example.com/my-fe-standards/scripts/dist/codebuddy-install.js | node - --remote https://example.com/my-fe-standards --full
   curl -fsSL https://example.com/my-fe-standards/scripts/dist/codebuddy-install.js | node - --remote https://example.com/my-fe-standards
   iwr https://example.com/my-fe-standards/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
-  node codebuddy-install.js --remote https://example.com/my-fe-standards
+  node codebuddy-install.js --remote https://example.com/my-fe-standards --full
 `.trim());
 }
 

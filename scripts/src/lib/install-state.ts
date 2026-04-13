@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
-import { Context, InstallManagedFile, InstallState, WorkspaceInfo } from '../types';
+import { Context, InstallManagedFile, InstallState, PackageJson, WorkspaceInfo } from '../types';
 import { Logger } from './logger';
 import { removeManagedPath, toProjectRelativePath } from './install-sync';
 
@@ -26,6 +26,7 @@ export interface BuildInstallStateParams {
   installedAt?: string;
   ctx: Readonly<Context>;
   targetDir: string;
+  depsFingerprint?: string | null;
   outputPath: string;
   workspaceIndexPath: string | null;
   skillsRootDir: string | null;
@@ -144,12 +145,76 @@ export function gcSnapshotEntries(
   return removed.sort();
 }
 
+function normalizeDependencyRecord(record: Record<string, string> | undefined): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(record || {}).sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function readPackageJsonForFingerprint(packageJsonPath: string): PackageJson | null {
+  if (!fs.existsSync(packageJsonPath)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as PackageJson;
+  } catch {
+    return null;
+  }
+}
+
+export function computeDepsFingerprint(targetDir: string, workspaceInfo?: WorkspaceInfo | null): string | null {
+  const packages = new Map<string, { dependencies: Record<string, string>; devDependencies: Record<string, string> }>();
+
+  if (workspaceInfo?.projects?.length) {
+    for (const project of workspaceInfo.projects) {
+      const packageJsonPath = path.join(project.absolutePath, 'package.json');
+      const packageJson = project.packageJson || readPackageJsonForFingerprint(packageJsonPath);
+      if (!packageJson) {
+        continue;
+      }
+
+      packages.set(project.relativePath, {
+        dependencies: normalizeDependencyRecord(packageJson.dependencies),
+        devDependencies: normalizeDependencyRecord(packageJson.devDependencies),
+      });
+    }
+  }
+
+  if (packages.size === 0) {
+    const rootPackageJson = readPackageJsonForFingerprint(path.join(targetDir, 'package.json'));
+    if (!rootPackageJson) {
+      return null;
+    }
+
+    packages.set('.', {
+      dependencies: normalizeDependencyRecord(rootPackageJson.dependencies),
+      devDependencies: normalizeDependencyRecord(rootPackageJson.devDependencies),
+    });
+  }
+
+  const payload = {
+    packages: [...packages.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([relativePath, deps]) => ({
+        relativePath,
+        dependencies: deps.dependencies,
+        devDependencies: deps.devDependencies,
+      })),
+  };
+
+  return createHash('sha256')
+    .update(JSON.stringify(payload))
+    .digest('hex');
+}
+
 export function buildInstallState(params: BuildInstallStateParams): InstallState {
   const {
     version,
     installedAt = new Date().toISOString(),
     ctx,
     targetDir,
+    depsFingerprint = null,
     outputPath,
     workspaceIndexPath,
     skillsRootDir,
@@ -186,6 +251,7 @@ export function buildInstallState(params: BuildInstallStateParams): InstallState
     mode,
     profile,
     enableOrchestrator: ctx.enableOrchestrator,
+    depsFingerprint,
     source: {
       remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
       manifestVersion: ctx.remoteManifest?.version || null,
@@ -239,6 +305,7 @@ export function buildInstallState(params: BuildInstallStateParams): InstallState
     profile,
     enableOrchestrator: ctx.enableOrchestrator,
     contentHash,
+    depsFingerprint,
     source: {
       remoteBaseUrl: ctx.isRemote ? ctx.remoteBaseUrl : null,
       manifestVersion: ctx.remoteManifest?.version || null,

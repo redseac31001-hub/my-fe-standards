@@ -235,6 +235,7 @@ function main() {
         analysis: buildContentPackManifest('analysis', manifestVersion, ruleFiles, skillFiles, agentFiles),
         orchestrator: buildContentPackManifest('orchestrator', manifestVersion, ruleFiles, skillFiles, agentFiles),
         full: buildContentPackManifest('full', manifestVersion, ruleFiles, skillFiles, agentFiles),
+        demo: buildContentPackManifest('demo', manifestVersion, ruleFiles, skillFiles, agentFiles),
     };
     log(`  已生成 ${Object.keys(packs).length} 个 content packs`);
     // 8. 构建 manifest

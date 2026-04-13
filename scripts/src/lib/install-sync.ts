@@ -1,8 +1,24 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { InstallManagedFile, InstallState } from '../types';
 import { Logger } from './logger';
+
+const INSTALL_LOCK_FILE_NAME = '.install.lock';
+const INSTALL_LOCK_STALE_MS = 5 * 60 * 1000;
+
+export interface InstallLock {
+  pid: number;
+  startedAt: string;
+  hostname: string;
+  lockId: string;
+}
+
+export interface InstallLockHandle {
+  lockPath: string;
+  lockId: string;
+}
 
 export interface ManagedFileTracker {
   targetDir: string;
@@ -37,6 +53,110 @@ export function readInstallState(targetDir: string, logger?: Logger): InstallSta
   } catch (error) {
     logger?.warn(`读取 install.json 失败: ${(error as Error).message}`);
     return null;
+  }
+}
+
+function readInstallLock(lockPath: string, logger?: Logger): InstallLock | null {
+  if (!fs.existsSync(lockPath)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as InstallLock;
+  } catch (error) {
+    logger?.warn(`读取安装锁失败: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+function isStaleInstallLock(lock: InstallLock | null): { stale: boolean; ageMs: number } {
+  if (!lock?.startedAt) {
+    return { stale: true, ageMs: Number.POSITIVE_INFINITY };
+  }
+
+  const startedAt = Date.parse(lock.startedAt);
+  if (!Number.isFinite(startedAt)) {
+    return { stale: true, ageMs: Number.POSITIVE_INFINITY };
+  }
+
+  const ageMs = Date.now() - startedAt;
+  return {
+    stale: ageMs >= INSTALL_LOCK_STALE_MS,
+    ageMs,
+  };
+}
+
+export function acquireInstallLock(targetDir: string, logger: Logger): InstallLockHandle | null {
+  const lockPath = path.join(targetDir, '.codebuddy', INSTALL_LOCK_FILE_NAME);
+  const lockDir = path.dirname(lockPath);
+  fs.mkdirSync(lockDir, { recursive: true });
+
+  const lock: InstallLock = {
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    hostname: os.hostname(),
+    lockId: createHash('sha256')
+      .update(`${process.pid}-${Date.now()}-${Math.random()}`)
+      .digest('hex')
+      .slice(0, 16),
+  };
+
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      try {
+        fs.writeFileSync(fd, JSON.stringify(lock, null, 2), 'utf-8');
+      } finally {
+        fs.closeSync(fd);
+      }
+      return {
+        lockPath,
+        lockId: lock.lockId,
+      };
+    } catch (error) {
+      const ioError = error as NodeJS.ErrnoException;
+      if (ioError.code !== 'EEXIST') {
+        logger.error(`创建安装锁失败: ${ioError.message}`);
+        return null;
+      }
+
+      const existingLock = readInstallLock(lockPath, logger);
+      const { stale, ageMs } = isStaleInstallLock(existingLock);
+      if (stale) {
+        logger.warn(`发现过期安装锁，准备覆盖: ${toProjectRelativePath(targetDir, lockPath)} (${Math.round(ageMs / 1000)}s)`);
+        try {
+          fs.unlinkSync(lockPath);
+          continue;
+        } catch (unlinkError) {
+          logger.warn(`清理过期安装锁失败: ${(unlinkError as Error).message}`);
+          return null;
+        }
+      }
+
+      const ownerText = existingLock
+        ? `PID ${existingLock.pid}, startedAt ${existingLock.startedAt}, host ${existingLock.hostname}`
+        : 'unknown owner';
+      logger.warn(`另一个安装进程正在运行 (${ownerText})。`);
+      logger.warn(`若确认无冲突，可删除 ${toProjectRelativePath(targetDir, lockPath)} 后重试。`);
+      return null;
+    }
+  }
+}
+
+export function releaseInstallLock(handle: InstallLockHandle | null, logger?: Logger): void {
+  if (!handle || !fs.existsSync(handle.lockPath)) {
+    return;
+  }
+
+  const existingLock = readInstallLock(handle.lockPath, logger);
+  if (existingLock?.lockId && existingLock.lockId !== handle.lockId) {
+    return;
+  }
+
+  try {
+    fs.unlinkSync(handle.lockPath);
+  } catch (error) {
+    logger?.warn(`释放安装锁失败: ${(error as Error).message}`);
   }
 }
 

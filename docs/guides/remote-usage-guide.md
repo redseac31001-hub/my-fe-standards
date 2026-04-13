@@ -80,17 +80,40 @@ agent-calls/
 --profile analysis --rule-level quick --pack-only
 ```
 
+如果你的目标是业务项目里的“多 Agent 协作 + TaskBook / Workflow 闭环”演示，推荐直接追加：
+
+```text
+--full
+```
+
+这样会切换到完整运行时分发，同时仍保留 `quick` 规则裁剪。
+
 macOS / Linux：
 
 ```bash
-curl -fsSL https://your-server.com/standards/scripts/dist/codebuddy-install.js | node - --remote https://your-server.com/standards
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 ```
 
 Windows PowerShell：
 
 ```powershell
-iwr https://your-server.com/standards/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
-node codebuddy-install.js --remote https://your-server.com/standards
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
+```
+
+演示完整闭环时，请改用：
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
+```
+
+Windows PowerShell：
+
+```powershell
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
 ```
 
 说明：
@@ -102,28 +125,28 @@ node codebuddy-install.js --remote https://your-server.com/standards
 如果你想先下载再执行：
 
 ```bash
-curl -O https://your-server.com/standards/scripts/dist/codebuddy-install.js
-node codebuddy-install.js --remote https://your-server.com/standards
+curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 ```
 
 ### 直接远程执行
 
 ```bash
-curl -fsSL https://your-server.com/standards/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://your-server.com/standards
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 ```
 
 Windows PowerShell 请改用：
 
 ```powershell
-iwr https://your-server.com/standards/scripts/dist/codebuddy-loader.bundle.js -OutFile codebuddy-loader.bundle.js
-node codebuddy-loader.bundle.js --remote https://your-server.com/standards
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-loader.bundle.js -OutFile codebuddy-loader.bundle.js
+node codebuddy-loader.bundle.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 ```
 
 ### 先下载再执行
 
 ```bash
-curl -O https://your-server.com/standards/scripts/dist/codebuddy-loader.bundle.js
-node codebuddy-loader.bundle.js --remote https://your-server.com/standards
+curl -O https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-loader.bundle.js
+node codebuddy-loader.bundle.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize
 ```
 
 ### 固化到 npm script
@@ -131,8 +154,8 @@ node codebuddy-loader.bundle.js --remote https://your-server.com/standards
 ```json
 {
   "scripts": {
-    "codebuddy:install": "node codebuddy-install.js --remote https://your-server.com/standards",
-    "codebuddy:update": "node codebuddy-loader.bundle.js --remote https://your-server.com/standards"
+    "codebuddy:install": "node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize",
+    "codebuddy:update": "node codebuddy-loader.bundle.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize"
   }
 }
 ```
@@ -201,6 +224,7 @@ node codebuddy-loader.bundle.js \
 | `--verbose, -v` | 输出详细日志 | `-v` |
 
 默认 `--profile` 为 `analysis`。
+如果你传入 `--full`，安装器会自动把 profile 切到 `full`，适合平台能力演示。
 
 ## 故障排查
 

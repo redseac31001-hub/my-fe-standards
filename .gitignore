@@ -99,3 +99,7 @@ testdemo
 # package-lock.json
 # yarn.lock
 # pnpm-lock.yaml
+
+# CodeBuddy 生成文件
+.codebuddy/
+codebuddy-loader.bundle.js

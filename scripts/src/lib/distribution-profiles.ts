@@ -97,8 +97,21 @@ export function isOrchestratorProfile(profile: Context['profile']): boolean {
   return profile === 'orchestrator' || profile === 'full';
 }
 
+export const DEMO_SCRIPTS: ScriptDistributionFile[] = [
+  { file: 'structure-analyzer.js', dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },
+];
+
+export function isDemoProfile(profile: Context['profile']): boolean {
+  return profile === 'demo';
+}
+
 export function getScriptsForProfile(profile: Context['profile']): ScriptDistributionFile[] {
   const scripts = [...CORE_SCRIPTS];
+
+  if (profile === 'demo') {
+    scripts.push(...DEMO_SCRIPTS);
+    return scripts;
+  }
 
   if (profile !== 'core') {
     scripts.push(...ANALYSIS_SCRIPTS);

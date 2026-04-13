@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AGENT_CALL_FILES_TO_DISTRIBUTE = exports.TASKBOOK_FILES_TO_DISTRIBUTE = exports.WORKFLOWS_TO_DISTRIBUTE = exports.COMMANDS_TO_DISTRIBUTE = exports.FULL_SCRIPTS = exports.ORCHESTRATOR_SCRIPTS = exports.ANALYSIS_SCRIPTS = exports.CORE_SCRIPTS = void 0;
+exports.DEMO_SCRIPTS = exports.AGENT_CALL_FILES_TO_DISTRIBUTE = exports.TASKBOOK_FILES_TO_DISTRIBUTE = exports.WORKFLOWS_TO_DISTRIBUTE = exports.COMMANDS_TO_DISTRIBUTE = exports.FULL_SCRIPTS = exports.ORCHESTRATOR_SCRIPTS = exports.ANALYSIS_SCRIPTS = exports.CORE_SCRIPTS = void 0;
 exports.isOrchestratorProfile = isOrchestratorProfile;
+exports.isDemoProfile = isDemoProfile;
 exports.getScriptsForProfile = getScriptsForProfile;
 exports.getScriptArtifactsForProfile = getScriptArtifactsForProfile;
 const CLI_ENTRY_DEPENDENCIES = ['lib/cli-entry.js'];
@@ -81,8 +82,18 @@ exports.AGENT_CALL_FILES_TO_DISTRIBUTE = [
 function isOrchestratorProfile(profile) {
     return profile === 'orchestrator' || profile === 'full';
 }
+exports.DEMO_SCRIPTS = [
+    { file: 'structure-analyzer.js', dependencies: STRUCTURE_ANALYZER_DEPENDENCIES },
+];
+function isDemoProfile(profile) {
+    return profile === 'demo';
+}
 function getScriptsForProfile(profile) {
     const scripts = [...exports.CORE_SCRIPTS];
+    if (profile === 'demo') {
+        scripts.push(...exports.DEMO_SCRIPTS);
+        return scripts;
+    }
     if (profile !== 'core') {
         scripts.push(...exports.ANALYSIS_SCRIPTS);
     }

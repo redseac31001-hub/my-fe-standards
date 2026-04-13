@@ -38,6 +38,32 @@ npm run build
 node scripts/dist/codebuddy-loader.js
 ```
 
+上面这条命令适用于你已经在 `my-fe-standards` 仓库内，给本地夹具项目或影子业务项目做安装验证。
+
+### 业务项目演示安装（推荐）
+
+如果你的目标是演示多 Agent 协作、需求分析、设计、开发、审查、测试闭环，业务项目推荐直接安装完整运行时：
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
+```
+
+Windows PowerShell：
+
+```powershell
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
+```
+
+说明：
+
+- `codebuddy-install.js` 会自动下载 `codebuddy-loader.bundle.js`
+- 默认已补齐 `--rule-level quick --pack-only`
+- `--full` 会额外分发 `task-orchestrator / task-executor / taskbook-manager / agent-call` 所需契约和运行时
+- 这条路径是当前最适合“平台闭环能力演示”的业务项目安装方式
+
 ### 远程模式验证
 
 ```bash
@@ -47,14 +73,14 @@ npm run remote
 ### 业务项目跨平台安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2
+curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
 ```
 
 Windows PowerShell 建议使用下载后执行，避免 `irm ... | node -` 的文本转码问题：
 
 ```powershell
-iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
-node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/glm-v2 --profile full --pack-only
+iwr https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-install.js -OutFile codebuddy-install.js
+node codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full
 ```
 
 ### 本地业务夹具远程 Smoke
@@ -396,6 +422,7 @@ my-fe-standards/
 - [业务项目 Quickstart](./docs/guides/business-project-quickstart.md)
 - [业务项目使用指南](./docs/guides/business-project-guide.md)
 - [业务项目试点方案](./docs/guides/business-pilot-plan.md)
+- [GLM4.7 业务项目演示 Runbook](./docs/guides/glm47-business-demo-runbook.md)
 - [交接说明](./docs/guides/HANDOFF.md)
 - [私有化发布与业务安装指南](./docs/guides/private-deployment-guide.md)
 - [远程接入指南](./docs/guides/remote-usage-guide.md)
