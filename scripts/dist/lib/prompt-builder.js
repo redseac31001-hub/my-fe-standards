@@ -735,7 +735,7 @@ function classifyAgentForActivation(agent) {
     if (includesAnyKeyword(text, ORCHESTRATION_ROUTE_KEYWORDS)) {
         return 'orchestration';
     }
-    if (/(structure|module|architecture|目录|架构|项目健康度)/.test(text)) {
+    if (/(structure|module|architecture|目录|架构|项目健康度|项目分析|当前项目分析|分析当前项目|项目评估|project analysis)/.test(text)) {
         return 'architecture';
     }
     if (/(review|security|审查|安全|代码质量)/.test(text)) {
@@ -758,7 +758,7 @@ function classifySkillForActivation(skill) {
     if (/(performance|build-optimization|render|bundle|懒加载|虚拟滚动|首屏|加载速度|包体积|构建优化)/.test(text)) {
         return 'performance';
     }
-    if (/(structure|module|architecture|模块|目录|架构)/.test(text)) {
+    if (/(structure|module|architecture|模块|目录|架构|项目分析|当前项目分析|分析当前项目|项目评估|project analysis)/.test(text)) {
         return 'architecture';
     }
     if (/(review|审查|code review|代码质量|a11y|i18n|wcag|无障碍|国际化|quality|code-review|localization)/.test(text)) {

@@ -636,6 +636,23 @@ async function testStructureAnalyzerBuildsEngineeringScorecard() {
   }
 }
 
+async function testStructureAnalyzerGuidanceRequiresEightDimensionProjectAnalysis() {
+  const structureSkill = fs.readFileSync(path.join(repoRoot, 'custom-skills', 'structure-review', 'SKILL.md'), 'utf-8');
+  const executionGuide = fs.readFileSync(path.join(repoRoot, 'custom-skills', 'structure-review', 'references', 'execution-and-modes.md'), 'utf-8');
+  const scoringGuide = fs.readFileSync(path.join(repoRoot, 'custom-skills', 'structure-review', 'references', 'scoring-and-reporting.md'), 'utf-8');
+  const structureAgent = fs.readFileSync(path.join(repoRoot, 'agents', 'structure-analyzer', 'AGENT.md'), 'utf-8');
+  const structureTemplate = fs.readFileSync(path.join(repoRoot, 'agents', 'structure-analyzer', 'templates', 'structure-report.md'), 'utf-8');
+
+  assert.match(structureSkill, /分析当前项目/);
+  assert.match(executionGuide, /--mode summary --output json/);
+  assert.match(scoringGuide, /工程健康度评分卡（8 维）/);
+  assert.match(scoringGuide, /不得冒充“项目总健康度”/);
+  assert.match(structureAgent, /scores\.scorecard\.dimensions/);
+  assert.match(structureAgent, /禁止把旧 4 维结构分直接称为“项目总健康度”/);
+  assert.match(structureTemplate, /工程健康度评分卡（8 维）/);
+  assert.match(structureTemplate, /结构健康度（4 维）/);
+}
+
 async function testInstallRoots() {
   assertBuiltArtifactExists(installRootsDistPath, 'npm run build:scripts');
   const {
@@ -3224,6 +3241,7 @@ async function main() {
     ['prompt builder emits demo profile banner, routing, and runtime summary helpers', testPromptBuilderDemoProfileHelpers],
     ['distribution profiles keep profile boundaries and runtime artifacts stable', testDistributionProfiles],
     ['structure analyzer emits 8-dimension engineering scorecards without inflating structure-only health', testStructureAnalyzerBuildsEngineeringScorecard],
+    ['structure analyzer guidance requires 8-dimension project analysis output', testStructureAnalyzerGuidanceRequiresEightDimensionProjectAnalysis],
     ['workflow routing library selects micro/sprint/default with explicit and reuse precedence', testWorkflowRoutingLibrary],
     ['task intake router recommends direct vs orchestrated execution deterministically', testTaskIntakeRoutingLibrary],
     ['doctor surfaces architecture drift as warnings without changing install semantics', testDoctorArchitectureWarnings],

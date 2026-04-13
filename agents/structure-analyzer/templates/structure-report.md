@@ -1,10 +1,10 @@
-# 项目结构审查报告模板
+# 当前项目分析报告模板
 
 > Structure Analyzer Agent 输出模板
 
 ---
 
-## 项目结构审查报告
+## 当前项目分析报告
 
 ### 1. 基本信息
 
@@ -14,9 +14,26 @@
 | **分析时间** | {{analyzedAt}} |
 | **配置来源** | {{configSource}} |
 
-### 2. 健康度评分
+### 2. 工程健康度评分卡（8 维）
 
-**总分: {{scores.total}}/100**
+**工程健康度总分: {{scores.total}}/100**
+
+> 若脚本返回 `scores.scorecard.dimensions`，本节必须作为项目级总评输出。
+
+| 维度 | 得分 | 状态 | 说明 |
+|------|------|------|------|
+| 架构与目录结构 | {{scorecard.architecture}}/15 | {{scorecard.architectureStatus}} | 目录深度与 feature 分层 |
+| 代码质量 | {{scorecard.codeQuality}}/20 | {{scorecard.codeQualityStatus}} | ESLint / Prettier / lint / 文件规模 |
+| 类型安全 | {{scorecard.typeSafety}}/15 | {{scorecard.typeSafetyStatus}} | strict / TS 覆盖率 / any |
+| 测试覆盖 | {{scorecard.testCoverage}}/15 | {{scorecard.testCoverageStatus}} | 测试文件 / coverage |
+| 依赖健康度 | {{scorecard.dependencyHealth}}/10 | {{scorecard.dependencyHealthStatus}} | 锁文件 / 版本声明 |
+| 构建与性能 | {{scorecard.buildPerformance}}/10 | {{scorecard.buildPerformanceStatus}} | 构建配置 / 分包懒加载 |
+| 命名规范 | {{scorecard.namingConvention}}/10 | {{scorecard.namingConventionStatus}} | 命名一致性 / 相似命名冲突 |
+| 文档完整性 | {{scorecard.documentation}}/5 | {{scorecard.documentationStatus}} | README / docs / 注释信号 |
+
+### 3. 结构健康度（4 维）
+
+**结构健康度: {{scores.structureTotal}}/100**
 
 | 维度 | 得分 | 说明 |
 |------|------|------|
@@ -25,27 +42,13 @@
 | 文件大小 | {{scores.breakdown.fileSize}}/25 | 是否存在巨型文件 |
 | 命名规范 | {{scores.breakdown.naming}}/25 | 命名是否清晰区分 |
 
-### 3. 摘要统计
+### 4. 摘要统计
 
 - **总文件数**: {{summary.totalFiles}}
 - **总目录数**: {{summary.totalDirectories}}
 - **最大深度**: {{summary.maxDepth}}
 
-#### 文件类型分布
-
-{{#each summary.extensionStats}}
-- {{@key}}: {{this}}
-{{/each}}
-
-#### 最大文件 Top 5
-
-| 文件 | 行数 | 大小 |
-|------|------|------|
-{{#each summary.topLargestFiles}}
-| {{this.path}} | {{this.lines}} | {{this.sizeKB}}KB |
-{{/each}}
-
-### 4. 违规项
+### 5. 关键问题
 
 **发现 {{violations.length}} 个问题**
 
@@ -55,55 +58,29 @@
 | {{this.severity}} | {{this.code}} | {{this.path}} | {{this.message}} | {{this.suggestion}} |
 {{/each}}
 
-### 5. 状态判定
+### 6. 结论
 
-- **结构类型**: {{#if hasFeatureDir}}Feature-Based{{else}}Type-Grouped / 混合{{/if}}
-- **健康度等级**: {{#if (gte scores.total 90)}}优秀{{else if (gte scores.total 70)}}良好{{else if (gte scores.total 50)}}一般{{else}}较差{{/if}}
+- **项目级判断**: 工程健康度优先反映项目整体状态
+- **结构判断**: 结构健康度仅反映目录与文件组织质量
+- **是否建议动结构**: {{recommendation.summary}}
 
-### 6. 改造建议
-
-{{#if (lt scores.total 70)}}
-| 路径 | 适用场景 | 风险 | 预估工时 |
-|------|----------|------|----------|
-| 小步迁移 | 临近发布、测试不足 | 低 | 高 |
-| 一次性迁移 | 新项目、测试完善 | 中 | 中 |
-| 适配层过渡 | 历史包袱重 | 低 | 高 |
-{{else}}
-✅ 项目结构健康度良好，继续保持！
-{{/if}}
-
-### 7. 不建议动结构的场景
-
-{{#if (lt scores.total 70)}}
-- ⚠️ 距离发布 < 2 周
-- ⚠️ 单元测试覆盖率 < 60%
-- ⚠️ 存在未解决的 P0 Bug
-{{/if}}
-
-### 8. 下一步行动
+### 7. 下一步行动
 
 {{#if (lt scores.total 50)}}
-🔴 **急需改进**：
-1. 建议制定重构计划，分阶段改进
-2. 优先处理 error 级别的问题
-3. 考虑引入架构规范和代码审查流程
-4. 如需详细规划，可转交 @planner Agent
+1. 优先补齐工程短板，再规划结构治理
+2. 优先处理 error 级别问题
+3. 如需详细规划，可转交 @planner Agent
 {{else if (lt scores.total 70)}}
-🟡 **建议改进**：
-1. 逐步重构按类型分组的目录
-2. 拆分超大文件
-3. 扁平化过深目录
-{{else if (lt scores.total 90)}}
-🟢 **持续优化**：
-1. 保持现有架构
-2. 新功能遵循 Feature-Based 模式
-3. 定期进行结构审查
+1. 逐步补齐测试、类型和 lint 基础能力
+2. 拆分超大文件，收敛目录组织
+3. 按模块逐步治理，不建议一次性大迁移
 {{else}}
-✅ **优秀**：
-项目结构健康度优秀，继续保持！
+1. 保持当前架构
+2. 对低分维度做渐进式优化
+3. 定期复查避免退化
 {{/if}}
 
 ---
 
 *报告由 Structure Analyzer Agent 生成*
-*如需进一步协助，请咨询 @planner 或 @code-reviewer Agent*
+*禁止将 4 维结构分直接表述为“项目总健康度”*

@@ -17,7 +17,7 @@
 | Agent | 名称 | 职责 | 触发场景 |
 |-------|------|------|----------|
 | `task-orchestrator` | 任务编排 | 端到端计划任务执行与验收 | "规划任务"、"帮我实现"、"/task" |
-| `structure-analyzer` | 结构分析 | 目录反模式检测、健康度评分 | "结构分析"、"目录审查"、"架构检查" |
+| `structure-analyzer` | 结构分析 | 目录反模式检测、8 维工程健康度评分卡 | "结构分析"、"目录审查"、"架构检查"、"分析当前项目" |
 | `security-reviewer` | 安全审查 | XSS/CSRF/OWASP 检测 | "安全审查"、"security"、"xss" |
 | `performance-profiler` | 性能分析 | Lighthouse/Web Vitals 诊断 | "性能分析"、"performance"、"lighthouse" |
 | `planner` | 任务规划 | 复杂任务分解与风险评估（仅规划，不编码） | "帮我规划"、"规划"、"plan"、"任务分解"、"方案对比" |

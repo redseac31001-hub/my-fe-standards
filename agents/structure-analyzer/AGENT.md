@@ -9,6 +9,10 @@ triggers:
   - "架构检查"
   - "架构审查"
   - "项目健康度"
+  - "项目分析"
+  - "当前项目分析"
+  - "分析当前项目"
+  - "项目评估"
   - "目录结构"
   - "分析项目结构"
   - "全面分析"
@@ -24,12 +28,14 @@ workflow_summary: |
   - 如果用户选择复用，直接读取 `.codebuddy/reports/` 下的 JSON 文件
 
   **Step 1-2: 并行分析**（如需重新分析）
-  1. `node .codebuddy/scripts/module-mapper.js . --mode summary`
-  2. `node .codebuddy/scripts/structure-analyzer.js . --mode summary`
+  1. `node .codebuddy/scripts/module-mapper.js . --mode summary --output json`
+  2. `node .codebuddy/scripts/structure-analyzer.js . --mode summary --output json`
   （以上两步可同时执行，无依赖关系）
 
   **Step 3: 综合报告**
   - 合并分析结果，输出完整架构审查报告
+  - 如果 structure-analyzer JSON 里存在 `scores.scorecard.dimensions`，必须输出 8 维工程健康度评分卡
+  - 4 项 `featureStructure/depth/fileSize/naming` 只能作为“结构健康度”，不能作为项目总健康度
   - 报告自动保存到 `.codebuddy/reports/`
 permissions:
   tools:
@@ -62,7 +68,8 @@ dependencies:
 - **依赖分析**：分析模块间依赖关系，检测循环依赖
 - **结构扫描**：扫描目标项目目录结构
 - **反模式检测**：识别 5 种常见反模式（SA001-SA005）
-- **健康度评分**：生成 0-100 分的量化评分
+- **工程健康度评分卡**：生成 8 维项目级评分卡
+- **结构健康度评分**：保留 4 维结构项作为单独结构分
 - **改进建议**：提供具体的重构建议
 
 ## 触发条件
@@ -117,9 +124,10 @@ node .codebuddy/scripts/structure-analyzer.js . --mode full
 ```
 
 **输出内容**：
-- 健康度评分（0-100）
+- 工程健康度评分卡（8 维）
+- 结构健康度评分（4 维结构项）
 - 违规项列表（SA001-SA005）
-- 分项得分（特性结构、目录深度、文件大小、命名规范）
+- 分项得分（架构与目录结构、代码质量、类型安全、测试覆盖、依赖健康度、构建与性能、命名规范、文档完整性）
 
 ### Phase 4: 综合报告
 
@@ -185,7 +193,20 @@ graph LR
     login --> components
 ```
 
-### 3. 结构健康度
+### 3. 工程健康度评分卡（8 维）
+
+| 维度 | 得分 | 状态 | 说明 |
+|------|------|------|------|
+| 架构与目录结构 | X/15 | ✅/⚠️/➖ | 目录深度与 feature 分层 |
+| 代码质量 | X/20 | ✅/⚠️/➖ | ESLint / Prettier / lint 违规 / 文件规模 |
+| 类型安全 | X/15 | ✅/⚠️/➖ | strict / TS 覆盖率 / any 使用 |
+| 测试覆盖 | X/15 | ✅/⚠️/➖ | 测试文件 / 工具链 / coverage |
+| 依赖健康度 | X/10 | ✅/⚠️/➖ | 锁文件 / 包管理器声明 / 版本约束 |
+| 构建与性能 | X/10 | ✅/⚠️/➖ | 构建配置 / 分包懒加载 / 文件体积纪律 |
+| 命名规范 | X/10 | ✅/⚠️/➖ | 命名一致性与相似命名冲突 |
+| 文档完整性 | X/5 | ✅/⚠️/➖ | README / docs / 注释信号 |
+
+### 4. 结构健康度
 
 #### 分项得分
 | 维度 | 得分 | 说明 |
@@ -195,7 +216,7 @@ graph LR
 | 文件大小 | X/25 | 是否存在巨型文件 |
 | 命名规范 | X/25 | 命名是否清晰 |
 
-### 4. 关键问题
+### 5. 关键问题
 
 #### 🔴 严重问题
 | 规则 | 位置 | 问题 | 建议 |
@@ -207,7 +228,7 @@ graph LR
 |------|------|------|------|
 | SA001 | src/components/ | 按类型分组 | 改用 Feature-Based |
 
-### 5. 改进建议
+### 6. 改进建议
 
 | 优先级 | 建议 | 预估影响 |
 |--------|------|----------|
@@ -215,7 +236,7 @@ graph LR
 | P1 | 解耦循环依赖 | 降低耦合度 |
 | P2 | 优化命名规范 | 提升可读性 |
 
-### 6. 下一步操作
+### 7. 下一步操作
 
 🔴 项目需要改进（健康度 < 60）：
 1. 优先处理 error 级别问题
@@ -282,8 +303,8 @@ node .codebuddy/scripts/structure-analyzer.js . --output json --mode summary
 ### 交接示例
 
 ```
-检测到项目综合健康度评分为 52/100：
-- 模块健康度: 58/100（存在超大模块）
+检测到项目工程健康度为 52/100：
+- 工程健康度评分卡存在多项短板
 - 结构健康度: 45/100（存在较多违规项）
 
 建议：
@@ -323,3 +344,10 @@ Agent 会自动读取以下配置：
   - `structure-review` - 结构审查知识库
   - `module-mapping` - 模块图谱知识库
 - **规则**: `layer1_base/architecture/feature-based-structure` - 架构规范
+
+## 强制约束
+
+- 用户说“分析当前项目 / 当前项目分析 / 项目评估 / 项目健康度”时，必须优先跑结构化脚本，不允许只凭目录印象回答
+- 优先读取 JSON 输出；只有在明确需要人类可读报告时才再组织 Markdown
+- 如果结果里存在 `scores.scorecard.dimensions`，必须输出 8 维工程健康度评分卡
+- 禁止把旧 4 维结构分直接称为“项目总健康度”

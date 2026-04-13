@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-04-13T07:21:42.366Z",
+  "generatedAt": "2026-04-13T07:48:07.828Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -942,8 +942,8 @@
     {
       "path": "custom-skills/structure-review/references/execution-and-modes.md",
       "name": "execution-and-modes",
-      "size": 1563,
-      "mtime": "2026-03-06T05:52:02.091Z",
+      "size": 2294,
+      "mtime": "2026-04-13T07:45:09.758Z",
       "encoding": "utf8"
     },
     {
@@ -963,15 +963,15 @@
     {
       "path": "custom-skills/structure-review/references/scoring-and-reporting.md",
       "name": "scoring-and-reporting",
-      "size": 1697,
-      "mtime": "2026-03-06T05:52:02.093Z",
+      "size": 2475,
+      "mtime": "2026-04-13T07:45:38.180Z",
       "encoding": "utf8"
     },
     {
       "path": "custom-skills/structure-review/SKILL.md",
       "name": "SKILL",
-      "size": 2036,
-      "mtime": "2026-03-08T10:26:06.563Z",
+      "size": 2400,
+      "mtime": "2026-04-13T07:44:55.537Z",
       "encoding": "utf8"
     },
     {
@@ -1054,8 +1054,8 @@
     {
       "path": "agents/AGENTS.md",
       "name": "AGENTS",
-      "size": 7168,
-      "mtime": "2026-03-10T09:34:56.489Z",
+      "size": 7204,
+      "mtime": "2026-04-13T07:46:42.513Z",
       "encoding": "utf8"
     },
     {
@@ -1159,8 +1159,8 @@
     {
       "path": "agents/structure-analyzer/AGENT.md",
       "name": "AGENT",
-      "size": 9035,
-      "mtime": "2026-01-29T13:06:30.095Z",
+      "size": 10758,
+      "mtime": "2026-04-13T07:46:01.563Z",
       "encoding": "utf8"
     },
     {
@@ -1173,8 +1173,8 @@
     {
       "path": "agents/structure-analyzer/templates/structure-report.md",
       "name": "structure-report",
-      "size": 3103,
-      "mtime": "2026-01-29T03:03:37.987Z",
+      "size": 3215,
+      "mtime": "2026-04-13T07:46:34.390Z",
       "encoding": "utf8"
     },
     {
@@ -1302,46 +1302,46 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "4747674e069224f9f0b57f2616dd803586bd1c722f0443cebd3d87545d81ea86",
-      "size": 885494,
+      "sha256": "c5bf5f39daecbb6759cd50ca4aef89a9cbd1344e21fd10a167d9bcdcc30721b6",
+      "size": 889138,
       "entryCount": 157,
-      "generatedAt": "2026-04-13T07:21:41.683Z"
+      "generatedAt": "2026-04-13T07:48:07.605Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "c5c2914a5749fcf2adf2924f0534f2810c4f16b887a6ce83af52185897625270",
-      "size": 1394521,
+      "sha256": "cd678e1eb4091f86339159fea69041c1a714fa928e46124016db24d0ad0c32c9",
+      "size": 1398165,
       "entryCount": 169,
-      "generatedAt": "2026-04-13T07:21:41.816Z"
+      "generatedAt": "2026-04-13T07:48:07.644Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "6e2000e1a7e980a2c4c6d8d4baf454997c02fb84ca7cc25e2928c057ab63f5fb",
-      "size": 2115583,
+      "sha256": "b91666f4c771d78ced9b9d2082b9e8ab6c20403135e6e0f7f9667f14c827edb2",
+      "size": 2119227,
       "entryCount": 188,
-      "generatedAt": "2026-04-13T07:21:41.975Z"
+      "generatedAt": "2026-04-13T07:48:07.691Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "3e6367555dbced00c2d37b03e1f8c3dc100e2e123a50cd116b88487956a853c5",
-      "size": 2131517,
+      "sha256": "40013daed64965abab40fac38150158a7dc7e3893729a0b6ed7f49e1914f6a7e",
+      "size": 2135161,
       "entryCount": 189,
-      "generatedAt": "2026-04-13T07:21:42.155Z"
+      "generatedAt": "2026-04-13T07:48:07.744Z"
     },
     "demo": {
       "profile": "demo",
       "file": "packs/content-pack-demo.json",
       "format": "content-pack-json-v1",
-      "sha256": "4e9650b00dfb101b5c728eb4081325e6faf6957e777893489778c4b07af6d09f",
-      "size": 1055118,
+      "sha256": "423da0ec76035555a1adfa27ac3a5bb39f5ef993d5aace5146f267ac9ee571f1",
+      "size": 1058762,
       "entryCount": 160,
-      "generatedAt": "2026-04-13T07:21:42.338Z"
+      "generatedAt": "2026-04-13T07:48:07.811Z"
     }
   },
   "stats": {
