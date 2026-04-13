@@ -544,7 +544,7 @@ export function generateQuickActionGuide(): string {
 | 需要校验 TaskBook / Workflow 契约 | 先跑契约校验 | \`node .codebuddy/scripts/contract-validator.js --workflows --taskbooks\` |
 | 需要细节规范 | 按需读取缓存规则，不要全文扫读全部规则 | \`.codebuddy/rules_cache/\` |
 
-对话式任务请求与 \`/task\` 是同一产品入口的两种表面形式：都必须先做 task-intake routing，再进入 TaskBook / Planner / Validator 闭环。
+对话式任务请求与 \`/task\` 是同一产品入口的两种表面形式：都必须先做 task-intake routing，再进入 TaskBook / Planner / Validator 闭环。系统会按复杂度自动分流到 \`direct\`、\`planner\`、\`task-orchestrator\`。
 
 优先读短入口：\`.codebuddy/scripts/README.md\`、\`.codebuddy/commands/README.md\`、\`.codebuddy/rules_cache/\`。
 `;
@@ -1449,7 +1449,7 @@ export function generateDemoQuickActionGuide(): string {
 | Bug 排查 | 说 "帮我排查" 或 "修复 bug" |
 | 项目结构分析 | 说 "分析项目结构" |
 
-命中任务编排意图后，不要把对话式请求当作自由聊天；应与 \`/task\` 共用同一条 TaskBook / Planner / Validator 路由。
+命中任务编排意图后，不要把对话式请求当作自由聊天；应与 \`/task\` 共用同一条 TaskBook / Planner / Validator 路由。系统会自动按复杂度分流到 \`direct\`、\`planner\`、\`task-orchestrator\`。
 
 需要查看规则详情时，使用 \`read_file\` 读取 \`.codebuddy/rules_cache/\` 下对应文件。
 

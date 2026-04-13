@@ -433,6 +433,8 @@ export interface WorkflowRoutingDecision {
 }
 
 export type TaskIntakeExecutionPath = 'direct' | 'orchestrated';
+export type TaskIntakeResponseMode = 'direct' | 'planner' | 'task-orchestrator';
+export type TaskIntakeComplexityTier = 'simple' | 'standard' | 'complex';
 export type TaskIntakeContractState = 'explicit' | 'partial' | 'none';
 export type TaskIntakeUncertainty = 'low' | 'medium' | 'high';
 export type TaskSpecMode = 'inline-open-spec' | 'linked-spec-kit';
@@ -474,7 +476,9 @@ export interface TaskIntakeRoutingSignal {
 }
 
 export interface TaskIntakeRoutingDecision {
+  recommendedResponseMode: TaskIntakeResponseMode;
   recommendedPath: TaskIntakeExecutionPath;
+  complexityTier: TaskIntakeComplexityTier;
   recommendedWorkflowId: BuiltinWorkflowId;
   recommendedSpecMode: TaskSpecMode;
   confidence: 'high' | 'medium' | 'low';

@@ -1,7 +1,9 @@
 import {
+  TaskIntakeComplexityTier,
   TaskIntakeContractState,
   TaskIntakeExecutionPath,
   TaskIntakeKind,
+  TaskIntakeResponseMode,
   TaskIntakeRoutingDecision,
   TaskIntakeRoutingInput,
   TaskIntakeRoutingSignal,
@@ -25,6 +27,8 @@ const ARCHITECTURE_CHANGE_SIGNAL = /(architecture|module boundary|layering|架�
 const STATE_MODEL_CHANGE_SIGNAL = /(state model|state management|shared state|store|vuex|pinia|状态模型|状态管理|统一状态|共享状态)/i;
 const ROUTING_CHANGE_SIGNAL = /(route change|router|navigation|redirect|路由|跳转|导航)/i;
 const WORKFLOW_CHANGE_SIGNAL = /(workflow|execution flow|提交流程|审批流程|业务流程|执行流|编排|闭环)/i;
+const PLANNING_ONLY_SIGNAL = /(先(别|不要)写代码|只做规划|只做方案|先给(我)?(实施计划|计划|方案|技术方案)|先做任务分解|先做需求拆解|先评估(一下)?|先分析方案|先梳理任务|先拆分任务)/i;
+const EXECUTION_INTENT_SIGNAL = /((帮我|请).*(实现|做|改|改造|接入|落地|推进|完成|修复)|开始(做|推进)|执行这个需求|直接(实现|改|落地)|补上(测试|review|审查)|把.*(切到|改成|迁移到).*(真实接口|新接口))/i;
 
 function uniqStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(value => typeof value === 'string' && value.trim().length > 0)));
@@ -91,7 +95,19 @@ function resolveDirectValidation(kind: TaskIntakeKind): string[] {
   return steps;
 }
 
-function resolveSuggestedNextSteps(path: TaskIntakeExecutionPath, kind: TaskIntakeKind): string[] {
+function resolveSuggestedNextSteps(
+  responseMode: TaskIntakeResponseMode,
+  path: TaskIntakeExecutionPath,
+  kind: TaskIntakeKind,
+): string[] {
+  if (responseMode === 'planner') {
+    return [
+      'Collect the smallest relevant context first, then stop at planning output.',
+      'Produce scope, risks, task breakdown, and acceptance/verification contracts without changing code.',
+      'Carry the recommended workflow/spec hints forward so execution can resume without re-routing.',
+    ];
+  }
+
   if (path === 'direct') {
     return [
       'Read the explicit contract and the smallest relevant file set first.',
@@ -105,6 +121,51 @@ function resolveSuggestedNextSteps(path: TaskIntakeExecutionPath, kind: TaskInta
     'Keep staged review, handoff, and validation evidence inside the orchestrated path.',
     'Use quick gate plus focused E2E as the task scope expands.',
   ];
+}
+
+function resolveResponseMode(routeText: string, recommendedPath: TaskIntakeExecutionPath): TaskIntakeResponseMode {
+  const planningOnly = PLANNING_ONLY_SIGNAL.test(routeText);
+  const hasExecutionIntent = EXECUTION_INTENT_SIGNAL.test(routeText);
+
+  if (planningOnly && !hasExecutionIntent) {
+    return 'planner';
+  }
+
+  if (recommendedPath === 'direct') {
+    return 'direct';
+  }
+
+  return 'task-orchestrator';
+}
+
+function resolveComplexityTier(
+  responseMode: TaskIntakeResponseMode,
+  workflowId: 'micro' | 'sprint' | 'default',
+): TaskIntakeComplexityTier {
+  if (responseMode === 'direct' && workflowId === 'micro') {
+    return 'simple';
+  }
+  if (workflowId === 'default') {
+    return 'complex';
+  }
+  return 'standard';
+}
+
+function resolveSuggestedValidation(
+  responseMode: TaskIntakeResponseMode,
+  path: TaskIntakeExecutionPath,
+  kind: TaskIntakeKind,
+): string[] {
+  if (responseMode === 'planner') {
+    return [
+      'Validate that scope, constraints, risks, and dependencies are explicit.',
+      'Validate each task includes acceptanceCriteria and executionSpec verification.',
+    ];
+  }
+
+  return path === 'direct'
+    ? resolveDirectValidation(kind)
+    : ['Use task-orchestrator / TaskBook-based execution.', 'Run quick gate and the narrowest relevant E2E for the affected workflow.'];
 }
 
 function resolveRecommendedWorkflowId(params: {
@@ -188,6 +249,7 @@ export function routeTaskIntake(
   options?: TaskIntakeRoutingOptions,
 ): TaskIntakeRoutingDecision {
   const input = normalizeTaskIntakeInput(rawInput);
+  const routeText = collectRouteText(input);
   const inferredKind = resolveKind(input);
   const estimatedFileCount = input.estimatedFileCount;
   const estimatedModuleCount = input.estimatedModuleCount;
@@ -296,6 +358,12 @@ export function routeTaskIntake(
       inferredKind === 'feature' ? 'The task looks like a broader feature request.' : undefined,
       2,
     ),
+    buildSignal(
+      'planning_only_intent',
+      PLANNING_ONLY_SIGNAL.test(routeText),
+      PLANNING_ONLY_SIGNAL.test(routeText) ? 'The request explicitly asks for planning only before coding.' : undefined,
+      2,
+    ),
   ];
 
   const hardEscalationTriggers = signals
@@ -400,20 +468,28 @@ export function routeTaskIntake(
     changesWorkflow: input.changesWorkflow,
   });
   const recommendedSpecMode = resolveRecommendedSpecMode(recommendedWorkflowId);
+  const recommendedResponseMode = resolveResponseMode(routeText, recommendedPath);
+  const complexityTier = resolveComplexityTier(recommendedResponseMode, recommendedWorkflowId);
+  const normalizedReasons = recommendedResponseMode === 'planner'
+    ? uniqStrings([
+        'The request should stop at planning before coding.',
+        ...reasons,
+      ])
+    : reasons;
 
   return {
+    recommendedResponseMode,
     recommendedPath,
+    complexityTier,
     recommendedWorkflowId,
     recommendedSpecMode,
     confidence,
     inferredKind,
-    reasons,
+    reasons: normalizedReasons,
     signals,
     hardEscalationTriggers,
-    suggestedNextSteps: resolveSuggestedNextSteps(recommendedPath, inferredKind),
-    suggestedValidation: recommendedPath === 'direct'
-      ? resolveDirectValidation(inferredKind)
-      : ['Use task-orchestrator / TaskBook-based execution.', 'Run quick gate and the narrowest relevant E2E for the affected workflow.'],
+    suggestedNextSteps: resolveSuggestedNextSteps(recommendedResponseMode, recommendedPath, inferredKind),
+    suggestedValidation: resolveSuggestedValidation(recommendedResponseMode, recommendedPath, inferredKind),
     generatedAt: getGeneratedAt(options?.generatedAt),
   };
 }

@@ -81,6 +81,13 @@ Task Intake Router - 直执行 vs 编排路径建议器
 命令:
   route                       输出建议路径（默认）
 
+输出字段:
+  - recommendedResponseMode   direct | planner | task-orchestrator
+  - complexityTier            simple | standard | complex
+  - recommendedPath           direct | orchestrated
+  - recommendedWorkflowId     micro | sprint | default
+  - recommendedSpecMode       inline-open-spec | linked-spec-kit
+
 选项:
   --title <text>              任务标题
   --description <text>        任务描述；未提供时使用位置参数
@@ -128,6 +135,7 @@ function buildInput(parsed) {
     });
 }
 function printDecision(decision) {
+    console.log(`[task-intake-router] response lane: ${decision.recommendedResponseMode} (complexity=${decision.complexityTier})`);
     console.log(`[task-intake-router] recommendation: ${decision.recommendedPath} (confidence=${decision.confidence}, kind=${decision.inferredKind})`);
     console.log(`[task-intake-router] planner contract: workflow=${decision.recommendedWorkflowId}, specMode=${decision.recommendedSpecMode}`);
     for (const reason of decision.reasons) {

@@ -540,12 +540,15 @@ async function testPromptBuilderDemoProfileHelpers() {
   assert.match(quickAction, /TaskBook \/ Planner \/ Validator 闭环/);
   assert.match(quickAction, /先别写代码/);
   assert.match(quickAction, /接入真实接口/);
+  assert.match(quickAction, /direct/);
+  assert.match(quickAction, /task-orchestrator/);
 
   const demoQuickAction = generateDemoQuickActionGuide();
   assert.match(demoQuickAction, /两者必须归一化到同一闭环/);
   assert.match(demoQuickAction, /不要把对话式请求当作自由聊天/);
   assert.match(demoQuickAction, /先别写代码/);
   assert.match(demoQuickAction, /帮我改造/);
+  assert.match(demoQuickAction, /task-orchestrator/);
 }
 
 async function testDistributionProfiles() {
@@ -1801,7 +1804,9 @@ async function testTaskIntakeRoutingLibrary() {
     estimatedDomainCount: 1,
     estimatedEndpointCount: 2,
   }));
+  assert.equal(directDecision.recommendedResponseMode, 'direct');
   assert.equal(directDecision.recommendedPath, 'direct');
+  assert.equal(directDecision.complexityTier, 'simple');
   assert.equal(directDecision.recommendedWorkflowId, 'micro');
   assert.equal(directDecision.recommendedSpecMode, 'inline-open-spec');
   assert.equal(directDecision.inferredKind, 'api-adaptation');
@@ -1816,7 +1821,9 @@ async function testTaskIntakeRoutingLibrary() {
     estimatedModuleCount: 1,
     estimatedDomainCount: 1,
   }));
+  assert.equal(sprintDecision.recommendedResponseMode, 'task-orchestrator');
   assert.equal(sprintDecision.recommendedPath, 'orchestrated');
+  assert.equal(sprintDecision.complexityTier, 'standard');
   assert.equal(sprintDecision.recommendedWorkflowId, 'sprint');
   assert.equal(sprintDecision.recommendedSpecMode, 'inline-open-spec');
 
@@ -1830,7 +1837,9 @@ async function testTaskIntakeRoutingLibrary() {
     requiresHandoff: true,
     changesStateModel: true,
   }));
+  assert.equal(orchestratedDecision.recommendedResponseMode, 'task-orchestrator');
   assert.equal(orchestratedDecision.recommendedPath, 'orchestrated');
+  assert.equal(orchestratedDecision.complexityTier, 'complex');
   assert.equal(orchestratedDecision.recommendedWorkflowId, 'default');
   assert.equal(orchestratedDecision.recommendedSpecMode, 'linked-spec-kit');
   assert.ok(orchestratedDecision.hardEscalationTriggers.some(trigger => trigger.includes('estimatedModuleCount=3')));
@@ -1843,6 +1852,7 @@ async function testTaskIntakeRoutingLibrary() {
     '--uncertainty', 'low',
   ]);
   const cliDirectDecision = routeTaskIntakeCli(parsedDirect);
+  assert.equal(cliDirectDecision.recommendedResponseMode, 'direct');
   assert.equal(cliDirectDecision.recommendedPath, 'direct');
   assert.equal(cliDirectDecision.recommendedWorkflowId, 'micro');
 
@@ -1852,14 +1862,25 @@ async function testTaskIntakeRoutingLibrary() {
     '--tracking',
   ]);
   const cliEscalatedDecision = routeTaskIntakeCli(parsedEscalated);
+  assert.equal(cliEscalatedDecision.recommendedResponseMode, 'task-orchestrator');
   assert.equal(cliEscalatedDecision.recommendedPath, 'orchestrated');
   assert.equal(cliEscalatedDecision.recommendedWorkflowId, 'default');
   assert.ok(cliEscalatedDecision.hardEscalationTriggers.length >= 1);
 
+  const plannerDecision = routeTaskIntake(createDefaultTaskIntakeInput({
+    description: '先别写代码，先给我一个跨模块改造的实施计划和任务分解',
+  }));
+  assert.equal(plannerDecision.recommendedResponseMode, 'planner');
+  assert.equal(plannerDecision.complexityTier, 'standard');
+  assert.ok(plannerDecision.reasons.some(reason => reason.includes('stop at planning before coding')));
+  assert.ok(plannerDecision.suggestedNextSteps.some(step => step.includes('stop at planning output')));
+
   const naturalLanguageDecision = routeTaskIntake(createDefaultTaskIntakeInput({
     description: '帮我改造会员中心和结算页的地址管理，把 mock 切到真实接口，统一状态模型，并补上测试和 review 闭环',
   }));
+  assert.equal(naturalLanguageDecision.recommendedResponseMode, 'task-orchestrator');
   assert.equal(naturalLanguageDecision.recommendedPath, 'orchestrated');
+  assert.equal(naturalLanguageDecision.complexityTier, 'complex');
   assert.equal(naturalLanguageDecision.recommendedWorkflowId, 'default');
   assert.equal(naturalLanguageDecision.recommendedSpecMode, 'linked-spec-kit');
   assert.ok(naturalLanguageDecision.hardEscalationTriggers.some(trigger => trigger.includes('state-model behavior')));
