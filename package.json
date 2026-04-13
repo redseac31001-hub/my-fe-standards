@@ -55,8 +55,8 @@
     "smoke:remote-powershell": "npm run build && node test/test-powershell-remote-loader.js",
     "smoke:remote-powershell:run": "node test/test-powershell-remote-loader.js",
     "serve": "node scripts/dist/simple-server.js",
-    "remote": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm",
-    "remote:full": "curl -fsSL https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm/scripts/dist/codebuddy-loader.bundle.js | node - --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/feature/codebuddy-glm --enable-orchestrator",
+    "remote": "node scripts/dist/codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize",
+    "remote:full": "node scripts/dist/codebuddy-install.js --remote https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize --full",
     "ralph": "bash scripts/ralph/ralph.sh",
     "ralph:claude": "bash scripts/ralph/ralph.sh --tool claude",
     "task": "node scripts/dist/taskbook-manager.js"

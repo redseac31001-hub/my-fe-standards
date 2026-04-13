@@ -20,6 +20,11 @@ type ParsedArgs = {
 const DEFAULT_INSTALL_ARGS = ['--profile', 'analysis', '--rule-level', 'quick', '--pack-only'];
 const DEFAULT_LOADER_TIMEOUT_MS = 30000;
 const MAX_REDIRECTS = 5;
+const DEFAULT_DOWNLOAD_RETRIES = 2;
+const DEFAULT_PUBLIC_GITHUB_RAW_MIRROR_PREFIXES = [
+  'https://mirror.ghproxy.com/',
+  'https://ghproxy.com/',
+];
 
 function showHelp(): void {
   console.log(`
@@ -81,6 +86,47 @@ function hasFlag(args: string[], flag: string): boolean {
 function hasFlagValue(args: string[], flag: string): boolean {
   const index = args.indexOf(flag);
   return index !== -1 && typeof args[index + 1] === 'string' && !args[index + 1].startsWith('-');
+}
+
+function dedupeUrls(urls: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const url of urls) {
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    unique.push(url);
+  }
+
+  return unique;
+}
+
+function getConfiguredMirrorPrefixes(): string[] {
+  const configured = (process.env.CODEBUDDY_REMOTE_MIRRORS || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
+    .map(item => item.endsWith('/') ? item : `${item}/`);
+
+  return dedupeUrls([
+    ...configured,
+    ...DEFAULT_PUBLIC_GITHUB_RAW_MIRROR_PREFIXES,
+  ]);
+}
+
+export function buildDownloadUrlCandidates(url: string, remoteBearerToken: string | null): string[] {
+  if (!url) {
+    return [];
+  }
+
+  if (remoteBearerToken || !url.startsWith('https://raw.githubusercontent.com/')) {
+    return [url];
+  }
+
+  return dedupeUrls([
+    url,
+    ...getConfiguredMirrorPrefixes().map(prefix => `${prefix}${url}`),
+  ]);
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -234,6 +280,15 @@ function ensureParentDir(filePath: string): void {
 }
 
 async function downloadFile(url: string, outputPath: string, headers: Record<string, string>, timeoutMs: number): Promise<void> {
+  const tempOutputPath = `${outputPath}.download-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const cleanupTempFile = (): void => {
+    try {
+      fs.rmSync(tempOutputPath, { force: true });
+    } catch {
+      // ignore cleanup failure
+    }
+  };
+
   await new Promise<void>((resolve, reject) => {
     const visit = (targetUrl: string, redirectsLeft: number): void => {
       const client = targetUrl.startsWith('https://') ? https : http;
@@ -264,21 +319,74 @@ async function downloadFile(url: string, outputPath: string, headers: Record<str
           return;
         }
 
-        ensureParentDir(outputPath);
-        const writer = fs.createWriteStream(outputPath);
+        ensureParentDir(tempOutputPath);
+        const writer = fs.createWriteStream(tempOutputPath);
         response.pipe(writer);
-        writer.on('finish', () => writer.close(() => resolve()));
-        writer.on('error', (error) => reject(error));
+        writer.on('finish', () => writer.close(() => {
+          try {
+            fs.rmSync(outputPath, { force: true });
+            fs.renameSync(tempOutputPath, outputPath);
+            resolve();
+          } catch (error) {
+            cleanupTempFile();
+            reject(error);
+          }
+        }));
+        writer.on('error', (error) => {
+          cleanupTempFile();
+          reject(error);
+        });
       });
 
       request.setTimeout(timeoutMs, () => {
         request.destroy(new Error(`request timeout after ${timeoutMs}ms: ${targetUrl}`));
       });
-      request.on('error', (error) => reject(error));
+      request.on('error', (error) => {
+        cleanupTempFile();
+        reject(error);
+      });
     };
 
     visit(url, MAX_REDIRECTS);
   });
+}
+
+async function downloadFileWithFallbacks(
+  url: string,
+  outputPath: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+  remoteBearerToken: string | null,
+): Promise<string> {
+  const candidates = buildDownloadUrlCandidates(url, remoteBearerToken);
+  const failures: string[] = [];
+
+  for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+    const candidateUrl = candidates[candidateIndex];
+
+    for (let attempt = 0; attempt <= DEFAULT_DOWNLOAD_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.warn(`[codebuddy-install] retry download (${attempt}/${DEFAULT_DOWNLOAD_RETRIES}) via ${candidateUrl}`);
+        } else if (candidateIndex > 0) {
+          console.warn(`[codebuddy-install] fallback download via ${candidateUrl}`);
+        }
+
+        await downloadFile(candidateUrl, outputPath, headers, timeoutMs);
+        return candidateUrl;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(`${candidateUrl} -> ${message}`);
+
+        if (attempt >= DEFAULT_DOWNLOAD_RETRIES) {
+          break;
+        }
+      }
+    }
+  }
+
+  const detail = failures.length > 0 ? `\n${failures.map(item => `  - ${item}`).join('\n')}` : '';
+  throw new Error(`failed to download loader from all candidates:${detail}`);
 }
 
 function createTempLoaderPath(): string {
@@ -297,7 +405,16 @@ async function main(): Promise<void> {
   }
 
   console.log(`[codebuddy-install] download loader: ${parsed.loaderUrl}`);
-  await downloadFile(parsed.loaderUrl!, loaderPath, headers, parsed.loaderTimeoutMs);
+  const resolvedLoaderUrl = await downloadFileWithFallbacks(
+    parsed.loaderUrl!,
+    loaderPath,
+    headers,
+    parsed.loaderTimeoutMs,
+    parsed.remoteBearerToken,
+  );
+  if (resolvedLoaderUrl !== parsed.loaderUrl) {
+    console.log(`[codebuddy-install] loader downloaded via fallback: ${resolvedLoaderUrl}`);
+  }
   console.log(`[codebuddy-install] run loader: node ${path.basename(loaderPath)} ${parsed.passThroughArgs.join(' ')}`.trim());
 
   const result = spawnSync(process.execPath, [loaderPath, ...parsed.passThroughArgs], {
@@ -324,6 +441,8 @@ async function main(): Promise<void> {
   process.exit(result.status ?? 1);
 }
 
-main().catch((error) => {
-  fail(error instanceof Error ? error.message : String(error));
-});
+if (require.main === module) {
+  main().catch((error) => {
+    fail(error instanceof Error ? error.message : String(error));
+  });
+}

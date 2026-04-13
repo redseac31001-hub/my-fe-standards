@@ -20,6 +20,7 @@ const installHealthDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'ins
 const installStateDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'install-state.js');
 const installSyncDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'install-sync.js');
 const installRootsDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'install-roots.js');
+const fetcherDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'fetcher.js');
 const initGeneratorDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'init-generator.js');
 const promptBuilderDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'prompt-builder.js');
 const projectDetectionDistPath = path.join(repoRoot, 'scripts', 'dist', 'lib', 'project-detection.js');
@@ -32,6 +33,7 @@ const validatorGateDistPath = path.join(repoRoot, 'scripts', 'dist', 'validator-
 const reportManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'report-manager.js');
 const taskIntakeRouterDistPath = path.join(repoRoot, 'scripts', 'dist', 'task-intake-router.js');
 const taskbookManagerDistPath = path.join(repoRoot, 'scripts', 'dist', 'taskbook-manager.js');
+const codebuddyInstallDistPath = path.join(repoRoot, 'scripts', 'dist', 'codebuddy-install.js');
 const structureAnalyzerDistPath = path.join(repoRoot, 'scripts', 'dist', 'structure-analyzer.js');
 const moduleMapperDistPath = path.join(repoRoot, 'scripts', 'dist', 'module-mapper.js');
 const runTestsPath = path.join(repoRoot, 'test', 'run-tests.js');
@@ -562,6 +564,64 @@ async function testDistributionProfiles() {
   assert.equal(fullArtifacts.includes('types/module-mapper.js'), true);
   assert.equal(fullArtifacts.includes('types/structure-analyzer.js'), true);
   assert.equal(fullArtifacts.length, new Set(fullArtifacts).size, 'artifacts should be deduplicated');
+}
+
+async function testFetcherBuildsGithubRawFallbackCandidates() {
+  assertBuiltArtifactExists(fetcherDistPath, 'npm run build:scripts');
+  const { buildFetchCandidateUrls } = require(fetcherDistPath);
+
+  const remoteBaseUrl = 'https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize';
+  const targetUrl = `${remoteBaseUrl}/manifest.json`;
+
+  const candidates = buildFetchCandidateUrls(
+    createLoaderContext({
+      isRemote: true,
+      remoteBaseUrl,
+      remoteBearerToken: null,
+    }),
+    targetUrl,
+  );
+  assert.deepEqual(candidates, [
+    targetUrl,
+    `https://mirror.ghproxy.com/${targetUrl}`,
+    `https://ghproxy.com/${targetUrl}`,
+  ]);
+
+  const tokenCandidates = buildFetchCandidateUrls(
+    createLoaderContext({
+      isRemote: true,
+      remoteBaseUrl,
+      remoteBearerToken: 'secret',
+    }),
+    targetUrl,
+  );
+  assert.deepEqual(tokenCandidates, [targetUrl]);
+
+  const internalUrl = 'https://intra.example.com/standards/manifest.json';
+  const internalCandidates = buildFetchCandidateUrls(
+    createLoaderContext({
+      isRemote: true,
+      remoteBaseUrl: 'https://intra.example.com/standards',
+      remoteBearerToken: null,
+    }),
+    internalUrl,
+  );
+  assert.deepEqual(internalCandidates, [internalUrl]);
+}
+
+async function testInstallerBuildsGithubRawFallbackCandidates() {
+  assertBuiltArtifactExists(codebuddyInstallDistPath, 'npm run build:scripts');
+  const { buildDownloadUrlCandidates } = require(codebuddyInstallDistPath);
+
+  const loaderUrl = 'https://raw.githubusercontent.com/redseac31001-hub/my-fe-standards/demo/glm-optimize/scripts/dist/codebuddy-loader.bundle.js';
+  assert.deepEqual(buildDownloadUrlCandidates(loaderUrl, null), [
+    loaderUrl,
+    `https://mirror.ghproxy.com/${loaderUrl}`,
+    `https://ghproxy.com/${loaderUrl}`,
+  ]);
+
+  assert.deepEqual(buildDownloadUrlCandidates(loaderUrl, 'secret'), [loaderUrl]);
+  assert.deepEqual(buildDownloadUrlCandidates('https://intra.example.com/loader.js', null), ['https://intra.example.com/loader.js']);
 }
 
 async function testStructureAnalyzerBuildsEngineeringScorecard() {
@@ -3442,6 +3502,8 @@ async function main() {
     ['prompt builder emits compact mandatory activation rules with installed-skill filtering', testPromptBuilderActivationRules],
     ['prompt builder emits demo profile banner, routing, and runtime summary helpers', testPromptBuilderDemoProfileHelpers],
     ['distribution profiles keep profile boundaries and runtime artifacts stable', testDistributionProfiles],
+    ['fetcher builds public GitHub Raw fallback candidates without leaking auth', testFetcherBuildsGithubRawFallbackCandidates],
+    ['installer builds public GitHub Raw fallback candidates without changing private URLs', testInstallerBuildsGithubRawFallbackCandidates],
     ['structure analyzer emits 8-dimension engineering scorecards without inflating structure-only health', testStructureAnalyzerBuildsEngineeringScorecard],
     ['structure analyzer guidance requires 8-dimension project analysis output', testStructureAnalyzerGuidanceRequiresEightDimensionProjectAnalysis],
     ['structure analyzer counts Vue SFC TypeScript signals in type safety scoring', testStructureAnalyzerCountsVueTypeScriptSignals],

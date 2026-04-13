@@ -45,6 +45,11 @@ function logError(message) {
 // scripts/src/lib/fetcher.ts
 var https = __toESM(require("https"));
 var http = __toESM(require("http"));
+var DEFAULT_PUBLIC_GITHUB_RAW_MIRROR_PREFIXES = [
+  "https://mirror.ghproxy.com/",
+  "https://ghproxy.com/"
+];
+var MAX_REDIRECTS = 5;
 function buildRequestHeaders(ctx, url) {
   if (!ctx.remoteBearerToken || !ctx.remoteBaseUrl) {
     return {};
@@ -62,25 +67,56 @@ function buildRequestHeaders(ctx, url) {
     Authorization: `Bearer ${ctx.remoteBearerToken}`
   };
 }
-function fetchUrlBuffer(ctx, logger, url, retries = 3) {
+function dedupeUrls(urls) {
+  const seen = /* @__PURE__ */ new Set();
+  const unique = [];
+  for (const url of urls) {
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    unique.push(url);
+  }
+  return unique;
+}
+function getConfiguredMirrorPrefixes() {
+  const configured = (process.env.CODEBUDDY_REMOTE_MIRRORS || "").split(",").map((item) => item.trim()).filter(Boolean).map((item) => item.endsWith("/") ? item : `${item}/`);
+  return dedupeUrls([
+    ...configured,
+    ...DEFAULT_PUBLIC_GITHUB_RAW_MIRROR_PREFIXES
+  ]);
+}
+function buildFetchCandidateUrls(ctx, url) {
+  if (ctx.remoteBearerToken || !url.startsWith("https://raw.githubusercontent.com/")) {
+    return [url];
+  }
+  return dedupeUrls([
+    url,
+    ...getConfiguredMirrorPrefixes().map((prefix) => `${prefix}${url}`)
+  ]);
+}
+function fetchSingleUrlBuffer(ctx, logger, url, retries, redirectsLeft) {
   return new Promise((resolve2, reject) => {
     const client = url.startsWith("https") ? https : http;
     const headers = buildRequestHeaders(ctx, url);
     logger.verbose(`Fetching: ${url} (Retries left: ${retries})`);
     const request = client.get(url, { headers }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        if (redirectsLeft <= 0) {
+          res.resume();
+          reject(new Error(`Too many redirects while fetching ${url}`));
+          return;
+        }
         const redirectUrl = new URL(res.headers.location, url).toString();
         res.resume();
         logger.verbose(`Redirecting to: ${redirectUrl}`);
-        fetchUrlBuffer(ctx, logger, redirectUrl, retries).then(resolve2).catch(reject);
+        fetchWithCandidates(ctx, logger, redirectUrl, retries, redirectsLeft - 1).then(resolve2).catch(reject);
         return;
       }
       if (res.statusCode !== 200) {
-        if (res.statusCode && res.statusCode >= 500 && retries > 0) {
+        if (res.statusCode && (res.statusCode >= 500 || res.statusCode === 408 || res.statusCode === 429) && retries > 0) {
           res.resume();
           logger.warn(`HTTP ${res.statusCode}. Retrying...`);
           setTimeout(() => {
-            fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve2).catch(reject);
+            fetchSingleUrlBuffer(ctx, logger, url, retries - 1, redirectsLeft).then(resolve2).catch(reject);
           }, 1e3);
           return;
         }
@@ -102,24 +138,35 @@ function fetchUrlBuffer(ctx, logger, url, retries = 3) {
       if (retries > 0) {
         logger.warn(`Network Error (${e.code}). Retrying...`);
         setTimeout(() => {
-          fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve2).catch(reject);
+          fetchSingleUrlBuffer(ctx, logger, url, retries - 1, redirectsLeft).then(resolve2).catch(reject);
         }, 1e3);
         return;
       }
       reject(new Error(`Network Error: ${e.message} (URL: ${url})`));
     });
     request.setTimeout(ctx.requestTimeout, () => {
-      request.destroy();
-      if (retries > 0) {
-        logger.warn(`Request Timeout. Retrying...`);
-        setTimeout(() => {
-          fetchUrlBuffer(ctx, logger, url, retries - 1).then(resolve2).catch(reject);
-        }, 1e3);
-        return;
-      }
-      reject(new Error(`Request Timeout: ${url}`));
+      request.destroy(new Error(`Request Timeout: ${url}`));
     });
   });
+}
+async function fetchWithCandidates(ctx, logger, url, retries, redirectsLeft) {
+  const candidates = buildFetchCandidateUrls(ctx, url);
+  let lastError = null;
+  for (let index = 0; index < candidates.length; index++) {
+    const candidateUrl = candidates[index];
+    try {
+      if (index > 0) {
+        logger.warn(`Primary fetch failed, trying fallback: ${candidateUrl}`);
+      }
+      return await fetchSingleUrlBuffer(ctx, logger, candidateUrl, retries, redirectsLeft);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  throw lastError || new Error(`Failed to fetch ${url}`);
+}
+function fetchUrlBuffer(ctx, logger, url, retries = 3) {
+  return fetchWithCandidates(ctx, logger, url, retries, MAX_REDIRECTS);
 }
 async function fetchUrl(ctx, logger, url, retries = 3) {
   const buffer = await fetchUrlBuffer(ctx, logger, url, retries);
