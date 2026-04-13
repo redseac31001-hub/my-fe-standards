@@ -1,6 +1,6 @@
 {
   "version": "3.3.0",
-  "generatedAt": "2026-04-13T16:40:39.229Z",
+  "generatedAt": "2026-04-13T16:57:42.975Z",
   "aiTool": "CodeBuddy",
   "model": "GLM-4.7",
   "config": {
@@ -1292,15 +1292,15 @@
     {
       "path": "taskbooks/README.md",
       "name": "README",
-      "size": 1410,
-      "mtime": "2026-04-13T09:34:25.436Z",
+      "size": 2532,
+      "mtime": "2026-04-13T16:53:32.230Z",
       "encoding": "utf8"
     },
     {
       "path": "taskbooks/schema/taskbook.schema.json",
       "name": "taskbook.schema",
-      "size": 9912,
-      "mtime": "2026-04-13T09:22:08.367Z",
+      "size": 10433,
+      "mtime": "2026-04-13T16:52:56.320Z",
       "encoding": "utf8"
     }
   ],
@@ -1309,46 +1309,46 @@
       "profile": "core",
       "file": "packs/content-pack-core.json",
       "format": "content-pack-json-v1",
-      "sha256": "a2baed68eb4672574cc9b2b0de8d9206999e0f3fd2ff518abf73a995d210c005",
+      "sha256": "95298eb59777f4e2ede56eef8600fc0f1350b00d78506e2f8948d15edfa2210f",
       "size": 894171,
       "entryCount": 157,
-      "generatedAt": "2026-04-13T16:40:38.802Z"
+      "generatedAt": "2026-04-13T16:57:42.742Z"
     },
     "analysis": {
       "profile": "analysis",
       "file": "packs/content-pack-analysis.json",
       "format": "content-pack-json-v1",
-      "sha256": "a01e4cd1980e37db86e6557798a1d8600ee08ea02e7a09f879a9c89a6cb40b6a",
-      "size": 1418552,
+      "sha256": "bb0421c4345aa82d99c4ca66ea2730be1921f8af8996e13cc1759d9f8ed10c22",
+      "size": 1420066,
       "entryCount": 169,
-      "generatedAt": "2026-04-13T16:40:38.898Z"
+      "generatedAt": "2026-04-13T16:57:42.786Z"
     },
     "orchestrator": {
       "profile": "orchestrator",
       "file": "packs/content-pack-orchestrator.json",
       "format": "content-pack-json-v1",
-      "sha256": "68e5f14c06fbd33fcadccd152b70a11afe1240ed8d73ca9edcde3f55957a6aca",
-      "size": 2242930,
+      "sha256": "0e73033a12d611cb9a0fd4be7bf759ddb2b633b0c98047d8e4f301deec992ca2",
+      "size": 2249618,
       "entryCount": 188,
-      "generatedAt": "2026-04-13T16:40:39.000Z"
+      "generatedAt": "2026-04-13T16:57:42.840Z"
     },
     "full": {
       "profile": "full",
       "file": "packs/content-pack-full.json",
       "format": "content-pack-json-v1",
-      "sha256": "974dae8a0e1099043d96b37c08e50dfb93d5590ba6ca7a5c624f26d5cb6a3118",
-      "size": 2258864,
+      "sha256": "e5f5a5ea00575d2765af3e95be0d0dda62bf31feb537a3cfa57435dd21722607",
+      "size": 2265552,
       "entryCount": 189,
-      "generatedAt": "2026-04-13T16:40:39.110Z"
+      "generatedAt": "2026-04-13T16:57:42.906Z"
     },
     "demo": {
       "profile": "demo",
       "file": "packs/content-pack-demo.json",
       "format": "content-pack-json-v1",
-      "sha256": "2b17516a6da1c49a106e5fa30bc2d82b2deefa4d151b58cd288af4f45a3fb8b2",
+      "sha256": "b16f4bd6e7fe7d26599f4712721944d3beec5086d5ed6e0744e48d50d000a409",
       "size": 1070152,
       "entryCount": 160,
-      "generatedAt": "2026-04-13T16:40:39.213Z"
+      "generatedAt": "2026-04-13T16:57:42.964Z"
     }
   },
   "stats": {

@@ -98,6 +98,8 @@ Task Intake Router - 直执行 vs 编排路径建议器
 输出字段:
   - recommendedResponseMode   direct | planner | task-orchestrator
   - complexityTier            simple | standard | complex
+  - documentationTier         minimal | standard | full
+  - documentationArtifacts    建议留存的文档/报告清单
   - recommendedPath           direct | orchestrated
   - recommendedWorkflowId     micro | sprint | default
   - recommendedSpecMode       inline-open-spec | linked-spec-kit
@@ -153,6 +155,9 @@ function buildInput(parsed: ParsedCli): TaskIntakeRoutingInput {
 function printDecision(decision: TaskIntakeRoutingDecision): void {
   console.log(
     `[task-intake-router] response lane: ${decision.recommendedResponseMode} (complexity=${decision.complexityTier})`,
+  );
+  console.log(
+    `[task-intake-router] documentation: ${decision.documentationTier} -> ${decision.documentationArtifacts.join(', ')}`,
   );
   console.log(
     `[task-intake-router] recommendation: ${decision.recommendedPath} (confidence=${decision.confidence}, kind=${decision.inferredKind})`,

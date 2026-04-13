@@ -30,5 +30,25 @@
 - 第一阶段强制 `1 TaskBook = 1 Plan`，`plan.planId === taskBook.id`
 - `acceptanceCriteria` 表示业务/结果层验收
 - `executionSpec.verification` 表示技术/工程层校验
+- `plan.documentationTier` 表示当前任务的文档留存级别：`minimal | standard | full`
+- `plan.documentationArtifacts` 表示建议留存的文档/报告清单
 - 如需外部 Spec Kit，建议使用版本化路径：
   `.codebuddy/specs/<taskBookId>-v1/00-overview.md`
+
+## 文档留存分级
+
+建议由 routing 自动决定，不要所有任务一律生成整套文档。
+
+| 场景 | 留存级别 | 建议产物 |
+|------|----------|----------|
+| `direct` 小改动 | `minimal` | `requirement-summary`、`change-summary`、`verification-summary` |
+| `planner` / 中等复杂度 | `standard` | `00-requirement.md`、`02-plan.md`、`taskbook`、`acceptance-report` |
+| `task-orchestrator + default` | `full` | `00-requirement.md`、`01-design.md`、`02-plan.md`、`taskbook`、`review-report`、`test-evidence`、`acceptance-report` |
+
+## 推荐路径约定
+
+- `00-requirement.md` → `.codebuddy/specs/<taskBookId>-v1/00-requirement.md`
+- `01-design.md` → `.codebuddy/specs/<taskBookId>-v1/01-design.md`
+- `02-plan.md` → `.codebuddy/specs/<taskBookId>-v1/02-plan.md`
+- `taskbook` → `.codebuddy/taskbooks/active/<taskBookId>.json`
+- `acceptance-report` → `.codebuddy/reports/taskbooks/<taskBookId>.acceptance.json`

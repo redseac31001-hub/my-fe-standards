@@ -435,6 +435,7 @@ export interface WorkflowRoutingDecision {
 export type TaskIntakeExecutionPath = 'direct' | 'orchestrated';
 export type TaskIntakeResponseMode = 'direct' | 'planner' | 'task-orchestrator';
 export type TaskIntakeComplexityTier = 'simple' | 'standard' | 'complex';
+export type TaskDocumentationTier = 'minimal' | 'standard' | 'full';
 export type TaskIntakeContractState = 'explicit' | 'partial' | 'none';
 export type TaskIntakeUncertainty = 'low' | 'medium' | 'high';
 export type TaskSpecMode = 'inline-open-spec' | 'linked-spec-kit';
@@ -479,6 +480,8 @@ export interface TaskIntakeRoutingDecision {
   recommendedResponseMode: TaskIntakeResponseMode;
   recommendedPath: TaskIntakeExecutionPath;
   complexityTier: TaskIntakeComplexityTier;
+  documentationTier: TaskDocumentationTier;
+  documentationArtifacts: string[];
   recommendedWorkflowId: BuiltinWorkflowId;
   recommendedSpecMode: TaskSpecMode;
   confidence: 'high' | 'medium' | 'low';
@@ -624,6 +627,8 @@ export interface TaskBookPlan {
   version: number;
   specMode?: TaskSpecMode;
   recommendedWorkflowId?: BuiltinWorkflowId;
+  documentationTier?: TaskDocumentationTier;
+  documentationArtifacts?: string[];
   summary?: string;
   goals?: string[];
   outOfScope?: string[];

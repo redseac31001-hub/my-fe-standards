@@ -237,6 +237,9 @@ function normalizeTaskBookPlan(taskBookId, plan, revision) {
   if (typeof plan.recommendedWorkflowId === "string" && ALLOWED_WORKFLOW_IDS.has(plan.recommendedWorkflowId)) {
     normalized.recommendedWorkflowId = plan.recommendedWorkflowId;
   }
+  if (typeof plan.documentationTier === "string" && ["minimal", "standard", "full"].includes(plan.documentationTier)) {
+    normalized.documentationTier = plan.documentationTier;
+  }
   if (typeof plan.summary === "string" && plan.summary.trim()) normalized.summary = plan.summary.trim();
   if (typeof plan.specRef === "string" && plan.specRef.trim()) normalized.specRef = plan.specRef.trim();
   if (typeof plan.source === "string" && ["planner", "manual", "task-intake-routing"].includes(plan.source)) {
@@ -252,6 +255,8 @@ function normalizeTaskBookPlan(taskBookId, plan, revision) {
   if (constraints) normalized.constraints = constraints;
   const clarifications = uniqStrings(plan.clarifications);
   if (clarifications) normalized.clarifications = clarifications;
+  const documentationArtifacts = uniqStrings(plan.documentationArtifacts);
+  if (documentationArtifacts) normalized.documentationArtifacts = documentationArtifacts;
   if (Array.isArray(plan.risks)) {
     const risks = plan.risks.map(normalizePlanRisk).filter((risk) => Boolean(risk));
     if (risks.length > 0) normalized.risks = risks;
@@ -1490,6 +1495,8 @@ create options:
   --type <new-feature|refactoring|debugging|testing|code-review>  TaskBook \u7C7B\u578B\uFF08\u5FC5\u586B\uFF09
   --workflow-hint <micro|sprint|default>   \uFF08\u53EF\u9009\uFF09\u8DEF\u7531\u5148\u51B3\u7B56\u7684 workflow \u7EA6\u675F
   --spec-mode <inline-open-spec|linked-spec-kit>  \uFF08\u53EF\u9009\uFF09\u8DEF\u7531\u5148\u51B3\u7B56\u7684 spec \u7C92\u5EA6
+  --doc-tier <minimal|standard|full>       \uFF08\u53EF\u9009\uFF09\u6587\u6863\u7559\u5B58\u7EA7\u522B
+  --doc-artifact <name>                    \uFF08\u53EF\u91CD\u590D\uFF09\u5EFA\u8BAE\u7559\u5B58\u7684\u6587\u6863/\u62A5\u544A\u540D\u79F0
   --plan-summary <text>        \uFF08\u53EF\u9009\uFF09\u9876\u5C42\u8BA1\u5212\u6458\u8981
   --goal <text>                \uFF08\u53EF\u91CD\u590D\uFF09\u76EE\u6807
   --assumption <text>          \uFF08\u53EF\u91CD\u590D\uFF09\u524D\u63D0\u5047\u8BBE
@@ -1642,6 +1649,8 @@ function buildTaskBookPlanFromFlags(flags) {
   const specModeRaw = flagAsString(flags, "spec-mode");
   const recommendedWorkflowIdRaw = flagAsString(flags, "workflow-hint");
   const planSummary = flagAsString(flags, "plan-summary");
+  const documentationTierRaw = flagAsString(flags, "doc-tier");
+  const documentationArtifacts = flagAsStringArray(flags, "doc-artifact");
   const goals = flagAsStringArray(flags, "goal");
   const outOfScope = flagAsStringArray(flags, "out-of-scope");
   const assumptions = flagAsStringArray(flags, "assumption");
@@ -1650,6 +1659,7 @@ function buildTaskBookPlanFromFlags(flags) {
   const specRef = flagAsString(flags, "plan-spec-ref");
   const plan = {
     summary: planSummary,
+    documentationArtifacts,
     goals,
     outOfScope,
     assumptions,
@@ -1662,6 +1672,9 @@ function buildTaskBookPlanFromFlags(flags) {
   }
   if (recommendedWorkflowIdRaw && ALLOWED_WORKFLOW_IDS.has(recommendedWorkflowIdRaw)) {
     plan.recommendedWorkflowId = recommendedWorkflowIdRaw;
+  }
+  if (documentationTierRaw && ["minimal", "standard", "full"].includes(documentationTierRaw)) {
+    plan.documentationTier = documentationTierRaw;
   }
   if (typeof flagAsString(flags, "risk") !== "undefined" || Array.isArray(flags.risk)) {
     const risks = flagAsStringArray(flags, "risk").map((entry) => {
@@ -1735,6 +1748,8 @@ function buildPlannerPrompt(args) {
     taskBookRevision: typeof args.taskBook.revision === "number" ? args.taskBook.revision : 0,
     recommendedWorkflowId: args.taskBook.plan?.recommendedWorkflowId,
     recommendedSpecMode: args.taskBook.plan?.specMode,
+    documentationTier: args.taskBook.plan?.documentationTier,
+    documentationArtifacts: args.taskBook.plan?.documentationArtifacts,
     promptPath: args.promptPath,
     resultPath: args.resultPath
   };
@@ -1828,6 +1843,7 @@ function buildPlannerPrompt(args) {
     "- acceptanceCriteria \u5FC5\u586B\uFF0C\u8868\u793A\u4E1A\u52A1/\u7ED3\u679C\u5C42\u9A8C\u6536\u6807\u51C6\u3002",
     "- executionSpec.verification \u8868\u793A\u6280\u672F/\u5DE5\u7A0B\u5C42\u6821\u9A8C\u52A8\u4F5C\uFF1B\u4E0D\u8981\u4E0E acceptanceCriteria \u6DF7\u6DC6\u3002",
     `- \u5982 prompt header \u5DF2\u7ED9\u51FA recommendedWorkflowId/specMode\uFF0C\u5FC5\u987B\u4E25\u683C\u9075\u5B88\uFF1Aworkflow=${args.taskBook.plan?.recommendedWorkflowId ?? "\u672A\u6307\u5B9A"}\uFF0CspecMode=${args.taskBook.plan?.specMode ?? "\u672A\u6307\u5B9A"}\u3002`,
+    `- \u5F53\u524D\u6587\u6863\u7559\u5B58\u7EA7\u522B\uFF1A${args.taskBook.plan?.documentationTier ?? "\u672A\u6307\u5B9A"}\uFF1B\u5EFA\u8BAE\u6587\u6863\uFF1A${(args.taskBook.plan?.documentationArtifacts ?? []).join(", ") || "\u672A\u6307\u5B9A"}\u3002`,
     "- scope \u53EF\u9009\uFF1Afiles/modules/tags\uFF08\u6570\u7EC4\uFF09\u3002",
     "- executionSpec \u63A8\u8350\u5305\u542B agentHint\u3001deliverables\u3001verification\u3001constraints\u3001specRef\u3002",
     "- \u5982\u9700\u5F15\u7528\u5916\u90E8 Spec Kit\uFF0CspecRef \u8BF7\u4F7F\u7528\u7248\u672C\u5316\u8DEF\u5F84\uFF08\u4F8B\u5982 .codebuddy/specs/<taskBookId>-v1/00-overview.md\uFF09\u3002",

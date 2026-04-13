@@ -83,7 +83,17 @@ node .codebuddy/scripts/task-orchestrator.js --title "修复登录 401" --descri
 
 `task-intake-routing -> TaskBook.plan -> planner -> validator -> executor`
 
-当你不显式指定 `--workflow` 时，`task-orchestrator` 会自动选择 `micro / sprint / default`。
+当你不显式指定 `--workflow` 时，系统会自动按复杂度分流：
+
+- `direct`：直接执行，小范围明确改动
+- `planner`：只做规划，停止在方案 / 任务分解
+- `task-orchestrator`：进入闭环执行
+
+同时会自动给出文档留存级别：
+
+- `minimal`：只保留需求摘要 / 变更摘要 / 验证摘要
+- `standard`：保留 `requirement + plan + taskbook + acceptance`
+- `full`：保留 `requirement + design + plan + taskbook + review/test/acceptance`
 
 如果你只关心为什么选到某个 workflow：
 
@@ -98,6 +108,13 @@ node .codebuddy/scripts/task-intake-router.js --description "replace mock login 
 ```
 
 它只负责给出 `direct` vs `orchestrated` 建议，不会替你启动 orchestrator。
+
+它也会输出：
+
+- `recommendedResponseMode`
+- `complexityTier`
+- `documentationTier`
+- `documentationArtifacts`
 
 相关文档：
 

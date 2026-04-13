@@ -82,6 +82,11 @@
       "enum": ["inline-open-spec", "linked-spec-kit"],
       "description": "Spec 粒度由 routing/编排先决定，再作为 Planner 的输入约束。第一阶段不支持执行中动态升级。"
     },
+    "taskDocumentationTier": {
+      "type": "string",
+      "enum": ["minimal", "standard", "full"],
+      "description": "按复杂度自动决定的文档留存级别。"
+    },
     "changeType": {
       "type": "string",
       "enum": ["added", "modified", "removed", "reordered"]
@@ -157,6 +162,12 @@
         "recommendedWorkflowId": {
           "type": "string",
           "enum": ["micro", "sprint", "default"]
+        },
+        "documentationTier": { "$ref": "#/$defs/taskDocumentationTier" },
+        "documentationArtifacts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "建议留存的文档/报告名称，例如 00-requirement.md、01-design.md、02-plan.md、taskbook、acceptance-report。"
         },
         "summary": { "type": "string" },
         "goals": {

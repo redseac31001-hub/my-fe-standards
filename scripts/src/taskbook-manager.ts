@@ -148,6 +148,9 @@ function normalizeTaskBookPlan(taskBookId: string, plan: Partial<TaskBookPlan> |
   if (typeof plan.recommendedWorkflowId === 'string' && ALLOWED_WORKFLOW_IDS.has(plan.recommendedWorkflowId)) {
     normalized.recommendedWorkflowId = plan.recommendedWorkflowId;
   }
+  if (typeof plan.documentationTier === 'string' && ['minimal', 'standard', 'full'].includes(plan.documentationTier)) {
+    normalized.documentationTier = plan.documentationTier as TaskBookPlan['documentationTier'];
+  }
   if (typeof plan.summary === 'string' && plan.summary.trim()) normalized.summary = plan.summary.trim();
   if (typeof plan.specRef === 'string' && plan.specRef.trim()) normalized.specRef = plan.specRef.trim();
   if (typeof plan.source === 'string' && ['planner', 'manual', 'task-intake-routing'].includes(plan.source)) {
@@ -164,6 +167,8 @@ function normalizeTaskBookPlan(taskBookId: string, plan: Partial<TaskBookPlan> |
   if (constraints) normalized.constraints = constraints;
   const clarifications = uniqStrings(plan.clarifications);
   if (clarifications) normalized.clarifications = clarifications;
+  const documentationArtifacts = uniqStrings(plan.documentationArtifacts);
+  if (documentationArtifacts) normalized.documentationArtifacts = documentationArtifacts;
 
   if (Array.isArray(plan.risks)) {
     const risks = plan.risks.map(normalizePlanRisk).filter((risk): risk is TaskBookPlanRisk => Boolean(risk));
@@ -1722,6 +1727,8 @@ create options:
   --type <new-feature|refactoring|debugging|testing|code-review>  TaskBook 类型（必填）
   --workflow-hint <micro|sprint|default>   （可选）路由先决策的 workflow 约束
   --spec-mode <inline-open-spec|linked-spec-kit>  （可选）路由先决策的 spec 粒度
+  --doc-tier <minimal|standard|full>       （可选）文档留存级别
+  --doc-artifact <name>                    （可重复）建议留存的文档/报告名称
   --plan-summary <text>        （可选）顶层计划摘要
   --goal <text>                （可重复）目标
   --assumption <text>          （可重复）前提假设
@@ -1892,6 +1899,8 @@ function buildTaskBookPlanFromFlags(flags: ParsedCli['flags']): Partial<TaskBook
   const specModeRaw = flagAsString(flags, 'spec-mode');
   const recommendedWorkflowIdRaw = flagAsString(flags, 'workflow-hint');
   const planSummary = flagAsString(flags, 'plan-summary');
+  const documentationTierRaw = flagAsString(flags, 'doc-tier');
+  const documentationArtifacts = flagAsStringArray(flags, 'doc-artifact');
   const goals = flagAsStringArray(flags, 'goal');
   const outOfScope = flagAsStringArray(flags, 'out-of-scope');
   const assumptions = flagAsStringArray(flags, 'assumption');
@@ -1901,6 +1910,7 @@ function buildTaskBookPlanFromFlags(flags: ParsedCli['flags']): Partial<TaskBook
 
   const plan: Partial<TaskBookPlan> = {
     summary: planSummary,
+    documentationArtifacts,
     goals,
     outOfScope,
     assumptions,
@@ -1914,6 +1924,9 @@ function buildTaskBookPlanFromFlags(flags: ParsedCli['flags']): Partial<TaskBook
   }
   if (recommendedWorkflowIdRaw && ALLOWED_WORKFLOW_IDS.has(recommendedWorkflowIdRaw as BuiltinWorkflowId)) {
     plan.recommendedWorkflowId = recommendedWorkflowIdRaw as BuiltinWorkflowId;
+  }
+  if (documentationTierRaw && ['minimal', 'standard', 'full'].includes(documentationTierRaw)) {
+    plan.documentationTier = documentationTierRaw as TaskBookPlan['documentationTier'];
   }
 
   if (typeof flagAsString(flags, 'risk') !== 'undefined' || Array.isArray(flags.risk)) {
@@ -2021,6 +2034,8 @@ function buildPlannerPrompt(args: {
     taskBookRevision: typeof args.taskBook.revision === 'number' ? args.taskBook.revision : 0,
     recommendedWorkflowId: args.taskBook.plan?.recommendedWorkflowId,
     recommendedSpecMode: args.taskBook.plan?.specMode,
+    documentationTier: args.taskBook.plan?.documentationTier,
+    documentationArtifacts: args.taskBook.plan?.documentationArtifacts,
     promptPath: args.promptPath,
     resultPath: args.resultPath,
   };
@@ -2118,6 +2133,7 @@ function buildPlannerPrompt(args: {
     '- acceptanceCriteria 必填，表示业务/结果层验收标准。',
     '- executionSpec.verification 表示技术/工程层校验动作；不要与 acceptanceCriteria 混淆。',
     `- 如 prompt header 已给出 recommendedWorkflowId/specMode，必须严格遵守：workflow=${args.taskBook.plan?.recommendedWorkflowId ?? '未指定'}，specMode=${args.taskBook.plan?.specMode ?? '未指定'}。`,
+    `- 当前文档留存级别：${args.taskBook.plan?.documentationTier ?? '未指定'}；建议文档：${(args.taskBook.plan?.documentationArtifacts ?? []).join(', ') || '未指定'}。`,
     '- scope 可选：files/modules/tags（数组）。',
     '- executionSpec 推荐包含 agentHint、deliverables、verification、constraints、specRef。',
     '- 如需引用外部 Spec Kit，specRef 请使用版本化路径（例如 .codebuddy/specs/<taskBookId>-v1/00-overview.md）。',

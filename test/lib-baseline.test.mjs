@@ -542,6 +542,7 @@ async function testPromptBuilderDemoProfileHelpers() {
   assert.match(quickAction, /接入真实接口/);
   assert.match(quickAction, /direct/);
   assert.match(quickAction, /task-orchestrator/);
+  assert.match(quickAction, /minimal/);
 
   const demoQuickAction = generateDemoQuickActionGuide();
   assert.match(demoQuickAction, /两者必须归一化到同一闭环/);
@@ -1807,6 +1808,8 @@ async function testTaskIntakeRoutingLibrary() {
   assert.equal(directDecision.recommendedResponseMode, 'direct');
   assert.equal(directDecision.recommendedPath, 'direct');
   assert.equal(directDecision.complexityTier, 'simple');
+  assert.equal(directDecision.documentationTier, 'minimal');
+  assert.equal(directDecision.documentationArtifacts.includes('change-summary'), true);
   assert.equal(directDecision.recommendedWorkflowId, 'micro');
   assert.equal(directDecision.recommendedSpecMode, 'inline-open-spec');
   assert.equal(directDecision.inferredKind, 'api-adaptation');
@@ -1824,6 +1827,8 @@ async function testTaskIntakeRoutingLibrary() {
   assert.equal(sprintDecision.recommendedResponseMode, 'task-orchestrator');
   assert.equal(sprintDecision.recommendedPath, 'orchestrated');
   assert.equal(sprintDecision.complexityTier, 'standard');
+  assert.equal(sprintDecision.documentationTier, 'standard');
+  assert.equal(sprintDecision.documentationArtifacts.includes('02-plan.md'), true);
   assert.equal(sprintDecision.recommendedWorkflowId, 'sprint');
   assert.equal(sprintDecision.recommendedSpecMode, 'inline-open-spec');
 
@@ -1840,6 +1845,8 @@ async function testTaskIntakeRoutingLibrary() {
   assert.equal(orchestratedDecision.recommendedResponseMode, 'task-orchestrator');
   assert.equal(orchestratedDecision.recommendedPath, 'orchestrated');
   assert.equal(orchestratedDecision.complexityTier, 'complex');
+  assert.equal(orchestratedDecision.documentationTier, 'full');
+  assert.equal(orchestratedDecision.documentationArtifacts.includes('01-design.md'), true);
   assert.equal(orchestratedDecision.recommendedWorkflowId, 'default');
   assert.equal(orchestratedDecision.recommendedSpecMode, 'linked-spec-kit');
   assert.ok(orchestratedDecision.hardEscalationTriggers.some(trigger => trigger.includes('estimatedModuleCount=3')));
@@ -1872,6 +1879,8 @@ async function testTaskIntakeRoutingLibrary() {
   }));
   assert.equal(plannerDecision.recommendedResponseMode, 'planner');
   assert.equal(plannerDecision.complexityTier, 'standard');
+  assert.equal(plannerDecision.documentationTier, 'standard');
+  assert.equal(plannerDecision.documentationArtifacts.includes('00-requirement.md'), true);
   assert.ok(plannerDecision.reasons.some(reason => reason.includes('stop at planning before coding')));
   assert.ok(plannerDecision.suggestedNextSteps.some(step => step.includes('stop at planning output')));
 
@@ -1881,6 +1890,8 @@ async function testTaskIntakeRoutingLibrary() {
   assert.equal(naturalLanguageDecision.recommendedResponseMode, 'task-orchestrator');
   assert.equal(naturalLanguageDecision.recommendedPath, 'orchestrated');
   assert.equal(naturalLanguageDecision.complexityTier, 'complex');
+  assert.equal(naturalLanguageDecision.documentationTier, 'full');
+  assert.equal(naturalLanguageDecision.documentationArtifacts.includes('review-report'), true);
   assert.equal(naturalLanguageDecision.recommendedWorkflowId, 'default');
   assert.equal(naturalLanguageDecision.recommendedSpecMode, 'linked-spec-kit');
   assert.ok(naturalLanguageDecision.hardEscalationTriggers.some(trigger => trigger.includes('state-model behavior')));
@@ -1903,6 +1914,8 @@ async function testTaskBookPlannerContracts() {
       plan: {
         recommendedWorkflowId: 'default',
         specMode: 'linked-spec-kit',
+        documentationTier: 'full',
+        documentationArtifacts: ['00-requirement.md', '01-design.md', '02-plan.md', 'taskbook', 'acceptance-report'],
         summary: 'Planner must inherit routing constraints before generating tasks',
         goals: ['Carry workflow/spec hints into planner prompt'],
         assumptions: ['Existing module boundaries remain stable'],
@@ -1912,6 +1925,8 @@ async function testTaskBookPlannerContracts() {
     assert.equal(created.plan.planId, created.id);
     assert.equal(created.plan.recommendedWorkflowId, 'default');
     assert.equal(created.plan.specMode, 'linked-spec-kit');
+    assert.equal(created.plan.documentationTier, 'full');
+    assert.equal(created.plan.documentationArtifacts.includes('01-design.md'), true);
     const applied = manager.applyPlannerPlan(created.id, 'req-planner-contract', {
       plan: {
         planId: created.id,
@@ -1969,6 +1984,8 @@ async function testTaskBookPlannerContracts() {
     assert.equal(applied.taskBook.plan.planId, created.id);
     assert.equal(applied.taskBook.plan.recommendedWorkflowId, 'default');
     assert.equal(applied.taskBook.plan.specMode, 'linked-spec-kit');
+    assert.equal(applied.taskBook.plan.documentationTier, 'full');
+    assert.equal(applied.taskBook.plan.documentationArtifacts.includes('taskbook'), true);
     assert.equal(applied.taskBook.plan.epics[0].id, 'EPIC-1');
     assert.equal(applied.taskBook.tasks.length, 2);
     assert.equal(applied.taskBook.tasks[1].dependencies[0], applied.taskBook.tasks[0].id);

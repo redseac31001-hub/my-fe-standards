@@ -135,6 +135,41 @@ function resolveSuggestedValidation(responseMode, path, kind) {
         ? resolveDirectValidation(kind)
         : ['Use task-orchestrator / TaskBook-based execution.', 'Run quick gate and the narrowest relevant E2E for the affected workflow.'];
 }
+function resolveDocumentationPlan(responseMode, complexityTier) {
+    if (responseMode === 'direct') {
+        return {
+            documentationTier: 'minimal',
+            documentationArtifacts: [
+                'requirement-summary',
+                'change-summary',
+                'verification-summary',
+            ],
+        };
+    }
+    if (responseMode === 'planner' || complexityTier === 'standard') {
+        return {
+            documentationTier: 'standard',
+            documentationArtifacts: [
+                '00-requirement.md',
+                '02-plan.md',
+                'taskbook',
+                'acceptance-report',
+            ],
+        };
+    }
+    return {
+        documentationTier: 'full',
+        documentationArtifacts: [
+            '00-requirement.md',
+            '01-design.md',
+            '02-plan.md',
+            'taskbook',
+            'review-report',
+            'test-evidence',
+            'acceptance-report',
+        ],
+    };
+}
 function resolveRecommendedWorkflowId(params) {
     if (params.recommendedPath === 'direct') {
         return 'micro';
@@ -323,6 +358,7 @@ function routeTaskIntake(rawInput, options) {
     const recommendedSpecMode = resolveRecommendedSpecMode(recommendedWorkflowId);
     const recommendedResponseMode = resolveResponseMode(routeText, recommendedPath);
     const complexityTier = resolveComplexityTier(recommendedResponseMode, recommendedWorkflowId);
+    const documentationPlan = resolveDocumentationPlan(recommendedResponseMode, complexityTier);
     const normalizedReasons = recommendedResponseMode === 'planner'
         ? uniqStrings([
             'The request should stop at planning before coding.',
@@ -333,6 +369,8 @@ function routeTaskIntake(rawInput, options) {
         recommendedResponseMode,
         recommendedPath,
         complexityTier,
+        documentationTier: documentationPlan.documentationTier,
+        documentationArtifacts: documentationPlan.documentationArtifacts,
         recommendedWorkflowId,
         recommendedSpecMode,
         confidence,

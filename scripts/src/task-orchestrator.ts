@@ -192,9 +192,15 @@ function buildTaskIntakeDecision(params: {
 function buildPlannerHintArgs(taskBook: TaskBookLike | null, routingDecision: TaskIntakeRoutingDecision | null): string[] {
   const workflowId = taskBook?.plan?.recommendedWorkflowId ?? routingDecision?.recommendedWorkflowId;
   const specMode = taskBook?.plan?.specMode ?? routingDecision?.recommendedSpecMode;
+  const documentationTier = taskBook?.plan?.documentationTier ?? routingDecision?.documentationTier;
+  const documentationArtifacts = taskBook?.plan?.documentationArtifacts ?? routingDecision?.documentationArtifacts;
   const args: string[] = [];
   if (workflowId) args.push('--workflow-hint', workflowId);
   if (specMode) args.push('--spec-mode', specMode);
+  if (documentationTier) args.push('--doc-tier', documentationTier);
+  for (const artifact of documentationArtifacts ?? []) {
+    args.push('--doc-artifact', artifact);
+  }
   return args;
 }
 

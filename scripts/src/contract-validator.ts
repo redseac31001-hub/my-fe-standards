@@ -280,6 +280,9 @@ function validateTaskBookPlan(plan: unknown, file: string, taskBookId?: string):
   if (typeof plan.recommendedWorkflowId !== 'undefined' && (!isNonEmptyString(plan.recommendedWorkflowId) || !BUILTIN_WORKFLOW_IDS.has(plan.recommendedWorkflowId))) {
     error(`plan.recommendedWorkflowId must be one of: ${Array.from(BUILTIN_WORKFLOW_IDS).join(', ')}`);
   }
+  if (typeof plan.documentationTier !== 'undefined' && (!isNonEmptyString(plan.documentationTier) || !new Set(['minimal', 'standard', 'full']).has(plan.documentationTier))) {
+    error('plan.documentationTier must be one of: minimal, standard, full');
+  }
   if (typeof plan.summary !== 'undefined' && !isNonEmptyString(plan.summary)) {
     error('plan.summary must be a non-empty string when provided');
   } else if (typeof plan.summary === 'undefined') {
@@ -298,7 +301,7 @@ function validateTaskBookPlan(plan: unknown, file: string, taskBookId?: string):
     error('plan.source must be one of: planner, manual, task-intake-routing');
   }
 
-  for (const key of ['goals', 'outOfScope', 'assumptions', 'constraints', 'clarifications'] as const) {
+  for (const key of ['goals', 'outOfScope', 'assumptions', 'constraints', 'clarifications', 'documentationArtifacts'] as const) {
     const value = plan[key];
     if (typeof value === 'undefined') continue;
     if (!isStringArray(value)) error(`plan.${key} must be an array of strings`);
