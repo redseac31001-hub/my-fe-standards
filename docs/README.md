@@ -1,7 +1,11 @@
 # Docs Index
 
-> Last updated: 2026-03-23
+> Last updated: 2026-05-20
 > Scope: repository documentation layout
+
+## Current Documentation Mode
+
+This repository is in maintenance mode as the real-business-project pilot platform. Documentation updates should clarify pilot operation, handoff, validation, or release governance. Personal/small-scope standards-library work belongs in the separate `my-dev-standards-lite` repository.
 
 ## Structure
 

@@ -1,6 +1,6 @@
 ---
 title: 交接/接力说明（my-fe-standards）
-date: 2026-02-07
+date: 2026-05-20
 ---
 
 # 交接/接力说明（my-fe-standards）
@@ -9,6 +9,8 @@ date: 2026-02-07
 
 ## 1) 当前状态（以 `git status` 为准）
 
+- 2026-05-20 决策：当前分支冻结为维护态，定位为“真实业务项目试点平台”；后续只默认接收 bugfix、验证修复、安装/分发稳定性修补，以及来自真实业务试点的必要改动
+- 2026-05-20 决策：个人/小范围自用规范库另开独立仓库 `my-dev-standards-lite`，第一版只保留轻量规则与少量日常开发 skills，不继承本仓库的平台层
 - 默认协作分支建议：`feature/codebuddy-glm`（或你当下用于开发的 `wip/*` 分支）
 - 2026-02-02 已验证通过：`npm run build` + `node test/run-tests.js`
 - 2026-02-04 已验证通过：`npm run build` + `node test/run-tests.js`（含 `task-orchestrator --watch` + `agent-call-manager serve /orchestrate` E2E + validators）

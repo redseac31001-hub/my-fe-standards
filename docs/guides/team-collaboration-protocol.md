@@ -1,6 +1,6 @@
 # Team Collaboration Protocol
 
-> Last updated: 2026-03-23
+> Last updated: 2026-05-20
 > Scope: repository progress tracking, handoff, review, and verification
 
 ## Goal
@@ -11,6 +11,8 @@ The core rule is simple:
 
 - repository facts must live in repository files
 - chat can explain work, but it must not be the only place that progress exists
+- this branch is the maintenance line for the real-business-project pilot; do not add new platform capabilities without pilot evidence
+- personal/small-scope standards-library work belongs in a separate `my-dev-standards-lite` repository
 
 ## Canonical Sources
 

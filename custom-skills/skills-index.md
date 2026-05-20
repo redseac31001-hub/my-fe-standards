@@ -7,7 +7,7 @@ This file is the current entry point for the repository's custom skills. Use eac
 
 ## Inventory
 
-There are **15** custom skills in this repository.
+There are **16** custom skills in this repository.
 
 | Category | Skill | Purpose | Typical triggers |
 |----------|-------|---------|------------------|
@@ -25,6 +25,7 @@ There are **15** custom skills in this repository.
 | Product | `prd` | Generate a PRD | write PRD, plan feature, create requirements |
 | Product | `system-overview-design` | Generate a system overview design document from the bundled official Word template and project materials | 系统概要设计, 概要设计文档, 生成概要设计, 设计方案 |
 | Product | `ralph-converter` | Convert a PRD to Ralph `prd.json` | convert PRD, Ralph format, prd.json |
+| Meta | `grill-me` | Stress-test plans and design decisions through one-question-at-a-time interrogation | grill me, stress-test plan, challenge my plan, 质询方案 |
 | Meta | `skill-creator` | Create or refactor skills | new skill, update skill, restructure skill |
 
 ## Recommended Routing
@@ -63,6 +64,10 @@ Use this chain for product planning flows:
 2. `structure-review` / `module-mapping`
 3. `system-overview-design`
 4. `ralph-converter`
+
+### Plan stress test
+
+Use `grill-me` when the user wants to challenge a plan, design, architecture decision, or PRD before implementation.
 
 ### Skill maintenance
 

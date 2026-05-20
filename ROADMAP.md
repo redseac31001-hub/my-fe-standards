@@ -1,6 +1,6 @@
 # ROADMAP
 
-> Last updated: 2026-03-23
+> Last updated: 2026-05-20
 > Type: living roadmap
 > Scope: loader, skills, agents, orchestrator, execution layer
 
@@ -64,14 +64,31 @@ The current version has already completed the protocol and structure cleanup sta
 
 Current strategic focus:
 
-- make the loader lighter
-- make install and sync easier to operate
-- preserve local file-based knowledge delivery
-- keep the current single-worker execution path stable
-- turn existing workflow templates into a self-amplifying routing layer
-- turn current observability and collaboration surfaces into a release-ready operating baseline
-- turn the direct-execution rule into an explicit intake-routing capability before any future model routing
-- defer weak-model/strong-model routing until it becomes a real requirement
+- freeze this branch as the real-business-project pilot and maintenance line
+- keep loader, remote install, content packs, validators, agents, workflows, and task execution stable
+- accept only bugfixes, validation fixes, install/distribution reliability fixes, and changes justified by pilot feedback
+- avoid new default platform capabilities unless a real pilot exposes a concrete requirement
+- move the personal/small-scope standards-library direction into a separate `my-dev-standards-lite` repository
+- keep weak-model/strong-model routing deferred until it becomes a real pilot requirement
+
+## Maintenance State
+
+As of 2026-05-20, this branch is frozen for maintenance and business-project pilot use.
+
+Allowed changes:
+
+- bugfixes in installed runtime behavior
+- validator, smoke, and gate stability fixes
+- install, sync, remote fetch, and content-pack reliability fixes
+- documentation updates needed for handoff, pilot operation, or release governance
+- small adjustments proven by real business-project trial feedback
+
+Out of scope by default:
+
+- new Agent, Skill, Workflow, TaskBook, or execution-plane capability
+- new model-routing or multi-worker orchestration features
+- broad prompt-system redesigns without pilot evidence
+- turning this branch into a personal lightweight standards library
 
 ## Global Done Criteria
 
@@ -571,4 +588,4 @@ If an item changes packaging or skill lifecycle behavior, also verify:
 
 ## Short Version
 
-Make the loader lighter and more reliable first. Build automatic execution only after delivery, sync, and operational ergonomics are stable.
+This branch is now the stable pilot platform. Keep it reliable, validate it in real business projects, and move personal lightweight standards work to `my-dev-standards-lite`.

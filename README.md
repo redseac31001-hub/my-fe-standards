@@ -438,7 +438,10 @@ my-fe-standards/
 
 ## 当前状态
 
-- 能力主干已完成，重点转向分发可用性、提示瘦身与真实项目验证
+- 当前分支进入维护态，定位为“真实业务项目试点平台”
+- 后续只默认接收 bugfix、验证修复、安装/分发稳定性修补，以及来自真实业务试点的必要改动
+- 不再默认新增 Agent、Workflow、TaskBook、分发层或执行层能力；新能力必须先证明来自试点反馈
+- 个人/小范围自用规范库另开独立仓库 `my-dev-standards-lite`，不在本仓库继续瘦身分支
 - `task-orchestrator / task-executor / agent-call / TaskBook` 闭环已打通
 - `Model Router` 仍是延后项，当前执行路径保持单 worker 稳定优先
 
